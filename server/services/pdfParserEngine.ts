@@ -922,8 +922,9 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
       let pdfParseFailed = false;
       let formattedTablesText = '';
 
+      let parser: PDFParse | null = null;
       try {
-        const parser = new PDFParse({ data: buffer });
+        parser = new PDFParse({ data: buffer });
         const parsedData = await parser.getText();
         text = parsedData.text || '';
         totalPages = parsedData.total || 1;
@@ -950,11 +951,17 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
         } catch (tableErr) {
           console.log('[Document Parser] Structured table parsing note:', tableErr);
         }
-
-        await parser.destroy();
       } catch (parseError: any) {
         console.log(`[Document Parser] PDF binary text decoding issue: ${parseError?.message || parseError}`);
         pdfParseFailed = true;
+      } finally {
+        if (parser && typeof parser.destroy === 'function') {
+          try {
+            await parser.destroy();
+          } catch (destroyErr: any) {
+            console.log(`[Document Parser] PDF parser cleanup note: ${destroyErr?.message || destroyErr}`);
+          }
+        }
       }
 
       const fullCombinedText = (text + formattedTablesText).trim();

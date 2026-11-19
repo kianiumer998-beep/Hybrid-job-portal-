@@ -366,7 +366,20 @@ export function validateSafeScrapeUrl(urlStr: string): SafeUrlResult {
 /**
  * Asynchronously resolves a URL's hostname via DNS and verifies that all resolved IP addresses are public.
  */
-export async function resolveAndValidateDns(parsedUrl: URL): Promise<{ safe: boolean; error?: string }> {
+export async function resolveAndValidateDns(
+  parsedUrl: URL,
+  signal?: AbortSignal
+): Promise<{ safe: boolean; error?: string }> {
+  const createAbortError = () => {
+    const err: any = new Error('The operation was aborted');
+    err.name = 'AbortError';
+    return err;
+  };
+
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
+
   const hostname = parsedUrl.hostname.toLowerCase();
   const rawHost = hostname.startsWith('[') && hostname.endsWith(']')
     ? hostname.slice(1, -1).trim()
@@ -381,29 +394,78 @@ export async function resolveAndValidateDns(parsedUrl: URL): Promise<{ safe: boo
     return { safe: true };
   }
 
-  try {
-    const addresses = await dnsPromises.lookup(hostname, { all: true });
-    if (!addresses || addresses.length === 0) {
-      return { safe: false, error: `DNS resolution returned no IP addresses for hostname "${hostname}".` };
-    }
-
-    for (const addr of addresses) {
-      const check = isPrivateOrBlockedIp(addr.address);
-      if (check.blocked) {
-        return {
-          safe: false,
-          error: `Hostname "${hostname}" resolved to blocked IP address "${addr.address}" (${check.reason}).`
-        };
+  const performLookup = async (): Promise<{ safe: boolean; error?: string }> => {
+    try {
+      const addresses = await dnsPromises.lookup(hostname, { all: true });
+      if (!addresses || addresses.length === 0) {
+        return { safe: false, error: `DNS resolution returned no IP addresses for hostname "${hostname}".` };
       }
+
+      for (const addr of addresses) {
+        const check = isPrivateOrBlockedIp(addr.address);
+        if (check.blocked) {
+          return {
+            safe: false,
+            error: `Hostname "${hostname}" resolved to blocked IP address "${addr.address}" (${check.reason}).`
+          };
+        }
+      }
+
+      return { safe: true };
+    } catch (err: any) {
+      return {
+        safe: false,
+        error: `DNS resolution failed for hostname "${hostname}": ${err.message || 'Domain not found'}`
+      };
+    }
+  };
+
+  if (!signal) {
+    return performLookup();
+  }
+
+  return new Promise<{ safe: boolean; error?: string }>((resolve, reject) => {
+    let settled = false;
+
+    const cleanup = () => {
+      signal.removeEventListener('abort', onAbort);
+    };
+
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(createAbortError());
+    };
+
+    signal.addEventListener('abort', onAbort, { once: true });
+
+    if (signal.aborted) {
+      onAbort();
+      return;
     }
 
-    return { safe: true };
-  } catch (err: any) {
-    return {
-      safe: false,
-      error: `DNS resolution failed for hostname "${hostname}": ${err.message || 'Domain not found'}`
-    };
-  }
+    // performLookup() handles all lookup rejections internally, so late settlement after abort
+    // cannot raise an unhandled promise rejection and cannot trigger downstream actions.
+    performLookup().then(
+      (result) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (signal.aborted) {
+          reject(createAbortError());
+          return;
+        }
+        resolve(result);
+      },
+      (err) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(err);
+      }
+    );
+  });
 }
 
 async function cancelResponseBody(res: any): Promise<void> {
@@ -438,11 +500,6 @@ export async function safeFetchWithRetry(
     throw new Error(`SSRF Blocked: ${initialCheck.error}`);
   }
 
-  const initialDnsCheck = await resolveAndValidateDns(initialCheck.parsedUrl!);
-  if (!initialDnsCheck.safe) {
-    throw new Error(`SSRF Blocked: ${initialDnsCheck.error}`);
-  }
-
   const MAX_REDIRECT_HOPS = 5;
   const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
@@ -473,6 +530,17 @@ export async function safeFetchWithRetry(
     };
 
     try {
+      // Initial DNS preflight covered by the active attempt's timeoutMs / AbortController budget
+      const initialDnsCheck = await resolveAndValidateDns(initialCheck.parsedUrl!, controller.signal);
+      if (!initialDnsCheck.safe) {
+        throw new Error(`SSRF Blocked: ${initialDnsCheck.error}`);
+      }
+      if (controller.signal.aborted) {
+        const abortErr: any = new Error('The operation was aborted');
+        abortErr.name = 'AbortError';
+        throw abortErr;
+      }
+
       let currentUrl = url;
       let currentMethod = (options.method || 'GET').toUpperCase();
       let currentBody = options.body;
@@ -573,15 +641,19 @@ export async function safeFetchWithRetry(
             throw new Error(`SSRF Blocked: HTTPS-to-HTTP redirect downgrade rejected (${nextUrl})`);
           }
 
-          // Resolve and validate redirect target DNS
-          const redirectDnsCheck = await resolveAndValidateDns(redirectCheck.parsedUrl!);
+          // FIX 3: Cancel intermediate redirect response body before redirect DNS preflight or next hop
+          await cancelResponseBody(res);
+
+          // Resolve and validate redirect target DNS under the active attempt AbortController signal
+          const redirectDnsCheck = await resolveAndValidateDns(redirectCheck.parsedUrl!, controller.signal);
           if (!redirectDnsCheck.safe) {
-            await cancelResponseBody(res);
             throw new Error(`SSRF Blocked on redirect: ${redirectDnsCheck.error}`);
           }
-
-          // FIX 3: Cancel intermediate redirect response body before issuing next request
-          await cancelResponseBody(res);
+          if (controller.signal.aborted) {
+            const abortErr: any = new Error('The operation was aborted');
+            abortErr.name = 'AbortError';
+            throw abortErr;
+          }
 
           // Adjust method/body for standard HTTP redirect specifications:
           // 303: always convert to GET with no body

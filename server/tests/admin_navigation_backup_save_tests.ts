@@ -1,8 +1,10 @@
 import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
+import dns from 'dns';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { PDFParse } from 'pdf-parse';
 
 process.env.MONGODB_URI = '';
 process.env.MONGO_URI = '';
@@ -145,6 +147,7 @@ import {
 import {
   validateSafeScrapeUrl,
   isPrivateOrBlockedIp,
+  resolveAndValidateDns,
   safeFetchWithRetry,
   scraperTlsDispatcher
 } from '../utils/ssrfProtection';
@@ -10271,6 +10274,285 @@ async function runSuite() {
 
     const timeoutFinalStat = recordedStats.filter(s => s.id === 'src-timeout-1').pop();
     assert.strictEqual(timeoutFinalStat?.stats?.healthStatus, 'Timeout', 'Timed-out source must retain Timeout healthStatus');
+  });
+
+  await runTest('STEP-8.6-B3 Case 1 [Unit]: Initial DNS preflight timeout stops waiting, issues zero HTTP fetches, preserves retries and late-completion safety', async () => {
+    const originalLookup = dns.promises.lookup;
+    const originalFetch = globalThis.fetch;
+    const unhandledRejections: any[] = [];
+    const onUnhandled = (reason: any) => unhandledRejections.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+
+    let dnsCalls = 0;
+    let fetchCalls = 0;
+    const deferredSettlements: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
+
+    try {
+      (dns.promises as any).lookup = () => {
+        dnsCalls++;
+        return new Promise((resolve, reject) => {
+          deferredSettlements.push({ resolve, reject });
+        });
+      };
+
+      globalThis.fetch = (async () => {
+        fetchCalls++;
+        return new Response('should never be called', { status: 200 });
+      }) as any;
+
+      const startedAt = Date.now();
+      await assert.rejects(
+        () => safeFetchWithRetry('https://hanging-dns.example.pk/jobs', {}, 35, 1),
+        /Remote portal unavailable: https:\/\/hanging-dns\.example\.pk\/jobs \(Connection timed out after 35ms\)/
+      );
+      const elapsedMs = Date.now() - startedAt;
+
+      assert.strictEqual(dnsCalls, 2, 'Initial DNS preflight timeout must honor existing maxRetries=1 retry count (2 total attempts)');
+      assert.strictEqual(fetchCalls, 0, 'No HTTP fetch must occur when DNS preflight times out');
+      assert.ok(elapsedMs < 3000, `Expected prompt timeout without hanging indefinitely (elapsed=${elapsedMs}ms)`);
+
+      // Trigger late completion (both resolve to private IP and rejection) after timeout expired
+      assert.strictEqual(deferredSettlements.length, 2);
+      deferredSettlements[0].resolve([{ address: '93.184.216.34', family: 4 }]);
+      const lateErr: any = new Error('Late EAI_AGAIN after abort');
+      lateErr.code = 'EAI_AGAIN';
+      deferredSettlements[1].reject(lateErr);
+
+      await new Promise(r => setTimeout(r, 25));
+      assert.strictEqual(fetchCalls, 0, 'Late DNS completion must never trigger an HTTP fetch');
+      assert.strictEqual(unhandledRejections.length, 0, 'Late DNS completion/rejection must never trigger unhandledRejection');
+
+      // Also verify recovery on retry attempt 2 when attempt 1 DNS timed out and attempt 2 resolves quickly
+      dnsCalls = 0;
+      fetchCalls = 0;
+      let attempt1Resolve: ((v: any) => void) | null = null;
+      (dns.promises as any).lookup = () => {
+        dnsCalls++;
+        if (dnsCalls === 1) {
+          return new Promise((resolve) => {
+            attempt1Resolve = resolve;
+          });
+        }
+        return Promise.resolve([{ address: '93.184.216.34', family: 4 }]);
+      };
+      globalThis.fetch = (async () => {
+        fetchCalls++;
+        return new Response('<html>Recovered on attempt 2</html>', { status: 200 });
+      }) as any;
+
+      const recoveredRes = await safeFetchWithRetry('https://flaky-dns.example.pk/jobs', {}, 35, 1);
+      assert.strictEqual(recoveredRes.status, 200);
+      assert.strictEqual(dnsCalls, 2);
+      assert.strictEqual(fetchCalls, 1, 'Only non-timed-out retry attempt should issue HTTP fetch');
+
+      // Resolving the stale attempt-1 lookup later must not trigger extra fetches
+      attempt1Resolve?.([{ address: '127.0.0.1', family: 4 }]);
+      await new Promise(r => setTimeout(r, 20));
+      assert.strictEqual(fetchCalls, 1);
+      assert.strictEqual(unhandledRejections.length, 0);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+      (dns.promises as any).lookup = originalLookup;
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  await runTest('STEP-8.6-B3 Case 2 [Unit]: Redirect DNS timeout prevents redirected request, cancels 302 body, and blocked DNS remains fail-closed', async () => {
+    const originalLookup = dns.promises.lookup;
+    const originalFetch = globalThis.fetch;
+    const requestedUrls: string[] = [];
+    let redirectBodyCancelled = false;
+    let lateRedirectResolve: ((v: any) => void) | null = null;
+    const unhandledRejections: any[] = [];
+    const onUnhandled = (reason: any) => unhandledRejections.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+
+    try {
+      // 1. Redirect target DNS times out while initial hop succeeded
+      (dns.promises as any).lookup = (hostname: string) => {
+        if (hostname === 'start-ok.example.pk') {
+          return Promise.resolve([{ address: '93.184.216.34', family: 4 }]);
+        }
+        return new Promise((resolve) => {
+          lateRedirectResolve = resolve;
+        });
+      };
+
+      globalThis.fetch = (async (input: any) => {
+        const u = String(input);
+        requestedUrls.push(u);
+        return {
+          status: 302,
+          ok: false,
+          headers: new Headers({ location: 'https://slow-redirect-dns.example.pk/target' }),
+          bodyUsed: false,
+          body: {
+            cancel: async () => {
+              redirectBodyCancelled = true;
+            }
+          }
+        } as any;
+      }) as any;
+
+      await assert.rejects(
+        () => safeFetchWithRetry('https://start-ok.example.pk/jobs', {}, 40, 0),
+        /Connection timed out after 40ms/
+      );
+      assert.deepStrictEqual(requestedUrls, ['https://start-ok.example.pk/jobs'], 'Redirected URL must NEVER be fetched when redirect DNS times out');
+      assert.strictEqual(redirectBodyCancelled, true, 'Intermediate 302 body must be cancelled even when redirect DNS times out');
+
+      lateRedirectResolve?.([{ address: '93.184.216.34', family: 4 }]);
+      await new Promise(r => setTimeout(r, 20));
+      assert.strictEqual(requestedUrls.length, 1, 'Late redirect DNS completion must not trigger redirected fetch');
+      assert.strictEqual(unhandledRejections.length, 0);
+
+      // 2. Existing SSRF blocked-address DNS resolution remains fail-closed (no retries, no fetch)
+      requestedUrls.length = 0;
+      let blockedDnsLookups = 0;
+      (dns.promises as any).lookup = () => {
+        blockedDnsLookups++;
+        return Promise.resolve([{ address: '169.254.169.254', family: 4 }]);
+      };
+      await assert.rejects(
+        () => safeFetchWithRetry('https://metadata-alias.example.pk/secret', {}, 500, 1),
+        /SSRF Blocked:.*169\.254\.169\.254/
+      );
+      assert.strictEqual(blockedDnsLookups, 1, 'SSRF Blocked DNS failure must fail closed immediately without retry');
+      assert.strictEqual(requestedUrls.length, 0);
+
+      // 3. Direct resolveAndValidateDns() cleans up AbortSignal listener on normal completion and abort
+      const controller = new AbortController();
+      let activeAbortListeners = 0;
+      const origAdd = controller.signal.addEventListener.bind(controller.signal);
+      const origRem = controller.signal.removeEventListener.bind(controller.signal);
+      controller.signal.addEventListener = (t: string, l: any, o: any) => {
+        if (t === 'abort') activeAbortListeners++;
+        return origAdd(t, l, o);
+      };
+      controller.signal.removeEventListener = (t: string, l: any, o: any) => {
+        if (t === 'abort') activeAbortListeners--;
+        return origRem(t, l, o);
+      };
+
+      (dns.promises as any).lookup = () => Promise.resolve([{ address: '93.184.216.34', family: 4 }]);
+      const okDns = await resolveAndValidateDns(new URL('https://public-ok.example.pk/jobs'), controller.signal);
+      assert.strictEqual(okDns.safe, true);
+      assert.strictEqual(activeAbortListeners, 0, 'Abort listener must be removed after fast DNS success');
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+      (dns.promises as any).lookup = originalLookup;
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  await runTest('STEP-8.6-B3 Case 3 [Unit]: Existing call-site timeout durations (10s HTML/Detail, 15s ATS/PDF/Undici) remain unchanged', () => {
+    const ssrfSource = fs.readFileSync(path.join(process.cwd(), 'server', 'utils', 'ssrfProtection.ts'), 'utf8');
+    const scraperServiceSource = fs.readFileSync(path.join(process.cwd(), 'src', 'services', 'scraperService.ts'), 'utf8');
+    const pdfSource = fs.readFileSync(path.join(process.cwd(), 'server', 'services', 'pdfParserEngine.ts'), 'utf8');
+    const detailSource = fs.readFileSync(path.join(process.cwd(), 'server', 'services', 'detailPageEnricher.ts'), 'utf8');
+    const engineSource = fs.readFileSync(path.join(process.cwd(), 'server', 'services', 'scraperEngine.ts'), 'utf8');
+
+    assert.ok(ssrfSource.includes('headersTimeout: 15000'));
+    assert.ok(ssrfSource.includes('bodyTimeout: 15000'));
+    assert.ok(ssrfSource.includes('timeoutMs: number = 10000'));
+    assert.ok(ssrfSource.includes('maxRetries: number = 1'));
+    assert.ok(/10000\s*,\s*1/.test(scraperServiceSource));
+    assert.ok(/15000/.test(scraperServiceSource));
+    assert.ok(/15000\s*,\s*1/.test(pdfSource));
+    assert.ok(/10000\s*,\s*1/.test(detailSource));
+    assert.ok(!engineSource.includes('30000') && !engineSource.includes('60000'), 'No 30s/60s source deadline should exist in scraperEngine.ts');
+  });
+
+  await runTest('STEP-8.6-B3 Case 4 [Unit]: PDFParse.destroy() runs once on success, runs after getText() throws, never discards extracted text on destroy failure, and preserves OCR fallback', async () => {
+    const originalFetch = globalThis.fetch;
+    const origGetText = PDFParse.prototype.getText;
+    const origGetTable = PDFParse.prototype.getTable;
+    const origDestroy = PDFParse.prototype.destroy;
+    const savedGeminiKey = process.env.GEMINI_API_KEY;
+
+    const fakePdfBytes = Buffer.from('%PDF-1.4\n%Mock binary PDF header\n');
+    const mockPdfFetch = () => {
+      globalThis.fetch = (async () =>
+        new Response(fakePdfBytes, {
+          status: 200,
+          headers: { 'content-type': 'application/pdf' }
+        })) as any;
+    };
+
+    try {
+      delete process.env.GEMINI_API_KEY;
+      mockPdfFetch();
+
+      // 1. destroy() executes exactly once after successful extraction
+      let destroyCount = 0;
+      const sampleVacancyText =
+        'Case No. F4-101/2026\nAssistant Director (BPS-17)\nQualification: Master Degree in Computer Science\nNo. of Vacancies: 3\nClosing Date: 30-11-2026';
+
+      PDFParse.prototype.getText = (async () => ({ text: sampleVacancyText, total: 2 })) as any;
+      PDFParse.prototype.getTable = (async () => ({ pages: [] })) as any;
+      PDFParse.prototype.destroy = (async () => {
+        destroyCount++;
+      }) as any;
+
+      const okResult = await parsePdfFromUrl('https://[2607:f8b0:4005:805::200e]/vacancies.pdf', 'FPSC');
+      assert.strictEqual(okResult.success, true);
+      assert.strictEqual(okResult.diagnosticCode, 'PDF_TEXT_SUCCESS');
+      assert.strictEqual(destroyCount, 1, 'destroy() must execute once after successful PDF extraction');
+      assert.ok(okResult.extractedJobs.length >= 1);
+
+      // 2. destroy() executes once even when getText() throws, AND preserves OCR fallback path
+      destroyCount = 0;
+      PDFParse.prototype.getText = (async () => {
+        throw new Error('Corrupt PDF XRef stream');
+      }) as any;
+      PDFParse.prototype.destroy = (async () => {
+        destroyCount++;
+      }) as any;
+
+      const failedExtractResult = await parsePdfFromUrl('https://[2607:f8b0:4005:805::200e]/corrupt.pdf', 'FPSC');
+      assert.strictEqual(destroyCount, 1, 'destroy() must execute in finally when getText() throws');
+      assert.strictEqual(failedExtractResult.diagnosticCode, 'PDF_SCANNED_OCR_KEY_MISSING', 'Actual PDF extraction failure must preserve existing OCR fallback path');
+
+      // 3. destroy() failure does NOT discard successfully extracted text, does NOT mark pdfParseFailed, and does NOT trigger OCR fallback
+      destroyCount = 0;
+      PDFParse.prototype.getText = (async () => ({ text: sampleVacancyText, total: 1 })) as any;
+      PDFParse.prototype.destroy = (async () => {
+        destroyCount++;
+        throw new Error('Simulated PDF worker cleanup error on destroy()');
+      }) as any;
+
+      const destroyErrResult = await parsePdfFromUrl('https://[2607:f8b0:4005:805::200e]/cleanup-err.pdf', 'FPSC');
+      assert.strictEqual(destroyCount, 1, 'destroy() must still be called once');
+      assert.strictEqual(destroyErrResult.success, true, 'destroy() error must NOT invalidate successful extraction');
+      assert.strictEqual(destroyErrResult.diagnosticCode, 'PDF_TEXT_SUCCESS', 'destroy() error must NOT convert extraction to OCR fallback or failure');
+      assert.strictEqual(destroyErrResult.formatType, 'pdf');
+      assert.ok(destroyErrResult.fullExtractedText?.includes('Assistant Director'));
+      assert.ok(destroyErrResult.extractedJobs.length >= 1);
+
+      // 4. Double failure: both getText() and destroy() throw -> still preserves OCR fallback path without crashing on destroy() error
+      destroyCount = 0;
+      PDFParse.prototype.getText = (async () => {
+        throw new Error('Bad PDF object dictionary');
+      }) as any;
+      PDFParse.prototype.destroy = (async () => {
+        destroyCount++;
+        throw new Error('Cleanup throw after getText failure');
+      }) as any;
+
+      const bothThrowResult = await parsePdfFromUrl('https://[2607:f8b0:4005:805::200e]/both-fail.pdf', 'FPSC');
+      assert.strictEqual(destroyCount, 1);
+      assert.strictEqual(bothThrowResult.diagnosticCode, 'PDF_SCANNED_OCR_KEY_MISSING', 'destroy() throw after parse failure must not mask extraction failure / OCR fallback');
+    } finally {
+      PDFParse.prototype.getText = origGetText;
+      PDFParse.prototype.getTable = origGetTable;
+      PDFParse.prototype.destroy = origDestroy;
+      globalThis.fetch = originalFetch;
+      if (savedGeminiKey !== undefined) {
+        process.env.GEMINI_API_KEY = savedGeminiKey;
+      } else {
+        delete process.env.GEMINI_API_KEY;
+      }
+    }
   });
 
   console.log('------------------------------------------------------------------');

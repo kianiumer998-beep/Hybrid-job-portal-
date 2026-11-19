@@ -105,6 +105,12 @@ import {
   resolveNonCollidingCandidateId
 } from '../services/scraperEngine';
 import {
+  detectJobDuplicate,
+  DuplicateIndex,
+  normalizeExactJobUrl,
+  isGenericApplicationPortalUrl
+} from '../services/duplicateEngine';
+import {
   JobRepository,
   JobApprovalConflictError,
   ScraperPersistenceCollisionError,
@@ -11540,6 +11546,330 @@ async function runSuite() {
     assert.deepStrictEqual(oneClickTimestampIds, ['ppsc-portal-1']);
     assert.ok(oneClickBatch);
     assert.strictEqual((oneClickBatch as ScraperBatchRun).approvedCount, 1);
+  });
+
+  // --- STEP-8.5-B: SAFE EXACT SOURCE IDENTITY MATCHING TESTS ---
+  await runTest('STEP-8.5-B-1 [Same sourceUrl With Harmless Formatting Differences]: Hostname casing, default ports, fragments, trailing slashes, and tracking params are normalized and detected without mutating stored URLs', () => {
+    const rawExistingUrl = 'https://Careers.Example.COM:443/openings/Backend-Engineer/?utm_source=feed&fbclid=abc#details';
+    const rawCandidateUrl = '  http://careers.example.com:80/openings/Backend-Engineer#top  ';
+
+    const existingJob = {
+      id: 'job-src-norm-1',
+      title: 'Backend Software Developer',
+      company: 'Alpha Systems',
+      status: 'Approved',
+      sourceUrl: rawExistingUrl
+    };
+    const candidateJob = {
+      id: 'cand-src-norm-1',
+      title: 'Completely Different Listing Title',
+      company: 'Beta Holdings',
+      sourceUrl: rawCandidateUrl
+    };
+
+    const arrayResult = detectJobDuplicate(candidateJob, [existingJob]);
+    assert.strictEqual(arrayResult.isDuplicate, true);
+    assert.strictEqual(arrayResult.confidence, 100);
+    assert.strictEqual(arrayResult.comparisonDetails.sourceUrlMatch, true);
+    assert.strictEqual(arrayResult.comparisonDetails.applyUrlMatch, false);
+
+    const indexResult = detectJobDuplicate(candidateJob, new DuplicateIndex([existingJob]));
+    assert.strictEqual(indexResult.isDuplicate, true);
+    assert.strictEqual(indexResult.confidence, 100);
+    assert.strictEqual(indexResult.comparisonDetails.sourceUrlMatch, true);
+
+    // Original stored URL values must remain untouched
+    assert.strictEqual(existingJob.sourceUrl, rawExistingUrl);
+    assert.strictEqual(candidateJob.sourceUrl, rawCandidateUrl);
+    assert.strictEqual(
+      normalizeExactJobUrl(rawExistingUrl),
+      normalizeExactJobUrl(rawCandidateUrl)
+    );
+  });
+
+  await runTest('STEP-8.5-B-2 [Apply URL Cross-Field Match & Source-vs-Apply Isolation]: originalApplyUrl matches applicationUrl across records (and lookup retrieves them), while sourceUrl is never compared against apply URLs', async () => {
+    const existingWithOrigApply = {
+      id: 'exist-apply-1',
+      title: 'Cloud Infrastructure Architect',
+      company: 'Indus Cloud',
+      status: 'Approved',
+      sourceUrl: 'https://portal-a.example.pk/listing/901',
+      originalApplyUrl: 'https://apply.induscloud.pk/requisitions/REQ-442/apply?utm_campaign=q4#form'
+    };
+    const candWithAppUrl = {
+      id: 'cand-apply-1',
+      title: 'Platform SRE Lead',
+      company: 'Partner Aggregator',
+      sourceUrl: 'https://aggregator-b.example.pk/post/774',
+      applicationUrl: 'https://APPLY.INDUSCLOUD.PK:443/requisitions/REQ-442/apply/#start'
+    };
+
+    // 1. Array pool detection
+    const arrayRes = detectJobDuplicate(candWithAppUrl, [existingWithOrigApply]);
+    assert.strictEqual(arrayRes.isDuplicate, true);
+    assert.strictEqual(arrayRes.confidence, 100);
+    assert.strictEqual(arrayRes.comparisonDetails.applyUrlMatch, true);
+    assert.strictEqual(arrayRes.comparisonDetails.sourceUrlMatch, false);
+    assert.ok(arrayRes.matchingSignals.includes('Identical Apply Destination URL'));
+
+    // 2. DuplicateIndex detection
+    const idxRes = detectJobDuplicate(candWithAppUrl, new DuplicateIndex([existingWithOrigApply]));
+    assert.strictEqual(idxRes.isDuplicate, true);
+    assert.strictEqual(idxRes.confidence, 100);
+    assert.strictEqual(idxRes.comparisonDetails.applyUrlMatch, true);
+
+    // 3. JobRepository.findDuplicateCandidates queries both normalized & raw apply URLs across originalApplyUrl/applicationUrl
+    const seenExactQueries: any[] = [];
+    const mockColl = () => ({
+      find: (query: any) => {
+        if (query && query.$or) seenExactQueries.push(query);
+        return {
+          sort: () => ({ limit: () => ({ toArray: async () => [] }) }),
+          limit: () => ({
+            toArray: async () => (query && query.$or ? [existingWithOrigApply] : [])
+          }),
+          toArray: async () => []
+        };
+      }
+    });
+    const lookedUp = await JobRepository.findDuplicateCandidates(candWithAppUrl, {
+      isMongoConfiguredFn: () => true,
+      getJobsCollectionFn: async () => mockColl(),
+      getPendingJobsCollectionFn: async () => mockColl()
+    });
+    assert.ok(lookedUp.some(j => j.id === 'exist-apply-1'));
+    assert.ok(
+      seenExactQueries.some(q =>
+        JSON.stringify(q).includes('https://apply.induscloud.pk/requisitions/REQ-442/apply')
+      ),
+      'Candidate lookup should include normalized apply URL variants'
+    );
+
+    // 4. Do NOT compare detail-page sourceUrl against another record's apply URL
+    const detailOnlyExisting = {
+      id: 'detail-only-1',
+      title: 'Principal Botanist',
+      company: 'Botany Institute',
+      status: 'Approved',
+      sourceUrl: 'https://botany.example.pk/vacancies/8821'
+    };
+    const crossFieldCandidate = {
+      id: 'cross-field-cand-1',
+      title: 'Digital Marketing Specialist',
+      company: 'Media House',
+      sourceUrl: 'https://media.example.pk/jobs/501',
+      originalApplyUrl: 'https://botany.example.pk/vacancies/8821'
+    };
+    const crossArrayRes = detectJobDuplicate(crossFieldCandidate, [detailOnlyExisting]);
+    assert.strictEqual(crossArrayRes.isDuplicate, false);
+    assert.strictEqual(crossArrayRes.comparisonDetails.sourceUrlMatch, false);
+    assert.strictEqual(crossArrayRes.comparisonDetails.applyUrlMatch, false);
+
+    const crossIdxRes = detectJobDuplicate(crossFieldCandidate, new DuplicateIndex([detailOnlyExisting]));
+    assert.strictEqual(crossIdxRes.isDuplicate, false);
+  });
+
+  await runTest('STEP-8.5-B-3 [Distinct URLs Do Not False-Match]: Different detail-page sourceUrls and different apply destinations remain unique', () => {
+    const existing = {
+      id: 'distinct-exist-1',
+      title: 'Frontend Engineer',
+      company: 'North Star Labs',
+      status: 'Approved',
+      sourceUrl: 'https://northstar.example.pk/jobs/1001',
+      originalApplyUrl: 'https://apply.northstar.example.pk/jobs/1001/apply',
+      applicationUrl: 'https://apply.northstar.example.pk/jobs/1001/apply'
+    };
+    const candidate = {
+      id: 'distinct-cand-1',
+      title: 'Accountant Officer',
+      company: 'South Valley Corp',
+      sourceUrl: 'https://northstar.example.pk/jobs/1002',
+      originalApplyUrl: 'https://apply.northstar.example.pk/jobs/1002/apply',
+      applicationUrl: 'https://apply.northstar.example.pk/jobs/1002/apply'
+    };
+
+    const arrayRes = detectJobDuplicate(candidate, [existing]);
+    assert.strictEqual(arrayRes.isDuplicate, false);
+    assert.strictEqual(arrayRes.comparisonDetails.sourceUrlMatch, false);
+    assert.strictEqual(arrayRes.comparisonDetails.applyUrlMatch, false);
+
+    const idxRes = detectJobDuplicate(candidate, new DuplicateIndex([existing]));
+    assert.strictEqual(idxRes.isDuplicate, false);
+  });
+
+  await runTest('STEP-8.5-B-4 [Shared Generic Application Portal Protection]: Unrelated jobs sharing a generic /apply or portal root URL are NOT classified as duplicates', () => {
+    const genericApplyUrls = [
+      'https://online.fpsc.gov.pk/',
+      'https://careers.acme.example.pk/apply',
+      'https://portal.ppsc.example.pk/online-apply.aspx',
+      'https://jobs.corp.example.com/careers/apply-now'
+    ];
+
+    for (const portalUrl of genericApplyUrls) {
+      assert.strictEqual(
+        isGenericApplicationPortalUrl(portalUrl),
+        true,
+        `Expected generic portal classification for ${portalUrl}`
+      );
+
+      const jobA = {
+        id: 'gen-a',
+        title: 'Senior Medical Officer (BS-18)',
+        company: 'Provincial Health Dept',
+        status: 'Approved',
+        sourceUrl: 'https://health.example.pk/vacancies/case-101',
+        originalApplyUrl: portalUrl
+      };
+      const jobB = {
+        id: 'gen-b',
+        title: 'Civil Structural Engineer',
+        company: 'Provincial Works Dept',
+        sourceUrl: 'https://works.example.pk/vacancies/case-202',
+        applicationUrl: portalUrl
+      };
+
+      const arrayRes = detectJobDuplicate(jobB, [jobA]);
+      assert.strictEqual(arrayRes.isDuplicate, false, `Generic apply URL ${portalUrl} must NOT trigger duplicate match`);
+      assert.strictEqual(arrayRes.comparisonDetails.applyUrlMatch, false);
+
+      const idxRes = detectJobDuplicate(jobB, new DuplicateIndex([jobA]));
+      assert.strictEqual(idxRes.isDuplicate, false, `DuplicateIndex must NOT match generic apply URL ${portalUrl}`);
+    }
+  });
+
+  await runTest('STEP-8.5-B-5 [Meaningful Query Parameters Preserved]: Distinguishing query parameters remain distinct while non-semantic tracking params are stripped', () => {
+    const jobQuery1 = {
+      id: 'q-1',
+      title: 'Research Associate',
+      company: 'Institute One',
+      status: 'Approved',
+      sourceUrl: 'https://portal.edu.pk/vacancy?jobId=101&utm_source=email',
+      originalApplyUrl: 'https://apply.edu.pk/form?req=REQ-101&gh_src=LinkedIn'
+    };
+    const jobDifferentQuery = {
+      id: 'q-2',
+      title: 'Finance Controller',
+      company: 'Institute Two',
+      sourceUrl: 'https://portal.edu.pk/vacancy?jobId=202&utm_source=email',
+      applicationUrl: 'https://apply.edu.pk/form?req=REQ-202&gh_src=LinkedIn'
+    };
+    const jobSameMeaningfulDifferentTracking = {
+      id: 'q-3',
+      title: 'Another Title',
+      company: 'Aggregator Site',
+      sourceUrl: 'https://aggregator.example.pk/post/999',
+      applicationUrl: 'https://apply.edu.pk/form?req=REQ-101&fbclid=xyz987&gclid=abc123'
+    };
+
+    // Different meaningful query params -> NOT duplicate
+    const diffArray = detectJobDuplicate(jobDifferentQuery, [jobQuery1]);
+    assert.strictEqual(diffArray.isDuplicate, false);
+    const diffIdx = detectJobDuplicate(jobDifferentQuery, new DuplicateIndex([jobQuery1]));
+    assert.strictEqual(diffIdx.isDuplicate, false);
+
+    // Same meaningful query params + different tracking params -> IS duplicate
+    const sameArray = detectJobDuplicate(jobSameMeaningfulDifferentTracking, [jobQuery1]);
+    assert.strictEqual(sameArray.isDuplicate, true);
+    assert.strictEqual(sameArray.confidence, 100);
+    assert.strictEqual(sameArray.comparisonDetails.applyUrlMatch, true);
+
+    const sameIdx = detectJobDuplicate(jobSameMeaningfulDifferentTracking, new DuplicateIndex([jobQuery1]));
+    assert.strictEqual(sameIdx.isDuplicate, true);
+    assert.strictEqual(sameIdx.comparisonDetails.applyUrlMatch, true);
+  });
+
+  await runTest('STEP-8.5-B-6 [Missing, Empty, and Malformed URLs Safe]: Invalid, non-HTTP(S), empty, or malformed URL strings never produce false positives', () => {
+    const invalidValues = [undefined, null, '', '   ', 'N/A', 'not-a-url', 'mailto:hr@acme.pk', 'javascript:void(0)', '#', 'http://'];
+
+    for (const badVal of invalidValues) {
+      assert.strictEqual(normalizeExactJobUrl(badVal), null);
+    }
+
+    const existingMalformed = {
+      id: 'mal-1',
+      title: 'Petroleum Geologist',
+      company: 'Oil & Gas Co',
+      status: 'Approved',
+      sourceUrl: 'N/A',
+      originalApplyUrl: 'mailto:careers@oilgas.pk',
+      applicationUrl: '   '
+    };
+    const candidateMalformed = {
+      id: 'mal-2',
+      title: 'Hospital Pharmacist',
+      company: 'City Medical Center',
+      sourceUrl: 'N/A',
+      originalApplyUrl: 'not-a-valid-url',
+      applicationUrl: 'mailto:careers@oilgas.pk'
+    };
+
+    const arrayRes = detectJobDuplicate(candidateMalformed, [existingMalformed]);
+    assert.strictEqual(arrayRes.isDuplicate, false);
+    assert.strictEqual(arrayRes.comparisonDetails.sourceUrlMatch, false);
+    assert.strictEqual(arrayRes.comparisonDetails.applyUrlMatch, false);
+
+    const idxRes = detectJobDuplicate(candidateMalformed, new DuplicateIndex([existingMalformed]));
+    assert.strictEqual(idxRes.isDuplicate, false);
+  });
+
+  await runTest('STEP-8.5-B-7 [Existing sourceJobId & Similarity Thresholds Preserved]: sourceJobId exact match and >= 65% title/company similarity continue working unchanged', () => {
+    const existingById = {
+      id: 'id-exist-1',
+      title: 'Mechanical Engineer',
+      company: 'Heavy Industries',
+      status: 'Approved',
+      sourceJobId: 'EXT-JOB-5541',
+      sourceUrl: 'https://portal-a.example.pk/1'
+    };
+    const candById = {
+      id: 'id-cand-1',
+      title: 'Completely Renamed Role',
+      company: 'Other Alias',
+      sourceJobId: 'EXT-JOB-5541',
+      sourceUrl: 'https://portal-b.example.pk/2'
+    };
+
+    const resIdArr = detectJobDuplicate(candById, [existingById]);
+    assert.strictEqual(resIdArr.isDuplicate, true);
+    assert.strictEqual(resIdArr.confidence, 100);
+    assert.strictEqual(resIdArr.comparisonDetails.sourceJobIdMatch, true);
+
+    const resIdIdx = detectJobDuplicate(candById, new DuplicateIndex([existingById]));
+    assert.strictEqual(resIdIdx.isDuplicate, true);
+    assert.strictEqual(resIdIdx.comparisonDetails.sourceJobIdMatch, true);
+
+    // Title + Company similarity >= 65% threshold (45 + 30 + 10 = 85%) without matching URLs
+    const existingSim = {
+      id: 'sim-exist-1',
+      title: 'Senior DevOps Engineer',
+      company: 'Indus Digital Solutions',
+      city: 'Lahore',
+      status: 'Approved',
+      sourceUrl: 'https://indus.example.pk/jobs/10'
+    };
+    const candSim = {
+      id: 'sim-cand-1',
+      title: 'Senior DevOps Engineer',
+      company: 'Indus Digital Solutions',
+      city: 'Lahore',
+      sourceUrl: 'https://otherboard.example.pk/listing/888'
+    };
+    const resSimArr = detectJobDuplicate(candSim, [existingSim]);
+    assert.strictEqual(resSimArr.isDuplicate, true);
+    assert.strictEqual(resSimArr.confidence, 85);
+    assert.strictEqual(resSimArr.comparisonDetails.sourceUrlMatch, false);
+    assert.strictEqual(resSimArr.comparisonDetails.applyUrlMatch, false);
+
+    // Below threshold (30% company-only match -> < 65% not duplicate)
+    const candDiffTitle = {
+      id: 'sim-cand-2',
+      title: 'Chief Financial Officer',
+      company: 'Indus Digital Solutions',
+      city: 'Karachi',
+      sourceUrl: 'https://otherboard.example.pk/listing/999'
+    };
+    const resBelow = detectJobDuplicate(candDiffTitle, [existingSim]);
+    assert.strictEqual(resBelow.isDuplicate, false);
   });
 
   console.log('------------------------------------------------------------------');

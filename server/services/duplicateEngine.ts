@@ -22,9 +22,231 @@ export interface DuplicateMatchResult {
     locationMatch: boolean;
     salaryMatch: boolean;
     sourceUrlMatch: boolean;
+    applyUrlMatch?: boolean;
     sourceJobIdMatch?: boolean;
     govtDetailsMatch?: boolean;
   };
+}
+
+const NON_SEMANTIC_TRACKING_PARAMS = new Set([
+  'fbclid',
+  'gclid',
+  'dclid',
+  'gbraid',
+  'wbraid',
+  'msclkid',
+  'yclid',
+  'mc_cid',
+  'mc_eid',
+  '_hsenc',
+  '_hsmi',
+  'igshid',
+  'gh_src',
+  'lever-source',
+  'lever-via',
+  'trk',
+  'trkinfo',
+  '_ga',
+  '_gl'
+]);
+
+const GENERIC_PORTAL_SEGMENTS = new Set([
+  'en',
+  'en-us',
+  'en-gb',
+  'pk',
+  'ur',
+  'apply',
+  'apply-now',
+  'apply_now',
+  'apply-online',
+  'apply_online',
+  'online-apply',
+  'online_apply',
+  'apply-here',
+  'applyhere',
+  'application',
+  'applications',
+  'application-form',
+  'general-application',
+  'general-apply',
+  'submit',
+  'submit-application',
+  'careers',
+  'career',
+  'jobs',
+  'job',
+  'vacancies',
+  'vacancy',
+  'openings',
+  'opportunities',
+  'recruitment',
+  'recruiting',
+  'hiring',
+  'portal',
+  'e-portal',
+  'eportal',
+  'candidate',
+  'candidates',
+  'candidate-portal',
+  'candidate-hub',
+  'candidate-login',
+  'applicant',
+  'applicants',
+  'applicant-portal',
+  'applicant-registration',
+  'online-registration',
+  'registration',
+  'register',
+  'login',
+  'signin',
+  'sign-in',
+  'signup',
+  'sign-up',
+  'home',
+  'index',
+  'default',
+  'main',
+  'welcome',
+  'join',
+  'join-us',
+  'work-with-us',
+  'talent',
+  'talent-community',
+  'jobsearch',
+  'search',
+  'listings',
+  'open-positions',
+  'positions'
+]);
+
+const GENERIC_PORTAL_SEGMENT_REGEX =
+  /^(?:careers?|jobs?|apply|application|applications|portal|e-portal|recruit(?:ment)?|vacanc(?:y|ies)|candidate|applicant|online|general|submit|login|signin|register|registration|form|hub|home|index)(?:[-_](?:now|online|here|form|portal|hub|apply|jobs|careers|login|register|application|registration|candidate|applicant|general|external))*$/i;
+
+const GENERIC_FILE_EXT_REGEX = /\.(?:html?|php|aspx?|jsp|ftl)$/i;
+const TRIVIAL_LOCALE_QUERY_PARAMS = new Set(['lang', 'locale', 'hl']);
+
+/**
+ * Safely canonicalizes an HTTP(S) job or apply URL without mutating any record.
+ * Returns null for missing, empty, non-HTTP(S), or malformed URLs so they never create false matches.
+ */
+export function normalizeExactJobUrl(rawUrl: unknown): string | null {
+  if (typeof rawUrl !== 'string') return null;
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return null;
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (!hostname) return null;
+
+  // Strip default ports (:80 for http:, :443 for https:) via URL semantics, preserve non-default ports
+  const port = parsed.port || '';
+  // Normalize standard http/https schemes when no non-default port distinguishes them
+  const canonicalProtocol = port ? parsed.protocol : 'https:';
+  const hostWithPort = port ? `${hostname}:${port}` : hostname;
+
+  // Strip trailing slashes for non-root paths while preserving case-sensitive path segments
+  let pathname = parsed.pathname || '/';
+  if (pathname.length > 1) {
+    pathname = pathname.replace(/\/+$/, '') || '/';
+  }
+
+  // Remove only clearly non-semantic tracking params; preserve meaningful query params in canonical order
+  const keptParams: Array<[string, string]> = [];
+  parsed.searchParams.forEach((value, key) => {
+    const lowerKey = key.toLowerCase();
+    if (lowerKey.startsWith('utm_') || NON_SEMANTIC_TRACKING_PARAMS.has(lowerKey)) {
+      return;
+    }
+    keptParams.push([key, value]);
+  });
+
+  keptParams.sort((a, b) => {
+    if (a[0] !== b[0]) return a[0] < b[0] ? -1 : 1;
+    if (a[1] !== b[1]) return a[1] < b[1] ? -1 : 1;
+    return 0;
+  });
+
+  const searchParams = new URLSearchParams();
+  for (const [k, v] of keptParams) {
+    searchParams.append(k, v);
+  }
+  const search = searchParams.toString();
+
+  // Hash fragments (#apply, #top, etc.) are always stripped
+  return `${canonicalProtocol}//${hostWithPort}${pathname}${search ? `?${search}` : ''}`;
+}
+
+/**
+ * Returns true if the URL points to a shared generic application portal
+ * (e.g., root domain, /apply, /careers/apply, /online-apply.aspx with no job-specific ID, slug, or query params)
+ * so unrelated vacancies sharing a generic portal URL are not falsely merged as duplicates.
+ */
+export function isGenericApplicationPortalUrl(rawOrNormalizedUrl: unknown): boolean {
+  const normalized = normalizeExactJobUrl(rawOrNormalizedUrl);
+  if (!normalized) return false;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    return false;
+  }
+
+  // Any non-locale/non-tracking semantic query parameter distinguishes specific job destinations
+  let hasSemanticQuery = false;
+  parsed.searchParams.forEach((_val, key) => {
+    if (!TRIVIAL_LOCALE_QUERY_PARAMS.has(key.toLowerCase())) {
+      hasSemanticQuery = true;
+    }
+  });
+  if (hasSemanticQuery) return false;
+
+  const pathname = parsed.pathname || '/';
+  if (pathname === '/') return true;
+
+  const rawSegments = pathname.split('/').filter(Boolean);
+  if (rawSegments.length === 0) return true;
+
+  const cleanedSegments = rawSegments.map((seg, idx) => {
+    const lower = seg.toLowerCase();
+    return idx === rawSegments.length - 1 ? lower.replace(GENERIC_FILE_EXT_REGEX, '') : lower;
+  });
+
+  // If any segment contains digits (job ID, requisition ID, case no, UUID) it identifies a specific posting/form
+  if (cleanedSegments.some(seg => /\d/.test(seg))) {
+    return false;
+  }
+
+  return cleanedSegments.every(
+    seg => GENERIC_PORTAL_SEGMENTS.has(seg) || GENERIC_PORTAL_SEGMENT_REGEX.test(seg)
+  );
+}
+
+/**
+ * Extracts normalized, non-generic apply destination URLs from a job's originalApplyUrl and applicationUrl.
+ * Never reads sourceUrl and never mutates the job object.
+ */
+export function getNormalizedApplyUrls(job: any): string[] {
+  if (!job || typeof job !== 'object') return [];
+  const results: string[] = [];
+  for (const raw of [job.originalApplyUrl, job.applicationUrl]) {
+    const norm = normalizeExactJobUrl(raw);
+    if (norm && !isGenericApplicationPortalUrl(norm) && !results.includes(norm)) {
+      results.push(norm);
+    }
+  }
+  return results;
 }
 
 // Tokenize & normalize string for comparison
@@ -126,6 +348,7 @@ export class DuplicateIndex {
   private batchJobs: any[] = [];
   private bySourceJobId = new Map<string, { job: any; isBatch: boolean }>();
   private bySourceUrl = new Map<string, { job: any; isBatch: boolean }>();
+  private byApplyUrl = new Map<string, { job: any; isBatch: boolean }>();
   private tokenIndex = new Map<string, Array<{ job: any; isBatch: boolean }>>();
   private companyIndex = new Map<string, Array<{ job: any; isBatch: boolean }>>();
 
@@ -147,10 +370,14 @@ export class DuplicateIndex {
           this.bySourceJobId.set(key, entry);
         }
       }
-      if (job.sourceUrl) {
-        const key = String(job.sourceUrl).trim().toLowerCase();
-        if (!this.bySourceUrl.has(key)) {
-          this.bySourceUrl.set(key, entry);
+      const normSourceUrl = normalizeExactJobUrl(job.sourceUrl);
+      if (normSourceUrl && !this.bySourceUrl.has(normSourceUrl)) {
+        this.bySourceUrl.set(normSourceUrl, entry);
+      }
+      const applyUrls = getNormalizedApplyUrls(job);
+      for (const applyKey of applyUrls) {
+        if (!this.byApplyUrl.has(applyKey)) {
+          this.byApplyUrl.set(applyKey, entry);
         }
       }
 
@@ -204,9 +431,14 @@ export class DuplicateIndex {
       const match = this.bySourceJobId.get(key);
       if (match) addEntry(match);
     }
-    if (candidateJob.sourceUrl) {
-      const key = String(candidateJob.sourceUrl).trim().toLowerCase();
-      const match = this.bySourceUrl.get(key);
+    const normSourceUrl = normalizeExactJobUrl(candidateJob.sourceUrl);
+    if (normSourceUrl) {
+      const match = this.bySourceUrl.get(normSourceUrl);
+      if (match) addEntry(match);
+    }
+    const applyUrls = getNormalizedApplyUrls(candidateJob);
+    for (const applyKey of applyUrls) {
+      const match = this.byApplyUrl.get(applyKey);
       if (match) addEntry(match);
     }
 
@@ -242,19 +474,28 @@ export class DuplicateIndex {
     return candidates;
   }
 
-  getExactMatch(candidateJob: any): { job: any; isBatch: boolean; matchType: 'sourceJobId' | 'sourceUrl' } | null {
+  getExactMatch(candidateJob: any): { job: any; isBatch: boolean; matchType: 'sourceJobId' | 'sourceUrl' | 'applyUrl' } | null {
+    const isSelf = (other: any) => !!(candidateJob?.id && other?.id && other.id === candidateJob.id);
+
     if (candidateJob.sourceJobId) {
       const key = String(candidateJob.sourceJobId).trim().toLowerCase();
       const match = this.bySourceJobId.get(key);
-      if (match && match.job && match.job.id !== candidateJob.id) {
+      if (match && match.job && !isSelf(match.job)) {
         return { ...match, matchType: 'sourceJobId' };
       }
     }
-    if (candidateJob.sourceUrl) {
-      const key = String(candidateJob.sourceUrl).trim().toLowerCase();
-      const match = this.bySourceUrl.get(key);
-      if (match && match.job && match.job.id !== candidateJob.id) {
+    const normSourceUrl = normalizeExactJobUrl(candidateJob.sourceUrl);
+    if (normSourceUrl) {
+      const match = this.bySourceUrl.get(normSourceUrl);
+      if (match && match.job && !isSelf(match.job)) {
         return { ...match, matchType: 'sourceUrl' };
+      }
+    }
+    const applyUrls = getNormalizedApplyUrls(candidateJob);
+    for (const applyKey of applyUrls) {
+      const match = this.byApplyUrl.get(applyKey);
+      if (match && match.job && !isSelf(match.job)) {
+        return { ...match, matchType: 'applyUrl' };
       }
     }
     return null;
@@ -275,6 +516,7 @@ function buildDuplicateMatchResult(
   isBatch: boolean,
   sameSourceJobId: boolean,
   sameUrl: boolean,
+  sameApplyUrl: boolean,
   titleSim: number,
   companySim: number,
   sameCity: boolean,
@@ -343,6 +585,8 @@ function buildDuplicateMatchResult(
       ? `Identical source ID (${candidateJob.sourceJobId}) matches: "${existing.title}" at ${existing.company}`
       : sameUrl
       ? `Canonical source URL matches existing vacancy: "${existing.title}"`
+      : sameApplyUrl
+      ? `Canonical apply URL matches existing vacancy: "${existing.title}"`
       : `High similarity (${confidence}%) to existing "${existing.title}" at "${existing.company}" (${tags.join(' + ')})`,
     source: existing.scraperSourceName || existing.scrapedSourceDomain || existing.sourceUrl,
     comparisonDetails: {
@@ -351,6 +595,7 @@ function buildDuplicateMatchResult(
       locationMatch: sameCity,
       salaryMatch: candidateJob.salary === existing.salary,
       sourceUrlMatch: sameUrl,
+      applyUrlMatch: sameApplyUrl,
       sourceJobIdMatch: sameSourceJobId,
       govtDetailsMatch: sameGovtScale
     }
@@ -376,11 +621,16 @@ export function detectJobDuplicate(
       companySimilarity: 0,
       locationMatch: false,
       salaryMatch: false,
-      sourceUrlMatch: false
+      sourceUrlMatch: false,
+      applyUrlMatch: false
     }
   };
 
-  // Fast path 1 & 2: If using DuplicateIndex, test O(1) exact map lookup first
+  if (!candidateJob || typeof candidateJob !== 'object') {
+    return highestMatch;
+  }
+
+  // Fast path 1, 2 & 3: If using DuplicateIndex, test O(1) exact map lookup first
   if (poolOfExistingJobs instanceof DuplicateIndex) {
     const exact = poolOfExistingJobs.getExactMatch(candidateJob);
     if (exact) {
@@ -390,6 +640,7 @@ export function detectJobDuplicate(
           exact.job,
           exact.isBatch,
           true,
+          false,
           false,
           1.0,
           1.0,
@@ -405,6 +656,7 @@ export function detectJobDuplicate(
           exact.isBatch,
           false,
           true,
+          false,
           1.0,
           1.0,
           true,
@@ -412,16 +664,34 @@ export function detectJobDuplicate(
           100,
           ['Identical Source Canonical URL']
         );
+      } else if (exact.matchType === 'applyUrl') {
+        return buildDuplicateMatchResult(
+          candidateJob,
+          exact.job,
+          exact.isBatch,
+          false,
+          false,
+          true,
+          1.0,
+          1.0,
+          true,
+          true,
+          100,
+          ['Identical Apply Destination URL']
+        );
       }
     }
   }
 
   const candTitleTokens = getOrComputeTokens(candidateJob, 'title');
   const candCompanyTokens = getOrComputeTokens(candidateJob, 'company');
+  const candSourceUrl = normalizeExactJobUrl(candidateJob.sourceUrl);
+  const candApplyUrls = getNormalizedApplyUrls(candidateJob);
 
-  // Helper to evaluate a candidate against an existing record without object cloning
+  // Helper to evaluate a candidate against an existing record without object cloning or mutating source fields
   const evaluateJob = (existing: any, isBatch: boolean): boolean => {
-    if (existing.id === candidateJob.id) return false;
+    if (!existing || typeof existing !== 'object') return false;
+    if (candidateJob.id && existing.id && existing.id === candidateJob.id) return false;
 
     let score = 0;
     const signals: string[] = [];
@@ -431,11 +701,17 @@ export function detectJobDuplicate(
       existing.sourceJobId &&
       String(candidateJob.sourceJobId) === String(existing.sourceJobId)
     );
-    const sameUrl = !!(
-      candidateJob.sourceUrl &&
-      existing.sourceUrl &&
-      candidateJob.sourceUrl.toLowerCase() === existing.sourceUrl.toLowerCase()
-    );
+    const existSourceUrl = normalizeExactJobUrl(existing.sourceUrl);
+    const sameUrl = !!(candSourceUrl && existSourceUrl && candSourceUrl === existSourceUrl);
+
+    // Compare apply destination identity strictly across originalApplyUrl <-> applicationUrl (never sourceUrl <-> applyUrl)
+    let sameApplyUrl = false;
+    if (candApplyUrls.length > 0) {
+      const existApplyUrls = getNormalizedApplyUrls(existing);
+      if (existApplyUrls.length > 0) {
+        sameApplyUrl = candApplyUrls.some(u => existApplyUrls.includes(u));
+      }
+    }
 
     const sameCity = !!(
       candidateJob.city &&
@@ -456,7 +732,7 @@ export function detectJobDuplicate(
     let titleSim = 0;
     let companySim = 0;
 
-    // Exact Source Job ID or Source URL match = 100% duplicate
+    // Exact Source Job ID, canonical Source URL, or specific Apply URL match = 100% duplicate
     if (sameSourceJobId) {
       score = 100;
       signals.push('Identical Source Job ID');
@@ -465,6 +741,11 @@ export function detectJobDuplicate(
     } else if (sameUrl) {
       score = 100;
       signals.push('Identical Source Canonical URL');
+      titleSim = 1.0;
+      companySim = 1.0;
+    } else if (sameApplyUrl) {
+      score = 100;
+      signals.push('Identical Apply Destination URL');
       titleSim = 1.0;
       companySim = 1.0;
     } else {
@@ -510,6 +791,7 @@ export function detectJobDuplicate(
         isBatch,
         sameSourceJobId,
         sameUrl,
+        sameApplyUrl,
         titleSim,
         companySim,
         sameCity,

@@ -13,6 +13,10 @@ import { generateJobSlug } from '../../utils/slugify';
 import { JobVisibilityRepository } from './JobVisibilityRepository';
 import { PricingRepository } from './PricingRepository';
 import { DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG } from '../../../src/types/job';
+import {
+  normalizeExactJobUrl,
+  isGenericApplicationPortalUrl
+} from '../../services/duplicateEngine';
 
 export interface JobFilterOptions {
   search?: string;
@@ -1391,34 +1395,47 @@ export class JobRepository {
       exactOrClauses.push({ sourceJobId: rawSourceJobId });
     }
 
-    const urlCandidates: string[] = [];
-    if (candidateJob.sourceUrl) urlCandidates.push(String(candidateJob.sourceUrl).trim());
-    if (candidateJob.originalApplyUrl) urlCandidates.push(String(candidateJob.originalApplyUrl).trim());
-    if (candidateJob.applicationUrl) urlCandidates.push(String(candidateJob.applicationUrl).trim());
+    const addUrlVariants = (targetSet: Set<string>, rawVal: any, skipIfGenericPortal: boolean) => {
+      if (typeof rawVal !== 'string') return;
+      const u = rawVal.trim();
+      if (!u || u.length <= 5) return;
 
-    const distinctUrls = new Set<string>();
-    for (const u of urlCandidates) {
-      if (u && u.length > 5) {
-        distinctUrls.add(u);
-        try {
-          const parsed = new URL(u);
-          if (parsed.search) {
-            distinctUrls.add(`${parsed.origin}${parsed.pathname}`);
-          }
-          const strippedSlash = u.replace(/\/+$/, '');
-          if (strippedSlash) distinctUrls.add(strippedSlash);
-        } catch {
-          // ignore URL parsing errors
+      const normalized = normalizeExactJobUrl(u);
+      if (!normalized) return;
+      if (skipIfGenericPortal && isGenericApplicationPortalUrl(normalized)) return;
+
+      targetSet.add(u);
+      targetSet.add(normalized);
+      const strippedSlash = u.replace(/\/+$/, '');
+      if (strippedSlash) targetSet.add(strippedSlash);
+      try {
+        const parsedNorm = new URL(normalized);
+        if (parsedNorm.pathname.length > 1) {
+          targetSet.add(`${parsedNorm.origin}${parsedNorm.pathname}/` + (parsedNorm.search || ''));
         }
+        if (parsedNorm.protocol === 'https:') {
+          targetSet.add(`http://${parsedNorm.host}${parsedNorm.pathname}${parsedNorm.search || ''}`);
+        }
+      } catch {
+        // ignore URL parsing errors
       }
-    }
+    };
 
-    if (distinctUrls.size > 0) {
-      const urlList = Array.from(distinctUrls);
+    const distinctSourceUrls = new Set<string>();
+    addUrlVariants(distinctSourceUrls, candidateJob.sourceUrl, false);
+
+    const distinctApplyUrls = new Set<string>();
+    addUrlVariants(distinctApplyUrls, candidateJob.originalApplyUrl, true);
+    addUrlVariants(distinctApplyUrls, candidateJob.applicationUrl, true);
+
+    if (distinctSourceUrls.size > 0) {
+      exactOrClauses.push({ sourceUrl: { $in: Array.from(distinctSourceUrls) } });
+    }
+    if (distinctApplyUrls.size > 0) {
+      const applyUrlList = Array.from(distinctApplyUrls);
       exactOrClauses.push(
-        { sourceUrl: { $in: urlList } },
-        { originalApplyUrl: { $in: urlList } },
-        { applicationUrl: { $in: urlList } }
+        { originalApplyUrl: { $in: applyUrlList } },
+        { applicationUrl: { $in: applyUrlList } }
       );
     }
 

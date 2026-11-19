@@ -203,7 +203,8 @@ userRouter.get('/', requireAdminPermission('users.manage'), async (req, res) => 
   try {
     const rawUsers = await UserRepository.getAllAsync();
     const users = rawUsers.map(u => {
-      const { passwordHash, salt, password, ...safe } = u;
+      // CV drafts are private user content; do not bulk-include them in the admin user directory payload.
+      const { passwordHash, salt, password, cvData, ...safe } = u;
       safe.permissions = getPermissionsForRole(u.role);
       return safe;
     });
@@ -529,7 +530,11 @@ userRouter.get('/:id', requireAuth, async (req: any, res) => {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
-    const { passwordHash, salt, password, ...safeUser } = user;
+    const { passwordHash, salt, password, cvData, ...safeUser } = user;
+    // Only return the private CV draft to its owner, never to an administrator viewing another account.
+    if (String(id) === String(currentUserId) && cvData !== undefined) {
+      safeUser.cvData = cvData;
+    }
     res.json({ success: true, user: safeUser });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching user profile' });

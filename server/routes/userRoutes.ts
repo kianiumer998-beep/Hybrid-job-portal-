@@ -694,13 +694,6 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
       }
     }
 
-    if (Object.prototype.hasOwnProperty.call(finalUpdates, 'cvData')) {
-      const cvDataError = validateCvDataPayload(finalUpdates.cvData);
-      if (cvDataError) {
-        return res.status(400).json({ success: false, message: cvDataError });
-      }
-    }
-
     // Defensive safeguard: never allow updating passwordHash, salt, password, role, permissions, walletBalance, or primary ID
     delete finalUpdates.passwordHash;
     delete finalUpdates.salt;

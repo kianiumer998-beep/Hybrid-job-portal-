@@ -12324,6 +12324,142 @@ async function runSuite() {
     assert.strictEqual(liveStore.size, 0, 'No target insertion must occur when registry fails');
   });
 
+  await runTest('STEP-8.5-C.2-1 [Genuine Concurrent Cross-Collection Reservation Race]: Two concurrent persistScrapedAtomic operations targeting opposite collections attempting the same ID ensure unique reservation and safe retry without duplicate cross-collection persistence', async () => {
+    const registryStore = new Map<string, any>();
+    const liveStore = new Map<string, any>();
+    const pendingStore = new Map<string, any>();
+
+    const mockRegistryColl = {
+      insertOne: async (doc: any) => {
+        await new Promise(r => setTimeout(r, Math.random() * 5));
+        if (registryStore.has(doc._id)) {
+          const err: any = new Error('E11000 duplicate key error collection: scraper_job_id_registry index: _id_ dup key');
+          err.code = 11000;
+          throw err;
+        }
+        registryStore.set(doc._id, doc);
+        return { acknowledged: true, insertedId: doc._id };
+      },
+      deleteOne: async (filter: any) => {
+        const id = filter._id;
+        const existed = registryStore.has(id);
+        registryStore.delete(id);
+        return { acknowledged: true, deletedCount: existed ? 1 : 0 };
+      }
+    };
+
+    const mockJobsColl = {
+      insertOne: async (doc: any) => {
+        if (liveStore.has(doc.id)) {
+          const err: any = new Error('Duplicate key on jobs');
+          err.code = 11000;
+          throw err;
+        }
+        liveStore.set(doc.id, doc);
+        return { acknowledged: true, insertedId: doc.id };
+      },
+      findOne: async (q: any) => liveStore.get(q.id) || null
+    };
+
+    const mockPendingColl = {
+      insertOne: async (doc: any) => {
+        if (pendingStore.has(doc.id)) {
+          const err: any = new Error('Duplicate key on pending');
+          err.code = 11000;
+          throw err;
+        }
+        pendingStore.set(doc.id, doc);
+        return { acknowledged: true, insertedId: doc.id };
+      },
+      findOne: async (q: any) => pendingStore.get(q.id) || null
+    };
+
+    const deps = {
+      isMongoConfiguredFn: () => true,
+      getJobsCollectionFn: async () => mockJobsColl,
+      getPendingJobsCollectionFn: async () => mockPendingColl,
+      getIdRegistryCollectionFn: async () => mockRegistryColl,
+      maxRetries: 5
+    };
+
+    const [res1, res2] = await Promise.all([
+      (JobRepository as any).persistScrapedAtomic('live', { id: 'RACE-ID', title: 'Live Race', company: 'Co' }, deps),
+      (JobRepository as any).persistScrapedAtomic('pending', { id: 'RACE-ID', title: 'Pending Race', company: 'Co' }, deps)
+    ]);
+
+    assert.ok(res1);
+    assert.ok(res2);
+    assert.notStrictEqual(res1.id, res2.id, 'Both operations must not end up with the same final ID');
+    assert.strictEqual(liveStore.has('RACE-ID') && pendingStore.has('RACE-ID'), false, 'RACE-ID must not be persisted in both collections');
+  });
+
+  await runTest('STEP-8.5-C.2-2 [Ambiguous Write Failure Retains Registry Reservation]: Write timeout on target insert retains registry claim', async () => {
+    const registryStore = new Map<string, any>();
+    const mockRegistryColl = {
+      insertOne: async (doc: any) => {
+        registryStore.set(doc._id, doc);
+        return { acknowledged: true, insertedId: doc._id };
+      },
+      deleteOne: async (filter: any) => {
+        registryStore.delete(filter._id);
+        return { acknowledged: true, deletedCount: 1 };
+      }
+    };
+    const mockJobsColl = {
+      insertOne: async () => {
+        throw new Error('MongoDB write timeout / network failure after command dispatch');
+      },
+      findOne: async () => null
+    };
+
+    await assert.rejects(
+      () =>
+        (JobRepository as any).persistScrapedAtomic('live', {
+          id: 'AMBIGUOUS-ID',
+          title: 'Ambiguous Write',
+          company: 'Co'
+        }, {
+          isMongoConfiguredFn: () => true,
+          getJobsCollectionFn: async () => mockJobsColl,
+          getPendingJobsCollectionFn: async () => ({ findOne: async () => null }),
+          getIdRegistryCollectionFn: async () => mockRegistryColl,
+          maxRetries: 0
+        }),
+      /MongoDB write timeout/
+    );
+
+    assert.strictEqual(registryStore.has('AMBIGUOUS-ID'), true, 'Ambiguous write failure must retain registry reservation (not delete claim)');
+  });
+
+  await runTest('STEP-8.5-C.2-3 [Incremental Cursor & Safety Threshold Enforcement]: consumeCursor enforces safety threshold during incremental iteration and closes cursor', async () => {
+    let closedCalled = false;
+    const docs = Array.from({ length: 15 }, (_, i) => ({ id: `doc-${i}`, title: `Title ${i}` }));
+    let idx = 0;
+    const mockCursor = {
+      sort: function() { return this; },
+      batchSize: function() { return this; },
+      hasNext: async function() { return idx < docs.length; },
+      next: async function() { return docs[idx++]; },
+      close: async function() { closedCalled = true; }
+    };
+
+    const mockColl = {
+      find: () => mockCursor
+    };
+
+    const candidates = await JobRepository.findDuplicateCandidates(
+      { sourceJobId: 'NON-EXISTENT', title: 'Test', company: 'Co' },
+      {
+        isMongoConfiguredFn: () => true,
+        getJobsCollectionFn: async () => mockColl,
+        getPendingJobsCollectionFn: async () => ({ find: () => ({ hasNext: async () => false, next: async () => null, close: async () => {} }) })
+      }
+    );
+
+    assert.strictEqual(candidates.length, 15);
+    assert.strictEqual(closedCalled, true, 'Cursor must be closed on completion');
+  });
+
   await runTest('STEP-8.5-C.1-10 [Preservation of STEP-8.5-A, B, B.1 Behaviors]: URL normalization, protocol preservation, query ordering and generic portal protection remain intact', () => {
     const norm = normalizeExactJobUrl('https://Careers.Example.COM:443/jobs/1?tag=b&tag=a&utm_source=feed#top');
     assert.strictEqual(norm, 'https://careers.example.com/jobs/1?tag=b&tag=a');

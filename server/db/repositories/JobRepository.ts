@@ -1385,38 +1385,63 @@ export class JobRepository {
         } catch {}
       }
 
-      let docs: any[] = [];
-      if (cursor && typeof cursor.hasNext === 'function' && typeof cursor.next === 'function') {
-        while (await cursor.hasNext()) {
-          const doc = await cursor.next();
-          if (doc) docs.push(doc);
-        }
-      } else if (cursor && typeof cursor.limit === 'function') {
-        const limited = cursor.limit(5000);
-        if (limited && typeof limited.toArray === 'function') {
-          docs = await limited.toArray();
-        } else if (Array.isArray(limited)) {
-          docs = limited;
-        }
-      } else if (cursor && typeof cursor.toArray === 'function') {
-        docs = await cursor.toArray();
-      } else if (Array.isArray(cursor)) {
-        docs = cursor;
-      } else if (cursor && typeof cursor.then === 'function') {
-        const resolved = await cursor;
-        if (Array.isArray(resolved)) docs = resolved;
-        else if (resolved) docs = [resolved];
-      }
+      try {
+        if (cursor && typeof cursor.hasNext === 'function' && typeof cursor.next === 'function') {
+          while (await cursor.hasNext()) {
+            const doc = await cursor.next();
+            if (doc && doc.id && !candidatePoolMap.has(doc.id)) {
+              candidatePoolMap.set(doc.id, normalizeMongoJob(doc));
+              if (candidatePoolMap.size > MAX_CANDIDATE_SAFETY_THRESHOLD) {
+                const safetyErr: any = new Error(`Duplicate candidate candidate pool safety threshold (${MAX_CANDIDATE_SAFETY_THRESHOLD}) exceeded`);
+                safetyErr.name = 'MongoDuplicateSafetyThresholdExceeded';
+                safetyErr.isDatabaseError = true;
+                throw safetyErr;
+              }
+            }
+          }
+        } else {
+          let docs: any[] = [];
+          if (cursor && typeof cursor.limit === 'function') {
+            const limited = cursor.limit(MAX_CANDIDATE_SAFETY_THRESHOLD + 1);
+            if (limited && typeof limited.toArray === 'function') {
+              docs = await limited.toArray();
+            } else if (Array.isArray(limited)) {
+              docs = limited;
+            }
+          } else if (cursor && typeof cursor.toArray === 'function') {
+            docs = await cursor.toArray();
+          } else if (Array.isArray(cursor)) {
+            docs = cursor;
+          } else if (cursor && typeof cursor.then === 'function') {
+            const resolved = await cursor;
+            if (Array.isArray(resolved)) docs = resolved;
+            else if (resolved) docs = [resolved];
+          }
 
-      for (const doc of docs) {
-        if (doc && doc.id && !candidatePoolMap.has(doc.id)) {
-          candidatePoolMap.set(doc.id, normalizeMongoJob(doc));
-          if (candidatePoolMap.size > MAX_CANDIDATE_SAFETY_THRESHOLD) {
+          if (docs.length > MAX_CANDIDATE_SAFETY_THRESHOLD) {
             const safetyErr: any = new Error(`Duplicate candidate candidate pool safety threshold (${MAX_CANDIDATE_SAFETY_THRESHOLD}) exceeded`);
             safetyErr.name = 'MongoDuplicateSafetyThresholdExceeded';
             safetyErr.isDatabaseError = true;
             throw safetyErr;
           }
+
+          for (const doc of docs) {
+            if (doc && doc.id && !candidatePoolMap.has(doc.id)) {
+              candidatePoolMap.set(doc.id, normalizeMongoJob(doc));
+              if (candidatePoolMap.size > MAX_CANDIDATE_SAFETY_THRESHOLD) {
+                const safetyErr: any = new Error(`Duplicate candidate candidate pool safety threshold (${MAX_CANDIDATE_SAFETY_THRESHOLD}) exceeded`);
+                safetyErr.name = 'MongoDuplicateSafetyThresholdExceeded';
+                safetyErr.isDatabaseError = true;
+                throw safetyErr;
+              }
+            }
+          }
+        }
+      } finally {
+        if (cursor && typeof cursor.close === 'function') {
+          try {
+            await cursor.close();
+          } catch {}
         }
       }
     };
@@ -1725,10 +1750,14 @@ export class JobRepository {
         try {
           crossMatch = await otherColl.findOne({ id: currentId });
         } catch (err: any) {
-          try { await registryColl.deleteOne({ _id: currentId }); } catch {}
-          throw err;
+          // Ambiguous read error against opposite collection: retain reservation for safety (do not delete registry claim)
+          const readErr: any = new Error(`Opposite collection check failed for ID "${currentId}": ${err?.message || err}`);
+          readErr.isDatabaseError = true;
+          readErr.cause = err;
+          throw readErr;
         }
         if (crossMatch) {
+          // Confirmed pre-insert collision in opposite collection: safe to release reservation
           try { await registryColl.deleteOne({ _id: currentId }); } catch {}
           lastCollisionErr = new ScraperPersistenceCollisionError(
             `Scraped job ID "${currentId}" already exists in opposite collection.`,
@@ -1746,7 +1775,7 @@ export class JobRepository {
       try {
         const insertRes = await targetColl.insertOne(normalized);
         if (!insertRes || insertRes.acknowledged !== true || !insertRes.insertedId) {
-          try { await registryColl.deleteOne({ _id: currentId }); } catch {}
+          // Unacknowledged write is an ambiguous outcome: retain registry reservation for safety (do not delete)
           const unackedErr: any = new Error(
             `MongoDB atomic insert for ${target} scraped job "${currentId}" could not be confirmed.`
           );
@@ -1755,8 +1784,9 @@ export class JobRepository {
         }
         return normalized;
       } catch (err: any) {
-        try { await registryColl.deleteOne({ _id: currentId }); } catch {}
         if (isMongoDuplicateKeyError(err)) {
+          // Confirmed duplicate key rejection on target insert: target insert did not succeed, safe to release reservation
+          try { await registryColl.deleteOne({ _id: currentId }); } catch {}
           lastCollisionErr = err;
           if (attempt < maxRetries) {
             currentId = generateUniqueScrapedRecordId(jobData?.scraperSourceId, attemptedIds);
@@ -1764,6 +1794,8 @@ export class JobRepository {
           }
           break;
         }
+        // Ambiguous write error / network timeout / connection interruption:
+        // RETAIN registry reservation! Do not delete registry claim. Fail closed.
         throw err;
       }
     }

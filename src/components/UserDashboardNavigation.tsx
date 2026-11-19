@@ -130,9 +130,13 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   const isActive = (item: NavSubItem) => {
     if (item.isLogout) return false;
     
-    // If we have an explicit active nav ID (set via clicking in Pro menu), use it.
-    if (activeNavId) {
-        return activeNavId === item.id;
+    // Honor a stored active ID only when it belongs to this menu version.
+    // This lets users upgrade from older menu IDs without getting a permanently stale highlight.
+    const activeIdExistsInCurrentMenu = !!activeNavId && menuStructure.some((category) =>
+      category.subItems.some((subItem) => subItem.id === activeNavId)
+    );
+    if (activeIdExistsInCurrentMenu) {
+      return activeNavId === item.id;
     }
 
     // Fallback: Check if the current dashboard state matches this item.

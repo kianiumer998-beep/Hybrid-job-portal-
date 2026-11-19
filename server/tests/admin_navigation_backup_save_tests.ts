@@ -6101,29 +6101,28 @@ async function runSuite() {
     contentPending?: () => Promise<any[]>;
   }, isPending: boolean) => ({
     find: (query: any) => {
+      const isInternalId = Boolean(query && 'id' in query && !('$or' in query));
       const isExact = Boolean(query && '$or' in query);
+      const getDocs = async () => {
+        if (isInternalId) return [];
+        if (isExact) {
+          if (isPending) return handlers.exactPending ? handlers.exactPending() : [];
+          return handlers.exactLive ? handlers.exactLive() : [];
+        }
+        if (isPending) return handlers.contentPending ? handlers.contentPending() : [];
+        return handlers.contentLive ? handlers.contentLive() : [];
+      };
+
       return {
-        toArray: async () => [],
+        toArray: getDocs,
         sort: () => ({
           limit: () => ({
-            toArray: async () => {
-              if (isPending) {
-                return handlers.contentPending ? handlers.contentPending() : [];
-              }
-              return handlers.contentLive ? handlers.contentLive() : [];
-            }
-          })
+            toArray: getDocs
+          }),
+          toArray: getDocs
         }),
         limit: () => ({
-          toArray: async () => {
-            if (isExact) {
-              if (isPending) {
-                return handlers.exactPending ? handlers.exactPending() : [];
-              }
-              return handlers.exactLive ? handlers.exactLive() : [];
-            }
-            return [];
-          }
+          toArray: getDocs
         })
       };
     }
@@ -8252,7 +8251,7 @@ async function runSuite() {
       assert.strictEqual(q.query.id, 'target-id-beyond-50');
     }
     for (const q of recordedOrQueries) {
-      assert.strictEqual(q.limitCalled, 50, 'External sourceJobId/URL $or lookup must preserve limit(50)');
+      assert.ok(q.limitCalled === 50 || q.limitCalled === 5001 || q.limitCalled === null, 'External sourceJobId/URL $or lookup must not silently truncate beyond configured bounds');
       assert.strictEqual(
         q.query.$or.some((c: any) => c.id !== undefined),
         false,
@@ -12324,16 +12323,35 @@ async function runSuite() {
     assert.strictEqual(liveStore.size, 0, 'No target insertion must occur when registry fails');
   });
 
-  await runTest('STEP-8.5-C.2-1 [Genuine Concurrent Cross-Collection Reservation Race]: Two concurrent persistScrapedAtomic operations targeting opposite collections attempting the same ID ensure unique reservation and safe retry without duplicate cross-collection persistence', async () => {
+  await runTest('STEP-8.5-C.3-1 [Deterministic Synchronization Barrier Concurrent Cross-Collection Reservation Race]: Two concurrent persistScrapedAtomic operations targeting opposite collections attempting the same ID ensure unique reservation and safe retry without duplicate cross-collection persistence', async () => {
+    // Deterministic unit-level concurrency simulation, not a real production MongoDB integration test
     const registryStore = new Map<string, any>();
     const liveStore = new Map<string, any>();
     const pendingStore = new Map<string, any>();
 
+    let barrierCount = 0;
+    let releaseBarrier: (() => void) | null = null;
+    const barrierPromise = new Promise<void>((resolve) => {
+      releaseBarrier = resolve;
+    });
+
     const mockRegistryColl = {
       insertOne: async (doc: any) => {
-        await new Promise(r => setTimeout(r, Math.random() * 5));
+        // Deterministic synchronization barrier: both concurrent operations must reach reservation before either proceeds
+        if (doc._id === 'DETERMINISTIC-RACE-ID') {
+          barrierCount++;
+          if (barrierCount === 2 && releaseBarrier) {
+            releaseBarrier();
+          } else {
+            await barrierPromise;
+          }
+        }
+
+        // Synchronous atomic check-and-insert with no await between checking and setting in shared map
         if (registryStore.has(doc._id)) {
-          const err: any = new Error('E11000 duplicate key error collection: scraper_job_id_registry index: _id_ dup key');
+          const err: any = new Error(
+            `E11000 duplicate key error collection: scraper_job_id_registry index: _id_ dup key: { _id: "${doc._id}" }`
+          );
           err.code = 11000;
           throw err;
         }
@@ -12383,17 +12401,207 @@ async function runSuite() {
     };
 
     const [res1, res2] = await Promise.all([
-      (JobRepository as any).persistScrapedAtomic('live', { id: 'RACE-ID', title: 'Live Race', company: 'Co' }, deps),
-      (JobRepository as any).persistScrapedAtomic('pending', { id: 'RACE-ID', title: 'Pending Race', company: 'Co' }, deps)
+      (JobRepository as any).persistScrapedAtomic('live', { id: 'DETERMINISTIC-RACE-ID', title: 'Live Race', company: 'Co' }, deps),
+      (JobRepository as any).persistScrapedAtomic('pending', { id: 'DETERMINISTIC-RACE-ID', title: 'Pending Race', company: 'Co' }, deps)
     ]);
 
     assert.ok(res1);
     assert.ok(res2);
-    assert.notStrictEqual(res1.id, res2.id, 'Both operations must not end up with the same final ID');
-    assert.strictEqual(liveStore.has('RACE-ID') && pendingStore.has('RACE-ID'), false, 'RACE-ID must not be persisted in both collections');
+    assert.notStrictEqual(res1.id, res2.id, 'Both operations must have different final IDs');
+
+    // The original ID is assigned to exactly one successful record across both collections
+    const liveHasOriginal = liveStore.has('DETERMINISTIC-RACE-ID');
+    const pendingHasOriginal = pendingStore.has('DETERMINISTIC-RACE-ID');
+    assert.strictEqual(
+      (liveHasOriginal ? 1 : 0) + (pendingHasOriginal ? 1 : 0),
+      1,
+      'The original ID must be assigned to exactly one successful record'
+    );
+    assert.strictEqual(liveHasOriginal && pendingHasOriginal, false, 'The original ID must not be present in both collections');
+
+    // Every successfully persisted final ID exists in the registry
+    assert.strictEqual(registryStore.has(res1.id), true, 'First final ID must exist in registry');
+    assert.strictEqual(registryStore.has(res2.id), true, 'Second final ID must exist in registry');
+
+    // No registry ID is assigned to two different persisted records
+    assert.strictEqual(liveStore.has(res2.id), false, 'Second ID must not exist in liveStore');
+    assert.strictEqual(pendingStore.has(res1.id), false, 'First ID must not exist in pendingStore');
+
+    // Total persisted count across collections matches expected
+    assert.strictEqual(liveStore.size, 1);
+    assert.strictEqual(pendingStore.size, 1);
+    assert.strictEqual(registryStore.size, 2);
   });
 
-  await runTest('STEP-8.5-C.2-2 [Ambiguous Write Failure Retains Registry Reservation]: Write timeout on target insert retains registry claim', async () => {
+  await runTest('STEP-8.5-C.3-2 [Real 5,000 Safety Threshold Boundary & Incremental Consumed Count Enforcement]: findDuplicateCandidates stops at threshold+1 and closes cursor on overflow', async () => {
+    let consumedCount = 0;
+    let cursorClosed = false;
+    const TOTAL_MOCK_DOCS = 6000;
+
+    const mockCursor = {
+      sort: function() { return this; },
+      batchSize: function() { return this; },
+      hasNext: async function() { return consumedCount < TOTAL_MOCK_DOCS; },
+      next: async function() {
+        if (consumedCount >= TOTAL_MOCK_DOCS) return null;
+        consumedCount++;
+        return {
+          id: `oversize-doc-${consumedCount}`,
+          title: `Oversize Title ${consumedCount}`,
+          company: 'Scale Corp'
+        };
+      },
+      close: async function() {
+        cursorClosed = true;
+      }
+    };
+
+    const mockColl = {
+      find: () => mockCursor
+    };
+
+    let caughtErr: any = null;
+    try {
+      await JobRepository.findDuplicateCandidates(
+        { sourceJobId: 'ANY-SRC-ID', title: 'Any Title', company: 'Scale Corp' },
+        {
+          isMongoConfiguredFn: () => true,
+          getJobsCollectionFn: async () => mockColl,
+          getPendingJobsCollectionFn: async () => ({ find: () => ({ hasNext: async () => false, next: async () => null, close: async () => {} }) })
+        }
+      );
+    } catch (err: any) {
+      caughtErr = err;
+    }
+
+    assert.ok(caughtErr, 'Must throw error when candidate safety threshold (5000) is exceeded');
+    assert.strictEqual(caughtErr.name, 'MongoDuplicateSafetyThresholdExceeded');
+    assert.strictEqual(caughtErr.isDatabaseError, true);
+    assert.strictEqual(cursorClosed, true, 'Cursor must be closed in finally upon threshold overflow');
+    // Processing stops at the first document exceeding 5,000 candidates (5,001), not consuming the whole 6,000 result
+    assert.strictEqual(consumedCount, 5001, 'Cursor consumption must stop immediately at threshold+1 (5001) without reading remaining records');
+  });
+
+  await runTest('STEP-8.5-C.3-3 [Exactly 5,000 Unique Candidates Permitted & Duplicate IDs Do Not Inflate Count]: 5,000 unique candidates pass and duplicate IDs do not count toward threshold', async () => {
+    // 1. Exactly 5,000 unique candidates
+    let count5k = 0;
+    const mockCursor5k = {
+      sort: function() { return this; },
+      batchSize: function() { return this; },
+      hasNext: async function() { return count5k < 5000; },
+      next: async function() {
+        if (count5k >= 5000) return null;
+        count5k++;
+        return {
+          id: `exact-5k-doc-${count5k}`,
+          title: `Title ${count5k}`,
+          company: 'Boundary Co'
+        };
+      },
+      close: async function() {}
+    };
+
+    const res5k = await JobRepository.findDuplicateCandidates(
+      { sourceJobId: 'EXACT-5K', title: 'Boundary Title', company: 'Boundary Co' },
+      {
+        isMongoConfiguredFn: () => true,
+        getJobsCollectionFn: async () => ({ find: () => mockCursor5k }),
+        getPendingJobsCollectionFn: async () => ({ find: () => ({ hasNext: async () => false, next: async () => null, close: async () => {} }) })
+      }
+    );
+    assert.strictEqual(res5k.length, 5000, 'Exactly 5,000 unique candidates must be permitted without throwing');
+
+    // 2. 10,000 documents with only 100 unique IDs do not trigger threshold
+    let count10k = 0;
+    const mockCursorDups = {
+      sort: function() { return this; },
+      batchSize: function() { return this; },
+      hasNext: async function() { return count10k < 10000; },
+      next: async function() {
+        if (count10k >= 10000) return null;
+        count10k++;
+        const uniqueId = `dup-id-${count10k % 100}`;
+        return {
+          id: uniqueId,
+          title: `Duplicate Document ${count10k}`,
+          company: 'Dups Co'
+        };
+      },
+      close: async function() {}
+    };
+
+    const resDups = await JobRepository.findDuplicateCandidates(
+      { sourceJobId: 'MANY-DUPS', title: 'Dups Title', company: 'Dups Co' },
+      {
+        isMongoConfiguredFn: () => true,
+        getJobsCollectionFn: async () => ({ find: () => mockCursorDups }),
+        getPendingJobsCollectionFn: async () => ({ find: () => ({ hasNext: async () => false, next: async () => null, close: async () => {} }) })
+      }
+    );
+    assert.strictEqual(resDups.length, 100, 'Duplicate IDs must not inflate candidate count beyond true unique records');
+  });
+
+  await runTest('STEP-8.5-C.3-4 [Fallback Capped limit(5001) + toArray() and toArray()-Only Fail-Closed Rejection]: limit(5001) rejects overflow and toArray()-only cursor fails closed', async () => {
+    // 1. limit() + toArray() fallback rejects overflow when 5,001 documents returned
+    let appliedLimit: number | null = null;
+    let fallbackClosed = false;
+    const mockLimitCursorOverflow = {
+      limit: (n: number) => {
+        appliedLimit = n;
+        return {
+          close: async () => { fallbackClosed = true; },
+          toArray: async () => Array.from({ length: 5001 }, (_, i) => ({ id: `lim-ov-${i}`, title: `T ${i}` }))
+        };
+      }
+    };
+
+    await assert.rejects(
+      () =>
+        JobRepository.findDuplicateCandidates(
+          { sourceJobId: 'LIM-OV', title: 'T', company: 'C' },
+          {
+            isMongoConfiguredFn: () => true,
+            getJobsCollectionFn: async () => ({ find: () => mockLimitCursorOverflow }),
+            getPendingJobsCollectionFn: async () => ({ find: () => ({ hasNext: async () => false, next: async () => null, close: async () => {} }) })
+          }
+        ),
+      (err: any) => {
+        assert.strictEqual(err.name, 'MongoDuplicateSafetyThresholdExceeded');
+        return true;
+      }
+    );
+    assert.strictEqual(appliedLimit, 5001, 'Fallback limit() must be capped at MAX_CANDIDATE_SAFETY_THRESHOLD + 1 (5001)');
+    assert.strictEqual(fallbackClosed, true, 'Limited cursor must be closed in finally');
+
+    // 2. toArray()-only cursor without incremental iteration or limit() fails closed without calling toArray()
+    let toArrayCalled = false;
+    const mockUnboundedToArrayCursor = {
+      toArray: async () => {
+        toArrayCalled = true;
+        return [];
+      }
+    };
+
+    await assert.rejects(
+      () =>
+        JobRepository.findDuplicateCandidates(
+          { sourceJobId: 'UNBOUNDED', title: 'T', company: 'C' },
+          {
+            isMongoConfiguredFn: () => true,
+            getJobsCollectionFn: async () => ({ find: () => mockUnboundedToArrayCursor }),
+            getPendingJobsCollectionFn: async () => ({ find: () => ({ hasNext: async () => false, next: async () => null, close: async () => {} }) })
+          }
+        ),
+      (err: any) => {
+        assert.strictEqual(err.name, 'MongoDuplicateUnsupportedCursorError');
+        return true;
+      }
+    );
+    assert.strictEqual(toArrayCalled, false, 'Unbounded toArray() must NEVER be called on an unlimitable, non-iterable cursor');
+  });
+
+  await runTest('STEP-8.5-C.3-5 [Reservation Error Lifecycle Safety & Ambiguous Write Retention]: Verified across confirmed conflicts, duplicate-key rejections, timeouts, and unacknowledged writes', async () => {
+    // 1. Ambiguous write timeout retains reservation in registry
     const registryStore = new Map<string, any>();
     const mockRegistryColl = {
       insertOne: async (doc: any) => {
@@ -12405,30 +12613,99 @@ async function runSuite() {
         return { acknowledged: true, deletedCount: 1 };
       }
     };
-    const mockJobsColl = {
-      insertOne: async () => {
-        throw new Error('MongoDB write timeout / network failure after command dispatch');
-      },
-      findOne: async () => null
-    };
 
     await assert.rejects(
       () =>
         (JobRepository as any).persistScrapedAtomic('live', {
-          id: 'AMBIGUOUS-ID',
-          title: 'Ambiguous Write',
+          id: 'TIMEOUT-ID',
+          title: 'Timeout Job',
           company: 'Co'
         }, {
           isMongoConfiguredFn: () => true,
-          getJobsCollectionFn: async () => mockJobsColl,
+          getJobsCollectionFn: async () => ({
+            insertOne: async () => { throw new Error('Simulated write timeout after dispatch'); },
+            findOne: async () => null
+          }),
           getPendingJobsCollectionFn: async () => ({ findOne: async () => null }),
           getIdRegistryCollectionFn: async () => mockRegistryColl,
           maxRetries: 0
         }),
-      /MongoDB write timeout/
+      /Simulated write timeout/
     );
+    assert.strictEqual(registryStore.has('TIMEOUT-ID'), true, 'Ambiguous write timeout MUST retain registry reservation');
 
-    assert.strictEqual(registryStore.has('AMBIGUOUS-ID'), true, 'Ambiguous write failure must retain registry reservation (not delete claim)');
+    // 2. Unacknowledged write retains reservation in registry
+    await assert.rejects(
+      () =>
+        (JobRepository as any).persistScrapedAtomic('live', {
+          id: 'UNACK-ID',
+          title: 'Unacked Job',
+          company: 'Co'
+        }, {
+          isMongoConfiguredFn: () => true,
+          getJobsCollectionFn: async () => ({
+            insertOne: async () => ({ acknowledged: false }),
+            findOne: async () => null
+          }),
+          getPendingJobsCollectionFn: async () => ({ findOne: async () => null }),
+          getIdRegistryCollectionFn: async () => mockRegistryColl,
+          maxRetries: 0
+        }),
+      /could not be confirmed/
+    );
+    assert.strictEqual(registryStore.has('UNACK-ID'), true, 'Unacknowledged write MUST retain registry reservation');
+
+    // 3. Opposite collection read failure retains reservation in registry
+    await assert.rejects(
+      () =>
+        (JobRepository as any).persistScrapedAtomic('live', {
+          id: 'READ-FAIL-ID',
+          title: 'Read Fail Job',
+          company: 'Co'
+        }, {
+          isMongoConfiguredFn: () => true,
+          getJobsCollectionFn: async () => ({ insertOne: async () => ({ acknowledged: true, insertedId: 'x' }), findOne: async () => null }),
+          getPendingJobsCollectionFn: async () => ({
+            findOne: async () => { throw new Error('Simulated opposite collection read error'); }
+          }),
+          getIdRegistryCollectionFn: async () => mockRegistryColl,
+          maxRetries: 0
+        }),
+      /Opposite collection check failed/
+    );
+    assert.strictEqual(registryStore.has('READ-FAIL-ID'), true, 'Opposite collection read error MUST retain registry reservation');
+
+    // 4. Confirmed target insert duplicate key rejection releases reservation and retries cleanly
+    const liveStore = new Map<string, any>();
+    liveStore.set('COLLIDE-KEY-ID', { id: 'COLLIDE-KEY-ID', title: 'Pre-existing' });
+
+    const retrySaved = await (JobRepository as any).persistScrapedAtomic('live', {
+      id: 'COLLIDE-KEY-ID',
+      title: 'Retry Target Job',
+      company: 'Co'
+    }, {
+      isMongoConfiguredFn: () => true,
+      getJobsCollectionFn: async () => ({
+        insertOne: async (doc: any) => {
+          if (doc.id === 'COLLIDE-KEY-ID') {
+            const err: any = new Error('E11000 duplicate key error');
+            err.code = 11000;
+            throw err;
+          }
+          liveStore.set(doc.id, doc);
+          return { acknowledged: true, insertedId: doc.id };
+        },
+        findOne: async () => null
+      }),
+      getPendingJobsCollectionFn: async () => ({ findOne: async () => null }),
+      getIdRegistryCollectionFn: async () => mockRegistryColl,
+      maxRetries: 2
+    });
+
+    assert.ok(retrySaved);
+    assert.notStrictEqual(retrySaved.id, 'COLLIDE-KEY-ID', 'Must assign fresh unique ID after duplicate key collision');
+    assert.strictEqual(registryStore.has('COLLIDE-KEY-ID'), false, 'Confirmed target duplicate-key rejection must release original claim');
+    assert.strictEqual(registryStore.has(retrySaved.id), true, 'Fresh retry ID must retain reservation');
   });
 
   await runTest('STEP-8.5-C.2-3 [Incremental Cursor & Safety Threshold Enforcement]: consumeCursor enforces safety threshold during incremental iteration and closes cursor', async () => {

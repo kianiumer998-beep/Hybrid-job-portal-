@@ -179,6 +179,32 @@ export function isMongoDuplicateKeyError(err: any): boolean {
   return /e11000/i.test(msg) || /duplicate key/i.test(msg);
 }
 
+const testRegistryStore = new Map<string, any>();
+
+export function getTestIdRegistryCollection() {
+  return {
+    insertOne: async (doc: any) => {
+      if (testRegistryStore.has(doc._id)) {
+        const err: any = new Error(
+          `E11000 duplicate key error collection: scraper_job_id_registry index: _id_ dup key: { _id: "${doc._id}" }`
+        );
+        err.code = 11000;
+        throw err;
+      }
+      testRegistryStore.set(doc._id, doc);
+      return { acknowledged: true, insertedId: doc._id };
+    },
+    deleteOne: async (filter: any) => {
+      const existed = testRegistryStore.has(filter._id);
+      testRegistryStore.delete(filter._id);
+      return { acknowledged: true, deletedCount: existed ? 1 : 0 };
+    },
+    findOne: async (filter: any) => {
+      return testRegistryStore.get(filter._id) || null;
+    }
+  };
+}
+
 function generateUniqueScrapedRecordId(sourceId?: string, excludeIds?: Set<string>): string {
   const safeSource = (sourceId || 'src').replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 32) || 'src';
   for (let attempt = 0; attempt < 25; attempt++) {
@@ -1367,59 +1393,109 @@ export class JobRepository {
     const BATCH_SIZE = 100;
     const MAX_CANDIDATE_SAFETY_THRESHOLD = 5000;
 
-    const consumeCursor = async (cursorOrPromise: any) => {
-      let cursor = cursorOrPromise;
+    const consumeCursor = async (cursorOrPromise: any, opts?: { isInternalIdQuery?: boolean }) => {
+      let target = cursorOrPromise;
+      if (target && typeof target.then === 'function') {
+        target = await target;
+      }
+
+      if (!target) return;
+
+      // D. Already-materialized array
+      if (Array.isArray(target)) {
+        for (const doc of target) {
+          if (doc && doc.id && !candidatePoolMap.has(doc.id)) {
+            candidatePoolMap.set(doc.id, normalizeMongoJob(doc));
+            if (candidatePoolMap.size > MAX_CANDIDATE_SAFETY_THRESHOLD) {
+              const safetyErr: any = new Error(
+                `Duplicate candidate candidate pool safety threshold (${MAX_CANDIDATE_SAFETY_THRESHOLD}) exceeded`
+              );
+              safetyErr.name = 'MongoDuplicateSafetyThresholdExceeded';
+              safetyErr.isDatabaseError = true;
+              throw safetyErr;
+            }
+          }
+        }
+        return;
+      }
+
+      let cursor = target;
       if (cursor && typeof cursor.sort === 'function') {
         try {
           const sorted = cursor.sort({ createdAt: -1, _id: 1 });
-          if (sorted && (typeof sorted.hasNext === 'function' || typeof sorted.toArray === 'function' || typeof sorted.limit === 'function')) {
+          if (
+            sorted &&
+            (typeof sorted.hasNext === 'function' ||
+              typeof sorted.toArray === 'function' ||
+              typeof sorted.limit === 'function')
+          ) {
             cursor = sorted;
           }
         } catch {
           // keep original cursor if sort throws or returns stub
         }
       }
+
       if (cursor && typeof cursor.batchSize === 'function') {
         try {
           cursor = cursor.batchSize(BATCH_SIZE);
         } catch {}
       }
 
+      let cursorToClose = cursor;
+      let processingErr: any = null;
+
       try {
+        // A. Standard MongoDB cursor with incremental hasNext() and next()
         if (cursor && typeof cursor.hasNext === 'function' && typeof cursor.next === 'function') {
           while (await cursor.hasNext()) {
             const doc = await cursor.next();
             if (doc && doc.id && !candidatePoolMap.has(doc.id)) {
               candidatePoolMap.set(doc.id, normalizeMongoJob(doc));
               if (candidatePoolMap.size > MAX_CANDIDATE_SAFETY_THRESHOLD) {
-                const safetyErr: any = new Error(`Duplicate candidate candidate pool safety threshold (${MAX_CANDIDATE_SAFETY_THRESHOLD}) exceeded`);
+                const safetyErr: any = new Error(
+                  `Duplicate candidate candidate pool safety threshold (${MAX_CANDIDATE_SAFETY_THRESHOLD}) exceeded`
+                );
                 safetyErr.name = 'MongoDuplicateSafetyThresholdExceeded';
                 safetyErr.isDatabaseError = true;
                 throw safetyErr;
               }
             }
           }
-        } else {
-          let docs: any[] = [];
-          if (cursor && typeof cursor.limit === 'function') {
+        }
+        // B. Cursor with limit() and toArray() but without incremental iteration
+        else if (cursor && typeof cursor.limit === 'function') {
+          let docs: any[];
+          if (opts?.isInternalIdQuery) {
+            docs = typeof cursor.toArray === 'function' ? await cursor.toArray() : [];
+          } else {
             const limited = cursor.limit(MAX_CANDIDATE_SAFETY_THRESHOLD + 1);
+            if (limited && typeof limited.close === 'function') {
+              cursorToClose = limited;
+            }
             if (limited && typeof limited.toArray === 'function') {
               docs = await limited.toArray();
-            } else if (Array.isArray(limited)) {
-              docs = limited;
+            } else {
+              const unsupportedErr: any = new Error(
+                'Unsupported database cursor: limited cursor does not provide toArray().'
+              );
+              unsupportedErr.name = 'MongoDuplicateUnsupportedCursorError';
+              unsupportedErr.isDatabaseError = true;
+              throw unsupportedErr;
             }
-          } else if (cursor && typeof cursor.toArray === 'function') {
-            docs = await cursor.toArray();
-          } else if (Array.isArray(cursor)) {
-            docs = cursor;
-          } else if (cursor && typeof cursor.then === 'function') {
-            const resolved = await cursor;
-            if (Array.isArray(resolved)) docs = resolved;
-            else if (resolved) docs = [resolved];
+          }
+
+          if (!Array.isArray(docs)) {
+            const malformedErr: any = new Error('Cursor toArray() did not return an array');
+            malformedErr.name = 'MongoDuplicateInvalidCursorResultError';
+            malformedErr.isDatabaseError = true;
+            throw malformedErr;
           }
 
           if (docs.length > MAX_CANDIDATE_SAFETY_THRESHOLD) {
-            const safetyErr: any = new Error(`Duplicate candidate candidate pool safety threshold (${MAX_CANDIDATE_SAFETY_THRESHOLD}) exceeded`);
+            const safetyErr: any = new Error(
+              `Duplicate candidate candidate pool safety threshold (${MAX_CANDIDATE_SAFETY_THRESHOLD}) exceeded`
+            );
             safetyErr.name = 'MongoDuplicateSafetyThresholdExceeded';
             safetyErr.isDatabaseError = true;
             throw safetyErr;
@@ -1429,7 +1505,9 @@ export class JobRepository {
             if (doc && doc.id && !candidatePoolMap.has(doc.id)) {
               candidatePoolMap.set(doc.id, normalizeMongoJob(doc));
               if (candidatePoolMap.size > MAX_CANDIDATE_SAFETY_THRESHOLD) {
-                const safetyErr: any = new Error(`Duplicate candidate candidate pool safety threshold (${MAX_CANDIDATE_SAFETY_THRESHOLD}) exceeded`);
+                const safetyErr: any = new Error(
+                  `Duplicate candidate candidate pool safety threshold (${MAX_CANDIDATE_SAFETY_THRESHOLD}) exceeded`
+                );
                 safetyErr.name = 'MongoDuplicateSafetyThresholdExceeded';
                 safetyErr.isDatabaseError = true;
                 throw safetyErr;
@@ -1437,11 +1515,29 @@ export class JobRepository {
             }
           }
         }
+        // C. Cursor with toArray() only and no safe limiting capability, or unsupported shape
+        else {
+          const unsupportedErr: any = new Error(
+            'Unsupported database cursor: cursor provides toArray() without incremental iteration (hasNext/next) or safe retrieval limits (limit). Bounded candidate safety cannot be guaranteed.'
+          );
+          unsupportedErr.name = 'MongoDuplicateUnsupportedCursorError';
+          unsupportedErr.isDatabaseError = true;
+          throw unsupportedErr;
+        }
+      } catch (err: any) {
+        processingErr = err;
+        throw err;
       } finally {
-        if (cursor && typeof cursor.close === 'function') {
+        let cleanupErr: any = null;
+        if (cursorToClose && typeof cursorToClose.close === 'function') {
           try {
-            await cursor.close();
-          } catch {}
+            await cursorToClose.close();
+          } catch (cErr: any) {
+            cleanupErr = cErr;
+          }
+        }
+        if (cleanupErr && !processingErr) {
+          throw cleanupErr;
         }
       }
     };
@@ -1451,8 +1547,8 @@ export class JobRepository {
     if (rawCandidateId) {
       try {
         await Promise.all([
-          consumeCursor(jobsColl.find({ id: rawCandidateId })),
-          consumeCursor(pendingColl.find({ id: rawCandidateId }))
+          consumeCursor(jobsColl.find({ id: rawCandidateId }), { isInternalIdQuery: true }),
+          consumeCursor(pendingColl.find({ id: rawCandidateId }), { isInternalIdQuery: true })
         ]);
       } catch (err: any) {
         const msg = `Duplicate candidate internal-ID lookup failed across live and pending collections: ${err?.message || err}`;
@@ -1660,9 +1756,14 @@ export class JobRepository {
             ? await _deps.getPendingJobsCollectionFn()
             : await getPendingJobsCollection());
 
-    const registryColl = _deps?.getIdRegistryCollectionFn
-      ? await _deps.getIdRegistryCollectionFn()
-      : (await getMongoDb()).collection('scraper_job_id_registry');
+    let registryColl: any;
+    if (_deps?.getIdRegistryCollectionFn) {
+      registryColl = await _deps.getIdRegistryCollectionFn();
+    } else if (isMongoConfigured()) {
+      registryColl = (await getMongoDb()).collection('scraper_job_id_registry');
+    } else {
+      registryColl = getTestIdRegistryCollection();
+    }
 
     const usingDefaultCollections = !_deps?.getJobsCollectionFn && !_deps?.getPendingJobsCollectionFn;
     let otherColl: any = null;

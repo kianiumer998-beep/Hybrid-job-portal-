@@ -34,7 +34,7 @@ export interface PaymentTransaction {
   amount: number;
   currency: Currency;
   type: 'Subscription' | 'Job Posting Fee' | 'Ad Campaign Fee' | 'Wallet Deposit' | 'Refund';
-  status: 'Success' | 'Pending' | 'Failed';
+  status: 'Success' | 'Pending' | 'Verifying' | 'VerificationUncertain' | 'Failed' | 'Rejected' | 'Refunded';
   paymentMethod: 'JazzCash' | 'Easypaisa' | 'Credit Card' | 'Bank Transfer' | 'Stripe' | 'PayPal' | 'Wallet Balance' | string;
   jobTitleRef?: string;
   

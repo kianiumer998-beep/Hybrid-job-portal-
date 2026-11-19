@@ -138,6 +138,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
       'career-saved': 'jobs-saved',
       'career-alerts': 'jobs-alerts',
       'mem-status': 'dash-overview',
+      'mem-plans': 'dash-overview',
       'ads-wallet': 'mem-wallet',
     };
     const effectiveActiveNavId = activeNavId ? (legacyNavIdMap[activeNavId] || activeNavId) : null;

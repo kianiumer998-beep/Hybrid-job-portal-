@@ -75,7 +75,11 @@ function validateCvDataPayload(value: unknown): string | null {
 
   let serialized = '';
   try {
-    serialized = JSON.stringify(value);
+    const serializedValue = JSON.stringify(value);
+    if (typeof serializedValue !== 'string') {
+      return 'CV data could not be serialized.';
+    }
+    serialized = serializedValue;
   } catch {
     return 'CV data could not be serialized.';
   }

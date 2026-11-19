@@ -1373,6 +1373,16 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     }
   };
 
+  const changeOverviewSubView = (subView: 'metrics' | 'recommendations' | 'history') => {
+    setOverviewSubView(subView);
+    if (navigationMode === 'professional') {
+      setActiveNavId(
+        subView === 'metrics' ? 'dash-overview' :
+        subView === 'recommendations' ? 'jobs-recommended' : 'mem-history'
+      );
+    }
+  };
+
   const handleLogout = () => {
     // Explicitly do not reset user-scoped preferences here to ensure they persist 
     // for the same account upon next login, as required by the safety check.
@@ -1874,7 +1884,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           {navigationMode === 'classic' && (
             <div className="flex items-center space-x-1.5 sm:space-x-2 border-b border-slate-800 pb-2.5">
             <button
-              onClick={() => setOverviewSubView('metrics')}
+              onClick={() => changeOverviewSubView('metrics')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
                 overviewSubView === 'metrics'
                   ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
@@ -1886,7 +1896,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </button>
 
             <button
-              onClick={() => setOverviewSubView('recommendations')}
+              onClick={() => changeOverviewSubView('recommendations')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
                 overviewSubView === 'recommendations'
                   ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
@@ -1898,7 +1908,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </button>
 
             <button
-              onClick={() => setOverviewSubView('history')}
+              onClick={() => changeOverviewSubView('history')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
                 overviewSubView === 'history'
                   ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'

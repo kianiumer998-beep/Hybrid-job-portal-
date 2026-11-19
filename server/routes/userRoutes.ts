@@ -28,6 +28,7 @@ const ALLOWED_NORMAL_USER_FIELDS = new Set([
   'education',
   'cvUrl',
   'resumeUrl',
+  'cvData',
   'socialLinks',
   'notificationsEnabled',
   'whatsappAlertsEnabled'
@@ -66,6 +67,93 @@ const VALID_USER_PLANS = new Set(['Free', 'Premium']);
 const VALID_MEMBERSHIP_STATUSES = new Set(['Active', 'Revoked', 'Expired', 'Unpaid']);
 const VALID_PAYMENT_STATUSES = new Set(['Paid', 'Unpaid', 'Overdue']);
 const PROTECTED_SYSTEM_ACCOUNT_IDS = new Set(['system', 'system-admin', 'admin-bootstrap']);
+
+function validateCvDataPayload(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return 'CV data must be a valid object.';
+  }
+
+  let serialized = '';
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    return 'CV data could not be serialized.';
+  }
+  if (serialized.length > 500000) {
+    return 'CV data is too large. Please reduce the content or remove the embedded profile photo.';
+  }
+
+  const data = value as Record<string, any>;
+  const personalInfo = data.personalInfo;
+  if (!personalInfo || typeof personalInfo !== 'object' || Array.isArray(personalInfo)) {
+    return 'CV personal information is required.';
+  }
+
+  const personalFields = ['fullName', 'jobTitle', 'email', 'phone', 'location', 'website', 'linkedin', 'github', 'summary'];
+  for (const field of personalFields) {
+    if (typeof personalInfo[field] !== 'string' || personalInfo[field].length > 5000) {
+      return `CV personal field '${field}' must be text with a maximum of 5000 characters.`;
+    }
+  }
+
+  if (!Array.isArray(data.experience) || data.experience.length > 50) {
+    return 'CV experience must be an array with no more than 50 entries.';
+  }
+  for (const item of data.experience) {
+    if (!item || typeof item !== 'object' || Array.isArray(item) ||
+      !['id', 'company', 'position', 'location', 'startDate', 'endDate'].every((key) => typeof item[key] === 'string' && item[key].length <= 500) ||
+      typeof item.current !== 'boolean' || !Array.isArray(item.bullets) || item.bullets.length > 30 ||
+      item.bullets.some((bullet: unknown) => typeof bullet !== 'string' || bullet.length > 3000)) {
+      return 'One or more CV experience entries are invalid.';
+    }
+  }
+
+  if (!Array.isArray(data.education) || data.education.length > 50) {
+    return 'CV education must be an array with no more than 50 entries.';
+  }
+  for (const item of data.education) {
+    if (!item || typeof item !== 'object' || Array.isArray(item) ||
+      !['id', 'institution', 'degree', 'fieldOfStudy', 'startDate', 'endDate'].every((key) => typeof item[key] === 'string' && item[key].length <= 500) ||
+      (item.gpa !== undefined && (typeof item.gpa !== 'string' || item.gpa.length > 100))) {
+      return 'One or more CV education entries are invalid.';
+    }
+  }
+
+  const skills = data.skills;
+  if (!skills || typeof skills !== 'object' || Array.isArray(skills)) {
+    return 'CV skills must be provided as an object.';
+  }
+  for (const field of ['technical', 'soft', 'languages']) {
+    if (!Array.isArray(skills[field]) || skills[field].length > 100 ||
+      skills[field].some((item: unknown) => typeof item !== 'string' || item.length > 200)) {
+      return `CV skills field '${field}' must be an array of short text values.`;
+    }
+  }
+
+  if (!Array.isArray(data.certifications) || data.certifications.length > 50) {
+    return 'CV certifications must be an array with no more than 50 entries.';
+  }
+  for (const item of data.certifications) {
+    if (!item || typeof item !== 'object' || Array.isArray(item) ||
+      !['id', 'name', 'issuer', 'year'].every((key) => typeof item[key] === 'string' && item[key].length <= 500)) {
+      return 'One or more CV certification entries are invalid.';
+    }
+  }
+
+  if (!['modern', 'executive', 'tech', 'classic'].includes(data.templateStyle)) {
+    return 'CV template style is invalid.';
+  }
+  if (typeof data.themeColor !== 'string' || !/^#[0-9a-f]{6}$/i.test(data.themeColor)) {
+    return 'CV theme color must be a valid six-digit hex color.';
+  }
+  if (data.photoBase64 !== undefined &&
+    (typeof data.photoBase64 !== 'string' || data.photoBase64.length > 400000 ||
+      !/^data:image\/(png|jpeg|webp);base64,/i.test(data.photoBase64))) {
+    return 'CV profile photo must be a PNG, JPEG, or WebP image within the supported size limit.';
+  }
+
+  return null;
+}
 
 function isValidUserIdParam(id: string): boolean {
   return Boolean(id && id.length <= 128 && !id.includes('\0') && !id.includes('/') && !id.includes('\\'));
@@ -584,6 +672,13 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
           success: false,
           message: 'Access denied: Only a Super Admin can modify a Super Admin account.'
         });
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(finalUpdates, 'cvData')) {
+      const cvDataError = validateCvDataPayload(finalUpdates.cvData);
+      if (cvDataError) {
+        return res.status(400).json({ success: false, message: cvDataError });
       }
     }
 

@@ -1858,7 +1858,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-bold text-white text-xs sm:text-sm">Subscription Renewal Setting</span>
                     <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${currentUser.autoRenew === true ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : currentUser.autoRenew === false ? 'bg-slate-800 text-slate-400 border-slate-700' : 'bg-amber-500/10 text-amber-300 border-amber-500/30'}`}>
-                      {typeof currentUser.autoRenew === 'boolean' ? (currentUser.autoRenew ? 'Auto-renew enabled' : 'Manual renewal') : 'Not recorded'}
+                      {typeof currentUser.autoRenew === 'boolean' ? (currentUser.autoRenew ? 'Enabled flag (no auto-charge)' : 'Manual renewal') : 'Not recorded'}
                     </span>
                   </div>
                   <p className="text-[10px] sm:text-xs text-slate-400">
@@ -1870,8 +1870,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </div>
           </div>
 
-          {/* OVERVIEW SUB-VIEW NAVIGATION PILLS */}
-          <div className="flex items-center space-x-1.5 sm:space-x-2 border-b border-slate-800 pb-2.5">
+          {/* Classic mode keeps the legacy overview pills; Professional mode uses the sidebar sub-navigation. */}
+          {navigationMode === 'classic' && (
+            <div className="flex items-center space-x-1.5 sm:space-x-2 border-b border-slate-800 pb-2.5">
             <button
               onClick={() => setOverviewSubView('metrics')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
@@ -1908,6 +1909,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               <span>Payment History ({userTransactions.length})</span>
             </button>
           </div>
+          )}
 
           {/* SUB-VIEW 1: METRICS SNEAK-PEEKS */}
           {overviewSubView === 'metrics' && (

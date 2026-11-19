@@ -130,13 +130,23 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   const isActive = (item: NavSubItem) => {
     if (item.isLogout) return false;
     
-    // Honor a stored active ID only when it belongs to this menu version.
-    // This lets users upgrade from older menu IDs without getting a permanently stale highlight.
-    const activeIdExistsInCurrentMenu = !!activeNavId && menuStructure.some((category) =>
-      category.subItems.some((subItem) => subItem.id === activeNavId)
+    // Translate IDs saved by the previous Professional Menu before checking active state.
+    const legacyNavIdMap: Record<string, string> = {
+      'dash-recs': 'jobs-recommended',
+      'dash-history': 'mem-history',
+      'find-explore': 'jobs-explore',
+      'career-apps': 'jobs-applications',
+      'career-saved': 'jobs-saved',
+      'career-alerts': 'jobs-alerts',
+      'mem-status': 'mem-plans',
+      'ads-wallet': 'mem-wallet',
+    };
+    const effectiveActiveNavId = activeNavId ? (legacyNavIdMap[activeNavId] || activeNavId) : null;
+    const activeIdExistsInCurrentMenu = !!effectiveActiveNavId && menuStructure.some((category) =>
+      category.subItems.some((subItem) => subItem.id === effectiveActiveNavId)
     );
     if (activeIdExistsInCurrentMenu) {
-      return activeNavId === item.id;
+      return effectiveActiveNavId === item.id;
     }
 
     // Fallback: Check if the current dashboard state matches this item.

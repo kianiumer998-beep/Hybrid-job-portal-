@@ -142,10 +142,11 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
       'ads-wallet': 'mem-wallet',
     };
     const effectiveActiveNavId = activeNavId ? (legacyNavIdMap[activeNavId] || activeNavId) : null;
-    const activeIdExistsInCurrentMenu = !!effectiveActiveNavId && menuStructure.some((category) =>
-      category.subItems.some((subItem) => subItem.id === effectiveActiveNavId)
-    );
-    if (activeIdExistsInCurrentMenu) {
+    const activeMenuItem = effectiveActiveNavId
+      ? menuStructure.flatMap((category) => category.subItems).find((subItem) => subItem.id === effectiveActiveNavId)
+      : undefined;
+    // Global destinations unmount the dashboard; when the user returns, highlight the actual dashboard tab instead of a stale global link.
+    if (activeMenuItem && !activeMenuItem.isGlobal) {
       return effectiveActiveNavId === item.id;
     }
 

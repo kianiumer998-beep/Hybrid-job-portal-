@@ -3634,6 +3634,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onUpdateConfig={onUpdateLandingConfig}
           campaignConfig={campaignConfig || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG}
           onUpdateCampaignConfig={onUpdateCampaignConfig || (() => {})}
+          jobs={jobs || []}
         />
       )}
 

@@ -34,7 +34,7 @@ const parseJobCardDate = (value?: string, endOfDay = false): Date | null => {
   if (!value || typeof value !== 'string') return null;
   const clean = value.trim();
   if (!clean) return null;
-  const dmy = clean.match(/^(\\d{1,2})[-\\/.](\\d{1,2})[-\\/.](\\d{4})$/);
+  const dmy = clean.match(/^(\d{1,2})[-\\/.](\d{1,2})[-\\/.](\d{4})$/);
   if (dmy) {
     const day = Number(dmy[1]);
     const month = Number(dmy[2]) - 1;
@@ -43,7 +43,7 @@ const parseJobCardDate = (value?: string, endOfDay = false): Date | null => {
     if (parsed.getFullYear() === year && parsed.getMonth() === month && parsed.getDate() === day) return parsed;
     return null;
   }
-  const dateOnly = clean.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);
+  const dateOnly = clean.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (dateOnly) {
     const year = Number(dateOnly[1]);
     const month = Number(dateOnly[2]) - 1;

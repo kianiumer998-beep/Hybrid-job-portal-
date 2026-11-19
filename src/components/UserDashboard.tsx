@@ -143,6 +143,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [overviewSubView, setOverviewSubView] = useState<'metrics' | 'recommendations' | 'history'>('metrics');
   const [appSubTab, setAppSubTab] = useState<'submitted' | 'saved' | 'alerts' | 'documents'>('submitted');
   const [campaignSubTab, setCampaignSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>('my-campaigns');
+  const [accountSubTab, setAccountSubTab] = useState<'profile' | 'security'>('profile');
   const [openDepositModalTrigger, setOpenDepositModalTrigger] = useState<boolean>(false);
   const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => 
     safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_${currentUser.id}`, 'classic')
@@ -1256,6 +1257,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     tab?: any;
     subView?: any;
     subTab?: any;
+    accountSubTab?: 'profile' | 'security';
     isGlobal?: boolean;
     globalTab?: any;
   }) => {
@@ -1268,6 +1270,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
     if (params.tab) setActiveTab(params.tab);
     if (params.subView) setOverviewSubView(params.subView);
+    if (params.accountSubTab) setAccountSubTab(params.accountSubTab);
     if (params.subTab) {
       if (params.tab === 'applications') setAppSubTab(params.subTab);
       if (params.tab === 'campaigns') setCampaignSubTab(params.subTab);
@@ -1369,17 +1372,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const activationTimeStr = currentUser.activationDate || '2026-07-25 09:00';
   const expiryTimeStr = currentUser.expiryDate || '2026-08-24 09:00';
   const renewalCount = currentUser.renewalCount || 1;
-  const userTransactions: PaymentTransaction[] = currentUser.transactions || [
-    {
-      id: 'tx-init-1',
-      dateTime: activationTimeStr,
-      amount: 300,
-      currency: 'PKR',
-      type: 'Subscription',
-      status: 'Success',
-      paymentMethod: 'JazzCash'
-    }
-  ];
+  const userTransactions: PaymentTransaction[] = Array.isArray(currentUser.transactions) ? currentUser.transactions : [];
 
   // Subscription Plan Expiry & Days Remaining
   const isPlanExpired = useMemo(() => {
@@ -1405,6 +1398,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           overviewSubView={overviewSubView}
           appSubTab={appSubTab}
           campaignSubTab={campaignSubTab}
+          accountSubTab={accountSubTab}
           activeNavId={activeNavId}
           onNavigate={handleProNavigate}
           onLogout={handleLogout}
@@ -1525,6 +1519,19 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           <button
             type="button"
             onClick={() => {
+              setActiveNavId('emp-post');
+              setActiveTab('post-job');
+            }}
+            className="px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-[11px] sm:text-xs flex items-center space-x-1 cursor-pointer active:scale-95 transition-all"
+            title="Open the existing job posting form"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Post a Job</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveNavId('mem-wallet');
               setActiveTab('campaigns');
               setCampaignSubTab('wallet');
               setOpenDepositModalTrigger(true);
@@ -1539,6 +1546,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           <button
             type="button"
             onClick={() => {
+              setActiveNavId('ads-create');
               setActiveTab('campaigns');
               setCampaignSubTab('create');
             }}
@@ -2060,9 +2068,17 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
       {/* TAB 2: MY PROFILE & SECURITY */}
       {activeTab === 'profile' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 text-white">
+        <div className="space-y-4 text-white">
+          {navigationMode === 'professional' && (
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => { setAccountSubTab('profile'); setActiveNavId('acc-profile'); }} className={accountSubTab === 'profile' ? 'px-4 py-2 rounded-lg text-xs font-bold border bg-emerald-500 text-slate-950 border-emerald-400' : 'px-4 py-2 rounded-lg text-xs font-bold border bg-slate-900 text-slate-300 border-slate-700'}>Profile</button>
+              <button type="button" onClick={() => { setAccountSubTab('security'); setActiveNavId('acc-security'); }} className={accountSubTab === 'security' ? 'px-4 py-2 rounded-lg text-xs font-bold border bg-emerald-500 text-slate-950 border-emerald-400' : 'px-4 py-2 rounded-lg text-xs font-bold border bg-slate-900 text-slate-300 border-slate-700'}>Security</button>
+            </div>
+          )}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
           
           {/* PROFILE EDIT FORM */}
+          {(navigationMode === 'classic' || accountSubTab === 'profile') && (
           <div className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 space-y-4 sm:space-y-6 shadow-xl">
             <div className="border-b border-slate-800 pb-3 flex items-center justify-between">
               <div>
@@ -2172,8 +2188,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </div>
             </form>
           </div>
+          )}
 
           {/* CHANGE PASSWORD & SECURITY FORM */}
+          {(navigationMode === 'classic' || accountSubTab === 'security') && (
           <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 space-y-4 sm:space-y-6 shadow-xl">
             <div className="border-b border-slate-800 pb-3">
               <h3 className="text-base sm:text-lg font-black text-white flex items-center space-x-2">
@@ -2232,9 +2250,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </div>
             </form>
           </div>
+          )}
 
           {/* EMPLOYER BUSINESS VERIFICATION (KYC) CARD */}
-          {currentUser.role === 'Employer/Job Poster' && (
+          {(navigationMode === 'classic' || accountSubTab === 'profile') && currentUser.role === 'Employer/Job Poster' && (
             <div className="lg:col-span-12 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 space-y-4 shadow-xl">
               <div className="border-b border-slate-800 pb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -2446,6 +2465,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </div>
           )}
 
+          </div>
         </div>
       )}
 

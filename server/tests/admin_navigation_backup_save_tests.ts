@@ -11551,7 +11551,7 @@ async function runSuite() {
   // --- STEP-8.5-B: SAFE EXACT SOURCE IDENTITY MATCHING TESTS ---
   await runTest('STEP-8.5-B-1 [Same sourceUrl With Harmless Formatting Differences]: Hostname casing, default ports, fragments, trailing slashes, and tracking params are normalized and detected without mutating stored URLs', () => {
     const rawExistingUrl = 'https://Careers.Example.COM:443/openings/Backend-Engineer/?utm_source=feed&fbclid=abc#details';
-    const rawCandidateUrl = '  http://careers.example.com:80/openings/Backend-Engineer#top  ';
+    const rawCandidateUrl = '  https://careers.example.com/openings/Backend-Engineer#top  ';
 
     const existingJob = {
       id: 'job-src-norm-1',
@@ -11584,6 +11584,199 @@ async function runSuite() {
     assert.strictEqual(
       normalizeExactJobUrl(rawExistingUrl),
       normalizeExactJobUrl(rawCandidateUrl)
+    );
+  });
+
+  await runTest('STEP-8.5-B.1-A [HTTP vs HTTPS Protocol Preservation]: Same-scheme formatting normalizes cleanly while HTTP and HTTPS remain distinct across normalization, matching, and lookup', async () => {
+    // 1. Same HTTP URL with harmless formatting differences (:80, uppercase host, trailing slash, tracking, fragment) matches
+    const httpRawA = 'http://Careers.Example.COM:80/vacancies/Civil-Engineer/?utm_medium=cpc#section1';
+    const httpRawB = 'http://careers.example.com/vacancies/Civil-Engineer#top';
+    assert.strictEqual(normalizeExactJobUrl(httpRawA), 'http://careers.example.com/vacancies/Civil-Engineer');
+    assert.strictEqual(normalizeExactJobUrl(httpRawA), normalizeExactJobUrl(httpRawB));
+
+    const httpExisting = {
+      id: 'http-exist-1',
+      title: 'Civil Engineer',
+      company: 'Alpha Infrastructure',
+      status: 'Approved',
+      sourceUrl: httpRawA,
+      originalApplyUrl: 'http://APPLY.EXAMPLE.COM:80/form/101/?gclid=track1#apply'
+    };
+    const httpSameSchemeCand = {
+      id: 'http-cand-1',
+      title: 'Different Role Title',
+      company: 'Beta Group',
+      sourceUrl: httpRawB
+    };
+    assert.strictEqual(detectJobDuplicate(httpSameSchemeCand, [httpExisting]).isDuplicate, true);
+    assert.strictEqual(detectJobDuplicate(httpSameSchemeCand, new DuplicateIndex([httpExisting])).isDuplicate, true);
+
+    // 2. Same HTTPS URL with harmless formatting differences (:443, uppercase host, trailing slash, tracking, fragment) matches
+    const httpsRawA = 'https://Careers.Example.COM:443/vacancies/Civil-Engineer/?fbclid=xyz#section1';
+    const httpsRawB = 'https://careers.example.com/vacancies/Civil-Engineer';
+    assert.strictEqual(normalizeExactJobUrl(httpsRawA), 'https://careers.example.com/vacancies/Civil-Engineer');
+    assert.strictEqual(normalizeExactJobUrl(httpsRawA), normalizeExactJobUrl(httpsRawB));
+
+    const httpsExisting = {
+      id: 'https-exist-1',
+      title: 'Electrical Specialist',
+      company: 'Gamma Grid',
+      status: 'Approved',
+      sourceUrl: httpsRawA,
+      originalApplyUrl: 'https://APPLY.EXAMPLE.COM:443/form/202/?utm_campaign=fall#start'
+    };
+    const httpsSameSchemeCand = {
+      id: 'https-cand-1',
+      title: 'Unrelated Coordinator Title',
+      company: 'Delta Holdings',
+      sourceUrl: httpsRawB
+    };
+    assert.strictEqual(detectJobDuplicate(httpsSameSchemeCand, [httpsExisting]).isDuplicate, true);
+    assert.strictEqual(detectJobDuplicate(httpsSameSchemeCand, new DuplicateIndex([httpsExisting])).isDuplicate, true);
+
+    // 3. HTTP and HTTPS versions of the same hostname/path do NOT become an exact URL match
+    assert.notStrictEqual(normalizeExactJobUrl(httpRawB), normalizeExactJobUrl(httpsRawB));
+
+    const crossProtocolSourceCand = {
+      id: 'cross-proto-src-1',
+      title: 'Unrelated Maritime Analyst',
+      company: 'Oceanic Org',
+      sourceUrl: 'https://careers.example.com/vacancies/Civil-Engineer'
+    };
+    const crossProtoSrcArr = detectJobDuplicate(crossProtocolSourceCand, [httpExisting]);
+    assert.strictEqual(crossProtoSrcArr.isDuplicate, false);
+    assert.strictEqual(crossProtoSrcArr.comparisonDetails.sourceUrlMatch, false);
+
+    const crossProtoSrcIdx = detectJobDuplicate(crossProtocolSourceCand, new DuplicateIndex([httpExisting]));
+    assert.strictEqual(crossProtoSrcIdx.isDuplicate, false);
+    assert.strictEqual(crossProtoSrcIdx.comparisonDetails.sourceUrlMatch, false);
+
+    const crossProtoApplyCand = {
+      id: 'cross-proto-apply-1',
+      title: 'Different Supply Chain Lead',
+      company: 'Other Org',
+      sourceUrl: 'https://otherboard.example.pk/listings/55',
+      applicationUrl: 'https://apply.example.com/form/101'
+    };
+    assert.strictEqual(detectJobDuplicate(crossProtoApplyCand, [httpExisting]).isDuplicate, false);
+    assert.strictEqual(detectJobDuplicate(crossProtoApplyCand, new DuplicateIndex([httpExisting])).isDuplicate, false);
+
+    // 4. JobRepository.findDuplicateCandidates does not inject cross-protocol http:// fallback for https:// URLs
+    const seenLookupQueries: any[] = [];
+    const mockColl = () => ({
+      find: (query: any) => {
+        if (query && query.$or) seenLookupQueries.push(query);
+        return {
+          sort: () => ({ limit: () => ({ toArray: async () => [] }) }),
+          limit: () => ({ toArray: async () => [] }),
+          toArray: async () => []
+        };
+      }
+    });
+    await JobRepository.findDuplicateCandidates(
+      {
+        title: 'Protocol Lookup Test',
+        company: 'Protocol Co',
+        sourceUrl: 'https://careers.example.com/vacancies/Civil-Engineer/',
+        applicationUrl: 'https://apply.example.com/form/202/'
+      },
+      {
+        isMongoConfiguredFn: () => true,
+        getJobsCollectionFn: async () => mockColl(),
+        getPendingJobsCollectionFn: async () => mockColl()
+      }
+    );
+    const serializedLookup = JSON.stringify(seenLookupQueries);
+    assert.strictEqual(serializedLookup.includes('http://careers.example.com'), false);
+    assert.strictEqual(serializedLookup.includes('http://apply.example.com'), false);
+    assert.strictEqual(httpExisting.sourceUrl, httpRawA);
+    assert.strictEqual(httpsExisting.sourceUrl, httpsRawA);
+  });
+
+  await runTest('STEP-8.5-B.1-B [Repeated Query-Parameter Ordering Preservation]: Repeated keys preserve relative order while distinct keys canonicalize and tracking params strip safely', () => {
+    // 1. Same repeated-key parameters in the same order match
+    const repSameA = 'https://jobs.example.pk/search?tag=b&tag=a&utm_source=digest';
+    const repSameB = 'https://jobs.example.pk/search?tag=b&tag=a&fbclid=click123#results';
+    assert.strictEqual(normalizeExactJobUrl(repSameA), 'https://jobs.example.pk/search?tag=b&tag=a');
+    assert.strictEqual(normalizeExactJobUrl(repSameA), normalizeExactJobUrl(repSameB));
+
+    const existRep = {
+      id: 'rep-exist-1',
+      title: 'Data Analyst',
+      company: 'Horizon Corp',
+      status: 'Approved',
+      sourceUrl: repSameA
+    };
+    const candRepMatch = {
+      id: 'rep-cand-match',
+      title: 'Completely Distinct Title',
+      company: 'Vertex Labs',
+      sourceUrl: repSameB
+    };
+    assert.strictEqual(detectJobDuplicate(candRepMatch, [existRep]).isDuplicate, true);
+    assert.strictEqual(detectJobDuplicate(candRepMatch, new DuplicateIndex([existRep])).isDuplicate, true);
+
+    // 2. Same repeated-key parameters in a DIFFERENT order remain distinct
+    const repReordered = 'https://jobs.example.pk/search?tag=a&tag=b';
+    assert.strictEqual(normalizeExactJobUrl(repReordered), 'https://jobs.example.pk/search?tag=a&tag=b');
+    assert.notStrictEqual(normalizeExactJobUrl(repSameA), normalizeExactJobUrl(repReordered));
+
+    const candRepDiffOrder = {
+      id: 'rep-cand-diff-order',
+      title: 'Unrelated Auditor Role',
+      company: 'Summit Co',
+      sourceUrl: repReordered
+    };
+    const diffOrderArr = detectJobDuplicate(candRepDiffOrder, [existRep]);
+    assert.strictEqual(diffOrderArr.isDuplicate, false);
+    assert.strictEqual(diffOrderArr.comparisonDetails.sourceUrlMatch, false);
+
+    const diffOrderIdx = detectJobDuplicate(candRepDiffOrder, new DuplicateIndex([existRep]));
+    assert.strictEqual(diffOrderIdx.isDuplicate, false);
+    assert.strictEqual(diffOrderIdx.comparisonDetails.sourceUrlMatch, false);
+
+    // 3. Different meaningful query values remain distinct
+    const candDiffValues = {
+      id: 'rep-cand-diff-val',
+      title: 'Unrelated Operations Role',
+      company: 'Summit Co',
+      sourceUrl: 'https://jobs.example.pk/search?tag=b&tag=c'
+    };
+    assert.strictEqual(detectJobDuplicate(candDiffValues, [existRep]).isDuplicate, false);
+    assert.strictEqual(detectJobDuplicate(candDiffValues, new DuplicateIndex([existRep])).isDuplicate, false);
+
+    // 4. Tracking-parameter differences do not break a match when repeated-key relative order + distinct keys match
+    const mixA = 'https://apply.example.pk/apply?tag=second&dept=eng&tag=first&gh_src=board&utm_campaign=2026';
+    const mixB = 'https://apply.example.pk/apply?dept=eng&tag=second&gclid=999&tag=first#step1';
+    assert.strictEqual(normalizeExactJobUrl(mixA), 'https://apply.example.pk/apply?dept=eng&tag=second&tag=first');
+    assert.strictEqual(normalizeExactJobUrl(mixA), normalizeExactJobUrl(mixB));
+
+    const existMixApply = {
+      id: 'mix-exist-1',
+      title: 'Systems Engineer',
+      company: 'Aero Dynamics',
+      status: 'Approved',
+      sourceUrl: 'https://aero.example.pk/jobs/1',
+      originalApplyUrl: mixA
+    };
+    const candMixApply = {
+      id: 'mix-cand-1',
+      title: 'Other Board Name',
+      company: 'Aggregator XYZ',
+      sourceUrl: 'https://agg.example.pk/jobs/999',
+      applicationUrl: mixB
+    };
+    const mixArrRes = detectJobDuplicate(candMixApply, [existMixApply]);
+    assert.strictEqual(mixArrRes.isDuplicate, true);
+    assert.strictEqual(mixArrRes.comparisonDetails.applyUrlMatch, true);
+    const mixIdxRes = detectJobDuplicate(candMixApply, new DuplicateIndex([existMixApply]));
+    assert.strictEqual(mixIdxRes.isDuplicate, true);
+    assert.strictEqual(mixIdxRes.comparisonDetails.applyUrlMatch, true);
+
+    // 5. Existing single-value distinct-key query normalization remains canonical
+    assert.strictEqual(
+      normalizeExactJobUrl('https://portal.example.pk/job?jobId=101&dept=it&utm_source=x'),
+      normalizeExactJobUrl('https://portal.example.pk/job?dept=it&jobId=101&fbclid=y')
     );
   });
 

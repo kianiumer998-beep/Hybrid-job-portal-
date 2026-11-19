@@ -151,8 +151,8 @@ export function normalizeExactJobUrl(rawUrl: unknown): string | null {
 
   // Strip default ports (:80 for http:, :443 for https:) via URL semantics, preserve non-default ports
   const port = parsed.port || '';
-  // Normalize standard http/https schemes when no non-default port distinguishes them
-  const canonicalProtocol = port ? parsed.protocol : 'https:';
+  // Preserve original HTTP vs HTTPS protocol identity
+  const canonicalProtocol = parsed.protocol;
   const hostWithPort = port ? `${hostname}:${port}` : hostname;
 
   // Strip trailing slashes for non-root paths while preserving case-sensitive path segments
@@ -161,20 +161,21 @@ export function normalizeExactJobUrl(rawUrl: unknown): string | null {
     pathname = pathname.replace(/\/+$/, '') || '/';
   }
 
-  // Remove only clearly non-semantic tracking params; preserve meaningful query params in canonical order
-  const keptParams: Array<[string, string]> = [];
+  // Remove only clearly non-semantic tracking params; preserve meaningful query params
+  // Canonicalize distinct key order while preserving relative order of repeated keys
+  const keptParams: Array<[string, string, number]> = [];
+  let paramIdx = 0;
   parsed.searchParams.forEach((value, key) => {
     const lowerKey = key.toLowerCase();
     if (lowerKey.startsWith('utm_') || NON_SEMANTIC_TRACKING_PARAMS.has(lowerKey)) {
       return;
     }
-    keptParams.push([key, value]);
+    keptParams.push([key, value, paramIdx++]);
   });
 
   keptParams.sort((a, b) => {
     if (a[0] !== b[0]) return a[0] < b[0] ? -1 : 1;
-    if (a[1] !== b[1]) return a[1] < b[1] ? -1 : 1;
-    return 0;
+    return a[2] - b[2];
   });
 
   const searchParams = new URLSearchParams();

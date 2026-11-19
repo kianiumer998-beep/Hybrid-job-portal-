@@ -1413,9 +1413,6 @@ export class JobRepository {
         if (parsedNorm.pathname.length > 1) {
           targetSet.add(`${parsedNorm.origin}${parsedNorm.pathname}/` + (parsedNorm.search || ''));
         }
-        if (parsedNorm.protocol === 'https:') {
-          targetSet.add(`http://${parsedNorm.host}${parsedNorm.pathname}${parsedNorm.search || ''}`);
-        }
       } catch {
         // ignore URL parsing errors
       }

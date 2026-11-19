@@ -640,6 +640,12 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
             });
           }
           finalUpdates[key] = value.trim();
+        } else if (key === 'cvData') {
+          const cvDataError = validateCvDataPayload(value);
+          if (cvDataError) {
+            return res.status(400).json({ success: false, message: cvDataError });
+          }
+          finalUpdates[key] = value;
         } else if (key === 'skills') {
           if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) {
             return res.status(400).json({ success: false, message: "Field 'skills' must be an array of strings." });

@@ -121,6 +121,7 @@ export interface UserAccount {
   education?: any[];
   cvUrl?: string;
   resumeUrl?: string;
+  cvData?: CvData;
   socialLinks?: Record<string, any>;
   notificationsEnabled?: boolean;
   whatsappAlertsEnabled?: boolean;

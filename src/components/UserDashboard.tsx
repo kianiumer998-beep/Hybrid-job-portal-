@@ -399,6 +399,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab);
+      // Clear a previously saved Professional-menu selection when the parent opens
+      // the dashboard on a different destination. The menu then derives the active
+      // item from the actual tab/subtab state instead of highlighting a stale item.
+      setActiveNavId(null);
     }
   }, [initialTab]);
 

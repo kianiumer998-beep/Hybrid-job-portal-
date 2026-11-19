@@ -77,6 +77,28 @@ interface UserDashboardProps {
   onNavigateGlobalTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
 }
 
+type PaymentStatusPresentation = { label: string; className: string };
+
+const getPaymentStatusPresentation = (status: PaymentTransaction['status'] | string | undefined): PaymentStatusPresentation => {
+  switch (String(status || '').trim().toLowerCase()) {
+    case 'success':
+      return { label: 'Approved', className: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' };
+    case 'pending':
+      return { label: 'Pending Review', className: 'bg-amber-500/15 text-amber-300 border-amber-500/30' };
+    case 'verifying':
+      return { label: 'Under Verification', className: 'bg-sky-500/15 text-sky-300 border-sky-500/30' };
+    case 'verificationuncertain':
+      return { label: 'Verification Uncertain', className: 'bg-orange-500/15 text-orange-300 border-orange-500/30' };
+    case 'refunded':
+      return { label: 'Refunded', className: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30' };
+    case 'failed':
+    case 'rejected':
+      return { label: 'Failed / Rejected', className: 'bg-rose-500/15 text-rose-300 border-rose-500/30' };
+    default:
+      return { label: status ? String(status) : 'Status unavailable', className: 'bg-slate-700/50 text-slate-300 border-slate-600' };
+  }
+};
+
 export function resolveDefaultPaymentMethod(
   methods: PublicPaymentMethodConfig[],
   defaultSetting?: string
@@ -1436,7 +1458,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   // Derived Billing Dates & Times
   const activationTimeStr = currentUser.activationDate || 'Not recorded';
   const expiryTimeStr = currentUser.expiryDate || 'Not set';
-  const renewalCount = Number.isFinite(Number(currentUser.renewalCount)) ? Number(currentUser.renewalCount) : 0;
+  const renewalCount =
+    typeof currentUser.renewalCount === 'number' && Number.isFinite(currentUser.renewalCount)
+      ? currentUser.renewalCount
+      : null;
   const userTransactions: PaymentTransaction[] = Array.isArray(currentUser.transactions) ? currentUser.transactions : [];
 
   // Subscription Plan Expiry & Days Remaining
@@ -1453,6 +1478,27 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     if (isNaN(expiryTime)) return null;
     return Math.ceil((expiryTime - Date.now()) / (1000 * 60 * 60 * 24));
   }, [currentUser.expiryDate]);
+
+  const membershipStatusLabel = useMemo(() => {
+    const status = String(currentUser.membershipStatus || '').trim().toLowerCase();
+    if (status === 'revoked') return 'Revoked';
+    if (status === 'unpaid') return 'Payment required';
+    if (status === 'expired' || isPlanExpired || (daysRemaining !== null && daysRemaining <= 0)) return 'Expired';
+    if (status === 'active') return daysRemaining === null ? 'Expiry not recorded' : 'Active & Verified';
+    if (status === 'suspended' || status === 'cancelled' || status === 'inactive') {
+      return status.charAt(0).toUpperCase() + status.slice(1);
+    }
+    return 'Status unavailable';
+  }, [currentUser.membershipStatus, isPlanExpired, daysRemaining]);
+
+  const membershipStatusClass =
+    membershipStatusLabel === 'Active & Verified'
+      ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+      : ['Expired', 'Revoked', 'Suspended', 'Cancelled'].includes(membershipStatusLabel)
+        ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+        : membershipStatusLabel === 'Payment required'
+          ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+          : 'bg-slate-800 text-slate-300 border-slate-700';
 
   return (
     <div className={`min-h-screen bg-slate-950 transition-all duration-300 ${navigationMode === 'professional' ? 'lg:pl-64' : ''}`}>
@@ -1575,9 +1621,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
           <div className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px]">
             <span className="text-slate-400">Membership:</span>
-            <span className={`font-bold flex items-center space-x-1 ${isPlanExpired ? 'text-rose-400' : 'text-emerald-400'}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${isPlanExpired ? 'bg-rose-500 animate-ping' : 'bg-emerald-400'}`} />
-              <span>{isPlanExpired ? 'Expired' : daysRemaining === null ? 'Status unavailable' : daysRemaining > 0 ? `${daysRemaining}d Left` : 'Expired'}</span>
+            <span className={`font-bold flex items-center space-x-1 ${membershipStatusLabel === 'Active & Verified' ? 'text-emerald-400' : membershipStatusLabel === 'Expired' || membershipStatusLabel === 'Revoked' ? 'text-rose-400' : 'text-amber-300'}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${membershipStatusLabel === 'Active & Verified' ? 'bg-emerald-400' : membershipStatusLabel === 'Expired' || membershipStatusLabel === 'Revoked' ? 'bg-rose-500' : 'bg-amber-400'}`} />
+              <span>{membershipStatusLabel === 'Active & Verified' && daysRemaining !== null ? `${daysRemaining}d Left` : membershipStatusLabel}</span>
             </span>
           </div>
         </div>
@@ -1682,12 +1728,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                       <Sparkles className="w-3 h-3" />
                       <span>{currentUser.plan || 'Premium'} Pro Pass</span>
                     </span>
-                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold border ${
-                      isPlanExpired
-                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/30 animate-pulse'
-                        : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                    }`}>
-                      {isPlanExpired ? '⚠️ Subscription Expired' : '✓ Active & Verified'}
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold border ${membershipStatusClass}`}>
+                      {membershipStatusLabel === 'Active & Verified' ? '✓ Active & Verified' : membershipStatusLabel}
                     </span>
                   </div>
 
@@ -1710,7 +1752,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     }`}
                   >
                     <RefreshCw className="w-3.5 h-3.5 shrink-0" />
-                    <span>{isPlanExpired ? '⚡ Renew Plan Now (+30 Days) - PKR 300' : 'Renew Plan (+30 Days)'}</span>
+                    <span>{isPlanExpired ? 'Request Renewal' : 'Renew Subscription'}</span>
                   </button>
 
                   <button
@@ -1735,7 +1777,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     onClick={onRenewSubscription}
                     className="px-3 py-1.5 rounded-lg bg-rose-500 text-slate-950 font-black text-xs shrink-0 cursor-pointer shadow-md"
                   >
-                    Renew for PKR 300
+                    Request Renewal
                   </button>
                 </div>
               )}
@@ -1783,7 +1825,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     <RefreshCw className="w-3 h-3 text-indigo-400" />
                   </div>
                   <div className="text-xs sm:text-base font-black text-indigo-400 mt-1 truncate">
-                    {renewalCount} Cycles
+                    {renewalCount === null ? 'Not recorded' : `${renewalCount} Cycles`}
                   </div>
                   <div className="text-[9px] text-slate-400 mt-0.5 truncate">Loyalty Counter</div>
                 </div>
@@ -2094,9 +2136,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                         <td className="py-3.5 px-4 font-black text-white font-mono">{tx.currency} {tx.amount.toLocaleString()}</td>
                         <td className="py-3.5 px-4 font-medium text-slate-300">{tx.paymentMethod}</td>
                         <td className="py-3.5 px-4">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${tx.status === 'Success' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : tx.status === 'Pending' ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' : 'bg-rose-500/15 text-rose-300 border-rose-500/30'}`}>
-                            {tx.status === 'Success' ? 'Approved' : tx.status === 'Pending' ? 'Pending Review' : 'Failed / Rejected'}
-                          </span>
+                          {(() => {
+                            const status = getPaymentStatusPresentation(tx.status);
+                            return <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${status.className}`}>{status.label}</span>;
+                          })()}
                         </td>
                         <td className="py-3.5 px-4">
                           <button type="button" onClick={() => setSelectedPaymentTransaction(tx)} className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-300 font-bold text-[10px]">View details</button>
@@ -2122,7 +2165,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                         ['Transaction Type', selectedPaymentTransaction.type],
                         ['Amount', `${selectedPaymentTransaction.currency || 'PKR'} ${Number(selectedPaymentTransaction.amount || 0).toLocaleString()}`],
                         ['Payment Method', selectedPaymentTransaction.paymentMethod],
-                        ['Status', selectedPaymentTransaction.status],
+                        ['Status', getPaymentStatusPresentation(selectedPaymentTransaction.status).label],
                         ['Item / Campaign', selectedPaymentTransaction.jobTitleRef || selectedPaymentTransaction.adTitleRef || '—'],
                         ['Sender Name', selectedPaymentTransaction.senderName],
                         ['Sender Account / Phone', selectedPaymentTransaction.senderPhoneOrAccount],

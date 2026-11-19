@@ -1846,7 +1846,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     {expiryTimeStr}
                   </div>
                   <div className="text-[9px] text-slate-400 mt-0.5 truncate">
-                    {isPlanExpired ? 'Validity Ended' : daysRemaining === null ? 'Expiry not recorded' : daysRemaining > 0 ? `${daysRemaining} days left` : 'Validity ended'}
+                    {membershipStatusLabel === 'Active & Verified' && daysRemaining !== null ? `${daysRemaining} days left` : membershipStatusLabel === 'Expired' ? 'Validity Ended' : membershipStatusLabel}
                   </div>
                 </div>
 

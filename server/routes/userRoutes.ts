@@ -204,7 +204,11 @@ userRouter.get('/', requireAdminPermission('users.manage'), async (req, res) => 
     const rawUsers = await UserRepository.getAllAsync();
     const users = rawUsers.map(u => {
       // CV drafts are private user content; do not bulk-include them in the admin user directory payload.
-      const { passwordHash, salt, password, cvData, ...safe } = u;
+      const safe = { ...u };
+      delete safe.passwordHash;
+      delete safe.salt;
+      delete safe.password;
+      delete safe.cvData;
       safe.permissions = getPermissionsForRole(u.role);
       return safe;
     });

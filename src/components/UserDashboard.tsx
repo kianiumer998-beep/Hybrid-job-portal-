@@ -1600,12 +1600,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </span>
             )}
           </button>
-          <button
-            onClick={handleLogout}
-            className="px-2.5 sm:px-4 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-colors cursor-pointer"
-          >
-            Log Out
-          </button>
+          {navigationMode === 'classic' && (
+            <button
+              onClick={handleLogout}
+              className="px-2.5 sm:px-4 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-colors cursor-pointer"
+            >
+              Log Out
+            </button>
+          )}
         </div>
       </div>
 
@@ -2203,12 +2205,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       {/* TAB 2: MY PROFILE & SECURITY */}
       {activeTab === 'profile' && (
         <div className="space-y-4 text-white">
-          {navigationMode === 'professional' && (
-            <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => { setAccountSubTab('profile'); setActiveNavId('acc-profile'); }} className={accountSubTab === 'profile' ? 'px-4 py-2 rounded-lg text-xs font-bold border bg-emerald-500 text-slate-950 border-emerald-400' : 'px-4 py-2 rounded-lg text-xs font-bold border bg-slate-900 text-slate-300 border-slate-700'}>Profile</button>
-              <button type="button" onClick={() => { setAccountSubTab('security'); setActiveNavId('acc-security'); }} className={accountSubTab === 'security' ? 'px-4 py-2 rounded-lg text-xs font-bold border bg-emerald-500 text-slate-950 border-emerald-400' : 'px-4 py-2 rounded-lg text-xs font-bold border bg-slate-900 text-slate-300 border-slate-700'}>Security</button>
-            </div>
-          )}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
           
           {/* PROFILE EDIT FORM */}
@@ -2642,7 +2638,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </div>
           </div>
 
-          {/* Sub-Tabs: Submitted Apps | Saved Jobs | Job Alerts | My Documents */}
+          {/* Classic mode keeps the legacy in-page tabs; Professional mode uses the sidebar sub-navigation. */}
+          {navigationMode === 'classic' && (
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 border-b border-slate-800 pb-3">
             <button
               onClick={() => setAppSubTab('submitted')}
@@ -2692,6 +2689,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               <span>My Documents & CV ({userDocuments.length})</span>
             </button>
           </div>
+          )}
 
           {/* SUB-TAB 1: SUBMITTED JOB APPLICATIONS */}
           {appSubTab === 'submitted' && (
@@ -4055,6 +4053,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             }
           }}
           onNavigateGlobalTab={onNavigateGlobalTab}
+          showInternalNavigation={navigationMode === 'classic'}
         />
       )}
 

@@ -704,15 +704,20 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
             {/* Simulated Paper Layout Container */}
             <div
               id="cv-print-area"
-              className="bg-white text-slate-900 p-6 rounded-lg shadow-inner min-h-[580px] text-xs font-sans space-y-4"
+              className="bg-white text-slate-900 p-6 rounded-lg shadow-inner min-h-[580px] text-xs space-y-4"
+              style={{
+                borderTop: `5px solid ${cvData.themeColor}`,
+                borderLeft: cvData.templateStyle === 'executive' ? '14px solid #0f172a' : undefined,
+                fontFamily: cvData.templateStyle === 'tech' ? 'ui-monospace, SFMono-Regular, monospace' : cvData.templateStyle === 'classic' ? 'Georgia, serif' : 'Arial, sans-serif'
+              }}
             >
               {/* CV Header */}
-              <div className="border-b-2 border-emerald-600 pb-3 flex items-start justify-between gap-4">
+              <div className="border-b-2 pb-3 flex items-start justify-between gap-4" style={{ borderColor: cvData.themeColor }}>
                 <div className="flex-1">
-                  <h1 className="text-xl font-black text-slate-900 uppercase tracking-tight">
+                  <h1 className="text-xl font-black uppercase tracking-tight" style={{ color: cvData.themeColor }}>
                     {cvData.personalInfo.fullName || 'Your Full Name'}
                   </h1>
-                  <p className="text-emerald-700 font-bold text-xs mt-0.5">
+                  <p className="font-bold text-xs mt-0.5" style={{ color: cvData.themeColor }}>
                     {cvData.personalInfo.jobTitle || 'Your Job Title'}
                   </p>
                   <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600 mt-2 font-medium">
@@ -734,7 +739,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
               {/* Summary */}
               {cvData.personalInfo.summary && (
                 <div>
-                  <h3 className="text-xs font-black uppercase text-slate-900 tracking-wider mb-1 text-emerald-800">
+                  <h3 className="text-xs font-black uppercase tracking-wider mb-1" style={{ color: cvData.themeColor }}>
                     Professional Summary
                   </h3>
                   <p className="text-slate-700 leading-relaxed text-[11px]">
@@ -746,14 +751,14 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
               {/* Experience */}
               {cvData.experience.length > 0 && (
                 <div>
-                  <h3 className="text-xs font-black uppercase text-slate-900 tracking-wider mb-2 text-emerald-800">
+                  <h3 className="text-xs font-black uppercase tracking-wider mb-2" style={{ color: cvData.themeColor }}>
                     Work Experience
                   </h3>
                   <div className="space-y-2">
                     {cvData.experience.map((exp) => (
                       <div key={exp.id}>
                         <div className="flex justify-between font-bold text-slate-900">
-                          <span>{exp.position} — <span className="text-emerald-700">{exp.company}</span></span>
+                          <span>{exp.position} — <span style={{ color: cvData.themeColor }}>{exp.company}</span></span>
                           <span className="text-[10px] text-slate-500">{exp.startDate} - {exp.endDate}</span>
                         </div>
                         <ul className="list-disc list-inside text-slate-700 text-[10px] space-y-0.5 mt-1">
@@ -773,7 +778,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                   </h3>
                   {cvData.education.map((edu) => (
                     <div key={edu.id} className="flex justify-between text-[11px]">
-                      <span className="font-bold text-slate-900">{edu.degree} in {edu.fieldOfStudy} - {edu.institution}</span>
+                      <span className="font-bold text-slate-900">{edu.degree}{edu.fieldOfStudy ? ` in ${edu.fieldOfStudy}` : ''} - {edu.institution}{edu.gpa ? ` · ${edu.gpa}` : ''}</span>
                       <span className="text-slate-500">{edu.startDate} - {edu.endDate}</span>
                     </div>
                   ))}
@@ -781,16 +786,28 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
               )}
 
               {/* Skills */}
-              {cvData.skills.technical.length > 0 && (
-                <div>
-                  <h3 className="text-xs font-black uppercase text-slate-900 tracking-wider mb-1 text-emerald-800">
-                    Key Technical Skills
+              {(['technical', 'soft', 'languages'] as const).map((field) => cvData.skills[field].length > 0 && (
+                <div key={field}>
+                  <h3 className="text-xs font-black uppercase tracking-wider mb-1" style={{ color: cvData.themeColor }}>
+                    {field === 'technical' ? 'Technical Skills' : field === 'soft' ? 'Soft Skills' : 'Languages'}
                   </h3>
                   <div className="flex flex-wrap gap-1 text-[10px]">
-                    {cvData.skills.technical.map((sk, i) => (
-                      <span key={i} className="bg-slate-100 text-slate-800 font-semibold px-2 py-0.5 rounded">
-                        {sk}
-                      </span>
+                    {cvData.skills[field].map((skill, index) => (
+                      <span key={index} className="bg-slate-100 text-slate-800 font-semibold px-2 py-0.5 rounded">{skill}</span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              {cvData.certifications.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-wider mb-1" style={{ color: cvData.themeColor }}>Certifications</h3>
+                  <div className="space-y-1">
+                    {cvData.certifications.map((cert) => (
+                      <div key={cert.id} className="text-[11px] text-slate-700">
+                        <strong className="text-slate-900">{cert.name}</strong>
+                        {cert.issuer ? ` — ${cert.issuer}` : ''}{cert.year ? ` (${cert.year})` : ''}
+                      </div>
                     ))}
                   </div>
                 </div>

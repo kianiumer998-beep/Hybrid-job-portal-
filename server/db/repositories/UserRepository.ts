@@ -45,7 +45,8 @@ export class UserRepository {
     if (isTest()) return Array.from(inMemoryUsers.values());
     if (isMongoActive()) {
       const coll = await getUsersCollection();
-      const users = await coll.find({}).sort({ createdAt: -1 }).toArray();
+      // CV drafts can contain private profile data and embedded images; omit them from bulk user queries.
+      const users = await coll.find({}, { projection: { cvData: 0 } }).sort({ createdAt: -1 }).toArray();
       return (users || []).map(u => {
         const { _id, ...safe } = u;
         return safe;

@@ -91,6 +91,7 @@ interface UserCampaignHubProps {
   onDuplicateCampaign: (ad: Advertisement) => void;
   onOpenGlobalDepositModal?: () => void;
   onNavigateGlobalTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
+  showInternalNavigation?: boolean;
 }
 
 export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
@@ -107,7 +108,8 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   onDeleteCampaign,
   onDuplicateCampaign,
   onOpenGlobalDepositModal,
-  onNavigateGlobalTab
+  onNavigateGlobalTab,
+  showInternalNavigation = true
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>(initialSubTab);
 
@@ -676,8 +678,9 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
         </div>
       </div>
 
-      {/* Sub-Tabs Navigation */}
-      <div className="flex items-center space-x-1.5 sm:space-x-2 border-b border-slate-800 pb-2 sm:pb-3 overflow-x-auto text-[11px] sm:text-xs font-bold scrollbar-none">
+      {/* Classic mode keeps the legacy in-page tabs; Professional mode uses the sidebar sub-navigation. */}
+      {showInternalNavigation && (
+        <div className="flex items-center space-x-1.5 sm:space-x-2 border-b border-slate-800 pb-2 sm:pb-3 overflow-x-auto text-[11px] sm:text-xs font-bold scrollbar-none">
         <button
           onClick={() => setActiveSubTab('my-campaigns')}
           className={`flex items-center space-x-1 sm:space-x-2 px-3 sm:px-4 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl transition-all cursor-pointer whitespace-nowrap ${
@@ -714,6 +717,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
           <span>Wallet & Rates</span>
         </button>
       </div>
+      )}
 
       {/* ========================================================================= */}
       {/* SUB-TAB 1: MY CAMPAIGNS & STATUS TRACKER */}

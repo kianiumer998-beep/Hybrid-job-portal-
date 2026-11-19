@@ -2804,7 +2804,6 @@ export default function App() {
           plan: 'Premium',
           membershipStatus: 'Active',
           membershipTier: newSub.plan || 'Pro Alerts',
-          autoRenew: true
         } as UserAccount);
       }
     }
@@ -2834,14 +2833,6 @@ export default function App() {
     if (sanitized.id) {
       loadBackendUserProfile(sanitized.id);
     }
-  };
-
-  // Auto-Renew Toggle Switch Handler for Current User
-  const handleToggleAutoRenew = () => {
-    if (!currentUser) return;
-    const updated = { ...currentUser, autoRenew: !currentUser.autoRenew };
-    setCurrentUser(updated);
-    setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
   };
 
   const applyAuthoritativeUserUpdate = useCallback((rawUser: any): UserAccount => {
@@ -4396,7 +4387,6 @@ export default function App() {
                 onDepositFunds={handleDepositFunds}
                 onDeleteAd={handleDeleteAd}
                 onDuplicateAd={handleAddAd}
-                onToggleAutoRenew={handleToggleAutoRenew}
                 onRenewSubscription={handleRenewSubscription}
                 onSubmitJobForApproval={handleSubmitJobForApproval}
                 onSendMessageToAdmin={handleUserSendMessage}

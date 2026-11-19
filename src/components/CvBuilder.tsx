@@ -726,6 +726,9 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                     <span>{cvData.personalInfo.email}</span>
                     <span>•</span>
                     <span>{cvData.personalInfo.location}</span>
+                    {[cvData.personalInfo.website, cvData.personalInfo.linkedin, cvData.personalInfo.github].filter(Boolean).map((link, index) => (
+                      <span key={index} className="break-all">{link}</span>
+                    ))}
                   </div>
                 </div>
 
@@ -761,6 +764,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                           <span>{exp.position} — <span style={{ color: cvData.themeColor }}>{exp.company}</span></span>
                           <span className="text-[10px] text-slate-500">{exp.startDate} - {exp.endDate}</span>
                         </div>
+                        {exp.location && <div className="text-[10px] text-slate-500">{exp.location}</div>}
                         <ul className="list-disc list-inside text-slate-700 text-[10px] space-y-0.5 mt-1">
                           {exp.bullets.map((b, i) => b.trim() && <li key={i}>{b}</li>)}
                         </ul>

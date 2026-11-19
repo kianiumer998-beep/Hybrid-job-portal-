@@ -10,74 +10,39 @@ interface CvBuilderProps {
 export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywall }) => {
   const [step, setStep] = useState<number>(1);
 
-  // Initial Sample CV State
+  // Start with a genuinely blank CV. No sample identity, employment, education, or credentials are prefilled.
   const [cvData, setCvData] = useState<CvData>({
     personalInfo: {
-      fullName: 'Muhammad Hamza Khan',
-      jobTitle: 'Senior Full Stack & AI Engineer',
-      email: 'hamza.khan@example.com',
-      phone: '+92 300 8765432',
-      location: 'Lahore, Pakistan (Open to Remote)',
-      website: 'https://hamzakhan.dev',
-      linkedin: 'linkedin.com/in/hamzakhan-dev',
-      github: 'github.com/hamzakhan-dev',
-      summary: 'Results-driven Senior Full Stack Engineer with 5+ years of experience building scalable distributed web applications, cloud microservices, and AI integrations using React, Node.js, and Python.'
+      fullName: '',
+      jobTitle: '',
+      email: '',
+      phone: '',
+      location: '',
+      website: '',
+      linkedin: '',
+      github: '',
+      summary: ''
     },
-    experience: [
-      {
-        id: 'exp-1',
-        company: 'Systems Limited',
-        position: 'Senior Software Engineer',
-        location: 'Lahore, Punjab',
-        startDate: 'Jan 2023',
-        endDate: 'Present',
-        current: true,
-        bullets: [
-          'Architected high-throughput microservices handling 2M+ daily requests using Node.js & React.',
-          'Reduced API latency by 45% through Redis caching and PostgreSQL query optimization.',
-          'Mentored a team of 6 junior developers and established CI/CD pipeline automation.'
-        ]
-      }
-    ],
-    education: [
-      {
-        id: 'edu-1',
-        institution: 'FAST-NUCES Lahore',
-        degree: 'Bachelor of Science',
-        fieldOfStudy: 'Computer Science',
-        startDate: '2018',
-        endDate: '2022',
-        gpa: '3.65 / 4.0'
-      }
-    ],
+    experience: [],
+    education: [],
     skills: {
-      technical: ['React.js', 'TypeScript', 'Node.js', 'Python', 'Next.js', 'AWS', 'Docker', 'PostgreSQL', 'Tailwind CSS'],
-      soft: ['Agile Leadership', 'Problem Solving', 'Cross-functional Communication', 'Code Review'],
-      languages: ['English (Fluent)', 'Urdu (Native)']
+      technical: [],
+      soft: [],
+      languages: []
     },
-    certifications: [
-      {
-        id: 'cert-1',
-        name: 'AWS Certified Solutions Architect',
-        issuer: 'Amazon Web Services',
-        year: '2023'
-      }
-    ],
+    certifications: [],
     templateStyle: 'modern',
-    themeColor: '#10b981' // emerald
+    themeColor: '#10b981'
   });
 
-  // AI Bullet Generator Helper Simulation
+  // Add an empty achievement line for the user to complete; no simulated AI output is presented as generated content.
   const handleGenerateAiBullets = (expIndex: number) => {
-    const role = cvData.experience[expIndex]?.position || 'Software Developer';
-    const sampleBullets = [
-      `Engineered resilient ${role} web solutions improving user retention by 30%.`,
-      `Collaborated with product designers to implement responsive, accessible UI components.`,
-      `Streamlined deployment workflows using Docker containers and automated testing.`
-    ];
-
     const updated = [...cvData.experience];
-    updated[expIndex].bullets = [...updated[expIndex].bullets, ...sampleBullets];
+    if (!updated[expIndex]) return;
+    updated[expIndex] = {
+      ...updated[expIndex],
+      bullets: [...(updated[expIndex].bullets || []), '']
+    };
     setCvData({ ...cvData, experience: updated });
   };
 
@@ -89,13 +54,13 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
         ...cvData.experience,
         {
           id: 'exp-' + Date.now(),
-          company: 'Tech Solutions',
-          position: 'Software Developer',
-          location: 'Remote',
-          startDate: '2021',
-          endDate: '2023',
+          company: '',
+          position: '',
+          location: '',
+          startDate: '',
+          endDate: '',
           current: false,
-          bullets: ['Developed features using modern tech stack.']
+          bullets: []
         }
       ]
     });
@@ -121,6 +86,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       
+      <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">Your CV is a temporary draft in this session. It is not saved to your account or backend yet. Download/print your completed CV before leaving this page.</div>
       {/* Top Banner */}
       <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-slate-950 border border-indigo-500/30 rounded-2xl p-6 mb-8 text-white flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
         <div>
@@ -398,7 +364,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
                         className="text-[10px] text-amber-400 hover:underline font-bold flex items-center space-x-1"
                       >
                         <Sparkles className="w-3 h-3" />
-                        <span>AI Suggest Bullets</span>
+                        <span>Add Achievement Line</span>
                       </button>
                     </div>
                     <textarea

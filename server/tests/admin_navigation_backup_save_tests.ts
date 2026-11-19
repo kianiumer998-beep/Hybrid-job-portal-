@@ -13260,6 +13260,158 @@ async function runSuite() {
     }
   });
 
+
+  // =========================================================================
+  // STEP-8.6-C.2 — CROSS-ORIGIN 307/308 METHOD & REFERRER HARDENING
+  // =========================================================================
+
+  await runTest('STEP-8.6-C.2 [Mocked]: Cross-origin 307/308 allow only bodyless GET/HEAD, reject DELETE/custom methods and bodies, and suppress referrer leakage', async () => {
+    const originalLookup = dns.promises.lookup;
+    const originalFetch = globalThis.fetch;
+
+    try {
+      (dns.promises as any).lookup = async () => [{ address: '93.184.216.34', family: 4 }];
+
+      // Every non-GET/HEAD method is rejected on cross-origin 307/308, even without a body.
+      for (const statusCode of [307, 308]) {
+        for (const method of ['DELETE', 'OPTIONS', 'CUSTOM']) {
+          let fetchCount = 0;
+          globalThis.fetch = (async () => {
+            fetchCount++;
+            return new Response('', {
+              status: statusCode,
+              headers: { Location: 'https://external-collector.example.com/next' }
+            });
+          }) as any;
+
+          await assert.rejects(
+            () => safeFetchWithRetry(
+              'https://origin-portal.example.pk/start',
+              { method },
+              5000,
+              0
+            ),
+            new RegExp(`SSRF Blocked: Cross-origin ${statusCode} redirect preserving ${method} method/body rejected`)
+          );
+          assert.strictEqual(fetchCount, 1, `Cross-origin ${statusCode} must reject ${method} before a second fetch`);
+        }
+
+        // GET and HEAD are allowed only when no request body exists.
+        for (const method of ['GET', 'HEAD']) {
+          const calls: Array<{ url: string; method?: string; referrer?: string; referrerPolicy?: string }> = [];
+          globalThis.fetch = (async (input: any, init: any) => {
+            calls.push({
+              url: String(input),
+              method: init?.method,
+              referrer: init?.referrer,
+              referrerPolicy: init?.referrerPolicy
+            });
+            if (calls.length === 1) {
+              return new Response('', {
+                status: statusCode,
+                headers: { Location: 'https://external-collector.example.com/public-feed' }
+              });
+            }
+            return new Response('ok', { status: 200 });
+          }) as any;
+
+          const response = await safeFetchWithRetry(
+            'https://origin-portal.example.pk/feed',
+            { method },
+            5000,
+            0
+          );
+          assert.strictEqual(response.status, 200);
+          assert.strictEqual(calls.length, 2);
+          assert.strictEqual(calls[1].method, method);
+        }
+
+        // Even GET/HEAD must reject if a body is explicitly supplied.
+        let bodyFetchCount = 0;
+        globalThis.fetch = (async () => {
+          bodyFetchCount++;
+          return new Response('', {
+            status: statusCode,
+            headers: { Location: 'https://external-collector.example.com/body' }
+          });
+        }) as any;
+        await assert.rejects(
+          () => safeFetchWithRetry(
+            'https://origin-portal.example.pk/body',
+            { method: 'GET', body: 'must-not-cross-origin' } as any,
+            5000,
+            0
+          ),
+          new RegExp(`SSRF Blocked: Cross-origin ${statusCode} redirect preserving GET method/body rejected`)
+        );
+        assert.strictEqual(bodyFetchCount, 1);
+      }
+
+      // Same-origin 307 preserves existing referrer configuration and request method.
+      const sameOriginCalls: Array<{ method?: string; referrer?: string; referrerPolicy?: string }> = [];
+      globalThis.fetch = (async (input: any, init: any) => {
+        sameOriginCalls.push({
+          method: init?.method,
+          referrer: init?.referrer,
+          referrerPolicy: init?.referrerPolicy
+        });
+        if (sameOriginCalls.length === 1) {
+          return new Response('', {
+            status: 307,
+            headers: { Location: 'https://origin-portal.example.pk/next' }
+          });
+        }
+        return new Response('ok', { status: 200 });
+      }) as any;
+      await safeFetchWithRetry(
+        'https://origin-portal.example.pk/start',
+        {
+          method: 'POST',
+          body: 'same-origin-body',
+          referrer: 'https://origin-portal.example.pk/private/path?token=do-not-leak',
+          referrerPolicy: 'unsafe-url'
+        },
+        5000,
+        0
+      );
+      assert.strictEqual(sameOriginCalls.length, 2);
+      assert.strictEqual(sameOriginCalls[1].method, 'POST');
+      assert.strictEqual(sameOriginCalls[1].referrer, 'https://origin-portal.example.pk/private/path?token=do-not-leak');
+      assert.strictEqual(sameOriginCalls[1].referrerPolicy, 'unsafe-url');
+
+      // Cross-origin redirect must explicitly override any caller-supplied referrer/referrerPolicy.
+      const crossOriginCalls: Array<{ referrer?: string; referrerPolicy?: string }> = [];
+      globalThis.fetch = (async (input: any, init: any) => {
+        crossOriginCalls.push({
+          referrer: init?.referrer,
+          referrerPolicy: init?.referrerPolicy
+        });
+        if (crossOriginCalls.length === 1) {
+          return new Response('', {
+            status: 302,
+            headers: { Location: 'https://external-collector.example.com/receive' }
+          });
+        }
+        return new Response('ok', { status: 200 });
+      }) as any;
+      await safeFetchWithRetry(
+        'https://origin-portal.example.pk/private/path?token=do-not-leak',
+        {
+          referrer: 'https://origin-portal.example.pk/private/path?token=do-not-leak',
+          referrerPolicy: 'unsafe-url'
+        },
+        5000,
+        0
+      );
+      assert.strictEqual(crossOriginCalls.length, 2);
+      assert.strictEqual(crossOriginCalls[1].referrer, '');
+      assert.strictEqual(crossOriginCalls[1].referrerPolicy, 'no-referrer');
+    } finally {
+      (dns.promises as any).lookup = originalLookup;
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   console.log('------------------------------------------------------------------');
   console.log(`Summary: Passed=${counts.passed}, Failed=${counts.failed}, Skipped=${counts.skipped}`);
   console.log('==================================================================');

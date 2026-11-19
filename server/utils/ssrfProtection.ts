@@ -648,8 +648,14 @@ export async function safeFetchWithRetry(
         headers: _ignoredHeaders,
         method: _ignoredMethod,
         body: _ignoredBody,
+        referrer: _ignoredReferrer,
+        referrerPolicy: _ignoredReferrerPolicy,
         ...safeOptions
       } = (options as any) || {};
+      // Preserve caller referrer settings only while requests remain same-origin.
+      // Once a redirect crosses an origin boundary, fail closed against Referer leakage.
+      let currentReferrer = (options as any).referrer;
+      let currentReferrerPolicy = (options as any).referrerPolicy;
 
       while (true) {
         // Enforce manual redirect handling to intercept and validate every redirect target
@@ -660,6 +666,8 @@ export async function safeFetchWithRetry(
           redirect: 'manual',
           signal: controller.signal,
           headers: currentHeaders,
+          referrer: currentReferrer,
+          referrerPolicy: currentReferrerPolicy,
           // @ts-ignore - dispatcher is supported by undici in Node.js
           dispatcher: scraperTlsDispatcher
         });
@@ -740,9 +748,7 @@ export async function safeFetchWithRetry(
             crossOriginRedirect &&
             (res.status === 307 || res.status === 308) &&
             ((currentBody !== undefined && currentBody !== null) ||
-              currentMethod === 'POST' ||
-              currentMethod === 'PUT' ||
-              currentMethod === 'PATCH')
+              (currentMethod !== 'GET' && currentMethod !== 'HEAD'))
           ) {
             await cancelResponseBody(res);
             throw new Error(
@@ -781,6 +787,9 @@ export async function safeFetchWithRetry(
             if (currentMethod === 'GET' || currentMethod === 'HEAD') {
               currentBody = undefined;
             }
+            // Explicitly suppress the Fetch-generated Referer on this and later hops.
+            currentReferrer = '';
+            currentReferrerPolicy = 'no-referrer';
           }
 
           currentUrl = nextUrl;

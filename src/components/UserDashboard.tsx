@@ -407,7 +407,23 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     currentUser.phone,
     currentUser.companyName,
     currentUser.address,
-    currentUser.bio
+    currentUser.bio,
+    currentUser.avatarUrl,
+    currentUser.location,
+    currentUser.city,
+    currentUser.country,
+    currentUser.headline,
+    currentUser.title,
+    currentUser.website,
+    currentUser.skills,
+    currentUser.preferences,
+    currentUser.experience,
+    currentUser.education,
+    currentUser.cvUrl,
+    currentUser.resumeUrl,
+    currentUser.socialLinks,
+    currentUser.notificationsEnabled,
+    currentUser.whatsappAlertsEnabled
   ]);
 
   // Password Change Form State
@@ -1787,7 +1803,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   </p>
                 </div>
                 <Lock className="w-5 h-5 text-slate-500 shrink-0" />
-              </div>           </div>
+              </div>
+            </div>
           </div>
 
           {/* OVERVIEW SUB-VIEW NAVIGATION PILLS */}

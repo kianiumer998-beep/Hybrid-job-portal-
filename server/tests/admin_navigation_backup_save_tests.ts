@@ -11816,12 +11816,15 @@ async function runSuite() {
     const mockColl = () => ({
       find: (query: any) => {
         if (query && query.$or) seenExactQueries.push(query);
+        const docs = query && query.$or ? [existingWithOrigApply] : [];
+        let idx = 0;
         return {
-          sort: () => ({ limit: () => ({ toArray: async () => [] }) }),
-          limit: () => ({
-            toArray: async () => (query && query.$or ? [existingWithOrigApply] : [])
-          }),
-          toArray: async () => []
+          sort: function() { return this; },
+          batchSize: function() { return this; },
+          limit: function() { return this; },
+          hasNext: async function() { return idx < docs.length; },
+          next: async function() { return docs[idx++]; },
+          toArray: async () => docs
         };
       }
     });
@@ -12063,6 +12066,268 @@ async function runSuite() {
     };
     const resBelow = detectJobDuplicate(candDiffTitle, [existingSim]);
     assert.strictEqual(resBelow.isDuplicate, false);
+  });
+
+  // --- STEP-8.5-C.1: CONSOLIDATED DUPLICATE LOOKUP & CROSS-COLLECTION ID SAFETY FIX TESTS ---
+  await runTest('STEP-8.5-C.1-1 [Unbounded Exact Identifier Lookup Beyond 50 Results]: findDuplicateCandidates consumes cursor without silent 50-limit truncation', async () => {
+    const targetDoc = { id: 'ext-deep-100', title: 'Senior Software Engineer', company: 'Deep Tech', sourceJobId: 'JOB-EXT-100', status: 'Approved' };
+    const manyDocs = Array.from({ length: 60 }, (_, i) => ({
+      id: `doc-${i}`,
+      title: `Job Title ${i}`,
+      company: 'Other Co',
+      sourceJobId: `JOB-${i}`,
+      status: 'Approved'
+    }));
+    manyDocs[55] = targetDoc;
+
+    const mockCursor = (docs: any[]) => {
+      let idx = 0;
+      return {
+        sort: function() { return this; },
+        batchSize: function() { return this; },
+        hasNext: async function() { return idx < docs.length; },
+        next: async function() { return docs[idx++]; },
+        toArray: async () => docs
+      };
+    };
+
+    const mockColl = (docs: any[]) => ({
+      find: () => mockCursor(docs)
+    });
+
+    const candidates = await JobRepository.findDuplicateCandidates(
+      { sourceJobId: 'JOB-EXT-100', title: 'Senior Software Engineer', company: 'Deep Tech' },
+      {
+        isMongoConfiguredFn: () => true,
+        getJobsCollectionFn: async () => mockColl(manyDocs),
+        getPendingJobsCollectionFn: async () => mockColl([])
+      }
+    );
+
+    assert.ok(candidates.some(c => c.id === 'ext-deep-100'), 'Must find record beyond index 50 without silent truncation');
+  });
+
+  await runTest('STEP-8.5-C.1-2 [Unbounded Content Candidate Lookup Beyond 35 Results]: findDuplicateCandidates consumes content match cursor without silent 35-limit truncation', async () => {
+    const targetDoc = { id: 'content-deep-50', title: 'Principal Cloud Architect', company: 'Enterprise Corp', status: 'Approved' };
+    const manyDocs = Array.from({ length: 45 }, (_, i) => ({
+      id: `content-doc-${i}`,
+      title: `Unrelated Title ${i}`,
+      company: `Company ${i}`,
+      status: 'Approved'
+    }));
+    manyDocs[40] = targetDoc;
+
+    const mockCursor = (docs: any[]) => {
+      let idx = 0;
+      return {
+        sort: function() { return this; },
+        batchSize: function() { return this; },
+        hasNext: async function() { return idx < docs.length; },
+        next: async function() { return docs[idx++]; },
+        toArray: async () => docs
+      };
+    };
+
+    const mockColl = (docs: any[]) => ({
+      find: () => mockCursor(docs)
+    });
+
+    const candidates = await JobRepository.findDuplicateCandidates(
+      { title: 'Principal Cloud Architect', company: 'Enterprise Corp' },
+      {
+        isMongoConfiguredFn: () => true,
+        getJobsCollectionFn: async () => mockColl(manyDocs),
+        getPendingJobsCollectionFn: async () => mockColl([])
+      }
+    );
+
+    assert.ok(candidates.some(c => c.id === 'content-deep-50'), 'Must find content match beyond index 35');
+  });
+
+  await runTest('STEP-8.5-C.1-3 [Full Cursor Consumption across Live and Pending Collections]: Both live and pending cursors are fully iterated via hasNext/next', async () => {
+    let liveConsumed = 0;
+    let pendingConsumed = 0;
+
+    const mockCursor = (count: number, prefix: string) => {
+      let idx = 0;
+      const docs = Array.from({ length: count }, (_, i) => ({ id: `${prefix}-${i}`, title: 'Test', company: 'Test Co' }));
+      return {
+        sort: function() { return this; },
+        batchSize: function() { return this; },
+        hasNext: async function() {
+          const has = idx < docs.length;
+          if (has && prefix === 'live') liveConsumed++;
+          if (has && prefix === 'pending') pendingConsumed++;
+          return has;
+        },
+        next: async function() { return docs[idx++]; },
+        toArray: async () => docs
+      };
+    };
+
+    let liveCalls = 0;
+    let pendingCalls = 0;
+    const mockJobsColl = {
+      find: () => {
+        liveCalls++;
+        return mockCursor(liveCalls === 1 ? 12 : 0, 'live');
+      }
+    };
+    const mockPendingColl = {
+      find: () => {
+        pendingCalls++;
+        return mockCursor(pendingCalls === 1 ? 8 : 0, 'pending');
+      }
+    };
+
+    const candidates = await JobRepository.findDuplicateCandidates(
+      { title: 'Test Job UniqueTokenXYZ', company: 'Test Co' },
+      {
+        isMongoConfiguredFn: () => true,
+        getJobsCollectionFn: async () => mockJobsColl,
+        getPendingJobsCollectionFn: async () => mockPendingColl
+      }
+    );
+
+    assert.strictEqual(liveConsumed, 12);
+    assert.strictEqual(pendingConsumed, 8);
+    assert.strictEqual(candidates.length, 20);
+  });
+
+  await runTest('STEP-8.5-C.1-4 [Cursor/Database Error Rejection Fails Closed]: Lookup failure throws database error and prevents incomplete candidate merging', async () => {
+    const failingColl = {
+      find: () => ({
+        sort: function() { return this; },
+        batchSize: function() { return this; },
+        hasNext: async function() { throw new Error('Simulated MongoDB cursor read timeout'); },
+        next: async function() { return null; },
+        toArray: async () => { throw new Error('Simulated MongoDB cursor read timeout'); }
+      })
+    };
+
+    await assert.rejects(
+      () =>
+        JobRepository.findDuplicateCandidates(
+          { title: 'Engineer', company: 'Tech' },
+          {
+            isMongoConfiguredFn: () => true,
+            getJobsCollectionFn: async () => failingColl,
+            getPendingJobsCollectionFn: async () => failingColl
+          }
+        ),
+      /Simulated MongoDB cursor read timeout/
+    );
+  });
+
+  await runTest('STEP-8.5-C.1-5 & 6 & 8 & 9 [Atomic ID Reservation, Concurrency Collision, Best-Effort Release & Retention]: persistScrapedAtomic uses scraper_job_id_registry, prevents cross-collection ID clashes, retries on collision, and releases unsuccessful claims', async () => {
+    const registryStore = new Map<string, any>();
+    const liveStore = new Map<string, any>();
+    const pendingStore = new Map<string, any>();
+
+    const mockRegistryColl = {
+      insertOne: async (doc: any) => {
+        if (registryStore.has(doc._id)) {
+          const err: any = new Error('E11000 duplicate key error collection: scraper_job_id_registry index: _id_ dup key');
+          err.code = 11000;
+          throw err;
+        }
+        registryStore.set(doc._id, doc);
+        return { acknowledged: true, insertedId: doc._id };
+      },
+      deleteOne: async (filter: any) => {
+        const id = filter._id;
+        const existed = registryStore.has(id);
+        registryStore.delete(id);
+        return { acknowledged: true, deletedCount: existed ? 1 : 0 };
+      }
+    };
+
+    const mockJobsColl = {
+      insertOne: async (doc: any) => {
+        if (liveStore.has(doc.id)) {
+          const err: any = new Error('Duplicate key on jobs');
+          err.code = 11000;
+          throw err;
+        }
+        liveStore.set(doc.id, doc);
+        return { acknowledged: true, insertedId: doc.id };
+      },
+      findOne: async (q: any) => liveStore.get(q.id) || null
+    };
+
+    const mockPendingColl = {
+      insertOne: async (doc: any) => {
+        if (pendingStore.has(doc.id)) {
+          const err: any = new Error('Duplicate key on pending');
+          err.code = 11000;
+          throw err;
+        }
+        pendingStore.set(doc.id, doc);
+        return { acknowledged: true, insertedId: doc.id };
+      },
+      findOne: async (q: any) => pendingStore.get(q.id) || null
+    };
+
+    // Pre-claim an ID in pending to test cross-collection collision & release
+    pendingStore.set('CLASH-ID', { id: 'CLASH-ID', title: 'Existing Pending' });
+
+    const deps = {
+      isMongoConfiguredFn: () => true,
+      getJobsCollectionFn: async () => mockJobsColl,
+      getPendingJobsCollectionFn: async () => mockPendingColl,
+      getIdRegistryCollectionFn: async () => mockRegistryColl,
+      maxRetries: 3
+    };
+
+    const saved = await (JobRepository as any).persistScrapedAtomic('live', {
+      id: 'CLASH-ID',
+      title: 'New Live Job',
+      company: 'Corp'
+    }, deps);
+
+    assert.ok(saved);
+    assert.notStrictEqual(saved.id, 'CLASH-ID', 'Must retry with fresh ID when ID exists in opposite collection');
+    assert.ok(liveStore.has(saved.id));
+    assert.ok(registryStore.has(saved.id), 'Successful reservation must remain recorded in registry');
+    assert.strictEqual(registryStore.has('CLASH-ID'), false, 'Unsuccessful conflicting claim must be released best-effort');
+  });
+
+  await runTest('STEP-8.5-C.1-7 [Registry Connection Failure Fails Closed]: Registry write failure throws database error and performs no target insertion', async () => {
+    const liveStore = new Map<string, any>();
+    const mockRegistryColl = {
+      insertOne: async () => {
+        throw new Error('MongoDB network timeout writing to scraper_job_id_registry');
+      },
+      deleteOne: async () => ({ deletedCount: 0 })
+    };
+    const mockJobsColl = {
+      insertOne: async (doc: any) => { liveStore.set(doc.id, doc); return { acknowledged: true, insertedId: doc.id }; },
+      findOne: async () => null
+    };
+
+    await assert.rejects(
+      () =>
+        (JobRepository as any).persistScrapedAtomic('live', {
+          id: 'FAIL-REG-ID',
+          title: 'Unsaved Job',
+          company: 'Co'
+        }, {
+          isMongoConfiguredFn: () => true,
+          getJobsCollectionFn: async () => mockJobsColl,
+          getPendingJobsCollectionFn: async () => ({ findOne: async () => null }),
+          getIdRegistryCollectionFn: async () => mockRegistryColl,
+          maxRetries: 1
+        }),
+      /MongoDB network timeout/
+    );
+
+    assert.strictEqual(liveStore.size, 0, 'No target insertion must occur when registry fails');
+  });
+
+  await runTest('STEP-8.5-C.1-10 [Preservation of STEP-8.5-A, B, B.1 Behaviors]: URL normalization, protocol preservation, query ordering and generic portal protection remain intact', () => {
+    const norm = normalizeExactJobUrl('https://Careers.Example.COM:443/jobs/1?tag=b&tag=a&utm_source=feed#top');
+    assert.strictEqual(norm, 'https://careers.example.com/jobs/1?tag=b&tag=a');
+    assert.strictEqual(isGenericApplicationPortalUrl('https://example.com/apply'), true);
   });
 
   console.log('------------------------------------------------------------------');

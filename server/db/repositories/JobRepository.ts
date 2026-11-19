@@ -3,6 +3,7 @@ import path from 'path';
 import {
   getJobsCollection,
   getPendingJobsCollection,
+  getMongoDb,
   normalizeMongoJob,
   isMongoConfigured,
   executeWithMongoRetry,
@@ -1363,19 +1364,71 @@ export class JobRepository {
     const jobsColl = await getJobsCollFn();
     const pendingColl = await getPendingCollFn();
 
-    // 1A. Independent exact internal-ID lookup across Live & Pending collections (unbounded, no $or, no limit(50))
+    const BATCH_SIZE = 100;
+    const MAX_CANDIDATE_SAFETY_THRESHOLD = 5000;
+
+    const consumeCursor = async (cursorOrPromise: any) => {
+      let cursor = cursorOrPromise;
+      if (cursor && typeof cursor.sort === 'function') {
+        try {
+          const sorted = cursor.sort({ createdAt: -1, _id: 1 });
+          if (sorted && (typeof sorted.hasNext === 'function' || typeof sorted.toArray === 'function' || typeof sorted.limit === 'function')) {
+            cursor = sorted;
+          }
+        } catch {
+          // keep original cursor if sort throws or returns stub
+        }
+      }
+      if (cursor && typeof cursor.batchSize === 'function') {
+        try {
+          cursor = cursor.batchSize(BATCH_SIZE);
+        } catch {}
+      }
+
+      let docs: any[] = [];
+      if (cursor && typeof cursor.hasNext === 'function' && typeof cursor.next === 'function') {
+        while (await cursor.hasNext()) {
+          const doc = await cursor.next();
+          if (doc) docs.push(doc);
+        }
+      } else if (cursor && typeof cursor.limit === 'function') {
+        const limited = cursor.limit(5000);
+        if (limited && typeof limited.toArray === 'function') {
+          docs = await limited.toArray();
+        } else if (Array.isArray(limited)) {
+          docs = limited;
+        }
+      } else if (cursor && typeof cursor.toArray === 'function') {
+        docs = await cursor.toArray();
+      } else if (Array.isArray(cursor)) {
+        docs = cursor;
+      } else if (cursor && typeof cursor.then === 'function') {
+        const resolved = await cursor;
+        if (Array.isArray(resolved)) docs = resolved;
+        else if (resolved) docs = [resolved];
+      }
+
+      for (const doc of docs) {
+        if (doc && doc.id && !candidatePoolMap.has(doc.id)) {
+          candidatePoolMap.set(doc.id, normalizeMongoJob(doc));
+          if (candidatePoolMap.size > MAX_CANDIDATE_SAFETY_THRESHOLD) {
+            const safetyErr: any = new Error(`Duplicate candidate candidate pool safety threshold (${MAX_CANDIDATE_SAFETY_THRESHOLD}) exceeded`);
+            safetyErr.name = 'MongoDuplicateSafetyThresholdExceeded';
+            safetyErr.isDatabaseError = true;
+            throw safetyErr;
+          }
+        }
+      }
+    };
+
+    // 1A. Independent exact internal-ID lookup across Live & Pending collections (unbounded, no $or, no limit)
     const rawCandidateId = candidateJob.id ? String(candidateJob.id).trim() : '';
     if (rawCandidateId) {
       try {
-        const [liveById, pendingById] = await Promise.all([
-          jobsColl.find({ id: rawCandidateId }).toArray(),
-          pendingColl.find({ id: rawCandidateId }).toArray()
+        await Promise.all([
+          consumeCursor(jobsColl.find({ id: rawCandidateId })),
+          consumeCursor(pendingColl.find({ id: rawCandidateId }))
         ]);
-        for (const doc of [...(liveById || []), ...(pendingById || [])]) {
-          if (doc && doc.id && !candidatePoolMap.has(doc.id)) {
-            candidatePoolMap.set(doc.id, normalizeMongoJob(doc));
-          }
-        }
       } catch (err: any) {
         const msg = `Duplicate candidate internal-ID lookup failed across live and pending collections: ${err?.message || err}`;
         console.error(`[JobRepository] ${msg}`);
@@ -1439,15 +1492,10 @@ export class JobRepository {
     if (exactOrClauses.length > 0) {
       const exactQuery = { $or: exactOrClauses };
       try {
-        const [liveExact, pendingExact] = await Promise.all([
-          jobsColl.find(exactQuery).limit(50).toArray(),
-          pendingColl.find(exactQuery).limit(50).toArray()
+        await Promise.all([
+          consumeCursor(jobsColl.find(exactQuery)),
+          consumeCursor(pendingColl.find(exactQuery))
         ]);
-        for (const doc of [...liveExact, ...pendingExact]) {
-          if (doc && doc.id && !candidatePoolMap.has(doc.id)) {
-            candidatePoolMap.set(doc.id, normalizeMongoJob(doc));
-          }
-        }
       } catch (err: any) {
         const msg = `Duplicate candidate exact-match lookup failed across live and pending collections: ${err?.message || err}`;
         console.error(`[JobRepository] ${msg}`);
@@ -1485,34 +1533,29 @@ export class JobRepository {
       }
     }
 
-    const contentQueries: Array<{ query: any; limit: number }> = [];
+    const contentQueries: Array<{ query: any }> = [];
 
     // Priority A: Compound Company + Title Match (Prevents crowding out of old jobs for large employers)
     if (companyRegex && titleTokenRegex) {
-      contentQueries.push({ query: { company: companyRegex, title: titleTokenRegex }, limit: 35 });
+      contentQueries.push({ query: { company: companyRegex, title: titleTokenRegex } });
     }
 
     // Priority B: Cross-Source Title Token Match (Always executed when title tokens exist to catch cross-portal duplicates)
     if (titleTokenRegex) {
-      contentQueries.push({ query: { title: titleTokenRegex }, limit: 35 });
+      contentQueries.push({ query: { title: titleTokenRegex } });
     }
 
     // Priority C: Company-Only Fallback (when title tokens are sparse)
     if (companyRegex && !titleTokenRegex) {
-      contentQueries.push({ query: { company: companyRegex }, limit: 35 });
+      contentQueries.push({ query: { company: companyRegex } });
     }
 
-    for (const { query, limit } of contentQueries) {
+    for (const { query } of contentQueries) {
       try {
-        const [liveDocs, pendingDocs] = await Promise.all([
-          jobsColl.find(query).sort({ createdAt: -1 }).limit(limit).toArray(),
-          pendingColl.find(query).sort({ createdAt: -1 }).limit(limit).toArray()
+        await Promise.all([
+          consumeCursor(jobsColl.find(query)),
+          consumeCursor(pendingColl.find(query))
         ]);
-        for (const doc of [...liveDocs, ...pendingDocs]) {
-          if (doc && doc.id && !candidatePoolMap.has(doc.id)) {
-            candidatePoolMap.set(doc.id, normalizeMongoJob(doc));
-          }
-        }
       } catch (err: any) {
         const msg = `Duplicate candidate content-match lookup failed across live and pending collections: ${err?.message || err}`;
         console.error(`[JobRepository] ${msg}`);
@@ -1570,6 +1613,7 @@ export class JobRepository {
       isMongoConfiguredFn?: () => boolean;
       getJobsCollectionFn?: () => Promise<any>;
       getPendingJobsCollectionFn?: () => Promise<any>;
+      getIdRegistryCollectionFn?: () => Promise<any>;
       applyVisibilityPolicyFn?: (job: any) => Promise<any>;
       maxRetries?: number;
     }
@@ -1590,6 +1634,10 @@ export class JobRepository {
         : (_deps?.getPendingJobsCollectionFn
             ? await _deps.getPendingJobsCollectionFn()
             : await getPendingJobsCollection());
+
+    const registryColl = _deps?.getIdRegistryCollectionFn
+      ? await _deps.getIdRegistryCollectionFn()
+      : (await getMongoDb()).collection('scraper_job_id_registry');
 
     const usingDefaultCollections = !_deps?.getJobsCollectionFn && !_deps?.getPendingJobsCollectionFn;
     let otherColl: any = null;
@@ -1653,9 +1701,35 @@ export class JobRepository {
 
       const normalized = normalizeMongoJob(candidateDoc);
 
+      // 1. Atomically claim ID in registry collection using unique _id index
+      try {
+        await registryColl.insertOne({ _id: currentId, createdAt: new Date() });
+      } catch (err: any) {
+        if (isMongoDuplicateKeyError(err)) {
+          lastCollisionErr = err;
+          if (attempt < maxRetries) {
+            currentId = generateUniqueScrapedRecordId(jobData?.scraperSourceId, attemptedIds);
+            continue;
+          }
+          break;
+        }
+        const regErr: any = new Error(`Registry reservation failed for ID "${currentId}": ${err?.message || err}`);
+        regErr.isDatabaseError = true;
+        regErr.cause = err;
+        throw regErr;
+      }
+
+      // 2. Check opposite collection
       if (otherColl && typeof otherColl.findOne === 'function') {
-        const crossMatch = await otherColl.findOne({ id: currentId });
+        let crossMatch: any = null;
+        try {
+          crossMatch = await otherColl.findOne({ id: currentId });
+        } catch (err: any) {
+          try { await registryColl.deleteOne({ _id: currentId }); } catch {}
+          throw err;
+        }
         if (crossMatch) {
+          try { await registryColl.deleteOne({ _id: currentId }); } catch {}
           lastCollisionErr = new ScraperPersistenceCollisionError(
             `Scraped job ID "${currentId}" already exists in opposite collection.`,
             { attempts: attempt + 1, attemptedIds: Array.from(attemptedIds) }
@@ -1668,9 +1742,11 @@ export class JobRepository {
         }
       }
 
+      // 3. Insert into target collection
       try {
         const insertRes = await targetColl.insertOne(normalized);
         if (!insertRes || insertRes.acknowledged !== true || !insertRes.insertedId) {
+          try { await registryColl.deleteOne({ _id: currentId }); } catch {}
           const unackedErr: any = new Error(
             `MongoDB atomic insert for ${target} scraped job "${currentId}" could not be confirmed.`
           );
@@ -1679,6 +1755,7 @@ export class JobRepository {
         }
         return normalized;
       } catch (err: any) {
+        try { await registryColl.deleteOne({ _id: currentId }); } catch {}
         if (isMongoDuplicateKeyError(err)) {
           lastCollisionErr = err;
           if (attempt < maxRetries) {

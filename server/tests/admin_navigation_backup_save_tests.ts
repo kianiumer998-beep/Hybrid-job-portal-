@@ -1397,6 +1397,22 @@ async function runSuite() {
     assert.ok(pricingController.includes('backward compatibility'));
   });
 
+  await runTest('Campaign fee waiver is Finance-only in UI and enforced server-side', () => {
+    const campaignOps = fs.readFileSync(path.resolve(process.cwd(), 'src/components/admin/AdminCampaignCenter.tsx'), 'utf8');
+    assert.ok(campaignOps.includes('canWaiveCampaignFee && <button'));
+    assert.ok(campaignOps.includes('if (!canWaiveCampaignFee) return;'));
+    assert.ok(campaignOps.includes('canManageCampaignOperations && <button'));
+
+    const dashboard = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'), 'utf8');
+    assert.ok(dashboard.includes("canWaiveCampaignFee={hasAdminUiPermission('finance.manage')}"));
+    assert.ok(dashboard.includes("return hasPerm('advertisements.manage') || hasPerm('finance.manage');"));
+
+    const adRoutes = fs.readFileSync(path.resolve(process.cwd(), 'server/routes/adRoutes.ts'), 'utf8');
+    assert.ok(adRoutes.includes("const financeFields = ['paymentStatus', 'campaignCostPkr', 'budget', 'walletTxId', 'paymentTransactionId', 'transactionRef'];"));
+    assert.ok(adRoutes.includes('changedFinanceFields.length > 0 && !canManageFinance'));
+    assert.ok(adRoutes.includes('changedNonFinanceFields.length > 0 && !canManageAds'));
+  });
+
   await runTest('Classic Parity Restoration: preserves 7 categories and exposes all 32 canonical modules through the existing Classic menu', () => {
     const expectedClassicOrder: Record<AdminCategory, string[]> = {
       jobs: ['jobs', 'pending', 'add-job', 'ai-enhancer'],

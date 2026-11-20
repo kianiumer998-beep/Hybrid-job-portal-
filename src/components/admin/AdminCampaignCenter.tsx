@@ -35,7 +35,7 @@ import {
 interface AdminCampaignCenterProps {
   ads: Advertisement[];
   campaignConfig: CampaignCustomizationConfig;
-  onUpdateCampaignConfig: (newConfig: CampaignCustomizationConfig) => void;
+  onUpdateCampaignConfig: (newConfig: CampaignCustomizationConfig) => void | Promise<unknown>;
   onUpdateAd: (updatedAd: Advertisement) => void;
   onDeleteAd: (adId: string) => void;
   onResetAdMetrics: (adId: string) => void;
@@ -92,14 +92,19 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
   const [editEndDate, setEditEndDate] = useState<string>('');
 
   // Placement Toggles
-  const handleTogglePlacement = (placementId: AdPlacement) => {
+  const handleTogglePlacement = async (placementId: AdPlacement) => {
     const updatedOptions = campaignConfig.placementOptions.map((opt) =>
       opt.id === placementId ? { ...opt, isEnabled: !opt.isEnabled } : opt
     );
-    onUpdateCampaignConfig({
-      ...campaignConfig,
-      placementOptions: updatedOptions
-    });
+    try {
+      await onUpdateCampaignConfig({
+        ...campaignConfig,
+        placementOptions: updatedOptions
+      });
+    } catch (error: any) {
+      console.error('[AdminCampaignCenter] Placement setting save failed:', error);
+      alert(error?.message || 'Placement setting could not be saved. Please try again.');
+    }
   };
 
   // Quick Action Handlers

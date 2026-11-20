@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   MapPin, 
   Building2, 
@@ -23,11 +23,76 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { Job } from '../types/job';
-import { Advertisement, FeedInlineAdSettings, BannerDimensionSettings, FeedCardAppearanceSettings } from '../types/ad';
+import { Advertisement, FeedInlineAdSettings, BannerDimensionSettings, FeedCardAppearanceSettings, isAdCurrentlyRunning } from '../types/ad';
 import { sanitizeJobTitle, sanitizeJobCompanyName, sanitizeJobTags } from '../utils/jobSanitizer';
 import { InlineFeedAd } from './ads/InlineFeedAd';
 
-import { JobCardDesignConfig } from '../types/landing';
+import { JobCardDesignConfig, JOB_CARD_ACCENT_STYLES, getJobCardAccentColor } from '../types/landing';
+
+
+const parseJobCardDate = (value?: string, endOfDay = false): Date | null => {
+  if (!value || typeof value !== 'string') return null;
+  const clean = value.trim();
+  if (!clean) return null;
+  const dmy = clean.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]) - 1;
+    const year = Number(dmy[3]);
+    const parsed = new Date(year, month, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0);
+    if (parsed.getFullYear() === year && parsed.getMonth() === month && parsed.getDate() === day) return parsed;
+    return null;
+  }
+  const dateOnly = clean.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    const year = Number(dateOnly[1]);
+    const month = Number(dateOnly[2]) - 1;
+    const day = Number(dateOnly[3]);
+    const parsed = new Date(year, month, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0);
+    if (parsed.getFullYear() !== year || parsed.getMonth() !== month || parsed.getDate() !== day) return null;
+    return parsed;
+  }
+  const parsed = new Date(clean);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const formatJobCardDate = (value?: string): string => {
+  const date = parseJobCardDate(value);
+  return date ? new Intl.DateTimeFormat('en-PK', { day: 'numeric', month: 'long', year: 'numeric' }).format(date) : '';
+};
+
+const getRelativeJobTime = (value: string | undefined, now: number): string => {
+  const date = parseJobCardDate(value);
+  if (!date) return '';
+  const elapsed = now - date.getTime();
+  if (elapsed < 0) return '';
+  const diff = elapsed;
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} month${months === 1 ? '' : 's'} ago`;
+  const years = Math.floor(months / 12);
+  return `${years} year${years === 1 ? '' : 's'} ago`;
+};
+
+const getDeadlineRemaining = (value: string | undefined, now: number): string => {
+  const date = parseJobCardDate(value, true);
+  if (!date) return '';
+  const remaining = date.getTime() - now;
+  if (remaining <= 0) return 'Deadline passed';
+  const totalHours = Math.floor(remaining / 3600000);
+  const days = Math.floor(totalHours / 24);
+  if (days > 0) return `${days} day${days === 1 ? '' : 's'} left`;
+  const hours = totalHours;
+  if (hours > 0) return `${hours} hour${hours === 1 ? '' : 's'} left`;
+  const minutes = Math.max(1, Math.floor(remaining / 60000));
+  return `${minutes} minute${minutes === 1 ? '' : 's'} left`;
+};
 
 interface JobListingsProps {
   jobs: Job[];
@@ -74,6 +139,12 @@ export const JobListings: React.FC<JobListingsProps> = ({
   const [internalPage, setInternalPage] = useState<number>(1);
   const [internalPostsPerPage, setInternalPostsPerPage] = useState<number>(10);
   const [jumpPageInput, setJumpPageInput] = useState<string>('');
+  const [clockNow, setClockNow] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockNow(Date.now()), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const currentPage = controlledPage !== undefined ? controlledPage : internalPage;
   const postsPerPage = controlledPostsPerPage !== undefined ? controlledPostsPerPage : internalPostsPerPage;
@@ -86,14 +157,17 @@ export const JobListings: React.FC<JobListingsProps> = ({
       title: true, company: true, location: true, postedDate: true, description: true,
       tags: true, salary: true, jobType: true, govtBadge: true, featuredBadge: true,
       urgentBadge: true, newspaperBadge: true, pdfBadge: true, futureBadge: true,
-      vipBadge: true, pinnedBadge: true, saveButton: true,
+      vipBadge: true, pinnedBadge: true, poster: true, relativePostedTime: true,
+      exactPostedDate: true, deadlineDate: true, deadlineRemaining: true,
+      duplicateOverrideBadge: true, saveButton: true,
       detailsButton: true, applyButton: true
     },
     labels: { saveButton: 'Save', detailsButton: 'Details', applyButton: 'Apply', cardHeading: '' },
     limits: { descriptionMaxWords: 25, maxTags: 4 }
   };
 
-  const accentColor = design.theme.accentColor || 'emerald';
+  const accentColor = getJobCardAccentColor(design.theme.accentColor);
+  const accentStyles = JOB_CARD_ACCENT_STYLES[accentColor];
 
   // STEP66-B.1: Separate Priority Jobs and Standard Jobs
   const priorityList = React.useMemo(() => {
@@ -167,6 +241,17 @@ export const JobListings: React.FC<JobListingsProps> = ({
     const cleanCompany = sanitizeJobCompanyName(job.company);
     const cleanTags = sanitizeJobTags(job.tags);
 
+    const postedTimeSource = (job.postedAt && parseJobCardDate(job.postedAt) ? job.postedAt : job.createdAt) || '';
+    const relativePostedTime = getRelativeJobTime(postedTimeSource, clockNow);
+    const exactPostedDate = formatJobCardDate(postedTimeSource);
+    const deadlineDisplayDate = formatJobCardDate(job.deadlineDate);
+    const deadlineRemaining = getDeadlineRemaining(job.deadlineDate, clockNow);
+    const posterLabel = job.sourceType === 'admin_created' || job.isAdminCreated
+      ? 'Admin'
+      : job.sourceType === 'scraped' || job.isScraped
+        ? (job.scraperSourceName || 'Scraper source')
+        : 'Employer';
+
     const activeTier = (job as any).activePriorityTier || (job.priorityTier === 'vip_bundle' ? 'vip' : (job.isPinnedTop ? 'pinned' : (job.featured ? 'featured' : (job.urgent ? 'urgent' : 'standard'))));
 
     let cardBgStyle = 'bg-slate-900/90 border border-slate-800/90 hover:border-emerald-500/50 hover:shadow-emerald-500/10';
@@ -204,9 +289,9 @@ export const JobListings: React.FC<JobListingsProps> = ({
   const densityPadding = design.theme.density === 'compact' ? 'p-2 sm:p-3.5' : design.theme.density === 'spacious' ? 'p-4 sm:p-7' : 'p-2 sm:p-5';
     
     if (design.theme.cardBgPreset === 'glass') {
-      cardBgStyle = `bg-slate-950/40 backdrop-blur-md border border-white/10 hover:border-${accentColor}-500/50`;
+      cardBgStyle = `bg-slate-950/40 backdrop-blur-md border border-white/10 ${accentStyles.hoverBorder}`;
     } else if (design.theme.cardBgPreset === 'gradient' && !tierBadgeText) {
-      cardBgStyle = `bg-gradient-to-br from-slate-900 via-slate-900 to-${accentColor}-950/30 border border-slate-800 hover:border-${accentColor}-500/50`;
+      cardBgStyle = `bg-gradient-to-br from-slate-900 via-slate-900 ${accentStyles.gradientEnd} border border-slate-800 ${accentStyles.hoverBorder}`;
     }
 
     const description = job.description || '';
@@ -267,6 +352,15 @@ export const JobListings: React.FC<JobListingsProps> = ({
                              </span>
                         )}
                     </div>
+                    {(design.visibility.poster !== false || design.visibility.relativePostedTime !== false || design.visibility.exactPostedDate !== false || design.visibility.deadlineDate !== false || design.visibility.deadlineRemaining !== false) && (
+                      <div className="flex flex-wrap gap-x-2 gap-y-1 text-[9px] sm:text-[10px] text-slate-500">
+                        {design.visibility.poster !== false && <span>Posted by: {posterLabel}</span>}
+                        {design.visibility.relativePostedTime !== false && relativePostedTime && <span>{relativePostedTime}</span>}
+                        {design.visibility.exactPostedDate !== false && design.visibility.postedDate === false && exactPostedDate && <span>{exactPostedDate}</span>}
+                        {design.visibility.deadlineDate !== false && deadlineDisplayDate && <span>Deadline: {deadlineDisplayDate}</span>}
+                        {design.visibility.deadlineRemaining !== false && deadlineRemaining && <span className={deadlineRemaining === 'Deadline passed' ? 'text-rose-400' : 'text-amber-400'}>{deadlineRemaining}</span>}
+                      </div>
+                    )}
 
                     {/* Status Badges in Compact */}
                     <div className="flex flex-wrap gap-1">
@@ -275,6 +369,9 @@ export const JobListings: React.FC<JobListingsProps> = ({
                         )}
                         {(design.visibility.pinnedBadge !== false) && (activeTier === 'pinned' || job.isPinnedTop || job.priorityTier === 'featured_top') && (
                           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/40">Pinned</span>
+                        )}
+                        {design.visibility.duplicateOverrideBadge !== false && job.isDuplicateOverride && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/40">Override</span>
                         )}
                         {design.visibility.govtBadge && job.isGovtJob && (
                           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">Govt</span>
@@ -324,7 +421,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                        {design.visibility.applyButton && (
                             <button 
                                 onClick={() => onApplyClick(job)}
-                                className={`px-3 py-1.5 rounded-lg bg-${accentColor}-500 text-slate-950 text-[10px] font-black hover:bg-${accentColor}-400 transition-colors`}
+                                className={`px-3 py-1.5 rounded-lg ${accentStyles.solidBg} text-slate-950 text-[10px] font-black ${accentStyles.solidHover} transition-colors`}
                             >
                                 {design.labels.applyButton || 'Apply'}
                             </button>
@@ -371,7 +468,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                   <span>Newspaper ({job.newspaperName})</span>
                 </span>
               )}
-              {job.isDuplicateOverride && (
+              {design.visibility.duplicateOverrideBadge !== false && job.isDuplicateOverride && (
                 <span className="text-[9px] sm:text-xs font-bold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded bg-red-500/20 text-red-300 border border-red-500/40 flex items-center space-x-1">
                   <Shield className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-red-400" />
                   <span>Override: {job.duplicateOverrideNote || 'Active'}</span>
@@ -414,7 +511,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                 onClick={() => onToggleSaveJob(job.id)}
                 className={`p-1 sm:p-2 rounded-lg sm:rounded-xl transition-all shrink-0 cursor-pointer ${
                     isSaved
-                    ? `bg-${accentColor}-500 text-slate-950 font-bold`
+                    ? `${accentStyles.solidBg} text-slate-950 font-bold`
                     : 'bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-700'
                 }`}
                 title={isSaved ? 'Remove from Saved Jobs' : 'Save Job'}
@@ -457,6 +554,15 @@ export const JobListings: React.FC<JobListingsProps> = ({
                 </>
             )}
           </div>
+          {(design.visibility.poster !== false || design.visibility.relativePostedTime !== false || design.visibility.exactPostedDate !== false || design.visibility.deadlineDate !== false || design.visibility.deadlineRemaining !== false) && (
+            <div className="flex flex-wrap gap-x-2 gap-y-1 text-[10px] text-slate-500 mb-2">
+              {design.visibility.poster !== false && <span>Posted by: {posterLabel}</span>}
+              {design.visibility.relativePostedTime !== false && relativePostedTime && <span>{relativePostedTime}</span>}
+              {design.visibility.exactPostedDate !== false && design.visibility.postedDate === false && exactPostedDate && <span>{exactPostedDate}</span>}
+              {design.visibility.deadlineDate !== false && deadlineDisplayDate && <span>Deadline: {deadlineDisplayDate}</span>}
+              {design.visibility.deadlineRemaining !== false && deadlineRemaining && <span className={deadlineRemaining === 'Deadline passed' ? 'text-rose-400' : 'text-amber-400'}>{deadlineRemaining}</span>}
+            </div>
+          )}
           {design.visibility.description && description && (
             <p className="text-xs text-slate-400 line-clamp-2 mb-3">
                 {shortDesc}
@@ -477,7 +583,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
             {design.visibility.salary && (
                 <>
                     <span className="text-[8px] sm:text-[10px] uppercase font-semibold text-slate-500 block truncate">Salary</span>
-                    <span className={`text-[11px] sm:text-sm font-bold text-${accentColor}-400 truncate block`}>{job.salary}</span>
+                    <span className={`text-[11px] sm:text-sm font-bold ${accentStyles.text} truncate block`}>{job.salary}</span>
                 </>
             )}
           </div>
@@ -493,7 +599,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
             {design.visibility.applyButton && (
                 <button
                     onClick={() => onApplyClick(job)}
-                    className={`px-2.5 sm:px-4 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-gradient-to-r from-${accentColor}-500 to-teal-600 hover:from-${accentColor}-400 hover:to-teal-500 text-slate-950 font-extrabold text-[10px] sm:text-xs shadow-md shadow-${accentColor}-500/20 flex items-center space-x-1 sm:space-x-1.5 active:scale-95 transition-all cursor-pointer`}
+                    className={`px-2.5 sm:px-4 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-gradient-to-r ${accentStyles.gradientFrom} to-teal-600 ${accentStyles.gradientHoverFrom} hover:to-teal-500 text-slate-950 font-extrabold text-[10px] sm:text-xs shadow-md ${accentStyles.shadow} flex items-center space-x-1 sm:space-x-1.5 active:scale-95 transition-all cursor-pointer`}
                 >
                     <Send className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 text-slate-950" />
                     <span>{design.labels.applyButton || 'Apply'}</span>
@@ -556,7 +662,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-6">
         {(() => {
           const eligibleAds = (ads || []).filter(
-            (a) => a.placement === 'feed-inline' && a.status === 'active' && (a.approvalStatus === 'Approved' || !a.approvalStatus)
+            (a) => a.placement === 'feed-inline' && isAdCurrentlyRunning(a)
           );
           const activeAdsList = eligibleAds;
 
@@ -640,7 +746,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                     onClick={() => handlePageSelect(pageNum)}
                     className={`min-w-[32px] sm:min-w-[36px] h-8 sm:h-9 px-1.5 sm:px-2 rounded-lg sm:rounded-xl text-xs font-bold transition-all cursor-pointer ${
                       pageNum === safePage
-                        ? `bg-${accentColor}-500 text-slate-950 shadow-lg scale-105 font-black ring-2 ring-${accentColor}-400/40`
+                        ? `${accentStyles.solidBg} text-slate-950 shadow-lg scale-105 font-black ring-2 ${accentStyles.ring}`
                         : 'bg-slate-950 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800'
                     }`}
                   >

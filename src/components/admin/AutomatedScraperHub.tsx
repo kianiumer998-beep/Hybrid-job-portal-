@@ -355,12 +355,15 @@ export interface ScraperSourceStat {
   pagesAttempted?: number;
   pagesSuccessful?: number;
   failed?: boolean;
+  /** Additive outcome category; legacy failed/error fields remain unchanged. */
+  failureCategory?: 'No Jobs Found' | 'Website Unavailable' | 'Extraction Failed' | 'Document Failed' | 'Incomplete Extraction' | 'Duplicate Skipped' | 'Database Save Failed' | 'Database Error' | 'Success' | string;
   error?: string;
   lastSuccessfulScrapeAt?: string;
 }
 
 export interface ScraperRunRecord {
   id?: string;
+  recordType?: string;
   runId: string;
   batchId?: string;
   timestamp?: string;
@@ -636,6 +639,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   // Live Backend State (Strict MongoDB-backed data)
   const [liveSources, setLiveSources] = useState<ScraperSourceItem[]>([]);
   const [liveRuns, setLiveRuns] = useState<ScraperRunRecord[]>([]);
+  const [runHistoryHasMore, setRunHistoryHasMore] = useState(false);
+  const [runHistoryCursor, setRunHistoryCursor] = useState<string | null>(null);
+  const [runHistoryTotal, setRunHistoryTotal] = useState(0);
+  const [isLoadingMoreRuns, setIsLoadingMoreRuns] = useState(false);
   const [schedulerStatus, setSchedulerStatus] = useState<any>(null);
   const [isLoadingLive, setIsLoadingLive] = useState(true);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -647,6 +654,9 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [regionFilter, setRegionFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | '7days' | '30days'>('all');
+  const [historyBatchFilter, setHistoryBatchFilter] = useState<string>('all');
+  const [historySourceFilter, setHistorySourceFilter] = useState<string>('all');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'Completed' | 'Partial' | 'Failed' | 'Stopped'>('all');
   const [resultsTypeFilter, setResultsTypeFilter] = useState<'all' | 'Approved' | 'Pending' | 'Duplicate' | 'Error'>('all');
   const [reviewTypeFilter, setReviewTypeFilter] = useState<'all' | 'pending' | 'duplicate' | 'conflict'>('all');
 
@@ -777,12 +787,18 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         setLiveSources(propsSources);
       }
 
-      // 2. Fetch Runs
-      const runsRes = await api.scraper.getRuns();
+      // 2. Fetch the first bounded page of run history.
+      const runsRes = await api.scraper.getRunsPage(0, 50);
       if (runsRes?.success && Array.isArray(runsRes.runs)) {
         setLiveRuns(runsRes.runs);
+        setRunHistoryHasMore(Boolean(runsRes.hasMore));
+        setRunHistoryCursor(typeof runsRes.nextCursor === 'string' ? runsRes.nextCursor : null);
+        setRunHistoryTotal(Number.isFinite(Number(runsRes.total)) ? Number(runsRes.total) : runsRes.runs.length);
       } else {
         setLiveRuns([]);
+        setRunHistoryHasMore(false);
+        setRunHistoryCursor(null);
+        setRunHistoryTotal(0);
       }
 
       // 3. Fetch Scheduler Status & Authoritative Settings
@@ -876,7 +892,22 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     let totalDuplicates = 0;
     let totalErrors = 0;
 
-    liveRuns.forEach(r => {
+    // A scheduled batch summary aggregates its source-level child runs.
+    // Count the parent once, not both parent and children; keep standalone manual
+    // runs and scheduler diagnostics in the metrics.
+    const summarizedBatchIds = new Set(
+      liveRuns
+        .filter(run => run.recordType === 'batch_summary' && run.batchId)
+        .map(run => String(run.batchId))
+    );
+    const metricRuns = liveRuns.filter(run =>
+      run.recordType === 'batch_summary' ||
+      run.recordType === 'scheduler_diagnostic' ||
+      !run.batchId ||
+      !summarizedBatchIds.has(String(run.batchId))
+    );
+
+    metricRuns.forEach(r => {
       totalFound += r.totalFound || 0;
       totalApproved += r.newPublished ?? r.approvedCount ?? r.jobsAccepted ?? 0;
       totalDuplicates += r.duplicatesFlagged ?? r.totalDuplicates ?? 0;
@@ -1038,30 +1069,85 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   // -------------------------------------------------------------
   // Filtered Runs for Step 5: History
   // -------------------------------------------------------------
+  const handleLoadMoreRuns = useCallback(async () => {
+    if (isLoadingMoreRuns || !runHistoryHasMore || !runHistoryCursor) return;
+    setIsLoadingMoreRuns(true);
+    try {
+      const response = await api.scraper.getRunsPage(0, 50, runHistoryCursor);
+      if (response?.success && Array.isArray(response.runs)) {
+        setLiveRuns(previous => {
+          const existingIds = new Set(previous.map(run => run.runId || run.id).filter(Boolean));
+          const additions = response.runs.filter((run: ScraperRunRecord) => !existingIds.has(run.runId || run.id));
+          return [...previous, ...additions];
+        });
+        setRunHistoryHasMore(Boolean(response.hasMore));
+        setRunHistoryCursor(typeof response.nextCursor === 'string' ? response.nextCursor : null);
+        setRunHistoryTotal(Number.isFinite(Number(response.total)) ? Number(response.total) : runHistoryTotal);
+      } else {
+        setStatusMessage({ text: response?.message || 'Unable to load more scraper history.', type: 'error' });
+      }
+    } catch (error: any) {
+      setStatusMessage({ text: error?.message || 'Unable to load more scraper history.', type: 'error' });
+    } finally {
+      setIsLoadingMoreRuns(false);
+    }
+  }, [isLoadingMoreRuns, runHistoryHasMore, runHistoryCursor, runHistoryTotal]);
+
+  const availableHistoryBatchIds = useMemo(() => {
+    return Array.from(new Set(liveRuns.map(run => String(run.batchId || '').trim()).filter(Boolean)))
+      .sort((a, b) => b.localeCompare(a));
+  }, [liveRuns]);
+
+  const availableHistorySources = useMemo(() => {
+    const byId = new Map<string, string>();
+    liveRuns.forEach(run => {
+      (run.sourcesStats || []).forEach(source => {
+        if (source.sourceId) byId.set(source.sourceId, source.sourceName || source.sourceId);
+      });
+      if (run.sourceId) byId.set(run.sourceId, run.sourceId);
+    });
+    return Array.from(byId.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [liveRuns]);
+
   const filteredRuns = useMemo(() => {
     return liveRuns.filter(run => {
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const runIdMatch = (run.runId || run.id || '').toLowerCase().includes(q);
+        const batchIdMatch = String(run.batchId || '').toLowerCase().includes(q);
         const msgMatch = (run.message || '').toLowerCase().includes(q);
-        if (!runIdMatch && !msgMatch) return false;
+        if (!runIdMatch && !batchIdMatch && !msgMatch) return false;
       }
+
+      if (historyBatchFilter !== 'all' && run.batchId !== historyBatchFilter) return false;
+      if (historySourceFilter !== 'all') {
+        const sourceMatches =
+          run.sourceId === historySourceFilter ||
+          (Array.isArray(run.sourceIds) && run.sourceIds.includes(historySourceFilter)) ||
+          (run.sourcesStats || []).some(source => source.sourceId === historySourceFilter);
+        if (!sourceMatches) return false;
+      }
+      if (historyStatusFilter !== 'all' && deriveRunStatus(run) !== historyStatusFilter) return false;
 
       if (dateFilter !== 'all') {
         const runTime = run.startedAt || run.timestamp;
-        if (runTime) {
-          const runDate = new Date(runTime);
-          const now = new Date();
-          const diffHours = (now.getTime() - runDate.getTime()) / (1000 * 60 * 60);
-          if (dateFilter === 'today' && diffHours > 24) return false;
-          if (dateFilter === '7days' && diffHours > 24 * 7) return false;
-          if (dateFilter === '30days' && diffHours > 24 * 30) return false;
+        const timestamp = runTime ? new Date(runTime).getTime() : NaN;
+        if (!Number.isFinite(timestamp)) return false;
+        if (dateFilter === 'today') {
+          const dateKey = (value: Date) => value.toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+          if (dateKey(new Date(timestamp)) !== dateKey(new Date())) return false;
+        } else {
+          const days = dateFilter === '7days' ? 7 : 30;
+          const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+          if (timestamp < cutoff || timestamp > Date.now()) return false;
         }
       }
 
       return true;
     });
-  }, [liveRuns, searchQuery, dateFilter]);
+  }, [liveRuns, searchQuery, dateFilter, historyBatchFilter, historySourceFilter, historyStatusFilter]);
 
   // -------------------------------------------------------------
   // Review Queue Items (Pending jobs & duplicate warnings from MongoDB)
@@ -2089,9 +2175,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       return;
     }
 
-    const headers = ['Run ID', 'Date', 'Total Found', 'Approved', 'Pending', 'Duplicates', 'Errors', 'Status', 'Message'];
+    const headers = ['Run ID', 'Batch ID', 'Date', 'Total Found', 'Approved', 'Pending', 'Duplicates', 'Errors', 'Status', 'Message'];
     const rows = filteredRuns.map(r => [
       r.runId || r.id,
+      r.batchId || '',
       r.startedAt || r.timestamp || '',
       r.totalFound || 0,
       r.approvedCount || r.jobsAccepted || r.newPublished || 0,
@@ -2180,13 +2267,15 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   // -------------------------------------------------------------
   // STEP DEFINITIONS (Ordered strictly Step 1 through Step 6)
   // -------------------------------------------------------------
+  // Professional Mode keeps the original six navigation IDs and their existing panels intact.
+  // Labels are clearer, but no legacy section or workflow is removed or replaced.
   const STEPS: { id: ScraperStep; stepNumber: string; label: string; sub: string; icon: any; count?: number | null }[] = [
-    { id: 'overview', stepNumber: '1. Overview', label: 'Overview', sub: 'Scheduler & Metrics', icon: BarChart2, count: null },
-    { id: 'sources', stepNumber: '2. Sources', label: 'Sources', sub: 'All sources in 1 table', icon: Globe, count: sourcesList.length },
-    { id: 'run', stepNumber: '3. Run Scraper', label: 'Run Scraper', sub: 'Run All / Selected / Now', icon: Play, count: null },
-    { id: 'history', stepNumber: '4. History', label: 'History', sub: 'Real backend scraper runs', icon: Clock, count: liveRuns.length || null },
+    { id: 'overview', stepNumber: '1. Overview', label: 'Overview', sub: 'Live status & metrics', icon: BarChart2, count: null },
+    { id: 'sources', stepNumber: '2. Sources', label: 'Source Management', sub: 'All configured portals', icon: Globe, count: sourcesList.length },
+    { id: 'run', stepNumber: '3. Run & Recovery', label: 'Run Scraper', sub: 'Run all, selected or retry', icon: Play, count: null },
+    { id: 'history', stepNumber: '4. Batch History', label: 'History & Reports', sub: 'Runs, batches & results', icon: Clock, count: liveRuns.length || null },
     { id: 'review', stepNumber: '5. Duplicates & Review', label: 'Duplicates & Review', sub: 'Pending & duplicate jobs', icon: CheckCircle2, count: (pendingTotal ?? pendingJobs.length) || null },
-    { id: 'settings', stepNumber: '6. Settings', label: 'Settings', sub: 'Interval, depth, rules', icon: Settings, count: null }
+    { id: 'settings', stepNumber: '6. Configuration', label: 'Settings', sub: 'Scheduler, intervals & rules', icon: Settings, count: null }
   ];
 
   return (
@@ -2200,13 +2289,13 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h2 className="text-xl font-black text-white">Scraper Center</h2>
+                <h2 className="text-xl font-black text-white">Professional Scraper Mode</h2>
                 <span className="px-2 py-0.5 rounded-full text-[11px] font-black bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                  Step-by-Step Flow
+                  Legacy 6 Sections Preserved
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Manage job sources, run scrapers, inspect results, and review pending jobs.
+                Professional navigation for existing scraper tools, source management, recovery, history and settings. Existing workflows remain available.
               </p>
             </div>
           </div>
@@ -4609,6 +4698,40 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   {d === 'all' ? 'All Time' : d === 'today' ? 'Today' : d === '7days' ? 'Past 7 Days' : 'Past 30 Days'}
                 </button>
               ))}
+              <select
+                value={historySourceFilter}
+                onChange={(e) => setHistorySourceFilter(e.target.value)}
+                aria-label="Filter scraper history by source"
+                className="px-3 py-1.5 bg-slate-950 text-slate-200 border border-slate-800 rounded-xl text-xs font-bold"
+              >
+                <option value="all">All Sources ({availableHistorySources.length})</option>
+                {availableHistorySources.map(source => (
+                  <option key={source.id} value={source.id}>{source.name}</option>
+                ))}
+              </select>
+              <select
+                value={historyStatusFilter}
+                onChange={(e) => setHistoryStatusFilter(e.target.value as any)}
+                aria-label="Filter scraper history by status"
+                className="px-3 py-1.5 bg-slate-950 text-slate-200 border border-slate-800 rounded-xl text-xs font-bold"
+              >
+                <option value="all">All Statuses</option>
+                <option value="Completed">Completed</option>
+                <option value="Partial">Partial</option>
+                <option value="Failed">Failed</option>
+                <option value="Stopped">Stopped</option>
+              </select>
+              <select
+                value={historyBatchFilter}
+                onChange={(e) => setHistoryBatchFilter(e.target.value)}
+                aria-label="Filter scraper history by batch"
+                className="px-3 py-1.5 bg-slate-950 text-slate-200 border border-slate-800 rounded-xl text-xs font-bold"
+              >
+                <option value="all">All Batches ({availableHistoryBatchIds.length})</option>
+                {availableHistoryBatchIds.map(batchId => (
+                  <option key={batchId} value={batchId}>{batchId}</option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -4628,6 +4751,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   <thead className="bg-slate-950/80 text-slate-400 font-bold border-b border-slate-800">
                     <tr>
                       <th className="p-4">Run ID</th>
+                      <th className="p-4">Batch ID</th>
                       <th className="p-4">Started At</th>
                       <th className="p-4 text-center">Found</th>
                       <th className="p-4 text-center">Approved</th>
@@ -4640,7 +4764,13 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     {filteredRuns.map(run => (
                       <tr key={run.runId || run.id} className="hover:bg-slate-800/40 transition-all">
                         <td className="p-4 font-mono font-bold text-white">
-                          {run.runId || run.id}
+                          <div>{run.runId || run.id}</div>
+                          {run.recordType === 'batch_summary' && (
+                            <span className="mt-1 inline-block rounded bg-indigo-500/15 px-1.5 py-0.5 text-[9px] font-bold text-indigo-300">BATCH SUMMARY</span>
+                          )}
+                        </td>
+                        <td className="p-4 font-mono text-[10px] text-indigo-300">
+                          {run.batchId || 'Legacy / Not recorded'}
                         </td>
                         <td className="p-4 text-slate-400">
                           {run.startedAt ? new Date(run.startedAt).toLocaleString() : run.timestamp || 'Recent'}
@@ -4688,6 +4818,19 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   </tbody>
                 </table>
               </div>
+            )}
+          </div>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
+            <span>Loaded {liveRuns.length} of {runHistoryTotal} recorded runs</span>
+            {runHistoryHasMore && (
+              <button
+                type="button"
+                onClick={handleLoadMoreRuns}
+                disabled={isLoadingMoreRuns}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-100 rounded-xl font-bold"
+              >
+                {isLoadingMoreRuns ? 'Loading…' : 'Load More History'}
+              </button>
             )}
           </div>
         </div>
@@ -5450,6 +5593,11 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                           <tbody className="divide-y divide-slate-800/60 text-slate-300">
                             {statsList.map((st, sIdx) => {
                               const isFailed = Boolean(st.failed);
+                              const outcomeLabel = st.failureCategory || (isFailed ? 'Failed' : 'Success');
+                              const isWarningOutcome = Boolean(
+                                st.failureCategory &&
+                                !['Success', 'No Jobs Found', 'Duplicate Skipped'].includes(st.failureCategory)
+                              );
 
                               return (
                                 <tr key={st.sourceId || sIdx} className="hover:bg-slate-800/30 transition-all">
@@ -5475,10 +5623,12 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                                       className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                         isFailed
                                           ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                                          : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                          : isWarningOutcome || outcomeLabel === 'No Jobs Found' || outcomeLabel === 'Duplicate Skipped'
+                                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                            : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                                       }`}
                                     >
-                                      {isFailed ? 'Failed' : 'Success'}
+                                      {outcomeLabel}
                                     </span>
                                   </td>
 

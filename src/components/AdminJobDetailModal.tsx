@@ -451,6 +451,19 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
   const feeLog = (feeLogs || []).find(
     f => f && f.jobTitle && (f.jobTitle.toLowerCase() === (job.title || '').toLowerCase() || f.userId === posterUser.id)
   );
+  const hasExtractionInspectorData = isScraped || Boolean(
+    job.applicationStartDate || job.deadlineDate || job.expiryDate || job.applicationUrl ||
+    job.originalApplyUrl || job.sourceUrl || job.pdfSourceUrl || job.extractionSourceType || job.extractionMethod || job.scraperBatchId
+  );
+  const isSafeHttpUrl = (value?: string): boolean => {
+    if (!value || typeof value !== 'string') return false;
+    try {
+      const parsed = new URL(value.trim());
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md overflow-y-auto">
@@ -789,8 +802,110 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
             </div>
           </div>
 
+          {/* EXTRACTION INSPECTOR: READ-ONLY SOURCE VALUES */}
+          {hasExtractionInspectorData && (
+            <div className="p-4 bg-slate-950 rounded-xl border border-cyan-500/30 space-y-3 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                <h4 className="font-bold uppercase text-cyan-300 flex items-center space-x-1.5">
+                  <Search className="w-4 h-4 text-cyan-400" />
+                  <span>Extraction Inspector</span>
+                </h4>
+                <span className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-300 font-bold">
+                  READ ONLY
+                </span>
+              </div>
+              <p className="text-slate-400 leading-relaxed">
+                Values shown below are the values currently stored on this job. Missing dates or links are not guessed or generated. Use the existing Edit Job Details action if a correction is required.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {[
+                  { label: 'Application Start Date', value: job.applicationStartDate },
+                  { label: 'Application Deadline', value: job.deadlineDate },
+                  { label: 'Job Expiry Date', value: job.expiryDate }
+                ].map(field => (
+                  <div key={field.label} className="bg-slate-900 p-3 rounded-lg border border-slate-800 min-w-0">
+                    <span className="text-slate-400 block text-[10px] font-bold uppercase">{field.label}</span>
+                    <span className={field.value ? 'text-white font-semibold break-words' : 'text-slate-500 italic'}>
+                      {field.value || 'No value recorded'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="bg-slate-900 p-3 rounded-lg border border-slate-800 min-w-0">
+                  <span className="text-slate-400 block text-[10px] font-bold uppercase mb-1">Application URL (User-Facing)</span>
+                  {isSafeHttpUrl(job.applicationUrl) ? (
+                    <a href={job.applicationUrl} target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:underline break-all">
+                      {job.applicationUrl}
+                    </a>
+                  ) : (
+                    <span className="text-slate-500 italic break-all">
+                      {job.applicationUrl ? 'Stored value is not a valid HTTP/HTTPS link' : 'No value recorded'}
+                    </span>
+                  )}
+                </div>
+                <div className="bg-slate-900 p-3 rounded-lg border border-slate-800 min-w-0">
+                  <span className="text-slate-400 block text-[10px] font-bold uppercase mb-1">Original Apply URL (Admin-Only)</span>
+                  {isSafeHttpUrl(job.originalApplyUrl) ? (
+                    <a href={job.originalApplyUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300 hover:underline break-all">
+                      {job.originalApplyUrl}
+                    </a>
+                  ) : (
+                    <span className="text-slate-500 italic break-all">
+                      {job.originalApplyUrl ? 'Stored value is not a valid HTTP/HTTPS link' : 'No value recorded'}
+                    </span>
+                  )}
+                </div>
+                <div className="bg-slate-900 p-3 rounded-lg border border-slate-800 min-w-0">
+                  <span className="text-slate-400 block text-[10px] font-bold uppercase mb-1">Source Listing URL</span>
+                  {isSafeHttpUrl(job.sourceUrl) ? (
+                    <a href={job.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300 hover:underline break-all">
+                      {job.sourceUrl}
+                    </a>
+                  ) : (
+                    <span className="text-slate-500 italic break-all">
+                      {job.sourceUrl ? 'Stored value is not a valid HTTP/HTTPS link' : 'No value recorded'}
+                    </span>
+                  )}
+                </div>
+                <div className="bg-slate-900 p-3 rounded-lg border border-slate-800 min-w-0">
+                  <span className="text-slate-400 block text-[10px] font-bold uppercase mb-1">Source Document URL</span>
+                  {isSafeHttpUrl(job.pdfSourceUrl) ? (
+                    <a href={job.pdfSourceUrl} target="_blank" rel="noopener noreferrer" className="text-rose-300 hover:underline break-all">
+                      {job.pdfSourceUrl}
+                    </a>
+                  ) : (
+                    <span className="text-slate-500 italic break-all">
+                      {job.pdfSourceUrl ? 'Stored value is not a valid HTTP/HTTPS link' : 'No value recorded'}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                <div className="text-slate-400">
+                  Source: <strong className="text-slate-200">{job.sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || 'Not recorded'}</strong>
+                </div>
+                <div className="text-slate-400">
+                  Extraction Type: <strong className="text-slate-200">{job.extractionSourceType || 'Not recorded'}</strong>
+                </div>
+                <div className="text-slate-400">
+                  Extraction Method: <strong className="text-slate-200">{job.extractionMethod || 'Not recorded'}</strong>
+                </div>
+                <div className="text-slate-400 break-all">
+                  Batch ID: <strong className="text-slate-200">{job.scraperBatchId || 'Not recorded'}</strong>
+                </div>
+                <div className="text-slate-400">
+                  Run Type: <strong className="text-slate-200">{job.scraperRunType || 'Not recorded'}</strong>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Structured Extracted Fields (STEP 66-A.3) */}
-          {(job.totalVacancies !== undefined || job.employmentType || job.ageLimit || job.qualificationSummary || job.domicile || job.contactEmail || job.originalApplyUrl || (job.responsibilitiesList && job.responsibilitiesList.length > 0)) && (
+          {(job.totalVacancies !== undefined || job.employmentType || job.ageLimit || job.qualificationSummary || job.domicile || job.contactEmail || (job.responsibilitiesList && job.responsibilitiesList.length > 0)) && (
             <div className="p-4 bg-slate-950 rounded-xl border border-purple-500/30 space-y-3 text-xs">
               <h4 className="font-bold uppercase text-purple-300 flex items-center space-x-1.5">
                 <Sparkles className="w-4 h-4 text-purple-400" />
@@ -833,12 +948,6 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
                   <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
                     <span className="text-slate-400 block text-[11px] font-bold">Contact Email</span>
                     <a href={`mailto:${job.contactEmail}`} className="text-cyan-400 hover:underline font-mono">{job.contactEmail}</a>
-                  </div>
-                )}
-                {job.originalApplyUrl && (
-                  <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
-                    <span className="text-slate-400 block text-[11px] font-bold">Original Apply URL (Admin-Only)</span>
-                    <a href={job.originalApplyUrl} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline font-mono break-all text-[11px]">🔗 {job.originalApplyUrl}</a>
                   </div>
                 )}
               </div>

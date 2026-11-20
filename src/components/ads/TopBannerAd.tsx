@@ -7,7 +7,8 @@ import {
   BannerAppearanceSettings,
   DEFAULT_BANNER_APPEARANCE,
   BannerBehaviorSettings,
-  DEFAULT_BANNER_BEHAVIOR
+  DEFAULT_BANNER_BEHAVIOR,
+  isAdCurrentlyRunning
 } from '../../types/ad';
 import { 
   X, 
@@ -68,15 +69,15 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
     approvalStatus: 'Approved',
     submittedByUserId: 'system-demo',
     submittedByUserName: 'Platform Promotion',
-    headline: '🌟 Your Ad / Job Notice Here! Reach 250,000+ Verified Candidates & Employers Daily',
+    headline: '🌟 Promote Your Brand, Job Notice, or Service Here',
     bodyText: 'Place your urgent hiring campaigns, corporate hiring drives, or commercial services at the top of all pages.',
     badgeText: '👑 Advertise Here',
     ctaText: 'Post Banner Campaign',
     ctaUrl: '#dashboard',
     theme: 'amber',
     dismissable: true,
-    impressions: 15420,
-    clicks: 890,
+    impressions: 0,
+    clicks: 0,
     createdAt: '2026-08-20',
     durationUnit: 'days',
     durationValue: 30
@@ -85,7 +86,7 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   // Find all active banners matching the current page
   const matchingBanners = ads.filter(
     (ad) =>
-      ad.status === 'active' &&
+      isAdCurrentlyRunning(ad) &&
       ((ad.placement as string) === 'top-header' || (ad.type === 'banner' && (ad.placement as string) === 'top-header')) &&
       (ad.targetPages.includes('all') || ad.targetPages.includes(currentPage)) &&
       !dismissedIds.includes(ad.id)

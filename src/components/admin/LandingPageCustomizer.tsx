@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   LandingPageConfig, 
   DEFAULT_LANDING_PAGE_CONFIG, 
   CustomLandingCard, 
   LandingSectionOrder,
-  LandingSectionId
+  LandingSectionId,
+  LandingDesignSystem,
+  JobCardDesignConfig,
+  JOB_CARD_ACCENT_STYLES,
+  getJobCardAccentColor
 } from '../../types/landing';
 import { CampaignCustomizationConfig, PromoDiscountBanner } from '../../types/ad';
 import { 
@@ -34,21 +38,83 @@ interface LandingPageCustomizerProps {
   onUpdateConfig: (newConfig: LandingPageConfig) => Promise<any> | void;
   campaignConfig: CampaignCustomizationConfig;
   onUpdateCampaignConfig: (newConfig: CampaignCustomizationConfig) => Promise<any> | void;
+  onSaveCombinedConfig?: (landing: LandingPageConfig, campaign: CampaignCustomizationConfig) => Promise<any>;
+  designSystem?: LandingDesignSystem;
+  onSelectDesign?: (designId: LandingDesignSystem['activeDesignId']) => Promise<any>;
+  jobs?: any[];
 }
+
+const mergeJobCardDesign = (value?: Partial<JobCardDesignConfig>): JobCardDesignConfig => ({
+  ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign,
+  ...(value || {}),
+  theme: { ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.theme, ...(value?.theme || {}) },
+  visibility: { ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.visibility, ...(value?.visibility || {}) },
+  labels: { ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.labels, ...(value?.labels || {}) },
+  limits: { ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.limits, ...(value?.limits || {}) }
+});
 
 export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
   config,
   onUpdateConfig,
   campaignConfig,
-  onUpdateCampaignConfig
+  onUpdateCampaignConfig,
+  onSaveCombinedConfig,
+  designSystem,
+  onSelectDesign,
+  jobs = []
 }) => {
   const [activeTab, setActiveTab] = useState<'hero' | 'sections' | 'custom-cards' | 'design' | 'promos' | 'preview'>('sections');
   const [heroForm, setHeroForm] = useState(config.hero);
   const [sections, setSections] = useState<LandingSectionOrder[]>(config.sections || DEFAULT_LANDING_PAGE_CONFIG.sections);
   const [customCards, setCustomCards] = useState<CustomLandingCard[]>(config.customCards || DEFAULT_LANDING_PAGE_CONFIG.customCards);
-  const [jobCardDesignForm, setJobCardDesignForm] = useState(config.jobCardDesign || DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign);
+  const [jobCardDesignForm, setJobCardDesignForm] = useState<JobCardDesignConfig>(() => mergeJobCardDesign(config.jobCardDesign));
   const [promoBanners, setPromoBanners] = useState<PromoDiscountBanner[]>(campaignConfig.promoBanners || []);
   const [saveToast, setSaveToast] = useState<string | null>(null);
+  const [activeDesignId, setActiveDesignId] = useState<LandingDesignSystem['activeDesignId']>(designSystem?.activeDesignId || 'legacy');
+  const [isSwitchingDesign, setIsSwitchingDesign] = useState(false);
+  const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
+
+  // Keep editor fields aligned with the authoritative selected design after a
+  // successful design switch or a server-side config refresh. Local edits are
+  // not overwritten by unrelated component renders because these dependencies
+  // change only when the persisted config/design changes.
+  useEffect(() => {
+    setHeroForm(config.hero);
+    setSections(config.sections || DEFAULT_LANDING_PAGE_CONFIG.sections);
+    setCustomCards(config.customCards || DEFAULT_LANDING_PAGE_CONFIG.customCards);
+    setJobCardDesignForm(mergeJobCardDesign(config.jobCardDesign));
+  }, [config]);
+
+  useEffect(() => {
+    setPromoBanners(campaignConfig.promoBanners || []);
+  }, [campaignConfig]);
+
+  useEffect(() => {
+    if (designSystem?.activeDesignId) setActiveDesignId(designSystem.activeDesignId);
+  }, [designSystem?.activeDesignId]);
+
+  const handleSelectDesign = async (designId: LandingDesignSystem['activeDesignId']) => {
+    if (!designSystem || !onSelectDesign || designId === activeDesignId) return;
+    const selected = designSystem.designs.find((design) => design.id === designId);
+    if (!selected) return;
+    setIsSwitchingDesign(true);
+    setSaveToast('Switching published landing design...');
+    try {
+      await onSelectDesign(designId);
+      setActiveDesignId(designId);
+      setHeroForm(selected.config.hero);
+      setSections(selected.config.sections || DEFAULT_LANDING_PAGE_CONFIG.sections);
+      setCustomCards(selected.config.customCards || DEFAULT_LANDING_PAGE_CONFIG.customCards);
+      setJobCardDesignForm(mergeJobCardDesign(selected.config.jobCardDesign));
+      setSaveToast('Selected design is now published.');
+      setTimeout(() => setSaveToast(null), 3500);
+    } catch (error: any) {
+      setSaveToast(null);
+      alert(error?.message || 'Could not switch landing design. Existing published design was retained.');
+    } finally {
+      setIsSwitchingDesign(false);
+    }
+  };
 
   // Reorder Sections
   const moveSection = (index: number, direction: 'up' | 'down') => {
@@ -157,11 +223,14 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
     try {
       setSaveToast('⏳ Publishing changes to production database...');
       
-      // Parent handleUpdateLandingConfig/handleUpdateCampaignConfig in App.tsx are async
-      await Promise.all([
-        onUpdateConfig(newLandingConfig),
-        onUpdateCampaignConfig(newCampaignConfig)
-      ]);
+      // App.tsx provides a combined save so landing and campaign settings are
+      // persisted together in one authoritative pricing update.
+      if (onSaveCombinedConfig) {
+        await onSaveCombinedConfig(newLandingConfig, newCampaignConfig);
+      } else {
+        await onUpdateConfig(newLandingConfig);
+        await onUpdateCampaignConfig(newCampaignConfig);
+      }
 
       setSaveToast('✅ Landing page design & section sequence published successfully!');
       setTimeout(() => setSaveToast(null), 4500);
@@ -196,8 +265,12 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
 
     try {
       setSaveToast('⏳ Resetting and saving default configuration to database...');
-      await onUpdateConfig(newLandingConfig);
-      setSaveToast('✅ Restored and saved default landing page configuration.');
+      if (onSaveCombinedConfig) {
+        await onSaveCombinedConfig(newLandingConfig, { ...campaignConfig, promoBanners });
+      } else {
+        await onUpdateConfig(newLandingConfig);
+      }
+      setSaveToast('✅ Restored and saved defaults for the selected landing design.');
       setTimeout(() => setSaveToast(null), 3500);
     } catch (err: any) {
       console.error('Failed to reset landing page config to defaults:', err);
@@ -242,7 +315,22 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center space-x-3 shrink-0">
+        <div className="flex flex-wrap items-center gap-3 shrink-0">
+          {designSystem && (
+            <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+              Published Landing Design
+              <select
+                value={activeDesignId}
+                disabled={isSwitchingDesign}
+                onChange={(event) => handleSelectDesign(event.target.value as LandingDesignSystem['activeDesignId'])}
+                className="min-w-[190px] rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs font-bold text-white disabled:opacity-50"
+              >
+                {designSystem.designs.map((design) => (
+                  <option key={design.id} value={design.id}>{design.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <button
             onClick={handleResetDefaults}
             className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs border border-slate-700 flex items-center space-x-1.5 transition-all cursor-pointer"
@@ -275,7 +363,8 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
           { id: 'hero', label: '✍️ Hero Text & CTA Buttons', icon: Type },
           { id: 'custom-cards', label: `🎴 Dynamic Announcement Cards (${customCards.length})`, icon: Layout },
           { id: 'design', label: '🎨 Job Card Designer (Layout & Theme)', icon: Palette },
-          { id: 'promos', label: `🔥 Top Promo Discount Banners (${promoBanners.length})`, icon: Megaphone }
+          { id: 'promos', label: `🔥 Top Promo Discount Banners (${promoBanners.length})`, icon: Megaphone },
+          { id: 'preview', label: '👁️ Responsive Preview', icon: Eye }
         ].map((t) => {
           const Icon = t.icon;
           return (
@@ -333,7 +422,10 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-400">{section.description}</p>
+                    <p className="text-xs text-slate-400">
+                      {section.description}
+                      {section.id === 'top-sponsor-ads' && ' Global banner is rendered in a fixed top position; this sequence cannot move it.'}
+                    </p>
                   </div>
                 </div>
 
@@ -354,9 +446,9 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                   {/* Move Up */}
                   <button
                     onClick={() => moveSection(index, 'up')}
-                    disabled={index === 0}
+                    disabled={index === 0 || section.id === 'top-sponsor-ads'}
                     className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300 transition-all cursor-pointer"
-                    title="Move Up"
+                    title={section.id === 'top-sponsor-ads' ? 'Fixed global banner position' : 'Move Up'}
                   >
                     <ArrowUp className="w-4 h-4" />
                   </button>
@@ -364,9 +456,9 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                   {/* Move Down */}
                   <button
                     onClick={() => moveSection(index, 'down')}
-                    disabled={index === sections.length - 1}
+                    disabled={index === sections.length - 1 || section.id === 'top-sponsor-ads'}
                     className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300 transition-all cursor-pointer"
-                    title="Move Down"
+                    title={section.id === 'top-sponsor-ads' ? 'Fixed global banner position' : 'Move Down'}
                   >
                     <ArrowDown className="w-4 h-4" />
                   </button>
@@ -695,6 +787,67 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                 </div>
               </div>
 
+              {/* Live field availability: based only on real jobs supplied by AdminDashboard */}
+              <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+                <div>
+                  <h4 className="text-sm font-black text-white">Live Job-Data Visibility Status</h4>
+                  <p className="text-[10px] text-slate-400 mt-1">Yeh status loaded job records aur Admin ON/OFF setting ko check karta hai. Koi demo ya synthetic job use nahi hoti.</p>
+                </div>
+                {[
+                  { key: 'poster', label: 'Poster / Source' },
+                  { key: 'relativePostedTime', label: 'Relative Posted Time' },
+                  { key: 'exactPostedDate', label: 'Exact Posted Date' },
+                  { key: 'deadlineDate', label: 'Application Deadline' },
+                  { key: 'deadlineRemaining', label: 'Deadline Remaining' },
+                  { key: 'duplicateOverrideBadge', label: 'Duplicate Override Badge' }
+                ].map((field) => {
+                  const enabled = jobCardDesignForm.visibility[field.key as keyof typeof jobCardDesignForm.visibility] !== false;
+                  // Keep this check aligned with JobListings.renderJobCard: do not infer
+                  // availability from unrelated aliases such as company/applicationDeadline.
+                  const hasUsableDate = (value: unknown): boolean => {
+                    if (typeof value !== 'string' || !value.trim()) return false;
+                    const clean = value.trim();
+                    const dmy = clean.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/);
+                    const isoDate = clean.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                    const match = dmy || isoDate;
+                    if (match) {
+                      const year = Number(dmy ? match[3] : match[1]);
+                      const month = Number(match[2]) - 1;
+                      const day = Number(dmy ? match[1] : match[3]);
+                      const parsed = new Date(year, month, day);
+                      return parsed.getFullYear() === year && parsed.getMonth() === month && parsed.getDate() === day;
+                    }
+                    const parsed = new Date(clean);
+                    return !Number.isNaN(parsed.getTime());
+                  };
+                  const hasData = jobs.some((job) => {
+                    if (field.key === 'poster') {
+                      // These are the exact inputs used to derive posterLabel.
+                      // Renderer falls back to Employer for otherwise unclassified records.
+                      return jobs.length > 0;
+                    }
+                    if (field.key === 'relativePostedTime' || field.key === 'exactPostedDate') {
+                      const postedAt = hasUsableDate(job.postedAt) ? job.postedAt : job.createdAt;
+                      return hasUsableDate(postedAt);
+                    }
+                    if (field.key === 'deadlineDate' || field.key === 'deadlineRemaining') {
+                      return hasUsableDate(job.deadlineDate);
+                    }
+                    if (field.key === 'duplicateOverrideBadge') {
+                      return job.isDuplicateOverride === true;
+                    }
+                    return false;
+                  });
+                  const status = !enabled ? 'Disabled by Admin' : jobs.length === 0 ? 'No live job data loaded' : hasData ? 'Data available in loaded jobs' : 'Data unavailable in loaded jobs';
+                  const tone = !enabled ? 'text-rose-300 bg-rose-500/10 border-rose-500/30' : hasData && jobs.length > 0 ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30' : 'text-amber-300 bg-amber-500/10 border-amber-500/30';
+                  return <div key={field.key} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2 last:border-0">
+                    <span className="text-xs font-bold text-slate-200">{field.label}</span>
+                    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border ${tone}`}>{status}</span>
+                  </div>;
+                })}
+                <p className="text-[10px] text-slate-500">Note: “Data available” ka matlab record mein value mojood hai; premium/access policy ya individual job ki publication state ki wajah se har user ko visible hona guaranteed nahi. Final confirmation public user card par hoti hai.</p>
+              </div>
+
               {/* Labels & Limits */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
@@ -795,7 +948,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                       )}
 
                       <div className="flex gap-2">
-                        {jobCardDesignForm.visibility.jobType && <div className={`h-4 bg-${jobCardDesignForm.theme.accentColor}-500/20 rounded-full w-12`} />}
+                        {jobCardDesignForm.visibility.jobType && <div className={`h-4 ${JOB_CARD_ACCENT_STYLES[getJobCardAccentColor(jobCardDesignForm.theme.accentColor)].previewSubtle} rounded-full w-12`} />}
                         {jobCardDesignForm.visibility.location && <div className="h-4 bg-slate-800 rounded-full w-16" />}
                       </div>
 
@@ -808,11 +961,11 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
 
                       <div className="flex justify-between items-center pt-4">
                          {jobCardDesignForm.visibility.salary && (
-                           <div className={`h-4 bg-${jobCardDesignForm.theme.accentColor}-500/10 rounded w-16`} />
+                           <div className={`h-4 ${JOB_CARD_ACCENT_STYLES[getJobCardAccentColor(jobCardDesignForm.theme.accentColor)].previewSoft} rounded w-16`} />
                          )}
                          <div className="flex gap-2">
                            {jobCardDesignForm.visibility.detailsButton && <div className="h-7 w-16 bg-slate-800 rounded-lg" />}
-                           {jobCardDesignForm.visibility.applyButton && <div className={`h-7 w-16 bg-${jobCardDesignForm.theme.accentColor}-500 rounded-lg`} />}
+                           {jobCardDesignForm.visibility.applyButton && <div className={`h-7 w-16 ${JOB_CARD_ACCENT_STYLES[getJobCardAccentColor(jobCardDesignForm.theme.accentColor)].solidBg} rounded-lg`} />}
                          </div>
                       </div>
                     </div>
@@ -822,6 +975,79 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                   * Preview shows a wireframe representation of Design 1 with current visibility & theme settings.
                 </p>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: CUSTOM ANNOUNCEMENT CARDS */}
+      {activeTab === 'custom-cards' && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div><h3 className="text-base font-black text-white">Announcement Cards Editor</h3><p className="text-xs text-slate-400">Edit each design's own card text, image, CTA, visibility and order. These cards are admin content, not paid sponsor inventory.</p></div>
+            <button type="button" onClick={handleAddCustomCard} className="inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-xs font-black text-white"><Plus className="h-4 w-4"/>Add Card</button>
+          </div>
+          {customCards.length === 0 && <div className="rounded-xl border border-slate-800 bg-slate-950 p-6 text-center text-xs text-slate-400">No announcement cards configured for this design.</div>}
+          {customCards.map((card,index) => (
+            <article key={card.id} className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2"><span className="rounded-lg bg-slate-800 px-2 py-1 text-xs font-mono text-indigo-300">#{index+1}</span><button type="button" onClick={() => handleUpdateCard(card.id,{isEnabled:!card.isEnabled})} className={`rounded-lg px-3 py-1.5 text-[10px] font-black ${card.isEnabled?'bg-emerald-500/20 text-emerald-300':'bg-slate-800 text-slate-400'}`}>{card.isEnabled?'Visible':'Hidden'}</button></div>
+                <div className="flex items-center gap-1"><button type="button" disabled={index===0} onClick={() => moveCard(index,'up')} className="rounded-lg bg-slate-800 p-2 text-slate-300 disabled:opacity-30" aria-label="Move card up"><ArrowUp className="h-4 w-4"/></button><button type="button" disabled={index===customCards.length-1} onClick={() => moveCard(index,'down')} className="rounded-lg bg-slate-800 p-2 text-slate-300 disabled:opacity-30" aria-label="Move card down"><ArrowDown className="h-4 w-4"/></button><button type="button" onClick={() => handleDeleteCard(card.id)} className="rounded-lg bg-rose-500/15 p-2 text-rose-300" aria-label="Delete card"><Trash2 className="h-4 w-4"/></button></div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="space-y-1 text-[10px] font-bold text-slate-400">Title<input value={card.title} onChange={e=>handleUpdateCard(card.id,{title:e.target.value})} maxLength={160} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"/></label>
+                <label className="space-y-1 text-[10px] font-bold text-slate-400">Badge<input value={card.badge} onChange={e=>handleUpdateCard(card.id,{badge:e.target.value})} maxLength={60} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"/></label>
+                <label className="space-y-1 text-[10px] font-bold text-slate-400 sm:col-span-2">Description<textarea value={card.description} onChange={e=>handleUpdateCard(card.id,{description:e.target.value})} maxLength={600} rows={3} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"/></label>
+                <label className="space-y-1 text-[10px] font-bold text-slate-400">Image URL (optional)<input value={card.imageUrl||''} onChange={e=>handleUpdateCard(card.id,{imageUrl:e.target.value})} placeholder="https://... or /uploads/..." className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"/></label>
+                <label className="space-y-1 text-[10px] font-bold text-slate-400">Background gradient classes<input value={card.bgGradient} onChange={e=>handleUpdateCard(card.id,{bgGradient:e.target.value})} maxLength={160} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"/></label>
+                <label className="space-y-1 text-[10px] font-bold text-slate-400">Button text<input value={card.buttonText} onChange={e=>handleUpdateCard(card.id,{buttonText:e.target.value})} maxLength={80} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"/></label>
+                <label className="space-y-1 text-[10px] font-bold text-slate-400">Button URL (HTTPS or #internal)<input value={card.buttonUrl} onChange={e=>handleUpdateCard(card.id,{buttonUrl:e.target.value})} maxLength={1000} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"/></label>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+
+      {/* TAB: RESPONSIVE LANDING PREVIEW (configuration-only; no synthetic ads/jobs) */}
+      {activeTab === 'preview' && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-black text-white">Landing Design Preview</h3>
+              <p className="text-xs text-slate-400">Preview of the current unsaved hero and announcement-card settings. Real job and paid-ad inventory is not fabricated here.</p>
+            </div>
+            <div className="inline-flex rounded-xl border border-slate-700 bg-slate-950 p-1">
+              <button type="button" onClick={() => setPreviewMode('desktop')} aria-pressed={previewMode === 'desktop'} className={`rounded-lg px-3 py-2 text-xs font-bold ${previewMode === 'desktop' ? 'bg-indigo-500 text-white' : 'text-slate-400'}`}>Desktop</button>
+              <button type="button" onClick={() => setPreviewMode('mobile')} aria-pressed={previewMode === 'mobile'} className={`rounded-lg px-3 py-2 text-xs font-bold ${previewMode === 'mobile' ? 'bg-indigo-500 text-white' : 'text-slate-400'}`}>Mobile</button>
+            </div>
+          </div>
+          <div className="overflow-x-auto rounded-2xl border border-slate-700 bg-slate-950 p-3 sm:p-5">
+            <div className={`mx-auto min-h-[420px] overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 transition-all ${previewMode === 'mobile' ? 'w-[320px] max-w-full' : 'w-full max-w-5xl'}`}>
+              {sections.find((section) => section.id === 'hero')?.isEnabled !== false && (
+                <section className="bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 px-4 py-8 text-center sm:px-8 sm:py-12">
+                  {heroForm.eyebrowBadgeText && <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-emerald-300">{heroForm.eyebrowBadgeText}</p>}
+                  <h1 className="mx-auto max-w-3xl text-2xl font-black leading-tight text-white sm:text-4xl">{heroForm.mainHeadingPrefix} <span className="text-emerald-400">{heroForm.gradientWord}</span> {heroForm.mainHeadingSuffix}</h1>
+                  <p className="mx-auto mt-3 max-w-2xl text-xs leading-relaxed text-slate-300 sm:text-sm">{heroForm.subHeading}</p>
+                  <div className="mt-5 flex flex-wrap justify-center gap-2">
+                    {heroForm.primaryBtnText && <span className="rounded-xl bg-emerald-400 px-4 py-2 text-xs font-black text-slate-950">{heroForm.primaryBtnText}</span>}
+                    {heroForm.secondaryBtnText && <span className="rounded-xl border border-slate-600 px-4 py-2 text-xs font-bold text-white">{heroForm.secondaryBtnText}</span>}
+                  </div>
+                </section>
+              )}
+              {sections.find((section) => section.id === 'custom-announcements')?.isEnabled !== false && customCards.filter((card) => card.isEnabled).length > 0 && (
+                <section className={`grid gap-3 p-4 sm:p-6 ${previewMode === 'mobile' ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-3'}`}>
+                  {customCards.filter((card) => card.isEnabled).sort((a, b) => a.order - b.order).map((card) => (
+                    <article key={card.id} className={`rounded-2xl bg-gradient-to-br ${card.bgGradient} p-4 text-white shadow-lg`}>
+                      {card.imageUrl && <img src={card.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="mb-3 max-h-36 w-full rounded-xl object-cover" />}
+                      {card.badge && <span className="text-[9px] font-black uppercase tracking-wider text-white/80">{card.badge}</span>}
+                      <h2 className="mt-2 text-sm font-black">{card.title}</h2>
+                      <p className="mt-2 text-xs leading-relaxed text-white/80">{card.description}</p>
+                      <span className="mt-4 inline-block rounded-lg bg-white/15 px-3 py-2 text-[10px] font-bold">{card.buttonText}</span>
+                    </article>
+                  ))}
+                </section>
+              )}
+              {sections.find((section) => section.id === 'jobs-feed')?.isEnabled !== false && <div className="border-t border-slate-800 px-4 py-5 text-center text-xs text-slate-500">Live jobs and eligible paid campaigns render from their existing production data sources.</div>}
             </div>
           </div>
         </div>

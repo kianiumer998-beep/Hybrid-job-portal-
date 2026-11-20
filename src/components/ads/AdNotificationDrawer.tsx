@@ -1,5 +1,5 @@
 import React from 'react';
-import { Advertisement } from '../../types/ad';
+import { Advertisement, isAdCurrentlyRunning } from '../../types/ad';
 import { X, Bell, Sparkles, ExternalLink, ArrowRight, CheckCircle2, MessageSquare, Megaphone, Zap } from 'lucide-react';
 
 interface AdNotificationDrawerProps {
@@ -19,7 +19,7 @@ export const AdNotificationDrawer: React.FC<AdNotificationDrawerProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const activeAds = ads.filter((a) => a.status === 'active');
+  const activeAds = ads.filter((a) => isAdCurrentlyRunning(a));
 
   const handleAction = (ad: Advertisement) => {
     onAdClick(ad);

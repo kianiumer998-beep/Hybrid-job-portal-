@@ -25,6 +25,8 @@ export interface ScraperRunOptions {
   keywords?: string;
   autoPublishTrusted?: boolean;
   duplicateMode?: 'with' | 'without';
+  /** Shared ID for grouping source-level executions from one scheduler tick. */
+  batchId?: string;
 }
 
 export const SCRAPER_RUN_ALREADY_ACTIVE_CODE = 'SCRAPER_RUN_ALREADY_ACTIVE';
@@ -1251,6 +1253,15 @@ export async function executeScraperWithWizard(
           pagesAttempted: sourcePagesAttempted,
           pagesSuccessful: sourcePagesSuccessful,
           failed: sourceFailed,
+          failureCategory: sourceSaveFailures > 0
+            ? 'Database Save Failed'
+            : duplicateMode === 'without' && sourceValid > 0 && sourceNew === 0 && sourceDup > 0
+              ? 'Duplicate Skipped'
+              : sourceValid === 0 && sourceRejected > 0
+                ? 'Incomplete Extraction'
+                : sourceValid === 0
+                  ? 'No Jobs Found'
+                  : undefined,
           error: sourceError || lastErrorNotice,
           lastSuccessfulScrapeAt: isCheckpointEligible ? sourceCompletedAt : target.lastSuccessfulScrapeAt
         });
@@ -1323,6 +1334,15 @@ export async function executeScraperWithWizard(
           pagesAttempted: sourcePagesAttempted,
           pagesSuccessful: sourcePagesSuccessful,
           failed: true,
+          failureCategory: isDbError
+            ? 'Database Error'
+            : ['404', '403', 'Timeout', 'Fetch Error'].includes(classifiedHealth)
+              ? 'Website Unavailable'
+              : classifiedHealth === 'Invalid PDF'
+                ? 'Document Failed'
+                : classifiedHealth === 'HTML'
+                  ? 'Extraction Failed'
+                  : 'Extraction Failed',
           error: sourceError,
           lastSuccessfulScrapeAt: target.lastSuccessfulScrapeAt
         });
@@ -1367,7 +1387,7 @@ export async function executeScraperWithWizard(
     try {
       runRecordResult = await addRunFn({
         id: runId,
-        batchId: runId,
+        batchId: options.batchId || runId,
         startedAt: startTime.toISOString(),
         completedAt: endTime.toISOString(),
         mode: options.mode,

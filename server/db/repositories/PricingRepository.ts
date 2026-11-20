@@ -14,7 +14,9 @@ import {
 } from '../../../src/types/ad';
 import {
   DEFAULT_CATEGORY_POSTING_FEES,
-  DEFAULT_LANDING_PAGE_CONFIG
+  DEFAULT_LANDING_PAGE_CONFIG,
+  createDefaultLandingDesignSystem,
+  normalizeLandingDesignSystem
 } from '../../../src/types/landing';
 import {
   DEFAULT_JOB_POSTING_PRICING_CONFIG,
@@ -149,6 +151,7 @@ function buildAuthoritativeDefaults(): any {
         limits: { ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.limits }
       }
     },
+    landingPageDesignSystem: createDefaultLandingDesignSystem(DEFAULT_LANDING_PAGE_CONFIG),
     advertisements: {
       bannerPerDayPkr: 1500,
       topBannerPerDayPkr: 3000,
@@ -247,6 +250,10 @@ function deepMergePricing(base: any, incoming: any): any {
         urgent: { ...(baseSlot.urgent || { enabled: true, maxSlots: 4 }), ...(srcSlot.urgent || {}) }
       }
     },
+    landingPageDesignSystem: normalizeLandingDesignSystem(
+      src.landingPageDesignSystem ?? createDefaultLandingDesignSystem({ ...baseLanding, ...srcLanding }),
+      { ...baseLanding, ...srcLanding }
+    ),
     landingPageConfig: {
       ...baseLanding,
       ...srcLanding,

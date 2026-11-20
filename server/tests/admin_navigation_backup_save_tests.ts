@@ -1033,10 +1033,10 @@ async function runSuite() {
     chatMessagesCount: 6
   };
 
-  await runTest('PHASE 8.1-B: Canonical module registry has exactly 31 unique modules mapped across 7 Classic and 8 Professional categories', () => {
-    assert.strictEqual(ADMIN_NAVIGATION_MODULES.length, 31, 'Expected exactly 31 unique modules (30 existing + locations-manager)');
+  await runTest('PHASE 8.1-B: Canonical module registry has exactly 32 unique modules mapped across 7 Classic and 8 Professional categories', () => {
+    assert.strictEqual(ADMIN_NAVIGATION_MODULES.length, 32, 'Expected 32 unique modules (30 existing plus locations-manager and admin-security)');
     const ids = ADMIN_NAVIGATION_MODULES.map((m) => m.id);
-    assert.strictEqual(new Set(ids).size, 31, 'Canonical module IDs must be strictly unique');
+    assert.strictEqual(new Set(ids).size, 32, 'Canonical module IDs must be strictly unique');
     assert.strictEqual(CLASSIC_ADMIN_CATEGORIES.length, 7);
     assert.strictEqual(PROFESSIONAL_ADMIN_CATEGORIES.length, 8);
 
@@ -1048,7 +1048,7 @@ async function runSuite() {
       'finance-payments': ['pricing-controller', 'admin-payment-methods', 'payment-proofs', 'fee-management', 'fee-logs', 'currency-forex'],
       'users-kyc-support': ['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'],
       'communication-alerts': ['whatsapp-manager', 'broadcast-center', 'bulk-notifications'],
-      'platform-settings-data': ['locations-manager', 'apply-settings', 'modal-content-manager', 'job-visibility', 'seo-config', 'settings', 'form-customizer', 'data-backup']
+      'platform-settings-data': ['locations-manager', 'apply-settings', 'modal-content-manager', 'job-visibility', 'seo-config', 'settings', 'form-customizer', 'data-backup', 'admin-security']
     };
 
     const superAdminCanAccess = (tabId: string) =>
@@ -1067,12 +1067,12 @@ async function runSuite() {
       );
     }
 
-    // Classic All Modules Matrix preserves original 30 modules and zero duplicates (excluding locations-manager)
+    // Classic All Modules Matrix exposes all 32 modules and zero duplicates
     const allModulesGroups = buildAllModulesMenuGroups(sampleNavCounts);
     const matrixIds = allModulesGroups.flatMap((g) => g.items.map((i) => i.id));
-    assert.strictEqual(matrixIds.length, 30);
-    assert.strictEqual(new Set(matrixIds).size, 30);
-    assert.strictEqual(matrixIds.includes('locations-manager'), false, 'Classic All Modules Matrix must NOT include locations-manager');
+    assert.strictEqual(matrixIds.length, 32);
+    assert.strictEqual(new Set(matrixIds).size, 32);
+    assert.strictEqual(matrixIds.includes('locations-manager'), true, 'Classic All Modules Matrix must include the dedicated Location Manager submenu');
     assert.strictEqual(matrixIds.filter((id) => id === 'whatsapp-manager').length, 1);
 
     // Every module ID and alias exists in ADMIN_TAB_CATEGORIES
@@ -1237,19 +1237,22 @@ async function runSuite() {
     assert.ok(settingsIds.includes('locations-manager'));
     assert.ok(settingsIds.includes('whatsapp-manager'));
     assert.ok(settingsIds.includes('analytics'));
+    assert.ok(settingsIds.includes('admin-security'));
     assert.strictEqual(settingsIds.includes('data-backup'), false, 'Non-Admin with settings.manage must NEVER see data-backup');
 
     // Classic sub-tabs respect permission filter AND omit locations-manager
     const classicSettingsTabs = getClassicCategorySubTabs('settings', sampleNavCounts, settingsCan).map((t) => t.id);
     assert.deepStrictEqual(classicSettingsTabs, [
+      'locations-manager',
       'apply-settings',
       'modal-content-manager',
       'job-visibility',
       'settings',
       'form-customizer',
+      'admin-security',
       'analytics'
     ]);
-    assert.strictEqual(classicSettingsTabs.includes('locations-manager'), false);
+    assert.strictEqual(classicSettingsTabs.includes('locations-manager'), true);
     assert.strictEqual(classicSettingsTabs.includes('data-backup'), false);
 
     // Unverified admin sees 0 categories/modules
@@ -1356,9 +1359,10 @@ async function runSuite() {
     const featureInternalChecks: Array<[string, string[]]> = [
       ['src/components/admin/AutomatedScraperHub.tsx', ["'overview' | 'sources' | 'run' | 'history' | 'review' | 'settings'"]],
       ['src/components/ads/AdminAdHub.tsx', ["'directory' | 'approvals' | 'slots' | 'customizer' | 'pricing' | 'performance'"]],
-      ['src/components/admin/AdminCampaignCenter.tsx', ['handleTogglePlacement', 'selectedPlacementFilter', 'selectedStatusFilter']],
+      ['src/components/admin/AdminCampaignCenter.tsx', ['handleTogglePause', 'handleSaveDateRange', 'handleMakeCampaignFree', 'selectedPlacementFilter', 'selectedStatusFilter']],
+      ['src/components/ads/AdminCampaignCustomizer.tsx', ['handleUpdatePlacement', 'placementOptions.map', 'await onSaveConfig(localConfig)']],
       ['src/components/admin/LandingPageCustomizer.tsx', ["'hero' | 'sections' | 'custom-cards' | 'design' | 'promos' | 'preview'"]],
-      ['src/components/admin/AdminFeeManager.tsx', ["'categories' | 'exemptions' | 'global-tiers' | 'job-waivers'"]],
+      ['src/components/admin/AdminFeeManager.tsx', ["'categories' | 'exemptions' | 'job-waivers'"]],
       ['src/components/admin/AdminPaymentMethodsManager.tsx', ["'methods' | 'durations'"]],
       ['src/components/admin/AdminBroadcastCenter.tsx', ["'compose' | 'history' | 'templates' | 'providers'"]]
     ];
@@ -1370,7 +1374,80 @@ async function runSuite() {
     }
   });
 
-  await runTest('Classic Parity Restoration: preserves exact 7 categories, original 30-module Classic sub-tabs & All Modules Matrix order, and keeps Location Manager inside Classic Settings', () => {
+  await runTest('Ad campaign controls: preserve distinct operations and require confirmed authoritative saves', () => {
+    const campaignOps = fs.readFileSync(path.resolve(process.cwd(), 'src/components/admin/AdminCampaignCenter.tsx'), 'utf8');
+    assert.ok(campaignOps.includes("ad.status !== 'active' && ad.status !== 'paused'"));
+    assert.ok(campaignOps.includes("endMs <= startMs"));
+    assert.ok(campaignOps.includes('window.confirm'));
+    assert.ok(!campaignOps.includes('onApproveAd'));
+    assert.ok(!campaignOps.includes('onDeleteAd'));
+
+    const adHub = fs.readFileSync(path.resolve(process.cwd(), 'src/components/ads/AdminAdHub.tsx'), 'utf8');
+    assert.ok(adHub.includes('await onUpdatePricingConfig(editablePricing)'));
+    assert.ok(adHub.includes('canManageAdConfiguration && isPricingReady'));
+    assert.ok(adHub.includes('setEditablePricing(pricingConfig)'));
+    assert.ok(adHub.includes('onResetAdMetrics(ad.id)'), 'Per-campaign analytics reset must remain available in Ad Hub');
+
+    const campaignCustomizer = fs.readFileSync(path.resolve(process.cwd(), 'src/components/ads/AdminCampaignCustomizer.tsx'), 'utf8');
+    assert.ok(campaignCustomizer.includes('await onSaveConfig(localConfig)'));
+    assert.ok(campaignCustomizer.includes('setLocalConfig(previousConfig)'));
+
+    const pricingController = fs.readFileSync(path.resolve(process.cwd(), 'src/components/admin/AdminPricingController.tsx'), 'utf8');
+    assert.ok(pricingController.includes('Ad Campaign Rates — Managed in Ad Hub'));
+    assert.ok(pricingController.includes('backward compatibility'));
+  });
+
+  await runTest('Campaign fee waiver is Finance-only in UI and enforced server-side', () => {
+    const campaignOps = fs.readFileSync(path.resolve(process.cwd(), 'src/components/admin/AdminCampaignCenter.tsx'), 'utf8');
+    assert.ok(campaignOps.includes('canWaiveCampaignFee && <button'));
+    assert.ok(campaignOps.includes('if (!canWaiveCampaignFee) return;'));
+    assert.ok(campaignOps.includes('canManageCampaignOperations && <button'));
+    assert.ok(campaignOps.includes('canViewCampaignContactDetails &&'));
+    assert.ok(campaignOps.includes('Advertiser Contact Details · Admin Only'));
+
+    const dashboard = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'), 'utf8');
+    assert.ok(dashboard.includes("canWaiveCampaignFee={hasAdminUiPermission('finance.manage')}"));
+    assert.ok(dashboard.includes("canViewCampaignContactDetails={effectiveAdminRole === 'Admin' || effectiveAdminRole === 'Super Admin'}"));
+    assert.ok(dashboard.includes("return hasPerm('advertisements.manage') || hasPerm('finance.manage');"));
+
+    const adRoutes = fs.readFileSync(path.resolve(process.cwd(), 'server/routes/adRoutes.ts'), 'utf8');
+    assert.ok(adRoutes.includes('const canManageCampaigns = Boolean('));
+    assert.ok(adRoutes.includes("hasAdminPermission(user.role, 'finance.manage')"));
+    assert.ok(adRoutes.includes("const financeVisibleFields = ["));
+    assert.ok(adRoutes.includes("user?.role === 'Admin' || user?.role === 'Super Admin'"));
+    assert.ok(adRoutes.includes("const advertisementEditableFields = new Set(["));
+    assert.ok(adRoutes.includes("const financeWaiverFields = new Set(['paymentStatus', 'campaignCostPkr']);"));
+    assert.ok(adRoutes.includes("updates.paymentStatus !== 'Exempt' || Number(updates.campaignCostPkr) !== 0"));
+    assert.ok(adRoutes.includes("safeUpdates = Object.fromEntries(changedFields.map((key) => [key, updates[key]]));"));
+  });
+
+  await runTest('W6 campaign access: Finance Manager receives no contact PII, Admin retains full records, and delegated updates are allowlisted', () => {
+    const adRoutes = fs.readFileSync(path.resolve(process.cwd(), 'server/routes/adRoutes.ts'), 'utf8');
+    const getBlock = adRoutes.slice(adRoutes.indexOf("adRouter.get('/',"), adRoutes.indexOf('// 2. Create Advertisement'));
+    const financeProjection = getBlock.slice(getBlock.indexOf('const financeCampaigns'), getBlock.indexOf('return res.json({ success: true, advertisements: financeCampaigns });'));
+    const putBlock = adRoutes.slice(adRoutes.indexOf("adRouter.put('/:id'"), adRoutes.indexOf('// 4. Delete Advertisement'));
+
+    assert.ok(getBlock.includes("user?.role === 'Admin' || user?.role === 'Super Admin'"));
+    assert.ok(getBlock.includes("hasAdminPermission(user?.role, 'advertisements.manage')"));
+    assert.ok(financeProjection.includes('const financeVisibleFields = ['));
+    assert.ok(!financeProjection.includes("'submittedByUserEmail'"));
+    assert.ok(!financeProjection.includes("'submittedByUserPhone'"));
+    assert.ok(!financeProjection.includes("'submittedByUserName'"));
+    assert.ok(!financeProjection.includes("'submittedByUserId'"));
+    assert.ok(!financeProjection.includes("'clientName'"));
+    assert.ok(!financeProjection.includes("'clientEmail'"));
+
+    assert.ok(putBlock.includes("const advertisementEditableFields = new Set(["));
+    assert.ok(putBlock.includes("'theme', 'dismissable', 'autoCloseDelay', 'smsSenderId', 'smsAudience'"));
+    assert.ok(putBlock.includes("const financeWaiverFields = new Set(['paymentStatus', 'campaignCostPkr']);"));
+    assert.ok(putBlock.includes("key !== 'updatedAt'"));
+    assert.ok(putBlock.includes("updates.paymentStatus !== 'Exempt' || Number(updates.campaignCostPkr) !== 0"));
+    assert.ok(putBlock.includes('unsupportedFields.length > 0'));
+    assert.ok(putBlock.includes('safeUpdates = Object.fromEntries(changedFields.map((key) => [key, updates[key]]));'));
+    assert.ok(putBlock.includes("const isFullAdmin = role === 'Admin' || role === 'Super Admin'"));
+  });
+
+  await runTest('Classic Parity Restoration: preserves 7 categories and exposes all 32 canonical modules through the existing Classic menu', () => {
     const expectedClassicOrder: Record<AdminCategory, string[]> = {
       jobs: ['jobs', 'pending', 'add-job', 'ai-enhancer'],
       scraper: ['scraper'],
@@ -1386,6 +1463,7 @@ async function runSuite() {
       users: ['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'],
       alerts: ['whatsapp-manager', 'broadcast-center', 'bulk-notifications'],
       settings: [
+        'locations-manager',
         'apply-settings',
         'modal-content-manager',
         'job-visibility',
@@ -1394,6 +1472,7 @@ async function runSuite() {
         'form-customizer',
         'activity-logs',
         'data-backup',
+        'admin-security',
         'analytics'
       ]
     };
@@ -1416,12 +1495,12 @@ async function runSuite() {
       );
     }
 
-    // Specifically verify Classic Settings has NO locations-manager entry and matches exact 9-item order
+    // Verify Classic Settings includes Location Manager and Administrator Security in the expected order
     const classicSettingsIds = getClassicCategorySubTabs('settings', sampleNavCounts, superCan).map((t) => t.id);
-    assert.strictEqual(classicSettingsIds.includes('locations-manager'), false);
+    assert.strictEqual(classicSettingsIds.includes('locations-manager'), true);
     assert.deepStrictEqual(classicSettingsIds, expectedClassicOrder.settings);
 
-    // Verify All Modules Matrix preserves exact original 7 groups and 30 ordered module IDs
+    // Verify All Modules Matrix preserves the 7 groups and exposes all 32 canonical modules
     const allModules = buildAllModulesMenuGroups(sampleNavCounts);
     assert.deepStrictEqual(
       allModules.map((g) => g.catKey),
@@ -1435,7 +1514,7 @@ async function runSuite() {
       );
       assert.strictEqual(
         group.items.some((i) => i.id === 'locations-manager'),
-        false,
+        group.catKey === 'settings',
         `All Modules Matrix group "${group.catKey}" must not contain locations-manager`
       );
     }
@@ -1458,15 +1537,18 @@ async function runSuite() {
     assert.strictEqual(usersSubTabs[2].label, 'Paid Subscribers (8)');
     assert.strictEqual(usersSubTabs[3].label, 'User Support Chat Hub (6)');
 
-    // Verify existing <AdminLocationManager /> remains rendered inside Classic settings tab in AdminDashboard.tsx
+    // Location Manager now has its own Classic Settings submenu and no longer appears as an unrelated panel inside Global Feature Controls.
     const dashSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'), 'utf8');
+    const locationsTabIdx = dashSource.indexOf("adminTab === 'locations-manager' && canAccessAdminTab('locations-manager')");
+    const locationsComponentIdx = dashSource.indexOf('<AdminLocationManager />', locationsTabIdx);
     const settingsTabIdx = dashSource.indexOf("{adminTab === 'settings' && (");
-    const locationsInSettingsIdx = dashSource.indexOf('<AdminLocationManager />', settingsTabIdx);
-    assert.ok(settingsTabIdx !== -1, 'Expected Classic settings tab render block in AdminDashboard.tsx');
-    assert.ok(locationsInSettingsIdx > settingsTabIdx, 'Expected original <AdminLocationManager /> inside Classic settings screen');
+    const settingsEndIdx = dashSource.indexOf('USER AUDIT DETAILED CONTROL MODAL', settingsTabIdx);
+    assert.ok(locationsTabIdx !== -1, 'Expected a dedicated guarded Location Manager page');
+    assert.ok(locationsComponentIdx > locationsTabIdx, 'Expected Location Manager to render inside its dedicated page');
+    assert.ok(!dashSource.slice(settingsTabIdx, settingsEndIdx).includes('<AdminLocationManager />'), 'Global Feature Controls must not contain unrelated location fields');
   });
 
-  await runTest('AUDIT-01: Professional All Modules modal exposes all 31 canonical modules grouped by PROFESSIONAL_ADMIN_CATEGORIES while Classic preserves 30', () => {
+  await runTest('AUDIT-01: Professional and Classic All Modules matrices expose all 32 canonical modules without duplicates', () => {
     const sampleNavCounts: AdminNavCounts = {
       activeJobsCount: 10,
       pendingJobsCount: 2,
@@ -1487,14 +1569,14 @@ async function runSuite() {
       PROFESSIONAL_ADMIN_CATEGORIES.map((c) => c.id)
     );
     const proIds = proMatrixGroups.flatMap((g) => g.items.map((i) => i.id));
-    assert.strictEqual(proIds.length, 31, 'Professional All Modules must contain all 31 canonical modules');
-    assert.strictEqual(new Set(proIds).size, 31, 'Professional All Modules must have zero duplicate module IDs');
+    assert.strictEqual(proIds.length, 32, 'Professional All Modules must contain all 32 canonical modules');
+    assert.strictEqual(new Set(proIds).size, 32, 'Professional All Modules must have zero duplicate module IDs');
     assert.ok(proIds.includes('locations-manager'), 'Professional All Modules must include locations-manager');
 
     const classicMatrixGroups = buildAllModulesMenuGroups(sampleNavCounts);
     const classicIds = classicMatrixGroups.flatMap((g) => g.items.map((i) => i.id));
-    assert.strictEqual(classicIds.length, 30, 'Classic All Modules must still contain exact 30 modules');
-    assert.strictEqual(classicIds.includes('locations-manager'), false);
+    assert.strictEqual(classicIds.length, 32, 'Classic All Modules must expose all 32 canonical modules');
+    assert.strictEqual(classicIds.includes('locations-manager'), true);
 
     const dashSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'), 'utf8');
     assert.ok(
@@ -1699,10 +1781,10 @@ async function runSuite() {
     assert.ok(html.includes('Save &amp; Publish Payment Settings'));
   });
 
-  await runTest('AUDIT-07: All 31 canonical AdminDashboard tabs have explicit permission guards in source', () => {
+  await runTest('AUDIT-07: All 32 canonical AdminDashboard tabs have explicit permission guards in source', () => {
     const dashSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'), 'utf8');
     const canonicalIds = ADMIN_NAVIGATION_MODULES.map((m) => m.id);
-    assert.strictEqual(canonicalIds.length, 31);
+    assert.strictEqual(canonicalIds.length, 32);
     for (const id of canonicalIds) {
       if (id === 'scraper') {
         assert.ok(

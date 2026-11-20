@@ -3,8 +3,6 @@ import {
   Advertisement, 
   AdPlacement, 
   AdStatus, 
-  CampaignCustomizationConfig,
-  isAdCurrentlyRunning,
   formatTimeRemaining
 } from '../../types/ad';
 import { 
@@ -12,35 +10,25 @@ import {
   Layers, 
   Calendar, 
   Clock, 
-  CheckCircle2, 
-  XCircle, 
   Pause, 
   Play, 
-  Trash2, 
   Eye, 
   MousePointer, 
   Sparkles, 
   Smartphone, 
   Send, 
   Filter, 
-  Plus, 
   Search, 
   Edit3, 
-  RotateCcw,
-  Check,
-  AlertTriangle,
   Gift
 } from 'lucide-react';
 
 interface AdminCampaignCenterProps {
   ads: Advertisement[];
-  campaignConfig: CampaignCustomizationConfig;
-  onUpdateCampaignConfig: (newConfig: CampaignCustomizationConfig) => void;
   onUpdateAd: (updatedAd: Advertisement) => void;
-  onDeleteAd: (adId: string) => void;
-  onResetAdMetrics: (adId: string) => void;
-  onApproveAd?: (adId: string) => void;
-  onRejectAd?: (adId: string, reason?: string) => void;
+  canManageCampaignOperations: boolean;
+  canWaiveCampaignFee: boolean;
+  canViewCampaignContactDetails: boolean;
 }
 
 export type DynamicCampaignStatus = 'Active' | 'Scheduled' | 'Expired' | 'Pending Approval' | 'Paused' | 'Rejected';
@@ -74,14 +62,12 @@ export function getCampaignDynamicStatus(ad: Advertisement): DynamicCampaignStat
 
 export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
   ads,
-  campaignConfig,
-  onUpdateCampaignConfig,
   onUpdateAd,
-  onDeleteAd,
-  onResetAdMetrics,
-  onApproveAd,
-  onRejectAd
+  canManageCampaignOperations,
+  canWaiveCampaignFee,
+  canViewCampaignContactDetails
 }) => {
+  const [expandedContactAdId, setExpandedContactAdId] = useState<string | null>(null);
   const [selectedPlacementFilter, setSelectedPlacementFilter] = useState<string>('all');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -91,19 +77,14 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
   const [editStartDate, setEditStartDate] = useState<string>('');
   const [editEndDate, setEditEndDate] = useState<string>('');
 
-  // Placement Toggles
-  const handleTogglePlacement = (placementId: AdPlacement) => {
-    const updatedOptions = campaignConfig.placementOptions.map((opt) =>
-      opt.id === placementId ? { ...opt, isEnabled: !opt.isEnabled } : opt
-    );
-    onUpdateCampaignConfig({
-      ...campaignConfig,
-      placementOptions: updatedOptions
-    });
-  };
-
   // Quick Action Handlers
   const handleTogglePause = (ad: Advertisement) => {
+    if (!canManageCampaignOperations) return;
+    // Only approved campaigns may be paused or resumed.
+    // Pending/rejected campaigns must never be promoted by this quick action.
+    if (ad.approvalStatus && ad.approvalStatus !== 'Approved') return;
+    if (ad.status !== 'active' && ad.status !== 'paused') return;
+
     const newStatus: AdStatus = ad.status === 'active' ? 'paused' : 'active';
     onUpdateAd({
       ...ad,
@@ -112,13 +93,26 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
   };
 
   const handleOpenDateModal = (ad: Advertisement) => {
+    if (!canManageCampaignOperations) return;
     setEditingDateAd(ad);
     setEditStartDate(ad.scheduledStartAt ? ad.scheduledStartAt.slice(0, 16).replace(' ', 'T') : new Date().toISOString().slice(0, 16));
     setEditEndDate(ad.scheduledEndAt ? ad.scheduledEndAt.slice(0, 16).replace(' ', 'T') : new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 16));
   };
 
   const handleSaveDateRange = () => {
-    if (!editingDateAd) return;
+    if (!canManageCampaignOperations || !editingDateAd) return;
+
+    const startMs = new Date(editStartDate).getTime();
+    const endMs = new Date(editEndDate).getTime();
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+      alert('Please enter a valid campaign start and end date.');
+      return;
+    }
+    if (endMs <= startMs) {
+      alert('Campaign end date and time must be later than the start date and time.');
+      return;
+    }
+
     const cleanStart = editStartDate.replace('T', ' ');
     const cleanEnd = editEndDate.replace('T', ' ');
     onUpdateAd({
@@ -130,6 +124,13 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
   };
 
   const handleMakeCampaignFree = (ad: Advertisement) => {
+    if (!canWaiveCampaignFee) return;
+    if (ad.paymentStatus === 'Exempt' && Number(ad.campaignCostPkr || 0) === 0) return;
+    const confirmed = window.confirm(
+      `Waive the campaign fee for "${ad.title}"? This will set its recorded campaign cost to PKR 0 and mark payment as Exempt.`
+    );
+    if (!confirmed) return;
+
     onUpdateAd({
       ...ad,
       paymentStatus: 'Exempt',
@@ -151,6 +152,7 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
         if (selectedStatusFilter === 'expired' && dynStatus !== 'Expired') return false;
         if (selectedStatusFilter === 'pending' && dynStatus !== 'Pending Approval') return false;
         if (selectedStatusFilter === 'paused' && dynStatus !== 'Paused') return false;
+        if (selectedStatusFilter === 'rejected' && dynStatus !== 'Rejected') return false;
       }
 
       if (searchQuery.trim()) {
@@ -191,53 +193,11 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
             </span>
           </div>
           <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-            Campaign Center, Granular Date Ranges & Placement Toggles
+            Campaign Operations & Scheduling
           </h2>
           <p className="text-xs text-slate-300 max-w-2xl">
-            Visually manage all client and admin advertisements with real-time status indicators (Scheduled, Active, Expired) and granular start/end date controls.
+            Manage campaign operations: pause or resume approved campaigns, adjust start/end dates, and apply authorised fee waivers. Creative editing, approvals, rate settings and placement configuration are handled in Ad Hub.
           </p>
-        </div>
-      </div>
-
-      {/* PLACEMENT MASTER TOGGLES BAR */}
-      <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-black uppercase tracking-wider text-slate-400">
-            Ad Placements Master Toggles (Enable / Disable Across Portal):
-          </span>
-          <span className="text-xs text-slate-400">
-            Instant live switches for each channel
-          </span>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {campaignConfig.placementOptions.map((opt) => {
-            const Icon = placementIcons[opt.id] || Megaphone;
-            return (
-              <button
-                key={opt.id}
-                onClick={() => handleTogglePlacement(opt.id)}
-                className={`p-3.5 rounded-2xl border text-left flex flex-col justify-between transition-all cursor-pointer ${
-                  opt.isEnabled
-                    ? 'bg-purple-950/30 border-purple-500/40 text-white shadow-lg shadow-purple-500/5'
-                    : 'bg-slate-950/40 border-slate-800 text-slate-500 opacity-60'
-                }`}
-              >
-                <div className="flex items-center justify-between w-full mb-2">
-                  <div className={`p-2 rounded-xl ${opt.isEnabled ? 'bg-purple-500/20 text-purple-300' : 'bg-slate-800 text-slate-500'}`}>
-                    <Icon className="w-4 h-4" />
-                  </div>
-                  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase ${
-                    opt.isEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-500'
-                  }`}>
-                    {opt.isEnabled ? 'ON' : 'OFF'}
-                  </span>
-                </div>
-                <div className="text-xs font-black truncate">{opt.name.split(' ')[0]}</div>
-                <div className="text-[10px] text-slate-400 line-clamp-1">{opt.type}</div>
-              </button>
-            );
-          })}
         </div>
       </div>
 
@@ -251,7 +211,8 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
             { id: 'active', label: `🟢 Active (${ads.filter(a => getCampaignDynamicStatus(a) === 'Active').length})` },
             { id: 'scheduled', label: `🟡 Scheduled (${ads.filter(a => getCampaignDynamicStatus(a) === 'Scheduled').length})` },
             { id: 'expired', label: `🔴 Expired (${ads.filter(a => getCampaignDynamicStatus(a) === 'Expired').length})` },
-            { id: 'pending', label: `⏳ Pending (${ads.filter(a => getCampaignDynamicStatus(a) === 'Pending Approval').length})` }
+            { id: 'pending', label: `⏳ Pending (${ads.filter(a => getCampaignDynamicStatus(a) === 'Pending Approval').length})` },
+            { id: 'rejected', label: `Rejected (${ads.filter(a => getCampaignDynamicStatus(a) === 'Rejected').length})` }
           ].map((tab) => (
             <button
               key={tab.id}
@@ -335,20 +296,25 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
                 </div>
 
                 <div className="flex items-center space-x-1 shrink-0">
-                  <button
+                  {canManageCampaignOperations && <button
                     onClick={() => handleTogglePause(ad)}
-                    className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all"
-                    title={ad.status === 'active' ? 'Pause Campaign' : 'Resume Campaign'}
+                    disabled={
+                      (ad.status !== 'active' && ad.status !== 'paused') ||
+                      Boolean(ad.approvalStatus && ad.approvalStatus !== 'Approved')
+                    }
+                    className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={
+                      ad.approvalStatus && ad.approvalStatus !== 'Approved'
+                        ? 'Only approved campaigns can be paused or resumed'
+                        : ad.status === 'active'
+                        ? 'Pause Campaign'
+                        : ad.status === 'paused'
+                        ? 'Resume Campaign'
+                        : 'Only active or paused campaigns can use this action'
+                    }
                   >
                     {ad.status === 'active' ? <Pause className="w-3.5 h-3.5 text-amber-400" /> : <Play className="w-3.5 h-3.5 text-emerald-400" />}
-                  </button>
-                  <button
-                    onClick={() => onDeleteAd(ad.id)}
-                    className="p-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 transition-all cursor-pointer"
-                    title="Delete Campaign"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  </button>}
                 </div>
               </div>
 
@@ -380,13 +346,13 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
                     <Calendar className="w-3 h-3 text-purple-400" />
                     Granular Date Window
                   </span>
-                  <button
+                  {canManageCampaignOperations && <button
                     onClick={() => handleOpenDateModal(ad)}
                     className="text-[10px] font-bold text-purple-400 hover:text-purple-300 flex items-center gap-1 cursor-pointer"
                   >
                     <Edit3 className="w-3 h-3" />
                     <span>Edit Dates</span>
-                  </button>
+                  </button>}
                 </div>
 
                 <div className="font-mono text-[11px] text-slate-200 font-bold">
@@ -416,38 +382,32 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
                 </div>
 
                 <div className="flex items-center space-x-1.5">
-                  {ad.approvalStatus === 'Pending' && onApproveAd && (
-                    <button
-                      onClick={() => onApproveAd(ad.id)}
-                      className="px-2.5 py-1 rounded-lg bg-emerald-500 text-slate-950 text-[10px] font-black hover:bg-emerald-400 cursor-pointer"
-                    >
-                      Approve
-                    </button>
-                  )}
-                  {ad.approvalStatus === 'Pending' && onRejectAd && (
-                    <button
-                      onClick={() => onRejectAd(ad.id, 'Admin Policy')}
-                      className="px-2 py-1 rounded-lg bg-rose-500/20 text-rose-300 text-[10px] font-bold hover:bg-rose-500/30 cursor-pointer"
-                    >
-                      Reject
-                    </button>
-                  )}
-                  <button
+                  {canViewCampaignContactDetails && <button
+                    onClick={() => setExpandedContactAdId((current) => current === ad.id ? null : ad.id)}
+                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-sky-300"
+                    title={expandedContactAdId === ad.id ? 'Hide Advertiser Contact Details' : 'Show Advertiser Contact Details'}
+                    aria-label={expandedContactAdId === ad.id ? 'Hide advertiser contact details' : 'Show advertiser contact details'}
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                  </button>}
+                  {canWaiveCampaignFee && <button
                     onClick={() => handleMakeCampaignFree(ad)}
                     className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-emerald-400"
                     title="Waive Campaign Fee"
                   >
                     <Gift className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => onResetAdMetrics(ad.id)}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white"
-                    title="Reset Analytics"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                  </button>
+                  </button>}
                 </div>
               </div>
+
+              {canViewCampaignContactDetails && expandedContactAdId === ad.id && (
+                <div className="p-3 rounded-2xl bg-slate-950/70 border border-sky-500/20 space-y-1.5 text-xs">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-sky-300">Advertiser Contact Details · Admin Only</div>
+                  <div className="text-slate-300">Name: <span className="text-white">{(ad as any).clientName || ad.submittedByUserName || 'Not provided'}</span></div>
+                  <div className="text-slate-300">Email: <span className="text-white break-all">{(ad as any).clientEmail || ad.submittedByUserEmail || 'Not provided'}</span></div>
+                  <div className="text-slate-300">Phone: <span className="text-white">{ad.submittedByUserPhone || 'Not provided'}</span></div>
+                </div>
+              )}
 
             </div>
           );

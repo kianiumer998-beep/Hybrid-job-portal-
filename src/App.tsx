@@ -63,6 +63,8 @@ import {
   LandingPageConfig, 
   DEFAULT_LANDING_PAGE_CONFIG, 
   DEFAULT_CATEGORY_POSTING_FEES,
+  normalizeLandingDesignSystem,
+  LandingDesignSystem,
   CountryOption, 
   SUPPORTED_COUNTRIES 
 } from './types/landing';
@@ -460,6 +462,7 @@ export default function App() {
 
   // Dynamic Landing Page Builder Configuration State (Authoritative Backend /api/pricing)
   const [landingConfig, setLandingConfig] = useState<LandingPageConfig>(DEFAULT_LANDING_PAGE_CONFIG);
+  const [landingDesignSystem, setLandingDesignSystem] = useState<LandingDesignSystem>(() => normalizeLandingDesignSystem(null, DEFAULT_LANDING_PAGE_CONFIG));
 
   // Global SEO & Announcement State (Synchronized with Backend & Admin Suite)
   const [siteSeoConfig, setSiteSeoConfig] = useState<SiteSeoConfig>(() => {
@@ -548,6 +551,20 @@ export default function App() {
     } else if (rawApprovalStatus === 'Rejected') {
       normalizedStatus = 'rejected';
       normalizedApprovalStatus = 'Rejected';
+    }
+
+    // Explicit approval decisions from the backend must take precedence over
+    // a generic/legacy "active" campaign status. Never promote Pending/Rejected
+    // campaigns to Approved during client normalization.
+    const approvalDecision = rawApprovalStatus.toLowerCase();
+    if (approvalDecision === 'pending') {
+      normalizedStatus = 'pending_approval';
+      normalizedApprovalStatus = 'Pending';
+    } else if (approvalDecision === 'rejected') {
+      normalizedStatus = 'rejected';
+      normalizedApprovalStatus = 'Rejected';
+    } else if (approvalDecision === 'approved') {
+      normalizedApprovalStatus = 'Approved';
     }
 
     const targetPages: Advertisement['targetPages'] =
@@ -717,14 +734,23 @@ export default function App() {
         : DEFAULT_JOB_POSTING_PRICING_CONFIG.standardFeePkr
     );
 
-    setLandingConfig({
+    const normalizedLegacyLanding: LandingPageConfig = {
       ...DEFAULT_LANDING_PAGE_CONFIG,
       ...lpRaw,
       categoryPostingFees: syncedCategoryFees,
       exemptUserEmails: syncedExemptEmails,
       isFreeAllPostings: syncedFreeAll,
       globalDiscount: syncedGlobalDiscount
-    });
+    };
+    const normalizedDesignSystem = normalizeLandingDesignSystem(
+      pricingData.landingPageDesignSystem,
+      normalizedLegacyLanding
+    );
+    setLandingDesignSystem(normalizedDesignSystem);
+    const activeDesign = normalizedDesignSystem.designs.find(
+      (design) => design.id === normalizedDesignSystem.activeDesignId
+    );
+    setLandingConfig(activeDesign?.config || normalizedLegacyLanding);
 
     if (Array.isArray(pricingData.subscriptionPackages)) {
       setSubscriptionPackages(pricingData.subscriptionPackages.filter((p: any) => p.enabled));
@@ -807,9 +833,23 @@ export default function App() {
   
   const handleUpdateLandingConfig = useCallback(async (nextLandingConfig: LandingPageConfig) => {
     const previous = landingConfig;
+    const previousDesignSystem = landingDesignSystem;
+    const nextDesignSystem: LandingDesignSystem = {
+      ...landingDesignSystem,
+      designs: landingDesignSystem.designs.map((design) =>
+        design.id === landingDesignSystem.activeDesignId
+          ? { ...design, config: nextLandingConfig }
+          : design
+      )
+    };
     setLandingConfig(nextLandingConfig);
+    setLandingDesignSystem(nextDesignSystem);
     try {
-      const res = await api.pricing.update({ landingPageConfig: nextLandingConfig });
+      // Persist the legacy-compatible active config and its design snapshot together.
+      const res = await api.pricing.update({
+        landingPageConfig: nextLandingConfig,
+        landingPageDesignSystem: nextDesignSystem
+      });
       if (!res || !res.success) {
         throw new Error(res?.message || 'Failed to update landing page configuration');
       }
@@ -818,11 +858,71 @@ export default function App() {
       }
       return res;
     } catch (err) {
-      console.error('[App] Failed to persist landingPageConfig:', err);
+      console.error('[App] Failed to persist landing page design:', err);
       setLandingConfig(previous);
+      setLandingDesignSystem(previousDesignSystem);
       throw err;
     }
-  }, [landingConfig, applyAuthoritativePricing]);
+  }, [landingConfig, landingDesignSystem, applyAuthoritativePricing]);
+
+  const handleSaveLandingAndCampaignConfig = useCallback(async (
+    nextLandingConfig: LandingPageConfig,
+    nextCampaignConfig: CampaignCustomizationConfig
+  ) => {
+    const previousLanding = landingConfig;
+    const previousCampaign = campaignConfig;
+    const previousDesignSystem = landingDesignSystem;
+    const nextDesignSystem: LandingDesignSystem = {
+      ...landingDesignSystem,
+      designs: landingDesignSystem.designs.map((design) =>
+        design.id === landingDesignSystem.activeDesignId
+          ? { ...design, config: nextLandingConfig }
+          : design
+      )
+    };
+    setLandingConfig(nextLandingConfig);
+    setCampaignConfig(nextCampaignConfig);
+    setLandingDesignSystem(nextDesignSystem);
+    try {
+      // One request prevents landing and campaign settings from racing each other.
+      const res = await api.pricing.update({
+        landingPageConfig: nextLandingConfig,
+        landingPageDesignSystem: nextDesignSystem,
+        campaignCustomizationConfig: nextCampaignConfig
+      });
+      if (!res || !res.success) throw new Error(res?.message || 'Failed to save landing and campaign settings');
+      if (res.pricing) applyAuthoritativePricing(res.pricing);
+      return res;
+    } catch (err) {
+      setLandingConfig(previousLanding);
+      setCampaignConfig(previousCampaign);
+      setLandingDesignSystem(previousDesignSystem);
+      throw err;
+    }
+  }, [landingConfig, campaignConfig, landingDesignSystem, applyAuthoritativePricing]);
+
+  const handleSelectLandingDesign = useCallback(async (designId: LandingDesignSystem['activeDesignId']) => {
+    const selected = landingDesignSystem.designs.find((design) => design.id === designId);
+    if (!selected) throw new Error('Selected landing design is unavailable');
+    const previousConfig = landingConfig;
+    const previousSystem = landingDesignSystem;
+    const nextSystem = { ...landingDesignSystem, activeDesignId: designId };
+    setLandingConfig(selected.config);
+    setLandingDesignSystem(nextSystem);
+    try {
+      const res = await api.pricing.update({
+        landingPageConfig: selected.config,
+        landingPageDesignSystem: nextSystem
+      });
+      if (!res || !res.success) throw new Error(res?.message || 'Failed to publish selected landing design');
+      if (res.pricing) applyAuthoritativePricing(res.pricing);
+      return res;
+    } catch (err) {
+      setLandingConfig(previousConfig);
+      setLandingDesignSystem(previousSystem);
+      throw err;
+    }
+  }, [landingConfig, landingDesignSystem, applyAuthoritativePricing]);
 
   const handleSaveJobPostingPricing = useCallback(async (nextConfig: JobPostingPricingConfig) => {
     if (!isPricingReady) {
@@ -4021,16 +4121,19 @@ export default function App() {
         </div>
       )}
 
-      {/* Top Header Sticky Announcement / Banner Ad */}
-      <TopBannerAd
-        ads={advertisements}
-        currentPage={activeTab}
-        onAdClick={handleAdClick}
-        onNavigateTab={setActiveTab}
-        bannerDimensions={campaignConfig.bannerDimensions}
-        bannerAppearance={campaignConfig.bannerAppearance}
-        bannerBehavior={campaignConfig.bannerBehavior}
-      />
+      {/* Top Header Sticky Announcement / Banner Ad. The landing customizer's
+          section visibility switch controls this global paid placement. */}
+      {landingConfig.sections.find((section) => section.id === 'top-sponsor-ads')?.isEnabled !== false && (
+        <TopBannerAd
+          ads={advertisements}
+          currentPage={activeTab}
+          onAdClick={handleAdClick}
+          onNavigateTab={setActiveTab}
+          bannerDimensions={campaignConfig.bannerDimensions}
+          bannerAppearance={campaignConfig.bannerAppearance}
+          bannerBehavior={campaignConfig.bannerBehavior}
+        />
+      )}
 
       {/* Navigation Header */}
       <Header
@@ -4144,7 +4247,10 @@ export default function App() {
             onChangeJobPostingPricing={setJobPostingPricing}
             onSaveJobPostingPricing={handleSaveJobPostingPricing}
             landingConfig={landingConfig}
+            landingDesignSystem={landingDesignSystem}
+            onSelectLandingDesign={handleSelectLandingDesign}
             onUpdateLandingConfig={handleUpdateLandingConfig}
+            onSaveLandingAndCampaignConfig={handleSaveLandingAndCampaignConfig}
             onSaveCompleteFeeConfig={handleSaveFeeManagementConfig}
             onSyncAuthoritativePricing={applyAuthoritativePricing}
             isPricingLoading={isPricingLoading}
@@ -4289,6 +4395,7 @@ export default function App() {
                                 className={`p-6 rounded-2xl bg-gradient-to-r ${card.bgGradient || 'from-slate-900 to-indigo-950'} border border-white/10 text-white flex flex-col justify-between space-y-4 shadow-xl`}
                               >
                                 <div className="space-y-2">
+                                  {card.imageUrl && <img src={card.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="w-full max-h-48 rounded-xl object-cover border border-white/10" />}
                                   <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">
                                     {card.badge}
                                   </span>
@@ -4305,6 +4412,8 @@ export default function App() {
                                         const el = document.getElementById(tab);
                                         el?.scrollIntoView({ behavior: 'smooth' });
                                       }
+                                    } else if (card.buttonUrl?.startsWith('https://')) {
+                                      window.open(card.buttonUrl, '_blank', 'noopener,noreferrer');
                                     }
                                   }}
                                   className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md"

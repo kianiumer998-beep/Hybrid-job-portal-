@@ -253,7 +253,7 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
   onMakeJobFree
 }) => {
   const initialFee = resolveAuthoritativeStandardFee(postingPricing, globalPostingFeePkr, jobPostingFeePkr);
-  const [activeSubTab, setActiveSubTab] = useState<'categories' | 'exemptions' | 'global-tiers' | 'job-waivers'>('categories');
+  const [activeSubTab, setActiveSubTab] = useState<'categories' | 'exemptions' | 'job-waivers'>('categories');
   const [standardFeeDraft, setStandardFeeDraft] = useState<number>(initialFee);
   const configuredStandardFeeRef = useRef<number>(initialFee);
   const [categoryFees, setCategoryFees] = useState<CategoryPostingFee[]>(() =>
@@ -550,18 +550,17 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
           </div>
           <h4 className="text-base font-black text-white">Default Standard Rate</h4>
           <div className="flex items-center space-x-3">
-            <input
-              type="number"
-              min="0"
-              step="50"
-              value={standardFeeDraft}
-              onChange={(e) => handleStandardFeeInputChange(e.target.value)}
-              className="w-full px-4 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-base font-bold focus:outline-none focus:border-amber-500"
-            />
+            <div
+              role="status"
+              aria-label="Current global standard posting fee; edit this value in Universal Pricing Controller"
+              className="w-full px-4 py-2 rounded-xl bg-slate-950/70 border border-slate-800 text-slate-300 font-mono text-base font-bold"
+            >
+              {standardFeeDraft.toLocaleString()}
+            </div>
             <span className="text-xs font-bold text-slate-400">PKR</span>
           </div>
           <p className="text-[11px] text-slate-400">
-            Applies to standard uncategorized employer postings.
+            Read-only here to avoid duplicate pricing controls. Edit the base rate in Finance &amp; Payments → Universal Pricing Controller. Category fees, discounts and employer waivers remain managed on this page.
           </p>
         </div>
 

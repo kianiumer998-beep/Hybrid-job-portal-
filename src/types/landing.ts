@@ -220,6 +220,71 @@ export const DEFAULT_LANDING_PAGE_CONFIG: LandingPageConfig = {
   }
 };
 
+export type LandingDesignId = 'legacy' | 'design-1' | 'design-2' | 'design-3';
+
+export interface LandingDesignEntry {
+  id: LandingDesignId;
+  name: string;
+  config: LandingPageConfig;
+}
+
+export interface LandingDesignSystem {
+  version: 1;
+  activeDesignId: LandingDesignId;
+  designs: LandingDesignEntry[];
+}
+
+/**
+ * Builds a backward-compatible design registry without changing the live page.
+ * New design slots begin as independent copies; administrators can customize
+ * each one before selecting it as the published design.
+ */
+export function createDefaultLandingDesignSystem(
+  legacyConfig: LandingPageConfig = DEFAULT_LANDING_PAGE_CONFIG
+): LandingDesignSystem {
+  const cloneConfig = (config: LandingPageConfig): LandingPageConfig =>
+    JSON.parse(JSON.stringify(config)) as LandingPageConfig;
+
+  return {
+    version: 1,
+    activeDesignId: 'legacy',
+    designs: [
+      { id: 'legacy', name: 'Existing Landing Page', config: cloneConfig(legacyConfig) },
+      { id: 'design-1', name: 'Design 1 — Clean Professional', config: cloneConfig(legacyConfig) },
+      { id: 'design-2', name: 'Design 2 — Ads Integrated', config: cloneConfig(legacyConfig) },
+      { id: 'design-3', name: 'Design 3 — Modern Alternative', config: cloneConfig(legacyConfig) }
+    ]
+  };
+}
+
+export function normalizeLandingDesignSystem(
+  value: unknown,
+  legacyConfig: LandingPageConfig = DEFAULT_LANDING_PAGE_CONFIG
+): LandingDesignSystem {
+  const defaults = createDefaultLandingDesignSystem(legacyConfig);
+  if (!value || typeof value !== 'object') return defaults;
+
+  const candidate = value as Partial<LandingDesignSystem>;
+  const allowedIds: LandingDesignId[] = ['legacy', 'design-1', 'design-2', 'design-3'];
+  const supplied = Array.isArray(candidate.designs) ? candidate.designs : [];
+  const designs = defaults.designs.map((fallback) => {
+    const found = supplied.find((item) => item && item.id === fallback.id);
+    const config = found?.config;
+    if (!config || typeof config !== 'object' || !config.hero || !Array.isArray(config.sections) || !Array.isArray(config.customCards)) {
+      return fallback;
+    }
+    return {
+      ...fallback,
+      name: typeof found.name === 'string' && found.name.trim() ? found.name.trim().slice(0, 80) : fallback.name,
+      config: { ...fallback.config, ...config }
+    };
+  });
+  const activeDesignId = allowedIds.includes(candidate.activeDesignId as LandingDesignId)
+    ? candidate.activeDesignId as LandingDesignId
+    : 'legacy';
+  return { version: 1, activeDesignId, designs };
+}
+
 export interface CountryOption {
   code: string;
   name: string;

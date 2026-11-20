@@ -453,7 +453,7 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
   );
   const hasExtractionInspectorData = isScraped || Boolean(
     job.applicationStartDate || job.deadlineDate || job.expiryDate || job.applicationUrl ||
-    job.originalApplyUrl || job.sourceUrl || job.pdfSourceUrl || job.extractionSourceType || job.scraperBatchId
+    job.originalApplyUrl || job.sourceUrl || job.pdfSourceUrl || job.extractionSourceType || job.extractionMethod || job.scraperBatchId
   );
   const isSafeHttpUrl = (value?: string): boolean => {
     if (!value || typeof value !== 'string') return false;
@@ -886,10 +886,13 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                 <div className="text-slate-400">
-                  Source: <strong className="text-slate-200">{job.scraperSourceName || job.scrapedSourceDomain || 'Not recorded'}</strong>
+                  Source: <strong className="text-slate-200">{job.sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || 'Not recorded'}</strong>
                 </div>
                 <div className="text-slate-400">
                   Extraction Type: <strong className="text-slate-200">{job.extractionSourceType || 'Not recorded'}</strong>
+                </div>
+                <div className="text-slate-400">
+                  Extraction Method: <strong className="text-slate-200">{job.extractionMethod || 'Not recorded'}</strong>
                 </div>
                 <div className="text-slate-400 break-all">
                   Batch ID: <strong className="text-slate-200">{job.scraperBatchId || 'Not recorded'}</strong>

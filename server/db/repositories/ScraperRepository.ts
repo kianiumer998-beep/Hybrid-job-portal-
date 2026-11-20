@@ -371,7 +371,7 @@ export class ScraperRepository {
       const [runs, total] = await Promise.all([
         withMongoTimeout<any[]>(
           coll.find({}, { projection: { _id: 0 } })
-            .sort({ startedAt: -1, timestamp: -1 })
+            .sort({ startedAt: -1, timestamp: -1, id: -1 })
             .skip(safeOffset)
             .limit(safeLimit)
             .toArray(),

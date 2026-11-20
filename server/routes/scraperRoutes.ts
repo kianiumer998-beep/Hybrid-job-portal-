@@ -498,7 +498,7 @@ scraperRouter.get('/runs/page', requireAdminPermission('scraper.manage'), async 
     if (rawCursor !== undefined && (
       typeof rawCursor !== 'string' ||
       rawCursor.length > 64 ||
-      !(/^[a-fA-F0-9]{24}$/.test(rawCursor) || /^memory:\\d+$/.test(rawCursor))
+      !(/^[a-fA-F0-9]{24}$/.test(rawCursor) || /^memory:[A-Za-z0-9._~%-]+$/.test(rawCursor))
     )) {
       return res.status(400).json({ success: false, message: 'cursor must be a valid scraper history cursor.' });
     }

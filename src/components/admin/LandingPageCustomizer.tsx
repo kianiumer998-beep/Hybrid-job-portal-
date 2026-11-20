@@ -4,7 +4,8 @@ import {
   DEFAULT_LANDING_PAGE_CONFIG, 
   CustomLandingCard, 
   LandingSectionOrder,
-  LandingSectionId
+  LandingSectionId,
+  LandingDesignSystem
 } from '../../types/landing';
 import { CampaignCustomizationConfig, PromoDiscountBanner } from '../../types/ad';
 import { 
@@ -35,6 +36,8 @@ interface LandingPageCustomizerProps {
   campaignConfig: CampaignCustomizationConfig;
   onUpdateCampaignConfig: (newConfig: CampaignCustomizationConfig) => Promise<any> | void;
   onSaveCombinedConfig?: (landing: LandingPageConfig, campaign: CampaignCustomizationConfig) => Promise<any>;
+  designSystem?: LandingDesignSystem;
+  onSelectDesign?: (designId: LandingDesignSystem['activeDesignId']) => Promise<any>;
 }
 
 export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
@@ -42,7 +45,9 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
   onUpdateConfig,
   campaignConfig,
   onUpdateCampaignConfig,
-  onSaveCombinedConfig
+  onSaveCombinedConfig,
+  designSystem,
+  onSelectDesign
 }) => {
   const [activeTab, setActiveTab] = useState<'hero' | 'sections' | 'custom-cards' | 'design' | 'promos' | 'preview'>('sections');
   const [heroForm, setHeroForm] = useState(config.hero);
@@ -51,6 +56,31 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
   const [jobCardDesignForm, setJobCardDesignForm] = useState(config.jobCardDesign || DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign);
   const [promoBanners, setPromoBanners] = useState<PromoDiscountBanner[]>(campaignConfig.promoBanners || []);
   const [saveToast, setSaveToast] = useState<string | null>(null);
+  const [activeDesignId, setActiveDesignId] = useState<LandingDesignSystem['activeDesignId']>(designSystem?.activeDesignId || 'legacy');
+  const [isSwitchingDesign, setIsSwitchingDesign] = useState(false);
+
+  const handleSelectDesign = async (designId: LandingDesignSystem['activeDesignId']) => {
+    if (!designSystem || !onSelectDesign || designId === activeDesignId) return;
+    const selected = designSystem.designs.find((design) => design.id === designId);
+    if (!selected) return;
+    setIsSwitchingDesign(true);
+    setSaveToast('Switching published landing design...');
+    try {
+      await onSelectDesign(designId);
+      setActiveDesignId(designId);
+      setHeroForm(selected.config.hero);
+      setSections(selected.config.sections || DEFAULT_LANDING_PAGE_CONFIG.sections);
+      setCustomCards(selected.config.customCards || DEFAULT_LANDING_PAGE_CONFIG.customCards);
+      setJobCardDesignForm(selected.config.jobCardDesign || DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign);
+      setSaveToast('Selected design is now published.');
+      setTimeout(() => setSaveToast(null), 3500);
+    } catch (error: any) {
+      setSaveToast(null);
+      alert(error?.message || 'Could not switch landing design. Existing published design was retained.');
+    } finally {
+      setIsSwitchingDesign(false);
+    }
+  };
 
   // Reorder Sections
   const moveSection = (index: number, direction: 'up' | 'down') => {
@@ -249,7 +279,22 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center space-x-3 shrink-0">
+        <div className="flex flex-wrap items-center gap-3 shrink-0">
+          {designSystem && (
+            <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+              Published Landing Design
+              <select
+                value={activeDesignId}
+                disabled={isSwitchingDesign}
+                onChange={(event) => handleSelectDesign(event.target.value as LandingDesignSystem['activeDesignId'])}
+                className="min-w-[190px] rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs font-bold text-white disabled:opacity-50"
+              >
+                {designSystem.designs.map((design) => (
+                  <option key={design.id} value={design.id}>{design.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <button
             onClick={handleResetDefaults}
             className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs border border-slate-700 flex items-center space-x-1.5 transition-all cursor-pointer"

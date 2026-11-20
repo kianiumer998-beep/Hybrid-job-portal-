@@ -23,7 +23,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { Job } from '../types/job';
-import { Advertisement, FeedInlineAdSettings, BannerDimensionSettings, FeedCardAppearanceSettings } from '../types/ad';
+import { Advertisement, FeedInlineAdSettings, BannerDimensionSettings, FeedCardAppearanceSettings, isAdCurrentlyRunning } from '../types/ad';
 import { sanitizeJobTitle, sanitizeJobCompanyName, sanitizeJobTags } from '../utils/jobSanitizer';
 import { InlineFeedAd } from './ads/InlineFeedAd';
 
@@ -556,7 +556,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-6">
         {(() => {
           const eligibleAds = (ads || []).filter(
-            (a) => a.placement === 'feed-inline' && a.status === 'active' && (a.approvalStatus === 'Approved' || !a.approvalStatus)
+            (a) => a.placement === 'feed-inline' && isAdCurrentlyRunning(a)
           );
           const activeAdsList = eligibleAds;
 

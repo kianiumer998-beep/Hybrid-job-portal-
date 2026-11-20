@@ -723,18 +723,48 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                   <p className="text-[10px] text-slate-400 mt-1">Yeh status loaded job records aur Admin ON/OFF setting ko check karta hai. Koi demo ya synthetic job use nahi hoti.</p>
                 </div>
                 {[
-                  { key: 'poster', label: 'Poster / Source', paths: ['postedByName', 'employerName', 'company', 'sourcePortal', 'sourceName', 'source'] },
-                  { key: 'relativePostedTime', label: 'Relative Posted Time', paths: ['postedAt', 'createdAt'] },
-                  { key: 'exactPostedDate', label: 'Exact Posted Date', paths: ['postedAt', 'createdAt'] },
-                  { key: 'deadlineDate', label: 'Application Deadline', paths: ['deadlineDate', 'applicationDeadline'] },
-                  { key: 'deadlineRemaining', label: 'Deadline Remaining', paths: ['deadlineDate', 'applicationDeadline'] },
-                  { key: 'duplicateOverrideBadge', label: 'Duplicate Override Badge', paths: ['duplicateOverride', 'isDuplicateOverride', 'duplicateOverrideReason'] }
+                  { key: 'poster', label: 'Poster / Source' },
+                  { key: 'relativePostedTime', label: 'Relative Posted Time' },
+                  { key: 'exactPostedDate', label: 'Exact Posted Date' },
+                  { key: 'deadlineDate', label: 'Application Deadline' },
+                  { key: 'deadlineRemaining', label: 'Deadline Remaining' },
+                  { key: 'duplicateOverrideBadge', label: 'Duplicate Override Badge' }
                 ].map((field) => {
                   const enabled = jobCardDesignForm.visibility[field.key as keyof typeof jobCardDesignForm.visibility] !== false;
-                  const hasData = jobs.some((job) => field.paths.some((path) => {
-                    const value = job?.[path];
-                    return value !== undefined && value !== null && String(value).trim() !== '';
-                  }));
+                  // Keep this check aligned with JobListings.renderJobCard: do not infer
+                  // availability from unrelated aliases such as company/applicationDeadline.
+                  const hasUsableDate = (value: unknown): boolean => {
+                    if (typeof value !== 'string' || !value.trim()) return false;
+                    const clean = value.trim();
+                    const dmy = clean.match(/^(\\d{1,2})[-\\/.](\\d{1,2})[-\\/.](\\d{4})$/);
+                    if (dmy) {
+                      const day = Number(dmy[1]);
+                      const month = Number(dmy[2]) - 1;
+                      const year = Number(dmy[3]);
+                      const parsed = new Date(year, month, day);
+                      return parsed.getFullYear() === year && parsed.getMonth() === month && parsed.getDate() === day;
+                    }
+                    return !Number.isNaN(Date.parse(clean));
+                  };
+                  const hasData = jobs.some((job) => {
+                    if (field.key === 'poster') {
+                      // These are the exact inputs used to derive posterLabel.
+                      return job.sourceType === 'admin_created' || job.isAdminCreated === true ||
+                        job.sourceType === 'scraped' || job.isScraped === true ||
+                        Boolean(typeof job.scraperSourceName === 'string' && job.scraperSourceName.trim());
+                    }
+                    if (field.key === 'relativePostedTime' || field.key === 'exactPostedDate') {
+                      const postedAt = hasUsableDate(job.postedAt) ? job.postedAt : job.createdAt;
+                      return hasUsableDate(postedAt);
+                    }
+                    if (field.key === 'deadlineDate' || field.key === 'deadlineRemaining') {
+                      return hasUsableDate(job.deadlineDate);
+                    }
+                    if (field.key === 'duplicateOverrideBadge') {
+                      return job.isDuplicateOverride === true;
+                    }
+                    return false;
+                  });
                   const status = !enabled ? 'Disabled by Admin' : jobs.length === 0 ? 'No live job data loaded' : hasData ? 'Data available in loaded jobs' : 'Data unavailable in loaded jobs';
                   const tone = !enabled ? 'text-rose-300 bg-rose-500/10 border-rose-500/30' : hasData && jobs.length > 0 ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30' : 'text-amber-300 bg-amber-500/10 border-amber-500/30';
                   return <div key={field.key} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2 last:border-0">

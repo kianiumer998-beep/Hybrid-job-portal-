@@ -73,6 +73,7 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'Pending Review' | 'Approved Live' | 'Auto-Approved' | 'Rejected'>('all');
   const [sourceFilter, setSourceFilter] = useState<string>('all');
+  const [batchFilter, setBatchFilter] = useState<string>('all');
   const [regionFilter, setRegionFilter] = useState<string>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'week'>('all');
@@ -113,6 +114,14 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
     )).sort((a, b) => a.localeCompare(b));
   }, [currentLogs]);
 
+  const availableBatchIds = useMemo(() => {
+    return Array.from(new Set(
+      currentLogs
+        .map(entry => String(entry.batchId || '').trim())
+        .filter(Boolean)
+    )).sort((a, b) => b.localeCompare(a));
+  }, [currentLogs]);
+
   // Filtered Audit Entries
   const filteredAuditLogs = useMemo(() => {
     return currentLogs.filter((entry) => {
@@ -139,6 +148,11 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
 
       // Source filter matches the actual source label stored with each audit record.
       if (sourceFilter !== 'all' && entry.sourcePortalName !== sourceFilter) {
+        return false;
+      }
+
+      // Batch filter uses the stored batch identifier shared by related scraper runs.
+      if (batchFilter !== 'all' && entry.batchId !== batchFilter) {
         return false;
       }
 
@@ -180,7 +194,7 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
       if (sortBy === 'latency') return a.crawlLatencyMs - b.crawlLatencyMs;
       return 0;
     });
-  }, [currentLogs, searchQuery, statusFilter, sourceFilter, regionFilter, categoryFilter, dateFilter, sortBy]);
+  }, [currentLogs, searchQuery, statusFilter, sourceFilter, batchFilter, regionFilter, categoryFilter, dateFilter, sortBy]);
 
   // Overall Statistics
   const stats = useMemo(() => {
@@ -584,7 +598,7 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 text-xs">
               {/* SEARCH INPUT */}
-              <div className="lg:col-span-4 relative">
+              <div className="lg:col-span-3 relative">
                 <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
@@ -610,6 +624,20 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
                 </select>
               </div>
 
+              {/* BATCH HISTORY FILTER */}
+              <div className="lg:col-span-2">
+                <select
+                  value={batchFilter}
+                  onChange={(e) => setBatchFilter(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold"
+                >
+                  <option value="all">All Batches ({availableBatchIds.length})</option>
+                  {availableBatchIds.map(batchId => (
+                    <option key={batchId} value={batchId}>{batchId}</option>
+                  ))}
+                </select>
+              </div>
+
               {/* SOURCE PORTAL FILTER */}
               <div className="lg:col-span-2">
                 <select
@@ -625,7 +653,7 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
               </div>
 
               {/* GEOGRAPHIC REGION FILTER */}
-              <div className="lg:col-span-2">
+              <div className="lg:col-span-1">
                 <select
                   value={regionFilter}
                   onChange={(e) => setRegionFilter(e.target.value)}

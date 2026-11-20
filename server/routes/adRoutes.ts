@@ -11,9 +11,12 @@ adRouter.get('/', async (req, res) => {
   try {
     const { status, placement } = req.query as Record<string, string>;
     const user = (req as any).user;
-    const canManageAds = Boolean(user && hasAdminPermission(user.role, 'advertisements.manage'));
+    const canManageCampaigns = Boolean(
+      user &&
+      (hasAdminPermission(user.role, 'advertisements.manage') || hasAdminPermission(user.role, 'finance.manage'))
+    );
 
-    if (canManageAds) {
+    if (canManageCampaigns) {
       const rawAds = await AdRepository.getAllAsync({ status, placement });
       return res.json({ success: true, advertisements: rawAds });
     }

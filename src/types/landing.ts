@@ -245,14 +245,41 @@ export function createDefaultLandingDesignSystem(
   const cloneConfig = (config: LandingPageConfig): LandingPageConfig =>
     JSON.parse(JSON.stringify(config)) as LandingPageConfig;
 
+  const cleanProfessional = cloneConfig(legacyConfig);
+  cleanProfessional.jobCardDesign = {
+    ...cleanProfessional.jobCardDesign,
+    layout: 'compact',
+    theme: { ...cleanProfessional.jobCardDesign.theme, accentColor: 'indigo', cardBgPreset: 'glass', density: 'compact' }
+  };
+
+  const adsIntegrated = cloneConfig(legacyConfig);
+  // The existing globally-rendered top banner and feed campaign placements remain
+  // connected to the approved/paid campaign pipeline; this preset only adjusts
+  // the page section order and does not create synthetic ad inventory.
+  adsIntegrated.sections = adsIntegrated.sections
+    .map((section) => ({ ...section, order: section.id === 'custom-announcements' ? 3 : section.id === 'quick-stats' ? 4 : section.order }))
+    .sort((a, b) => a.order - b.order)
+    .map((section, index) => ({ ...section, order: index + 1 }));
+  adsIntegrated.jobCardDesign = {
+    ...adsIntegrated.jobCardDesign,
+    theme: { ...adsIntegrated.jobCardDesign.theme, accentColor: 'amber', cardBgPreset: 'gradient', density: 'normal' }
+  };
+
+  const modernAlternative = cloneConfig(legacyConfig);
+  modernAlternative.jobCardDesign = {
+    ...modernAlternative.jobCardDesign,
+    layout: 'default',
+    theme: { ...modernAlternative.jobCardDesign.theme, accentColor: 'emerald', cardBgPreset: 'gradient', borderRadius: '3xl', density: 'spacious' }
+  };
+
   return {
     version: 1,
     activeDesignId: 'legacy',
     designs: [
       { id: 'legacy', name: 'Existing Landing Page', config: cloneConfig(legacyConfig) },
-      { id: 'design-1', name: 'Design 1 — Clean Professional', config: cloneConfig(legacyConfig) },
-      { id: 'design-2', name: 'Design 2 — Ads Integrated', config: cloneConfig(legacyConfig) },
-      { id: 'design-3', name: 'Design 3 — Modern Alternative', config: cloneConfig(legacyConfig) }
+      { id: 'design-1', name: 'Design 1 — Clean Professional', config: cleanProfessional },
+      { id: 'design-2', name: 'Design 2 — Ads Integrated', config: adsIntegrated },
+      { id: 'design-3', name: 'Design 3 — Modern Alternative', config: modernAlternative }
     ]
   };
 }

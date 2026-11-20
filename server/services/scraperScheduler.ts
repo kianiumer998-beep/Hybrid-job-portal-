@@ -168,6 +168,9 @@ export async function runSchedulerTick(
   lastTickTime = tickStartedAt.toISOString();
   const triggered: string[] = [];
   const failed: string[] = [];
+  const plannedSourceIds: string[] = [];
+  const successfulRunResults: any[] = [];
+  const scheduleUpdateErrors: Array<{ sourceId: string; error: string }> = [];
   const failedErrors: Array<{ sourceId: string; sourceName: string; sourceUrl: string; error: string }> = [];
 
   const isScraperEnabled = _deps?.isScraperEnabledFn ? _deps.isScraperEnabledFn() : featureFlags.enableWebScraper;
@@ -244,6 +247,7 @@ export async function runSchedulerTick(
 
         // Check if source is due
         if (now >= nextRunMs) {
+          plannedSourceIds.push(src.id);
           console.log(`[Scheduler Engine] Source "${src.name}" (${src.id}) is due for scrape (Interval: ${src.interval || settings.interval || '24h'}, Scope: ${settings.scope}).`);
 
           try {
@@ -269,6 +273,7 @@ export async function runSchedulerTick(
             });
 
             triggered.push(src.id);
+            successfulRunResults.push(runResult);
             console.log(`[Scheduler Engine] Source "${src.name}" scraped. Found: ${runResult.totalFound}, Duplicates: ${runResult.totalDuplicates}`);
           } catch (srcErr: any) {
             if (isScraperRunConflictError(srcErr)) {
@@ -313,13 +318,17 @@ export async function runSchedulerTick(
         }
       } catch (sourceLoopErr: any) {
         const loopErrMsg = sourceLoopErr?.message || String(sourceLoopErr);
-        failed.push(src.id);
-        failedErrors.push({
+        if (triggered.includes(src.id)) {
+          scheduleUpdateErrors.push({ sourceId: src.id, error: loopErrMsg });
+        } else if (!failed.includes(src.id)) {
+          failed.push(src.id);
+          failedErrors.push({
           sourceId: src.id,
           sourceName: src.name || src.id,
           sourceUrl: src.url || '',
           error: loopErrMsg
-        });
+          });
+        }
         console.warn(`[Scheduler Engine] Notice processing source "${src.name}" during tick:`, loopErrMsg);
       }
     }
@@ -364,6 +373,63 @@ export async function runSchedulerTick(
         });
       } catch (runPersistErr: any) {
         console.warn('[Scheduler Engine] Unable to record failed tick run summary:', runPersistErr?.message || runPersistErr);
+      }
+    }
+
+    // Persist one aggregate parent record for this scheduler batch. Per-source run records remain untouched.
+    if (plannedSourceIds.length > 0) {
+      const batchEndedAt = new Date();
+      const successfulSourcesStats = successfulRunResults.flatMap(result =>
+        Array.isArray(result?.sourcesStats) ? result.sourcesStats : []
+      );
+      const failedSourcesStats = failedErrors.map(error => ({
+        sourceId: error.sourceId,
+        sourceName: error.sourceName,
+        sourceUrl: error.sourceUrl,
+        startedAt: tickStartedAt.toISOString(),
+        completedAt: batchEndedAt.toISOString(),
+        found: 0,
+        newCount: 0,
+        dupCount: 0,
+        pagesAttempted: 1,
+        pagesSuccessful: 0,
+        failed: true,
+        error: error.error,
+        failureCategory: 'Scheduler Execution Failed'
+      }));
+      const batchStatus = failed.length > 0
+        ? (triggered.length > 0 ? 'Partial' : 'Failed')
+        : 'Completed';
+      try {
+        await addRunFn({
+          id: `SCHED-BATCH-SUMMARY-${tickStartedAt.getTime().toString(36).toUpperCase()}`,
+          batchId: schedulerBatchId,
+          recordType: 'batch_summary',
+          triggerType: 'Scheduled Cron',
+          startedAt: tickStartedAt.toISOString(),
+          completedAt: batchEndedAt.toISOString(),
+          mode: settings.scanMode || 'since_last',
+          duplicateMode: settings.duplicateMode === 'without' ? 'without' : 'with',
+          targetsScraped: triggered.length,
+          totalTargetsPlanned: plannedSourceIds.length,
+          successfulSources: triggered.length,
+          failedSources: failed.length,
+          scheduleUpdateFailures: scheduleUpdateErrors.length,
+          status: batchStatus,
+          totalFound: successfulRunResults.reduce((sum, result) => sum + (Number(result?.totalFound) || 0), 0),
+          totalNew: successfulRunResults.reduce((sum, result) => sum + (Number(result?.totalNew) || 0), 0),
+          totalDuplicates: successfulRunResults.reduce((sum, result) => sum + (Number(result?.totalDuplicates) || 0), 0),
+          totalFailedToSave: successfulRunResults.reduce((sum, result) => sum + (Number(result?.totalFailedToSave) || 0), 0),
+          newPublished: successfulRunResults.reduce((sum, result) => sum + (Number(result?.totalPublished) || 0), 0),
+          newPending: successfulRunResults.reduce((sum, result) => sum + (Number(result?.totalPending) || 0), 0),
+          duplicatesFlagged: successfulRunResults.reduce((sum, result) => sum + (Number(result?.totalDuplicates) || 0), 0),
+          executionTimeMs: batchEndedAt.getTime() - tickStartedAt.getTime(),
+          scheduleUpdateErrors,
+          sourcesStats: [...successfulSourcesStats, ...failedSourcesStats],
+          message: `Scheduler batch completed: ${triggered.length} successful, ${failed.length} failed, ${scheduleUpdateErrors.length} schedule update warning(s) across ${plannedSourceIds.length} due sources.`
+        });
+      } catch (batchPersistErr: any) {
+        console.warn('[Scheduler Engine] Unable to persist aggregate batch summary:', batchPersistErr?.message || batchPersistErr);
       }
     }
 

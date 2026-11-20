@@ -901,6 +901,29 @@ export default function App() {
     }
   }, [landingConfig, campaignConfig, landingDesignSystem, applyAuthoritativePricing]);
 
+  const handleSelectLandingDesign = useCallback(async (designId: LandingDesignSystem['activeDesignId']) => {
+    const selected = landingDesignSystem.designs.find((design) => design.id === designId);
+    if (!selected) throw new Error('Selected landing design is unavailable');
+    const previousConfig = landingConfig;
+    const previousSystem = landingDesignSystem;
+    const nextSystem = { ...landingDesignSystem, activeDesignId: designId };
+    setLandingConfig(selected.config);
+    setLandingDesignSystem(nextSystem);
+    try {
+      const res = await api.pricing.update({
+        landingPageConfig: selected.config,
+        landingPageDesignSystem: nextSystem
+      });
+      if (!res || !res.success) throw new Error(res?.message || 'Failed to publish selected landing design');
+      if (res.pricing) applyAuthoritativePricing(res.pricing);
+      return res;
+    } catch (err) {
+      setLandingConfig(previousConfig);
+      setLandingDesignSystem(previousSystem);
+      throw err;
+    }
+  }, [landingConfig, landingDesignSystem, applyAuthoritativePricing]);
+
   const handleSaveJobPostingPricing = useCallback(async (nextConfig: JobPostingPricingConfig) => {
     if (!isPricingReady) {
       return {
@@ -4221,6 +4244,8 @@ export default function App() {
             onChangeJobPostingPricing={setJobPostingPricing}
             onSaveJobPostingPricing={handleSaveJobPostingPricing}
             landingConfig={landingConfig}
+            landingDesignSystem={landingDesignSystem}
+            onSelectLandingDesign={handleSelectLandingDesign}
             onUpdateLandingConfig={handleUpdateLandingConfig}
             onSaveLandingAndCampaignConfig={handleSaveLandingAndCampaignConfig}
             onSaveCompleteFeeConfig={handleSaveFeeManagementConfig}

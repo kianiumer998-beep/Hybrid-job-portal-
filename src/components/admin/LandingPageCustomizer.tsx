@@ -158,10 +158,11 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
       setSaveToast('⏳ Publishing changes to production database...');
       
       // Parent handleUpdateLandingConfig/handleUpdateCampaignConfig in App.tsx are async
-      await Promise.all([
-        onUpdateConfig(newLandingConfig),
-        onUpdateCampaignConfig(newCampaignConfig)
-      ]);
+      // These updates share the same authoritative MongoDB pricing document.
+      // Save sequentially so concurrent read/merge/write operations cannot overwrite
+      // each other's landing-page or campaign settings.
+      await onUpdateConfig(newLandingConfig);
+      await onUpdateCampaignConfig(newCampaignConfig);
 
       setSaveToast('✅ Landing page design & section sequence published successfully!');
       setTimeout(() => setSaveToast(null), 4500);

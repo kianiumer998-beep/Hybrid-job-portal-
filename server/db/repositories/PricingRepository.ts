@@ -251,7 +251,7 @@ function deepMergePricing(base: any, incoming: any): any {
       }
     },
     landingPageDesignSystem: normalizeLandingDesignSystem(
-      src.landingPageDesignSystem ?? base.landingPageDesignSystem,
+      src.landingPageDesignSystem ?? createDefaultLandingDesignSystem({ ...baseLanding, ...srcLanding }),
       { ...baseLanding, ...srcLanding }
     ),
     landingPageConfig: {

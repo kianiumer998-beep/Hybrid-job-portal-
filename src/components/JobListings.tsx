@@ -166,7 +166,8 @@ export const JobListings: React.FC<JobListingsProps> = ({
     limits: { descriptionMaxWords: 25, maxTags: 4 }
   };
 
-  const accentColor = getJobCardAccentColor(design.theme.accentColor);\n  const accentStyles = JOB_CARD_ACCENT_STYLES[accentColor];
+  const accentColor = getJobCardAccentColor(design.theme.accentColor);
+  const accentStyles = JOB_CARD_ACCENT_STYLES[accentColor];
 
   // STEP66-B.1: Separate Priority Jobs and Standard Jobs
   const priorityList = React.useMemo(() => {

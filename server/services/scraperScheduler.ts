@@ -241,6 +241,11 @@ export async function runSchedulerTick(
           const persisted = await updateScheduleFn(src.id, { nextRunAt });
           if (persisted) {
             src.nextRunAt = nextRunAt;
+          } else {
+            scheduleUpdateErrors.push({
+              sourceId: src.id,
+              error: 'Initial schedule update was not confirmed as persisted.'
+            });
           }
           continue;
         }
@@ -397,6 +402,63 @@ export async function runSchedulerTick(
         });
       } catch (batchPersistErr: any) {
         console.warn('[Scheduler Engine] Unable to persist aggregate batch summary:', batchPersistErr?.message || batchPersistErr);
+      }
+    }
+
+    // Keep scheduler setup diagnostics that are not part of a due-source batch separate,
+    // so due-source failures are not double-counted beside the aggregate parent record.
+    const unplannedFailures = failedErrors.filter(error => !plannedSourceIds.includes(error.sourceId));
+    const unplannedScheduleWarnings = scheduleUpdateErrors.filter(error => !plannedSourceIds.includes(error.sourceId));
+    if (unplannedFailures.length > 0 || unplannedScheduleWarnings.length > 0) {
+      const diagnosticAt = new Date();
+      const diagnosticStats = [
+        ...unplannedFailures.map(error => ({
+          sourceId: error.sourceId,
+          sourceName: error.sourceName,
+          sourceUrl: error.sourceUrl,
+          startedAt: tickStartedAt.toISOString(),
+          completedAt: diagnosticAt.toISOString(),
+          found: 0,
+          newCount: 0,
+          dupCount: 0,
+          pagesAttempted: 0,
+          pagesSuccessful: 0,
+          failed: true,
+          error: error.error,
+          failureCategory: 'Scheduler Setup Failed'
+        })),
+        ...unplannedScheduleWarnings.map(warning => ({
+          sourceId: warning.sourceId,
+          startedAt: tickStartedAt.toISOString(),
+          completedAt: diagnosticAt.toISOString(),
+          found: 0,
+          newCount: 0,
+          dupCount: 0,
+          pagesAttempted: 0,
+          pagesSuccessful: 0,
+          failed: false,
+          error: warning.error,
+          failureCategory: 'Schedule Update Warning'
+        }))
+      ];
+      try {
+        await addRunFn({
+          id: `SCHED-DIAGNOSTIC-${tickStartedAt.getTime().toString(36).toUpperCase()}`,
+          batchId: schedulerBatchId,
+          recordType: 'scheduler_diagnostic',
+          triggerType: 'Scheduled Cron',
+          startedAt: tickStartedAt.toISOString(),
+          completedAt: diagnosticAt.toISOString(),
+          status: unplannedFailures.length > 0 ? 'Failed' : 'Partial',
+          targetsScraped: 0,
+          totalTargetsPlanned: 0,
+          failedSources: unplannedFailures.length,
+          scheduleUpdateFailures: unplannedScheduleWarnings.length,
+          sourcesStats: diagnosticStats,
+          message: `Scheduler setup encountered ${unplannedFailures.length} failure(s) and ${unplannedScheduleWarnings.length} schedule warning(s) before any due-source batch.`
+        });
+      } catch (diagnosticPersistErr: any) {
+        console.warn('[Scheduler Engine] Unable to persist scheduler setup diagnostic:', diagnosticPersistErr?.message || diagnosticPersistErr);
       }
     }
 

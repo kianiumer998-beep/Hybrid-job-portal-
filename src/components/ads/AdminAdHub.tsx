@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Advertisement, 
   AdType, 
@@ -69,11 +69,13 @@ interface AdminAdHubProps {
   onDeleteAd: (adId: string) => void;
   onResetAdMetrics: (adId?: string) => void;
   pricingConfig?: AdPricingConfig;
-  onUpdatePricingConfig?: (config: AdPricingConfig) => void;
+  onUpdatePricingConfig?: (config: AdPricingConfig) => void | Promise<unknown>;
   campaignConfig?: CampaignCustomizationConfig;
-  onUpdateCampaignConfig?: (config: CampaignCustomizationConfig) => void;
+  onUpdateCampaignConfig?: (config: CampaignCustomizationConfig) => void | Promise<unknown>;
   onApproveAd?: (adId: string) => void;
   onRejectAd?: (adId: string, reason: string) => void;
+  canManageAdConfiguration?: boolean;
+  isPricingReady?: boolean;
 }
 
 export const AdminAdHub: React.FC<AdminAdHubProps> = ({
@@ -87,7 +89,9 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
   campaignConfig = DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
   onUpdateCampaignConfig,
   onApproveAd,
-  onRejectAd
+  onRejectAd,
+  canManageAdConfiguration = false,
+  isPricingReady = false
 }) => {
   // Main Sub-Tab: Directory, Pending Approvals, Placement Slots, Campaign Customizer, Pricing Engine, Performance Charts
   const [activeTab, setActiveTab] = useState<'directory' | 'approvals' | 'slots' | 'customizer' | 'pricing' | 'performance'>('approvals');
@@ -113,7 +117,12 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
   // Pricing Matrix Form State
   const [editablePricing, setEditablePricing] = useState<AdPricingConfig>(pricingConfig);
+
+  useEffect(() => {
+    setEditablePricing(pricingConfig);
+  }, [pricingConfig]);
   const [isPricingSaved, setIsPricingSaved] = useState<boolean>(false);
+  const [isPricingSaving, setIsPricingSaving] = useState<boolean>(false);
 
   // Form State for Create/Edit
   const [formTitle, setFormTitle] = useState('');
@@ -310,15 +319,26 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
     setRejectingAd(null);
   };
 
-  // Save Pricing Configuration
-  const handleSavePricingConfig = (e: React.FormEvent) => {
+  // Save only after the authoritative API confirms persistence.
+  const handleSavePricingConfig = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (onUpdatePricingConfig) {
-      onUpdatePricingConfig(editablePricing);
+    if (!onUpdatePricingConfig) {
+      alert('Ad pricing save is unavailable. Please contact the administrator.');
+      return;
     }
-    setIsPricingSaved(true);
-    setTimeout(() => setIsPricingSaved(false), 2000);
-    alert('Advertising Rate Card & Matrix Configuration saved successfully!');
+
+    setIsPricingSaving(true);
+    setIsPricingSaved(false);
+    try {
+      await onUpdatePricingConfig(editablePricing);
+      setIsPricingSaved(true);
+      setTimeout(() => setIsPricingSaved(false), 3000);
+    } catch (error: any) {
+      console.error('[AdminAdHub] Failed to save authoritative ad pricing:', error);
+      alert(error?.message || 'Ad pricing could not be saved. Please try again.');
+    } finally {
+      setIsPricingSaving(false);
+    }
   };
 
   // Image Upload helper
@@ -443,7 +463,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
           <span>Placement Slots & Live Timeline</span>
         </button>
 
-        <button
+        {canManageAdConfiguration && isPricingReady && <button
           onClick={() => setActiveTab('customizer')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
             activeTab === 'customizer'
@@ -453,7 +473,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
         >
           <Sliders className="w-4 h-4" />
           <span>Campaign Options & Page Scheduler</span>
-        </button>
+        </button>}
 
         <button
           onClick={() => setActiveTab('directory')}
@@ -467,7 +487,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
           <span>All Campaigns Directory ({ads.length})</span>
         </button>
 
-        <button
+        {canManageAdConfiguration && isPricingReady && <button
           onClick={() => setActiveTab('pricing')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
             activeTab === 'pricing'
@@ -477,7 +497,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
         >
           <Settings className="w-4 h-4" />
           <span>Rate Card & Pricing Matrix</span>
-        </button>
+        </button>}
 
         <button
           onClick={() => setActiveTab('performance')}
@@ -864,6 +884,18 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
                     <button
                       onClick={() => {
+                        if (window.confirm(`Reset analytics for campaign "${ad.title}"? Impressions and clicks will be set to zero.`)) {
+                          onResetAdMetrics(ad.id);
+                        }
+                      }}
+                      className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl"
+                      title="Reset campaign analytics"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      onClick={() => {
                         if (confirm(`Delete campaign "${ad.title}"?`)) {
                           onDeleteAd(ad.id);
                         }
@@ -893,13 +925,14 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
       {/* ========================================================================= */}
       {/* TAB 3: CAMPAIGN OPTIONS & PORTAL PAGE SCHEDULER */}
       {/* ========================================================================= */}
-      {activeTab === 'customizer' && (
+      {activeTab === 'customizer' && canManageAdConfiguration && isPricingReady && (
         <AdminCampaignCustomizer
           config={campaignConfig}
           onSaveConfig={(updated) => {
-            if (onUpdateCampaignConfig) {
-              onUpdateCampaignConfig(updated);
+            if (!onUpdateCampaignConfig) {
+              throw new Error('Campaign settings save is unavailable.');
             }
+            return onUpdateCampaignConfig(updated);
           }}
         />
       )}
@@ -907,7 +940,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
       {/* ========================================================================= */}
       {/* TAB 4: RATE CARD & PRICING MATRIX CONFIGURATION */}
       {/* ========================================================================= */}
-      {activeTab === 'pricing' && (
+      {activeTab === 'pricing' && canManageAdConfiguration && isPricingReady && (
         <div className="space-y-6">
           <form onSubmit={handleSavePricingConfig} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
             
@@ -922,13 +955,19 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
                 </p>
               </div>
 
-              <button
-                type="submit"
-                className="px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black text-xs sm:text-sm rounded-xl shadow-lg shadow-emerald-500/20 flex items-center space-x-2 cursor-pointer active:scale-95"
-              >
-                <Check className="w-4 h-4 stroke-[3]" />
-                <span>Save Rate Matrix</span>
-              </button>
+              <div className="flex items-center gap-3">
+                {isPricingSaved && (
+                  <span role="status" className="text-xs font-bold text-emerald-400">Saved to database</span>
+                )}
+                <button
+                  type="submit"
+                  disabled={isPricingSaving}
+                  className="px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black text-xs sm:text-sm rounded-xl shadow-lg shadow-emerald-500/20 flex items-center space-x-2 cursor-pointer active:scale-95 disabled:opacity-60 disabled:cursor-wait"
+                >
+                  <Check className="w-4 h-4 stroke-[3]" />
+                  <span>{isPricingSaving ? 'Saving...' : 'Save Rate Matrix'}</span>
+                </button>
+              </div>
             </div>
 
             {/* 1. Base Duration Rates */}

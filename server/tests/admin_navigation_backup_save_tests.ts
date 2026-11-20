@@ -1359,7 +1359,8 @@ async function runSuite() {
     const featureInternalChecks: Array<[string, string[]]> = [
       ['src/components/admin/AutomatedScraperHub.tsx', ["'overview' | 'sources' | 'run' | 'history' | 'review' | 'settings'"]],
       ['src/components/ads/AdminAdHub.tsx', ["'directory' | 'approvals' | 'slots' | 'customizer' | 'pricing' | 'performance'"]],
-      ['src/components/admin/AdminCampaignCenter.tsx', ['handleTogglePlacement', 'selectedPlacementFilter', 'selectedStatusFilter']],
+      ['src/components/admin/AdminCampaignCenter.tsx', ['handleTogglePause', 'handleSaveDateRange', 'handleMakeCampaignFree', 'selectedPlacementFilter', 'selectedStatusFilter']],
+      ['src/components/ads/AdminCampaignCustomizer.tsx', ['handleUpdatePlacement', 'placementOptions.map', 'await onSaveConfig(localConfig)']],
       ['src/components/admin/LandingPageCustomizer.tsx', ["'hero' | 'sections' | 'custom-cards' | 'design' | 'promos' | 'preview'"]],
       ['src/components/admin/AdminFeeManager.tsx', ["'categories' | 'exemptions' | 'job-waivers'"]],
       ['src/components/admin/AdminPaymentMethodsManager.tsx', ["'methods' | 'durations'"]],
@@ -1371,6 +1372,47 @@ async function runSuite() {
         assert.ok(content.includes(marker), `Expected untouched internal sub-tab marker "${marker}" in ${relPath}`);
       }
     }
+  });
+
+  await runTest('Ad campaign controls: preserve distinct operations and require confirmed authoritative saves', () => {
+    const campaignOps = fs.readFileSync(path.resolve(process.cwd(), 'src/components/admin/AdminCampaignCenter.tsx'), 'utf8');
+    assert.ok(campaignOps.includes("ad.status !== 'active' && ad.status !== 'paused'"));
+    assert.ok(campaignOps.includes("endMs <= startMs"));
+    assert.ok(campaignOps.includes('window.confirm'));
+    assert.ok(!campaignOps.includes('onApproveAd'));
+    assert.ok(!campaignOps.includes('onDeleteAd'));
+
+    const adHub = fs.readFileSync(path.resolve(process.cwd(), 'src/components/ads/AdminAdHub.tsx'), 'utf8');
+    assert.ok(adHub.includes('await onUpdatePricingConfig(editablePricing)'));
+    assert.ok(adHub.includes('canManageAdConfiguration && isPricingReady'));
+    assert.ok(adHub.includes('setEditablePricing(pricingConfig)'));
+    assert.ok(adHub.includes('onResetAdMetrics(ad.id)'), 'Per-campaign analytics reset must remain available in Ad Hub');
+
+    const campaignCustomizer = fs.readFileSync(path.resolve(process.cwd(), 'src/components/ads/AdminCampaignCustomizer.tsx'), 'utf8');
+    assert.ok(campaignCustomizer.includes('await onSaveConfig(localConfig)'));
+    assert.ok(campaignCustomizer.includes('setLocalConfig(previousConfig)'));
+
+    const pricingController = fs.readFileSync(path.resolve(process.cwd(), 'src/components/admin/AdminPricingController.tsx'), 'utf8');
+    assert.ok(pricingController.includes('Ad Campaign Rates — Managed in Ad Hub'));
+    assert.ok(pricingController.includes('backward compatibility'));
+  });
+
+  await runTest('Campaign fee waiver is Finance-only in UI and enforced server-side', () => {
+    const campaignOps = fs.readFileSync(path.resolve(process.cwd(), 'src/components/admin/AdminCampaignCenter.tsx'), 'utf8');
+    assert.ok(campaignOps.includes('canWaiveCampaignFee && <button'));
+    assert.ok(campaignOps.includes('if (!canWaiveCampaignFee) return;'));
+    assert.ok(campaignOps.includes('canManageCampaignOperations && <button'));
+
+    const dashboard = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'), 'utf8');
+    assert.ok(dashboard.includes("canWaiveCampaignFee={hasAdminUiPermission('finance.manage')}"));
+    assert.ok(dashboard.includes("return hasPerm('advertisements.manage') || hasPerm('finance.manage');"));
+
+    const adRoutes = fs.readFileSync(path.resolve(process.cwd(), 'server/routes/adRoutes.ts'), 'utf8');
+    assert.ok(adRoutes.includes('const canManageCampaigns = Boolean('));
+    assert.ok(adRoutes.includes("hasAdminPermission(user.role, 'finance.manage')"));
+    assert.ok(adRoutes.includes("const financeFields = ['paymentStatus', 'campaignCostPkr', 'budget', 'walletTxId', 'paymentTransactionId', 'transactionRef'];"));
+    assert.ok(adRoutes.includes('changedFinanceFields.length > 0 && !canManageFinance'));
+    assert.ok(adRoutes.includes('changedNonFinanceFields.length > 0 && !canManageAds'));
   });
 
   await runTest('Classic Parity Restoration: preserves 7 categories and exposes all 32 canonical modules through the existing Classic menu', () => {

@@ -11,9 +11,12 @@ adRouter.get('/', async (req, res) => {
   try {
     const { status, placement } = req.query as Record<string, string>;
     const user = (req as any).user;
-    const canManageAds = Boolean(user && hasAdminPermission(user.role, 'advertisements.manage'));
+    const canManageCampaigns = Boolean(
+      user &&
+      (hasAdminPermission(user.role, 'advertisements.manage') || hasAdminPermission(user.role, 'finance.manage'))
+    );
 
-    if (canManageAds) {
+    if (canManageCampaigns) {
       const rawAds = await AdRepository.getAllAsync({ status, placement });
       return res.json({ success: true, advertisements: rawAds });
     }
@@ -355,9 +358,36 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
 });
 
 // 3. Update Advertisement
-adRouter.put('/:id', requireAdminPermission('advertisements.manage'), async (req, res) => {
+adRouter.put('/:id', requireAuth, async (req: any, res) => {
   try {
-    const updated = await AdRepository.updateAsync(req.params.id, req.body);
+    const role = String(req.user?.role || '');
+    const canManageAds = hasAdminPermission(role, 'advertisements.manage');
+    const canManageFinance = hasAdminPermission(role, 'finance.manage');
+    if (!canManageAds && !canManageFinance) {
+      return res.status(403).json({ success: false, message: 'Access denied: Advertisement or Finance permission required.' });
+    }
+
+    const existingAd = AdRepository.getById(req.params.id);
+    if (!existingAd) {
+      return res.status(404).json({ success: false, message: 'Ad not found.' });
+    }
+
+    const updates = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    const financeFields = ['paymentStatus', 'campaignCostPkr', 'budget', 'walletTxId', 'paymentTransactionId', 'transactionRef'];
+    const changedFields = Object.keys(updates).filter(
+      (key) => JSON.stringify((existingAd as any)[key]) !== JSON.stringify(updates[key])
+    );
+    const changedFinanceFields = changedFields.filter((key) => financeFields.includes(key));
+    const changedNonFinanceFields = changedFields.filter((key) => !financeFields.includes(key));
+
+    if (changedFinanceFields.length > 0 && !canManageFinance) {
+      return res.status(403).json({ success: false, message: 'Access denied: Finance permission is required to change campaign payment or fee fields.' });
+    }
+    if (changedNonFinanceFields.length > 0 && !canManageAds) {
+      return res.status(403).json({ success: false, message: 'Access denied: Advertisement management permission is required for campaign operations.' });
+    }
+
+    const updated = await AdRepository.updateAsync(req.params.id, updates);
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Ad not found.' });
     }

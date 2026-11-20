@@ -254,6 +254,20 @@ export function createDefaultLandingDesignSystem(
   };
 
   const adsIntegrated = cloneConfig(legacyConfig);
+  // This is a genuine free portal feature card, not paid sponsor inventory.
+  if (!adsIntegrated.customCards.some((card) => card.id === 'card-ats-cv-builder')) {
+    adsIntegrated.customCards.push({
+      id: 'card-ats-cv-builder',
+      title: 'Build Your ATS-Ready CV',
+      description: 'Create and improve your professional resume with the portal\'s free ATS CV Builder.',
+      badge: 'Free Portal Tool',
+      buttonText: 'Build CV Free',
+      buttonUrl: '#cv',
+      bgGradient: 'from-indigo-700 via-blue-700 to-slate-900',
+      isEnabled: true,
+      order: 3
+    });
+  }
   // The existing globally-rendered top banner and feed campaign placements remain
   // connected to the approved/paid campaign pipeline; this preset only adjusts
   // the page section order and does not create synthetic ad inventory.

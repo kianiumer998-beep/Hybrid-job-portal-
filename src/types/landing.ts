@@ -290,7 +290,9 @@ export function createDefaultLandingDesignSystem(
   cleanProfessional.jobCardDesign = {
     ...cleanProfessional.jobCardDesign,
     layout: 'compact',
-    theme: { ...cleanProfessional.jobCardDesign.theme, accentColor: 'indigo', cardBgPreset: 'glass', density: 'compact' }
+    // Design 1 follows the portal's established emerald/teal brand by default.
+    // Admins can still customize this design's accent independently afterward.
+    theme: { ...cleanProfessional.jobCardDesign.theme, accentColor: 'emerald', cardBgPreset: 'glass', density: 'compact' }
   };
 
   const adsIntegrated = cloneConfig(legacyConfig);

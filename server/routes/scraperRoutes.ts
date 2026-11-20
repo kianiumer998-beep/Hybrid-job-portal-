@@ -484,6 +484,21 @@ scraperRouter.get('/runs', requireAdminPermission('scraper.manage'), async (req,
   }
 });
 
+// 7A. Get a bounded page of scraper history (Admin Only)
+scraperRouter.get('/runs/page', requireAdminPermission('scraper.manage'), async (req, res) => {
+  try {
+    const rawOffset = Number(req.query.offset ?? 0);
+    const rawLimit = Number(req.query.limit ?? 50);
+    if (!Number.isInteger(rawOffset) || rawOffset < 0 || !Number.isInteger(rawLimit) || rawLimit < 1) {
+      return res.status(400).json({ success: false, message: 'offset must be a non-negative integer and limit must be a positive integer.' });
+    }
+    const page = await ScraperRepository.getRunsPage(rawOffset, Math.min(rawLimit, 100));
+    return res.json({ success: true, ...page, offset: rawOffset, limit: Math.min(rawLimit, 100) });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message || 'Error fetching paginated scraper runs' });
+  }
+});
+
 // 8. Retry Scraper Sources (Retry Selected, Retry Failed, Retry All Failed)
 scraperRouter.post('/retry', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {

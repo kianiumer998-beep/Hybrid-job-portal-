@@ -884,6 +884,18 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
                     <button
                       onClick={() => {
+                        if (window.confirm(`Reset analytics for campaign "${ad.title}"? Impressions and clicks will be set to zero.`)) {
+                          onResetAdMetrics(ad.id);
+                        }
+                      }}
+                      className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl"
+                      title="Reset campaign analytics"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      onClick={() => {
                         if (confirm(`Delete campaign "${ad.title}"?`)) {
                           onDeleteAd(ad.id);
                         }

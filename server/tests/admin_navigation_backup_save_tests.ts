@@ -1386,6 +1386,7 @@ async function runSuite() {
     assert.ok(adHub.includes('await onUpdatePricingConfig(editablePricing)'));
     assert.ok(adHub.includes('canManageAdConfiguration && isPricingReady'));
     assert.ok(adHub.includes('setEditablePricing(pricingConfig)'));
+    assert.ok(adHub.includes('onResetAdMetrics(ad.id)'), 'Per-campaign analytics reset must remain available in Ad Hub');
 
     const campaignCustomizer = fs.readFileSync(path.resolve(process.cwd(), 'src/components/ads/AdminCampaignCustomizer.tsx'), 'utf8');
     assert.ok(campaignCustomizer.includes('await onSaveConfig(localConfig)'));

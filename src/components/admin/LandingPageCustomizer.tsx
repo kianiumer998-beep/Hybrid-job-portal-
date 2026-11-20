@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   LandingPageConfig, 
   DEFAULT_LANDING_PAGE_CONFIG, 
@@ -58,6 +58,26 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
   const [saveToast, setSaveToast] = useState<string | null>(null);
   const [activeDesignId, setActiveDesignId] = useState<LandingDesignSystem['activeDesignId']>(designSystem?.activeDesignId || 'legacy');
   const [isSwitchingDesign, setIsSwitchingDesign] = useState(false);
+  const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
+
+  // Keep editor fields aligned with the authoritative selected design after a
+  // successful design switch or a server-side config refresh. Local edits are
+  // not overwritten by unrelated component renders because these dependencies
+  // change only when the persisted config/design changes.
+  useEffect(() => {
+    setHeroForm(config.hero);
+    setSections(config.sections || DEFAULT_LANDING_PAGE_CONFIG.sections);
+    setCustomCards(config.customCards || DEFAULT_LANDING_PAGE_CONFIG.customCards);
+    setJobCardDesignForm(config.jobCardDesign || DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign);
+  }, [config]);
+
+  useEffect(() => {
+    setPromoBanners(campaignConfig.promoBanners || []);
+  }, [campaignConfig]);
+
+  useEffect(() => {
+    if (designSystem?.activeDesignId) setActiveDesignId(designSystem.activeDesignId);
+  }, [designSystem?.activeDesignId]);
 
   const handleSelectDesign = async (designId: LandingDesignSystem['activeDesignId']) => {
     if (!designSystem || !onSelectDesign || designId === activeDesignId) return;
@@ -231,8 +251,12 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
 
     try {
       setSaveToast('⏳ Resetting and saving default configuration to database...');
-      await onUpdateConfig(newLandingConfig);
-      setSaveToast('✅ Restored and saved default landing page configuration.');
+      if (onSaveCombinedConfig) {
+        await onSaveCombinedConfig(newLandingConfig, { ...campaignConfig, promoBanners });
+      } else {
+        await onUpdateConfig(newLandingConfig);
+      }
+      setSaveToast('✅ Restored and saved defaults for the selected landing design.');
       setTimeout(() => setSaveToast(null), 3500);
     } catch (err: any) {
       console.error('Failed to reset landing page config to defaults:', err);
@@ -325,7 +349,8 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
           { id: 'hero', label: '✍️ Hero Text & CTA Buttons', icon: Type },
           { id: 'custom-cards', label: `🎴 Dynamic Announcement Cards (${customCards.length})`, icon: Layout },
           { id: 'design', label: '🎨 Job Card Designer (Layout & Theme)', icon: Palette },
-          { id: 'promos', label: `🔥 Top Promo Discount Banners (${promoBanners.length})`, icon: Megaphone }
+          { id: 'promos', label: `🔥 Top Promo Discount Banners (${promoBanners.length})`, icon: Megaphone },
+          { id: 'preview', label: '👁️ Responsive Preview', icon: Eye }
         ].map((t) => {
           const Icon = t.icon;
           return (
@@ -875,6 +900,50 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                   * Preview shows a wireframe representation of Design 1 with current visibility & theme settings.
                 </p>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: RESPONSIVE LANDING PREVIEW (configuration-only; no synthetic ads/jobs) */}
+      {activeTab === 'preview' && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-black text-white">Landing Design Preview</h3>
+              <p className="text-xs text-slate-400">Preview of the current unsaved hero and announcement-card settings. Real job and paid-ad inventory is not fabricated here.</p>
+            </div>
+            <div className="inline-flex rounded-xl border border-slate-700 bg-slate-950 p-1">
+              <button type="button" onClick={() => setPreviewMode('desktop')} aria-pressed={previewMode === 'desktop'} className={`rounded-lg px-3 py-2 text-xs font-bold ${previewMode === 'desktop' ? 'bg-indigo-500 text-white' : 'text-slate-400'}`}>Desktop</button>
+              <button type="button" onClick={() => setPreviewMode('mobile')} aria-pressed={previewMode === 'mobile'} className={`rounded-lg px-3 py-2 text-xs font-bold ${previewMode === 'mobile' ? 'bg-indigo-500 text-white' : 'text-slate-400'}`}>Mobile</button>
+            </div>
+          </div>
+          <div className="overflow-x-auto rounded-2xl border border-slate-700 bg-slate-950 p-3 sm:p-5">
+            <div className={`mx-auto min-h-[420px] overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 transition-all ${previewMode === 'mobile' ? 'w-[320px] max-w-full' : 'w-full max-w-5xl'}`}>
+              {sections.find((section) => section.id === 'hero')?.isEnabled !== false && (
+                <section className="bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 px-4 py-8 text-center sm:px-8 sm:py-12">
+                  {heroForm.eyebrowBadgeText && <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-emerald-300">{heroForm.eyebrowBadgeText}</p>}
+                  <h1 className="mx-auto max-w-3xl text-2xl font-black leading-tight text-white sm:text-4xl">{heroForm.mainHeadingPrefix} <span className="text-emerald-400">{heroForm.gradientWord}</span> {heroForm.mainHeadingSuffix}</h1>
+                  <p className="mx-auto mt-3 max-w-2xl text-xs leading-relaxed text-slate-300 sm:text-sm">{heroForm.subHeading}</p>
+                  <div className="mt-5 flex flex-wrap justify-center gap-2">
+                    {heroForm.primaryBtnText && <span className="rounded-xl bg-emerald-400 px-4 py-2 text-xs font-black text-slate-950">{heroForm.primaryBtnText}</span>}
+                    {heroForm.secondaryBtnText && <span className="rounded-xl border border-slate-600 px-4 py-2 text-xs font-bold text-white">{heroForm.secondaryBtnText}</span>}
+                  </div>
+                </section>
+              )}
+              {sections.find((section) => section.id === 'custom-announcements')?.isEnabled !== false && customCards.filter((card) => card.isEnabled).length > 0 && (
+                <section className={`grid gap-3 p-4 sm:p-6 ${previewMode === 'mobile' ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-3'}`}>
+                  {customCards.filter((card) => card.isEnabled).sort((a, b) => a.order - b.order).map((card) => (
+                    <article key={card.id} className={`rounded-2xl bg-gradient-to-br ${card.bgGradient} p-4 text-white shadow-lg`}>
+                      {card.badge && <span className="text-[9px] font-black uppercase tracking-wider text-white/80">{card.badge}</span>}
+                      <h2 className="mt-2 text-sm font-black">{card.title}</h2>
+                      <p className="mt-2 text-xs leading-relaxed text-white/80">{card.description}</p>
+                      <span className="mt-4 inline-block rounded-lg bg-white/15 px-3 py-2 text-[10px] font-bold">{card.buttonText}</span>
+                    </article>
+                  ))}
+                </section>
+              )}
+              {sections.find((section) => section.id === 'jobs-feed')?.isEnabled !== false && <div className="border-t border-slate-800 px-4 py-5 text-center text-xs text-slate-500">Live jobs and eligible paid campaigns render from their existing production data sources.</div>}
             </div>
           </div>
         </div>

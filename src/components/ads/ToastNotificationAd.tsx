@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Advertisement, AdTargetPage } from '../../types/ad';
+import { Advertisement, AdTargetPage, isAdCurrentlyRunning } from '../../types/ad';
 import { X, Sparkles, ExternalLink, ArrowRight, Bell, Zap } from 'lucide-react';
 
 interface ToastNotificationAdProps {
@@ -21,7 +21,7 @@ export const ToastNotificationAd: React.FC<ToastNotificationAdProps> = ({
   useEffect(() => {
     const candidate = ads.find(
       (ad) =>
-        ad.status === 'active' &&
+        isAdCurrentlyRunning(ad) &&
         (ad.type === 'notification' || ad.placement === 'toast-float') &&
         (ad.targetPages.includes('all') || ad.targetPages.includes(currentPage)) &&
         !dismissedToastIds.includes(ad.id)

@@ -314,6 +314,11 @@ export async function runSchedulerTick(
             src.lastRunAt = lastRunAt;
             src.lastCompletedAt = lastCompletedAt;
             src.nextRunAt = nextRunAt;
+          } else {
+            scheduleUpdateErrors.push({
+              sourceId: src.id,
+              error: 'Schedule update was not confirmed as persisted.'
+            });
           }
         }
       } catch (sourceLoopErr: any) {
@@ -431,7 +436,7 @@ export async function runSchedulerTick(
           executionTimeMs: batchEndedAt.getTime() - tickStartedAt.getTime(),
           scheduleUpdateErrors,
           sourcesStats: [...successfulSourcesStats, ...failedSourcesStats],
-          message: `Scheduler batch completed: ${triggered.length} successful, ${failed.length} failed, ${scheduleUpdateErrors.length} schedule update warning(s) across ${plannedSourceIds.length} due sources.`
+          message: `Scheduler batch: ${completedRunCount} completed, ${partialRunCount} partial, ${batchFailedSourceCount} failed, ${scheduleUpdateErrors.length} schedule update warning(s) across ${plannedSourceIds.length} due sources.`
         });
       } catch (batchPersistErr: any) {
         console.warn('[Scheduler Engine] Unable to persist aggregate batch summary:', batchPersistErr?.message || batchPersistErr);

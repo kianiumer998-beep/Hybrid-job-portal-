@@ -738,7 +738,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 <input
                   type="text"
                   value={formData.applicationStartDate || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, applicationStartDate: e.target.value || undefined }))}
+                  onChange={(e) => setFormData(p => ({ ...p, applicationStartDate: e.target.value }))}
                   placeholder="Enter the date exactly as confirmed by the source"
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-amber-400 outline-none"
                 />
@@ -749,7 +749,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 <input
                   type="text"
                   value={formData.expiryDate || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, expiryDate: e.target.value || undefined }))}
+                  onChange={(e) => setFormData(p => ({ ...p, expiryDate: e.target.value }))}
                   placeholder="Enter the date exactly as confirmed by the source"
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-amber-400 outline-none"
                 />

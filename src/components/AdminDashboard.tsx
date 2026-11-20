@@ -223,9 +223,9 @@ interface AdminDashboardProps {
   onDeleteAd?: (adId: string) => void;
   onResetAdMetrics?: (adId?: string) => void;
   pricingConfig?: AdPricingConfig;
-  onUpdatePricingConfig?: (config: AdPricingConfig) => void;
+  onUpdatePricingConfig?: (config: AdPricingConfig) => void | Promise<unknown>;
   campaignConfig?: CampaignCustomizationConfig;
-  onUpdateCampaignConfig?: (config: CampaignCustomizationConfig) => void;
+  onUpdateCampaignConfig?: (config: CampaignCustomizationConfig) => void | Promise<unknown>;
   onApproveAd?: (adId: string) => void;
   onRejectAd?: (adId: string, reason: string) => void;
   jobPostingPricing?: JobPostingPricingConfig;

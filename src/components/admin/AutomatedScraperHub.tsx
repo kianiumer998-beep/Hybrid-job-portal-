@@ -892,7 +892,22 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     let totalDuplicates = 0;
     let totalErrors = 0;
 
-    liveRuns.forEach(r => {
+    // A scheduled batch summary aggregates its source-level child runs.
+    // Count the parent once, not both parent and children; keep standalone manual
+    // runs and scheduler diagnostics in the metrics.
+    const summarizedBatchIds = new Set(
+      liveRuns
+        .filter(run => run.recordType === 'batch_summary' && run.batchId)
+        .map(run => String(run.batchId))
+    );
+    const metricRuns = liveRuns.filter(run =>
+      run.recordType === 'batch_summary' ||
+      run.recordType === 'scheduler_diagnostic' ||
+      !run.batchId ||
+      !summarizedBatchIds.has(String(run.batchId))
+    );
+
+    metricRuns.forEach(r => {
       totalFound += r.totalFound || 0;
       totalApproved += r.newPublished ?? r.approvedCount ?? r.jobsAccepted ?? 0;
       totalDuplicates += r.duplicatesFlagged ?? r.totalDuplicates ?? 0;

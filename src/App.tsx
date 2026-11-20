@@ -4392,6 +4392,7 @@ export default function App() {
                                 className={`p-6 rounded-2xl bg-gradient-to-r ${card.bgGradient || 'from-slate-900 to-indigo-950'} border border-white/10 text-white flex flex-col justify-between space-y-4 shadow-xl`}
                               >
                                 <div className="space-y-2">
+                                  {card.imageUrl && <img src={card.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="w-full max-h-48 rounded-xl object-cover border border-white/10" />}
                                   <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">
                                     {card.badge}
                                   </span>
@@ -4408,6 +4409,8 @@ export default function App() {
                                         const el = document.getElementById(tab);
                                         el?.scrollIntoView({ behavior: 'smooth' });
                                       }
+                                    } else if (card.buttonUrl?.startsWith('https://')) {
+                                      window.open(card.buttonUrl, '_blank', 'noopener,noreferrer');
                                     }
                                   }}
                                   className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md"

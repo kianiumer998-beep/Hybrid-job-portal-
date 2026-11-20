@@ -333,10 +333,10 @@ export async function runSchedulerTick(
         } else if (!failed.includes(src.id)) {
           failed.push(src.id);
           failedErrors.push({
-          sourceId: src.id,
-          sourceName: src.name || src.id,
-          sourceUrl: src.url || '',
-          error: loopErrMsg
+            sourceId: src.id,
+            sourceName: src.name || src.id,
+            sourceUrl: src.url || '',
+            error: loopErrMsg
           });
         }
         console.warn(`[Scheduler Engine] Notice processing source "${src.name}" during tick:`, loopErrMsg);
@@ -358,7 +358,7 @@ export async function runSchedulerTick(
         found: 0,
         newCount: 0,
         dupCount: 0,
-        pagesAttempted: 1,
+        pagesAttempted: 0,
         pagesSuccessful: 0,
         failed: true,
         error: error.error,

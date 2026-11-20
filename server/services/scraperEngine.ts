@@ -1255,11 +1255,13 @@ export async function executeScraperWithWizard(
           failed: sourceFailed,
           failureCategory: sourceSaveFailures > 0
             ? 'Database Save Failed'
-            : sourceValid === 0 && sourceRejected > 0
-              ? 'Incomplete Extraction'
-              : sourceValid === 0
-                ? 'No Jobs Found'
-                : undefined,
+            : duplicateMode === 'without' && sourceValid > 0 && sourceNew === 0 && sourceDup > 0
+              ? 'Duplicate Skipped'
+              : sourceValid === 0 && sourceRejected > 0
+                ? 'Incomplete Extraction'
+                : sourceValid === 0
+                  ? 'No Jobs Found'
+                  : undefined,
           error: sourceError || lastErrorNotice,
           lastSuccessfulScrapeAt: isCheckpointEligible ? sourceCompletedAt : target.lastSuccessfulScrapeAt
         });

@@ -25,6 +25,8 @@ export interface ScraperRunOptions {
   keywords?: string;
   autoPublishTrusted?: boolean;
   duplicateMode?: 'with' | 'without';
+  /** Shared ID for grouping source-level executions from one scheduler tick. */
+  batchId?: string;
 }
 
 export const SCRAPER_RUN_ALREADY_ACTIVE_CODE = 'SCRAPER_RUN_ALREADY_ACTIVE';
@@ -1367,7 +1369,7 @@ export async function executeScraperWithWizard(
     try {
       runRecordResult = await addRunFn({
         id: runId,
-        batchId: runId,
+        batchId: options.batchId || runId,
         startedAt: startTime.toISOString(),
         completedAt: endTime.toISOString(),
         mode: options.mode,

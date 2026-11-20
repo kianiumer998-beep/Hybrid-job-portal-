@@ -402,7 +402,7 @@ export async function runSchedulerTick(
       const failedRunCount = successfulRunResults.filter(result => result?.status === 'Failed').length;
       const batchFailedSourceCount = failed.length + failedRunCount;
       const batchStatus = batchFailedSourceCount > 0
-        ? (triggered.length > batchFailedSourceCount ? 'Partial' : 'Failed')
+        ? (completedRunCount + partialRunCount > 0 ? 'Partial' : 'Failed')
         : (partialRunCount > 0 || scheduleUpdateErrors.length > 0 ? 'Partial' : 'Completed');
       try {
         await addRunFn({

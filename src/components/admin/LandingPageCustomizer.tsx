@@ -946,7 +946,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                       )}
 
                       <div className="flex gap-2">
-                        {jobCardDesignForm.visibility.jobType && <div className={`h-4 bg-${jobCardDesignForm.theme.accentColor}-500/20 rounded-full w-12`} />}
+                        {jobCardDesignForm.visibility.jobType && <div className={`h-4 {JOB_CARD_ACCENT_STYLES[getJobCardAccentColor(jobCardDesignForm.theme.accentColor)].previewSubtle} rounded-full w-12`} />}
                         {jobCardDesignForm.visibility.location && <div className="h-4 bg-slate-800 rounded-full w-16" />}
                       </div>
 
@@ -959,11 +959,11 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
 
                       <div className="flex justify-between items-center pt-4">
                          {jobCardDesignForm.visibility.salary && (
-                           <div className={`h-4 bg-${jobCardDesignForm.theme.accentColor}-500/10 rounded w-16`} />
+                           <div className={`h-4 {JOB_CARD_ACCENT_STYLES[getJobCardAccentColor(jobCardDesignForm.theme.accentColor)].previewSoft} rounded w-16`} />
                          )}
                          <div className="flex gap-2">
                            {jobCardDesignForm.visibility.detailsButton && <div className="h-7 w-16 bg-slate-800 rounded-lg" />}
-                           {jobCardDesignForm.visibility.applyButton && <div className={`h-7 w-16 bg-${jobCardDesignForm.theme.accentColor}-500 rounded-lg`} />}
+                           {jobCardDesignForm.visibility.applyButton && <div className={`h-7 w-16 {JOB_CARD_ACCENT_STYLES[getJobCardAccentColor(jobCardDesignForm.theme.accentColor)].solidBg} rounded-lg`} />}
                          </div>
                       </div>
                     </div>

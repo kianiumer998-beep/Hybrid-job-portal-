@@ -233,6 +233,7 @@ interface AdminDashboardProps {
   onSaveJobPostingPricing?: (config: JobPostingPricingConfig) => Promise<any> | any | void;
   landingConfig?: LandingPageConfig;
   onUpdateLandingConfig?: (config: LandingPageConfig) => Promise<any> | any | void;
+  onSaveLandingAndCampaignConfig?: (landing: LandingPageConfig, campaign: CampaignCustomizationConfig) => Promise<any>;
   onSaveCompleteFeeConfig?: (payload: CompleteFeeConfigSavePayload) => Promise<any> | any | void;
   onSyncAuthoritativePricing?: (pricing: any) => void;
   isPricingLoading?: boolean;
@@ -3634,6 +3635,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onUpdateConfig={onUpdateLandingConfig}
           campaignConfig={campaignConfig || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG}
           onUpdateCampaignConfig={onUpdateCampaignConfig || (() => {})}
+          onSaveCombinedConfig={onSaveLandingAndCampaignConfig}
         />
       )}
 

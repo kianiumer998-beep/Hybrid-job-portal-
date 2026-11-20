@@ -3702,6 +3702,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onUpdateAd={onUpdateAd || (() => {})}
           canManageCampaignOperations={hasAdminUiPermission('advertisements.manage')}
           canWaiveCampaignFee={hasAdminUiPermission('finance.manage')}
+          canViewCampaignContactDetails={effectiveAdminRole === 'Admin' || effectiveAdminRole === 'Super Admin'}
         />
       )}
 

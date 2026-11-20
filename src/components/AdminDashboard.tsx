@@ -3696,17 +3696,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {adminTab === 'campaign-center' && canAccessAdminTab('campaign-center') && (
         <AdminCampaignCenter
           ads={ads || []}
-          campaignConfig={
-            campaignConfig?.placementOptions
-              ? campaignConfig
-              : { ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG, ...(campaignConfig || {}) }
-          }
-          onUpdateCampaignConfig={onUpdateCampaignConfig || (() => {})}
           onUpdateAd={onUpdateAd || (() => {})}
-          onDeleteAd={onDeleteAd || (() => {})}
-          onResetAdMetrics={onResetAdMetrics || (() => {})}
-          onApproveAd={onApproveAd}
-          onRejectAd={onRejectAd}
         />
       )}
 

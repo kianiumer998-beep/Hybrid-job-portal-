@@ -34,13 +34,15 @@ interface LandingPageCustomizerProps {
   onUpdateConfig: (newConfig: LandingPageConfig) => Promise<any> | void;
   campaignConfig: CampaignCustomizationConfig;
   onUpdateCampaignConfig: (newConfig: CampaignCustomizationConfig) => Promise<any> | void;
+  onSaveCombinedConfig?: (landing: LandingPageConfig, campaign: CampaignCustomizationConfig) => Promise<any>;
 }
 
 export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
   config,
   onUpdateConfig,
   campaignConfig,
-  onUpdateCampaignConfig
+  onUpdateCampaignConfig,
+  onSaveCombinedConfig
 }) => {
   const [activeTab, setActiveTab] = useState<'hero' | 'sections' | 'custom-cards' | 'design' | 'promos' | 'preview'>('sections');
   const [heroForm, setHeroForm] = useState(config.hero);
@@ -161,8 +163,12 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
       // These updates share the same authoritative MongoDB pricing document.
       // Save sequentially so concurrent read/merge/write operations cannot overwrite
       // each other's landing-page or campaign settings.
-      await onUpdateConfig(newLandingConfig);
-      await onUpdateCampaignConfig(newCampaignConfig);
+      if (onSaveCombinedConfig) {
+        await onSaveCombinedConfig(newLandingConfig, newCampaignConfig);
+      } else {
+        await onUpdateConfig(newLandingConfig);
+        await onUpdateCampaignConfig(newCampaignConfig);
+      }
 
       setSaveToast('✅ Landing page design & section sequence published successfully!');
       setTimeout(() => setSaveToast(null), 4500);

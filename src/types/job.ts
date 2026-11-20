@@ -209,6 +209,8 @@ export interface Job {
   applicationUrl?: string;
   contactEmailOrPhone?: string;
   deadlineDate?: string;
+  /** Explicit source-published date when applications open; never inferred from deadline. */
+  applicationStartDate?: string;
 
   // Scraper History & Ingestion Audit Extensions
   scraperBatchId?: string;

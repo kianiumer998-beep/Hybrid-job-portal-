@@ -640,6 +640,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [liveSources, setLiveSources] = useState<ScraperSourceItem[]>([]);
   const [liveRuns, setLiveRuns] = useState<ScraperRunRecord[]>([]);
   const [runHistoryHasMore, setRunHistoryHasMore] = useState(false);
+  const [runHistoryCursor, setRunHistoryCursor] = useState<string | null>(null);
   const [runHistoryTotal, setRunHistoryTotal] = useState(0);
   const [isLoadingMoreRuns, setIsLoadingMoreRuns] = useState(false);
   const [schedulerStatus, setSchedulerStatus] = useState<any>(null);
@@ -791,10 +792,12 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       if (runsRes?.success && Array.isArray(runsRes.runs)) {
         setLiveRuns(runsRes.runs);
         setRunHistoryHasMore(Boolean(runsRes.hasMore));
+        setRunHistoryCursor(typeof runsRes.nextCursor === 'string' ? runsRes.nextCursor : null);
         setRunHistoryTotal(Number.isFinite(Number(runsRes.total)) ? Number(runsRes.total) : runsRes.runs.length);
       } else {
         setLiveRuns([]);
         setRunHistoryHasMore(false);
+        setRunHistoryCursor(null);
         setRunHistoryTotal(0);
       }
 
@@ -1052,11 +1055,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   // Filtered Runs for Step 5: History
   // -------------------------------------------------------------
   const handleLoadMoreRuns = useCallback(async () => {
-    if (isLoadingMoreRuns || !runHistoryHasMore) return;
+    if (isLoadingMoreRuns || !runHistoryHasMore || !runHistoryCursor) return;
     setIsLoadingMoreRuns(true);
     try {
-      const nextOffset = liveRuns.length;
-      const response = await api.scraper.getRunsPage(nextOffset, 50);
+      const response = await api.scraper.getRunsPage(0, 50, runHistoryCursor);
       if (response?.success && Array.isArray(response.runs)) {
         setLiveRuns(previous => {
           const existingIds = new Set(previous.map(run => run.runId || run.id).filter(Boolean));
@@ -1064,6 +1066,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           return [...previous, ...additions];
         });
         setRunHistoryHasMore(Boolean(response.hasMore));
+        setRunHistoryCursor(typeof response.nextCursor === 'string' ? response.nextCursor : null);
         setRunHistoryTotal(Number.isFinite(Number(response.total)) ? Number(response.total) : runHistoryTotal);
       } else {
         setStatusMessage({ text: response?.message || 'Unable to load more scraper history.', type: 'error' });
@@ -1073,7 +1076,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     } finally {
       setIsLoadingMoreRuns(false);
     }
-  }, [isLoadingMoreRuns, runHistoryHasMore, liveRuns, runHistoryTotal]);
+  }, [isLoadingMoreRuns, runHistoryHasMore, runHistoryCursor, runHistoryTotal]);
 
   const availableHistoryBatchIds = useMemo(() => {
     return Array.from(new Set(liveRuns.map(run => String(run.batchId || '').trim()).filter(Boolean)))

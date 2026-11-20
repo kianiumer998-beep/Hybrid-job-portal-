@@ -1335,8 +1335,8 @@ export async function executeScraperWithWizard(
           pagesSuccessful: sourcePagesSuccessful,
           failed: true,
           failureCategory: isDbError
-            ? 'Database Save Failed'
-            : classifiedHealth === '404' || classifiedHealth === '403' || classifiedHealth === 'Timeout'
+            ? 'Database Error'
+            : ['404', '403', 'Timeout', 'Fetch Error'].includes(classifiedHealth)
               ? 'Website Unavailable'
               : classifiedHealth === 'Invalid PDF'
                 ? 'Document Failed'

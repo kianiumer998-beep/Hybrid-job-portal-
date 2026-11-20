@@ -82,6 +82,12 @@ export interface JobCardDesignConfig {
     futureBadge: boolean;
     vipBadge?: boolean;
     pinnedBadge?: boolean;
+    poster?: boolean;
+    relativePostedTime?: boolean;
+    exactPostedDate?: boolean;
+    deadlineDate?: boolean;
+    deadlineRemaining?: boolean;
+    duplicateOverrideBadge?: boolean;
     saveButton: boolean;
     detailsButton: boolean;
     applyButton: boolean;
@@ -204,6 +210,12 @@ export const DEFAULT_LANDING_PAGE_CONFIG: LandingPageConfig = {
       futureBadge: true,
       vipBadge: true,
       pinnedBadge: true,
+      poster: true,
+      relativePostedTime: true,
+      exactPostedDate: true,
+      deadlineDate: true,
+      deadlineRemaining: true,
+      duplicateOverrideBadge: true,
       saveButton: true,
       detailsButton: true,
       applyButton: true

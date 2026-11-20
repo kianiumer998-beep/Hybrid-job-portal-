@@ -3640,6 +3640,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           campaignConfig={campaignConfig || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG}
           onUpdateCampaignConfig={onUpdateCampaignConfig || (() => {})}
           onSaveCombinedConfig={onSaveLandingAndCampaignConfig}
+          jobs={jobs || []}
         />
       )}
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   MapPin, 
   Building2, 
@@ -28,6 +28,71 @@ import { sanitizeJobTitle, sanitizeJobCompanyName, sanitizeJobTags } from '../ut
 import { InlineFeedAd } from './ads/InlineFeedAd';
 
 import { JobCardDesignConfig } from '../types/landing';
+
+
+const parseJobCardDate = (value?: string, endOfDay = false): Date | null => {
+  if (!value || typeof value !== 'string') return null;
+  const clean = value.trim();
+  if (!clean) return null;
+  const dmy = clean.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]) - 1;
+    const year = Number(dmy[3]);
+    const parsed = new Date(year, month, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0);
+    if (parsed.getFullYear() === year && parsed.getMonth() === month && parsed.getDate() === day) return parsed;
+    return null;
+  }
+  const dateOnly = clean.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    const year = Number(dateOnly[1]);
+    const month = Number(dateOnly[2]) - 1;
+    const day = Number(dateOnly[3]);
+    const parsed = new Date(year, month, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0);
+    if (parsed.getFullYear() !== year || parsed.getMonth() !== month || parsed.getDate() !== day) return null;
+    return parsed;
+  }
+  const parsed = new Date(clean);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const formatJobCardDate = (value?: string): string => {
+  const date = parseJobCardDate(value);
+  return date ? new Intl.DateTimeFormat('en-PK', { day: 'numeric', month: 'long', year: 'numeric' }).format(date) : '';
+};
+
+const getRelativeJobTime = (value: string | undefined, now: number): string => {
+  const date = parseJobCardDate(value);
+  if (!date) return '';
+  const elapsed = now - date.getTime();
+  if (elapsed < 0) return '';
+  const diff = elapsed;
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} month${months === 1 ? '' : 's'} ago`;
+  const years = Math.floor(months / 12);
+  return `${years} year${years === 1 ? '' : 's'} ago`;
+};
+
+const getDeadlineRemaining = (value: string | undefined, now: number): string => {
+  const date = parseJobCardDate(value, true);
+  if (!date) return '';
+  const remaining = date.getTime() - now;
+  if (remaining <= 0) return 'Deadline passed';
+  const totalHours = Math.floor(remaining / 3600000);
+  const days = Math.floor(totalHours / 24);
+  if (days > 0) return `${days} day${days === 1 ? '' : 's'} left`;
+  const hours = totalHours;
+  if (hours > 0) return `${hours} hour${hours === 1 ? '' : 's'} left`;
+  const minutes = Math.max(1, Math.floor(remaining / 60000));
+  return `${minutes} minute${minutes === 1 ? '' : 's'} left`;
+};
 
 interface JobListingsProps {
   jobs: Job[];
@@ -74,6 +139,12 @@ export const JobListings: React.FC<JobListingsProps> = ({
   const [internalPage, setInternalPage] = useState<number>(1);
   const [internalPostsPerPage, setInternalPostsPerPage] = useState<number>(10);
   const [jumpPageInput, setJumpPageInput] = useState<string>('');
+  const [clockNow, setClockNow] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockNow(Date.now()), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const currentPage = controlledPage !== undefined ? controlledPage : internalPage;
   const postsPerPage = controlledPostsPerPage !== undefined ? controlledPostsPerPage : internalPostsPerPage;
@@ -86,7 +157,9 @@ export const JobListings: React.FC<JobListingsProps> = ({
       title: true, company: true, location: true, postedDate: true, description: true,
       tags: true, salary: true, jobType: true, govtBadge: true, featuredBadge: true,
       urgentBadge: true, newspaperBadge: true, pdfBadge: true, futureBadge: true,
-      vipBadge: true, pinnedBadge: true, saveButton: true,
+      vipBadge: true, pinnedBadge: true, poster: true, relativePostedTime: true,
+      exactPostedDate: true, deadlineDate: true, deadlineRemaining: true,
+      duplicateOverrideBadge: true, saveButton: true,
       detailsButton: true, applyButton: true
     },
     labels: { saveButton: 'Save', detailsButton: 'Details', applyButton: 'Apply', cardHeading: '' },
@@ -166,6 +239,17 @@ export const JobListings: React.FC<JobListingsProps> = ({
     const cleanTitle = sanitizeJobTitle(job.title);
     const cleanCompany = sanitizeJobCompanyName(job.company);
     const cleanTags = sanitizeJobTags(job.tags);
+
+    const postedTimeSource = (job.postedAt && parseJobCardDate(job.postedAt) ? job.postedAt : job.createdAt) || '';
+    const relativePostedTime = getRelativeJobTime(postedTimeSource, clockNow);
+    const exactPostedDate = formatJobCardDate(postedTimeSource);
+    const deadlineDisplayDate = formatJobCardDate(job.deadlineDate);
+    const deadlineRemaining = getDeadlineRemaining(job.deadlineDate, clockNow);
+    const posterLabel = job.sourceType === 'admin_created' || job.isAdminCreated
+      ? 'Admin'
+      : job.sourceType === 'scraped' || job.isScraped
+        ? (job.scraperSourceName || 'Scraper source')
+        : 'Employer';
 
     const activeTier = (job as any).activePriorityTier || (job.priorityTier === 'vip_bundle' ? 'vip' : (job.isPinnedTop ? 'pinned' : (job.featured ? 'featured' : (job.urgent ? 'urgent' : 'standard'))));
 
@@ -267,6 +351,15 @@ export const JobListings: React.FC<JobListingsProps> = ({
                              </span>
                         )}
                     </div>
+                    {(design.visibility.poster !== false || design.visibility.relativePostedTime !== false || design.visibility.exactPostedDate !== false || design.visibility.deadlineDate !== false || design.visibility.deadlineRemaining !== false) && (
+                      <div className="flex flex-wrap gap-x-2 gap-y-1 text-[9px] sm:text-[10px] text-slate-500">
+                        {design.visibility.poster !== false && <span>Posted by: {posterLabel}</span>}
+                        {design.visibility.relativePostedTime !== false && relativePostedTime && <span>{relativePostedTime}</span>}
+                        {design.visibility.exactPostedDate !== false && design.visibility.postedDate === false && exactPostedDate && <span>{exactPostedDate}</span>}
+                        {design.visibility.deadlineDate !== false && deadlineDisplayDate && <span>Deadline: {deadlineDisplayDate}</span>}
+                        {design.visibility.deadlineRemaining !== false && deadlineRemaining && <span className={deadlineRemaining === 'Deadline passed' ? 'text-rose-400' : 'text-amber-400'}>{deadlineRemaining}</span>}
+                      </div>
+                    )}
 
                     {/* Status Badges in Compact */}
                     <div className="flex flex-wrap gap-1">
@@ -275,6 +368,9 @@ export const JobListings: React.FC<JobListingsProps> = ({
                         )}
                         {(design.visibility.pinnedBadge !== false) && (activeTier === 'pinned' || job.isPinnedTop || job.priorityTier === 'featured_top') && (
                           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/40">Pinned</span>
+                        )}
+                        {design.visibility.duplicateOverrideBadge !== false && job.isDuplicateOverride && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/40">Override</span>
                         )}
                         {design.visibility.govtBadge && job.isGovtJob && (
                           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">Govt</span>
@@ -371,7 +467,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                   <span>Newspaper ({job.newspaperName})</span>
                 </span>
               )}
-              {job.isDuplicateOverride && (
+              {design.visibility.duplicateOverrideBadge !== false && job.isDuplicateOverride && (
                 <span className="text-[9px] sm:text-xs font-bold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded bg-red-500/20 text-red-300 border border-red-500/40 flex items-center space-x-1">
                   <Shield className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-red-400" />
                   <span>Override: {job.duplicateOverrideNote || 'Active'}</span>
@@ -457,6 +553,15 @@ export const JobListings: React.FC<JobListingsProps> = ({
                 </>
             )}
           </div>
+          {(design.visibility.poster !== false || design.visibility.relativePostedTime !== false || design.visibility.exactPostedDate !== false || design.visibility.deadlineDate !== false || design.visibility.deadlineRemaining !== false) && (
+            <div className="flex flex-wrap gap-x-2 gap-y-1 text-[10px] text-slate-500 mb-2">
+              {design.visibility.poster !== false && <span>Posted by: {posterLabel}</span>}
+              {design.visibility.relativePostedTime !== false && relativePostedTime && <span>{relativePostedTime}</span>}
+              {design.visibility.exactPostedDate !== false && design.visibility.postedDate === false && exactPostedDate && <span>{exactPostedDate}</span>}
+              {design.visibility.deadlineDate !== false && deadlineDisplayDate && <span>Deadline: {deadlineDisplayDate}</span>}
+              {design.visibility.deadlineRemaining !== false && deadlineRemaining && <span className={deadlineRemaining === 'Deadline passed' ? 'text-rose-400' : 'text-amber-400'}>{deadlineRemaining}</span>}
+            </div>
+          )}
           {design.visibility.description && description && (
             <p className="text-xs text-slate-400 line-clamp-2 mb-3">
                 {shortDesc}

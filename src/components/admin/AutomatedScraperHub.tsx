@@ -2180,13 +2180,15 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   // -------------------------------------------------------------
   // STEP DEFINITIONS (Ordered strictly Step 1 through Step 6)
   // -------------------------------------------------------------
+  // Professional Mode keeps the original six navigation IDs and their existing panels intact.
+  // Labels are clearer, but no legacy section or workflow is removed or replaced.
   const STEPS: { id: ScraperStep; stepNumber: string; label: string; sub: string; icon: any; count?: number | null }[] = [
-    { id: 'overview', stepNumber: '1. Overview', label: 'Overview', sub: 'Scheduler & Metrics', icon: BarChart2, count: null },
-    { id: 'sources', stepNumber: '2. Sources', label: 'Sources', sub: 'All sources in 1 table', icon: Globe, count: sourcesList.length },
-    { id: 'run', stepNumber: '3. Run Scraper', label: 'Run Scraper', sub: 'Run All / Selected / Now', icon: Play, count: null },
-    { id: 'history', stepNumber: '4. History', label: 'History', sub: 'Real backend scraper runs', icon: Clock, count: liveRuns.length || null },
+    { id: 'overview', stepNumber: '1. Overview', label: 'Overview', sub: 'Live status & metrics', icon: BarChart2, count: null },
+    { id: 'sources', stepNumber: '2. Sources', label: 'Source Management', sub: 'All configured portals', icon: Globe, count: sourcesList.length },
+    { id: 'run', stepNumber: '3. Run & Recovery', label: 'Run Scraper', sub: 'Run all, selected or retry', icon: Play, count: null },
+    { id: 'history', stepNumber: '4. Batch History', label: 'History & Reports', sub: 'Runs, batches & results', icon: Clock, count: liveRuns.length || null },
     { id: 'review', stepNumber: '5. Duplicates & Review', label: 'Duplicates & Review', sub: 'Pending & duplicate jobs', icon: CheckCircle2, count: (pendingTotal ?? pendingJobs.length) || null },
-    { id: 'settings', stepNumber: '6. Settings', label: 'Settings', sub: 'Interval, depth, rules', icon: Settings, count: null }
+    { id: 'settings', stepNumber: '6. Configuration', label: 'Settings', sub: 'Scheduler, intervals & rules', icon: Settings, count: null }
   ];
 
   return (
@@ -2200,13 +2202,13 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h2 className="text-xl font-black text-white">Scraper Center</h2>
+                <h2 className="text-xl font-black text-white">Professional Scraper Mode</h2>
                 <span className="px-2 py-0.5 rounded-full text-[11px] font-black bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                  Step-by-Step Flow
+                  Legacy 6 Sections Preserved
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Manage job sources, run scrapers, inspect results, and review pending jobs.
+                Professional navigation for existing scraper tools, source management, recovery, history and settings. Existing workflows remain available.
               </p>
             </div>
           </div>

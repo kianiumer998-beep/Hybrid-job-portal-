@@ -1421,18 +1421,20 @@ async function runSuite() {
   await runTest('W6 campaign access: Finance Manager receives no contact PII, Admin retains full records, and delegated updates are allowlisted', () => {
     const adRoutes = fs.readFileSync(path.resolve(process.cwd(), 'server/routes/adRoutes.ts'), 'utf8');
     const getBlock = adRoutes.slice(adRoutes.indexOf("adRouter.get('/',"), adRoutes.indexOf('// 2. Create Advertisement'));
+    const financeProjection = getBlock.slice(getBlock.indexOf('const financeCampaigns'), getBlock.indexOf('return res.json({ success: true, advertisements: financeCampaigns });'));
     const putBlock = adRoutes.slice(adRoutes.indexOf("adRouter.put('/:id'"), adRoutes.indexOf('// 4. Delete Advertisement'));
 
     assert.ok(getBlock.includes("user?.role === 'Admin' || user?.role === 'Super Admin'"));
     assert.ok(getBlock.includes("hasAdminPermission(user?.role, 'advertisements.manage')"));
-    assert.ok(getBlock.includes('const financeVisibleFields = ['));
-    assert.ok(!getBlock.includes("financeVisibleFields = ['clientEmail'"));
-    assert.ok(!getBlock.includes("'submittedByUserEmail'"));
-    assert.ok(!getBlock.includes("'submittedByUserPhone'"));
-    assert.ok(!getBlock.includes("'clientEmail'"));
+    assert.ok(financeProjection.includes('const financeVisibleFields = ['));
+    assert.ok(!financeProjection.includes("'submittedByUserEmail'"));
+    assert.ok(!financeProjection.includes("'submittedByUserPhone'"));
+    assert.ok(!financeProjection.includes("'clientEmail'"));
 
     assert.ok(putBlock.includes("const advertisementEditableFields = new Set(["));
+    assert.ok(putBlock.includes("'theme', 'dismissable', 'autoCloseDelay', 'smsSenderId', 'smsAudience'"));
     assert.ok(putBlock.includes("const financeWaiverFields = new Set(['paymentStatus', 'campaignCostPkr']);"));
+    assert.ok(putBlock.includes("key !== 'updatedAt'"));
     assert.ok(putBlock.includes("updates.paymentStatus !== 'Exempt' || Number(updates.campaignCostPkr) !== 0"));
     assert.ok(putBlock.includes('unsupportedFields.length > 0'));
     assert.ok(putBlock.includes('safeUpdates = Object.fromEntries(changedFields.map((key) => [key, updates[key]]));'));

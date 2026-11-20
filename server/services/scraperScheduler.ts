@@ -329,7 +329,7 @@ export async function runSchedulerTick(
       const tickEnd = new Date();
       try {
         await addRunFn({
-          id: `SCHED-FAIL-${tickEnd.getTime().toString(36).toUpperCase()}`,
+          id: `SCHED-${tickEnd.getTime().toString(36).toUpperCase()}`,
           batchId: schedulerBatchId,
           startedAt: tickStartedAt.toISOString(),
           completedAt: tickEnd.toISOString(),

@@ -316,6 +316,7 @@ export function checkAdminTabPermission(
       'modal-content-manager',
       'job-visibility',
       'settings',
+      'admin-security',
       'form-customizer',
       'analytics',
       'stats',

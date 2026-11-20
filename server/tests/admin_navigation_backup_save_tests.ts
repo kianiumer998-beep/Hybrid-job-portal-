@@ -1237,6 +1237,7 @@ async function runSuite() {
     assert.ok(settingsIds.includes('locations-manager'));
     assert.ok(settingsIds.includes('whatsapp-manager'));
     assert.ok(settingsIds.includes('analytics'));
+    assert.ok(settingsIds.includes('admin-security'));
     assert.strictEqual(settingsIds.includes('data-backup'), false, 'Non-Admin with settings.manage must NEVER see data-backup');
 
     // Classic sub-tabs respect permission filter AND omit locations-manager

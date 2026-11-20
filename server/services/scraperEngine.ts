@@ -235,6 +235,7 @@ export interface ScraperRunSummary {
     pagesSuccessful: number;
     failed: boolean;
     error?: string;
+    failureCategory?: string;
     lastSuccessfulScrapeAt?: string;
   }>;
   executionDurationMs: number;

@@ -523,6 +523,10 @@ export const api = {
     async getRuns() {
       return safeFetchJson(`${API_BASE}/scraper/runs`, { headers: getAuthHeader() });
     },
+    async getRunsPage(offset = 0, limit = 50) {
+      const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+      return safeFetchJson(`${API_BASE}/scraper/runs/page?${params.toString()}`, { headers: getAuthHeader() });
+    },
     async retrySources(sourceIds?: string[], retryAllFailed?: boolean) {
       return safeFetchJson(`${API_BASE}/scraper/retry`, {
         method: 'POST',

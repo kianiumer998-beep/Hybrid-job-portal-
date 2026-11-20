@@ -257,6 +257,8 @@ export function mapScrapedResultToRouteJob(
     govtDepartment: r.govtDepartment,
     govtScale: r.govtScale,
     deadlineDate: r.deadlineDate,
+    applicationStartDate: r.applicationStartDate,
+    expiryDate: r.expiryDate,
     pdfTotalVacanciesInCase: r.pdfTotalVacanciesInCase,
     domicileQuota: r.domicileQuota,
     ageRelaxationNote: r.ageRelaxationNote,
@@ -484,6 +486,29 @@ scraperRouter.get('/runs', requireAdminPermission('scraper.manage'), async (req,
   }
 });
 
+// 7A. Get a bounded page of scraper history (Admin Only)
+scraperRouter.get('/runs/page', requireAdminPermission('scraper.manage'), async (req, res) => {
+  try {
+    const rawOffset = Number(req.query.offset ?? 0);
+    const rawLimit = Number(req.query.limit ?? 50);
+    const rawCursor = req.query.cursor;
+    if (!Number.isInteger(rawOffset) || rawOffset < 0 || !Number.isInteger(rawLimit) || rawLimit < 1) {
+      return res.status(400).json({ success: false, message: 'offset must be a non-negative integer and limit must be a positive integer.' });
+    }
+    if (rawCursor !== undefined && (
+      typeof rawCursor !== 'string' ||
+      rawCursor.length > 64 ||
+      !(/^[a-fA-F0-9]{24}$/.test(rawCursor) || /^memory:[A-Za-z0-9._~%-]+$/.test(rawCursor))
+    )) {
+      return res.status(400).json({ success: false, message: 'cursor must be a valid scraper history cursor.' });
+    }
+    const page = await ScraperRepository.getRunsPage(rawOffset, Math.min(rawLimit, 100), rawCursor as string | undefined);
+    return res.json({ success: true, ...page, offset: rawOffset, limit: Math.min(rawLimit, 100) });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message || 'Error fetching paginated scraper runs' });
+  }
+});
+
 // 8. Retry Scraper Sources (Retry Selected, Retry Failed, Retry All Failed)
 scraperRouter.post('/retry', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
@@ -507,7 +532,22 @@ scraperRouter.post('/retry', requireAdminPermission('scraper.manage'), async (re
       return res.json({ success: true, message: 'No failed sources found to retry.', totalFound: 0, newJobsCount: 0, duplicatesFound: 0, sourcesStats: [] });
     }
 
-    const duplicateMode: 'with' | 'without' = req.body.duplicateMode === 'without' ? 'without' : 'with';
+    // Retry must inherit the saved scheduler policy unless the admin explicitly
+    // chooses a one-time override. This prevents "without duplicates" silently
+    // reverting to "with duplicates" on manual retry.
+    const savedSettings = await ScraperRepository.getSchedulerSettings();
+    const requestedDuplicateMode = req.body.duplicateMode;
+    if (requestedDuplicateMode !== undefined && !['with', 'without'].includes(requestedDuplicateMode)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid duplicateMode. Supported values are: with, without.'
+      });
+    }
+    const duplicateMode: 'with' | 'without' =
+      requestedDuplicateMode === 'with' || requestedDuplicateMode === 'without'
+        ? requestedDuplicateMode
+        : (savedSettings.duplicateMode || 'with');
+
     const result = await executeScraperWithWizard({
       mode: 'complete',
       sourceIds: targetIds,

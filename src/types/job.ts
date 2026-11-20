@@ -203,12 +203,18 @@ export interface Job {
   sourceUrl?: string;
   scraperSourceId?: string;
   scraperSourceName?: string;
+  sourcePortal?: string;
   scrapedSourceDomain?: string;
+  extractionMethod?: string;
   scrapedAt?: string; // "YYYY-MM-DD HH:MM:SS"
   scrapedTime?: string; // "HH:MM AM/PM"
   applicationUrl?: string;
   contactEmailOrPhone?: string;
   deadlineDate?: string;
+  /** Explicit source-published date when applications open; never inferred from deadline. */
+  applicationStartDate?: string;
+  /** Separate source-stated job listing expiry date; not inferred from application deadline. */
+  expiryDate?: string;
 
   // Scraper History & Ingestion Audit Extensions
   scraperBatchId?: string;

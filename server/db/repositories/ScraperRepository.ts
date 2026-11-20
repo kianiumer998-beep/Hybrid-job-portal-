@@ -1,3 +1,4 @@
+import { ObjectId } from 'mongodb';
 import {
   getScraperSourcesCollection,
   getScraperRunsCollection,
@@ -347,6 +348,90 @@ export class ScraperRepository {
     }
 
     return this.cachedRuns;
+  }
+
+  /**
+   * Retrieves one bounded page of scraper history.
+   * MongoDB uses an immutable _id cursor so new inserts cannot shift later pages.
+   * Offset remains supported for older callers; the admin UI uses nextCursor.
+   */
+  static async getRunsPage(
+    offset = 0,
+    limit = 50,
+    cursor?: string,
+    _deps?: {
+      isMongoConfiguredFn?: () => boolean;
+      getCollectionFn?: () => Promise<any>;
+    }
+  ): Promise<{ runs: any[]; total: number; hasMore: boolean; nextCursor: string | null }> {
+    const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
+    const safeLimit = Math.min(100, Math.max(1, Math.floor(Number(limit) || 50)));
+    const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
+    const getCollFn = _deps?.getCollectionFn || getScraperRunsCollection;
+
+    if (isMongoCfgFn()) {
+      if (cursor && !ObjectId.isValid(cursor)) {
+        throw new Error('Invalid scraper history cursor.');
+      }
+      const coll = await getCollFn();
+      const filter = cursor ? { _id: { $lt: new ObjectId(cursor) } } : {};
+      const [documents, total] = await Promise.all([
+        withMongoTimeout<any[]>(
+          coll.find(filter)
+            .sort({ _id: -1 })
+            .skip(cursor ? 0 : safeOffset)
+            .limit(safeLimit + 1)
+            .toArray(),
+          15000,
+          'getRunsPage'
+        ),
+        withMongoTimeout<number>(coll.countDocuments({}), 15000, 'countScraperRuns')
+      ]);
+
+      if (!Array.isArray(documents) || !Number.isFinite(total)) {
+        throw new Error('Unexpected response reading paginated scraper history from MongoDB');
+      }
+
+      const hasMore = documents.length > safeLimit;
+      const pageDocuments = hasMore ? documents.slice(0, safeLimit) : documents;
+      const nextCursor = hasMore && pageDocuments.length > 0
+        ? (typeof pageDocuments[pageDocuments.length - 1]._id?.toHexString === 'function'
+          ? pageDocuments[pageDocuments.length - 1]._id.toHexString()
+          : String(pageDocuments[pageDocuments.length - 1]._id))
+        : null;
+      const runs = pageDocuments.map(({ _id, ...run }) => run);
+
+      if (!cursor && safeOffset === 0) this.cachedRuns = runs.slice(0, 100);
+      return { runs, total, hasMore, nextCursor };
+    }
+
+    let memoryOffset = safeOffset;
+    if (cursor?.startsWith('memory:')) {
+      let lastRunId = '';
+      try {
+        lastRunId = decodeURIComponent(cursor.slice('memory:'.length));
+      } catch {
+        throw new Error('Invalid in-memory scraper history cursor.');
+      }
+      const lastRunIndex = this.cachedRuns.findIndex(run => String(run.id || run.runId || '') === lastRunId);
+      if (!lastRunId || lastRunIndex < 0) {
+        throw new Error('In-memory scraper history cursor expired. Refresh history to continue.');
+      }
+      memoryOffset = lastRunIndex + 1;
+    }
+    if (!Number.isInteger(memoryOffset) || memoryOffset < 0) {
+      throw new Error('Invalid in-memory scraper history cursor.');
+    }
+    const runs = this.cachedRuns.slice(memoryOffset, memoryOffset + safeLimit);
+    const hasMore = memoryOffset + runs.length < this.cachedRuns.length;
+    const lastRun = runs[runs.length - 1];
+    const lastRunId = lastRun ? String(lastRun.id || lastRun.runId || '') : '';
+    return {
+      runs,
+      total: this.cachedRuns.length,
+      hasMore,
+      nextCursor: hasMore && lastRunId ? `memory:${encodeURIComponent(lastRunId)}` : null
+    };
   }
 
   /**

@@ -398,8 +398,9 @@ adRouter.put('/:id', requireAuth, async (req: any, res) => {
     }
 
     const updates = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    // updatedAt is server-managed by the repository and must never be trusted from the client.
     const changedFields = Object.keys(updates).filter(
-      (key) => JSON.stringify((existingAd as any)[key]) !== JSON.stringify(updates[key])
+      (key) => key !== 'updatedAt' && JSON.stringify((existingAd as any)[key]) !== JSON.stringify(updates[key])
     );
     const isFullAdmin = role === 'Admin' || role === 'Super Admin';
 
@@ -410,7 +411,8 @@ adRouter.put('/:id', requireAuth, async (req: any, res) => {
       'title', 'type', 'placement', 'status', 'approvalStatus', 'targetPages',
       'durationUnit', 'durationValue', 'durationDisplay', 'scheduledStartAt',
       'scheduledEndAt', 'approvedAt', 'rejectionReason', 'rejectedAt',
-      'headline', 'bodyText', 'imageUrl', 'ctaText', 'ctaUrl', 'badgeText'
+      'headline', 'bodyText', 'imageUrl', 'ctaText', 'ctaUrl', 'badgeText',
+      'theme', 'dismissable', 'autoCloseDelay', 'smsSenderId', 'smsAudience'
     ]);
     const financeWaiverFields = new Set(['paymentStatus', 'campaignCostPkr']);
 

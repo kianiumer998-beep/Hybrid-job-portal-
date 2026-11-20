@@ -23,7 +23,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { Job } from '../types/job';
-import { Advertisement, FeedInlineAdSettings, BannerDimensionSettings, FeedCardAppearanceSettings } from '../types/ad';
+import { Advertisement, FeedInlineAdSettings, BannerDimensionSettings, FeedCardAppearanceSettings, isAdCurrentlyRunning } from '../types/ad';
 import { sanitizeJobTitle, sanitizeJobCompanyName, sanitizeJobTags } from '../utils/jobSanitizer';
 import { InlineFeedAd } from './ads/InlineFeedAd';
 
@@ -64,7 +64,9 @@ const formatJobCardDate = (value?: string): string => {
 const getRelativeJobTime = (value: string | undefined, now: number): string => {
   const date = parseJobCardDate(value);
   if (!date) return '';
-  const diff = Math.max(0, now - date.getTime());
+  const elapsed = now - date.getTime();
+  if (elapsed < 0) return '';
+  const diff = elapsed;
   const minutes = Math.floor(diff / 60000);
   if (minutes < 1) return 'Just now';
   if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
@@ -353,7 +355,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                       <div className="flex flex-wrap gap-x-2 gap-y-1 text-[9px] sm:text-[10px] text-slate-500">
                         {design.visibility.poster !== false && <span>Posted by: {posterLabel}</span>}
                         {design.visibility.relativePostedTime !== false && relativePostedTime && <span>{relativePostedTime}</span>}
-                        {design.visibility.exactPostedDate !== false && exactPostedDate && <span>{exactPostedDate}</span>}
+                        {design.visibility.exactPostedDate !== false && design.visibility.postedDate === false && exactPostedDate && <span>{exactPostedDate}</span>}
                         {design.visibility.deadlineDate !== false && deadlineDisplayDate && <span>Deadline: {deadlineDisplayDate}</span>}
                         {design.visibility.deadlineRemaining !== false && deadlineRemaining && <span className={deadlineRemaining === 'Deadline passed' ? 'text-rose-400' : 'text-amber-400'}>{deadlineRemaining}</span>}
                       </div>
@@ -555,7 +557,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
             <div className="flex flex-wrap gap-x-2 gap-y-1 text-[10px] text-slate-500 mb-2">
               {design.visibility.poster !== false && <span>Posted by: {posterLabel}</span>}
               {design.visibility.relativePostedTime !== false && relativePostedTime && <span>{relativePostedTime}</span>}
-              {design.visibility.exactPostedDate !== false && exactPostedDate && <span>{exactPostedDate}</span>}
+              {design.visibility.exactPostedDate !== false && design.visibility.postedDate === false && exactPostedDate && <span>{exactPostedDate}</span>}
               {design.visibility.deadlineDate !== false && deadlineDisplayDate && <span>Deadline: {deadlineDisplayDate}</span>}
               {design.visibility.deadlineRemaining !== false && deadlineRemaining && <span className={deadlineRemaining === 'Deadline passed' ? 'text-rose-400' : 'text-amber-400'}>{deadlineRemaining}</span>}
             </div>
@@ -659,7 +661,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-6">
         {(() => {
           const eligibleAds = (ads || []).filter(
-            (a) => a.placement === 'feed-inline' && a.status === 'active' && (a.approvalStatus === 'Approved' || !a.approvalStatus)
+            (a) => a.placement === 'feed-inline' && isAdCurrentlyRunning(a)
           );
           const activeAdsList = eligibleAds;
 

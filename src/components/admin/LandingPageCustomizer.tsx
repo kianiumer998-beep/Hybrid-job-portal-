@@ -5,7 +5,8 @@ import {
   CustomLandingCard, 
   LandingSectionOrder,
   LandingSectionId,
-  LandingDesignSystem
+  LandingDesignSystem,
+  JobCardDesignConfig
 } from '../../types/landing';
 import { CampaignCustomizationConfig, PromoDiscountBanner } from '../../types/ad';
 import { 
@@ -38,7 +39,17 @@ interface LandingPageCustomizerProps {
   onSaveCombinedConfig?: (landing: LandingPageConfig, campaign: CampaignCustomizationConfig) => Promise<any>;
   designSystem?: LandingDesignSystem;
   onSelectDesign?: (designId: LandingDesignSystem['activeDesignId']) => Promise<any>;
+  jobs?: any[];
 }
+
+const mergeJobCardDesign = (value?: Partial<JobCardDesignConfig>): JobCardDesignConfig => ({
+  ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign,
+  ...(value || {}),
+  theme: { ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.theme, ...(value?.theme || {}) },
+  visibility: { ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.visibility, ...(value?.visibility || {}) },
+  labels: { ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.labels, ...(value?.labels || {}) },
+  limits: { ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.limits, ...(value?.limits || {}) }
+});
 
 export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
   config,
@@ -47,13 +58,14 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
   onUpdateCampaignConfig,
   onSaveCombinedConfig,
   designSystem,
-  onSelectDesign
+  onSelectDesign,
+  jobs = []
 }) => {
   const [activeTab, setActiveTab] = useState<'hero' | 'sections' | 'custom-cards' | 'design' | 'promos' | 'preview'>('sections');
   const [heroForm, setHeroForm] = useState(config.hero);
   const [sections, setSections] = useState<LandingSectionOrder[]>(config.sections || DEFAULT_LANDING_PAGE_CONFIG.sections);
   const [customCards, setCustomCards] = useState<CustomLandingCard[]>(config.customCards || DEFAULT_LANDING_PAGE_CONFIG.customCards);
-  const [jobCardDesignForm, setJobCardDesignForm] = useState(config.jobCardDesign || DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign);
+  const [jobCardDesignForm, setJobCardDesignForm] = useState<JobCardDesignConfig>(() => mergeJobCardDesign(config.jobCardDesign));
   const [promoBanners, setPromoBanners] = useState<PromoDiscountBanner[]>(campaignConfig.promoBanners || []);
   const [saveToast, setSaveToast] = useState<string | null>(null);
   const [activeDesignId, setActiveDesignId] = useState<LandingDesignSystem['activeDesignId']>(designSystem?.activeDesignId || 'legacy');
@@ -68,7 +80,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
     setHeroForm(config.hero);
     setSections(config.sections || DEFAULT_LANDING_PAGE_CONFIG.sections);
     setCustomCards(config.customCards || DEFAULT_LANDING_PAGE_CONFIG.customCards);
-    setJobCardDesignForm(config.jobCardDesign || DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign);
+    setJobCardDesignForm(mergeJobCardDesign(config.jobCardDesign));
   }, [config]);
 
   useEffect(() => {
@@ -91,7 +103,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
       setHeroForm(selected.config.hero);
       setSections(selected.config.sections || DEFAULT_LANDING_PAGE_CONFIG.sections);
       setCustomCards(selected.config.customCards || DEFAULT_LANDING_PAGE_CONFIG.customCards);
-      setJobCardDesignForm(selected.config.jobCardDesign || DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign);
+      setJobCardDesignForm(mergeJobCardDesign(selected.config.jobCardDesign));
       setSaveToast('Selected design is now published.');
       setTimeout(() => setSaveToast(null), 3500);
     } catch (error: any) {
@@ -771,6 +783,67 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Live field availability: based only on real jobs supplied by AdminDashboard */}
+              <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+                <div>
+                  <h4 className="text-sm font-black text-white">Live Job-Data Visibility Status</h4>
+                  <p className="text-[10px] text-slate-400 mt-1">Yeh status loaded job records aur Admin ON/OFF setting ko check karta hai. Koi demo ya synthetic job use nahi hoti.</p>
+                </div>
+                {[
+                  { key: 'poster', label: 'Poster / Source' },
+                  { key: 'relativePostedTime', label: 'Relative Posted Time' },
+                  { key: 'exactPostedDate', label: 'Exact Posted Date' },
+                  { key: 'deadlineDate', label: 'Application Deadline' },
+                  { key: 'deadlineRemaining', label: 'Deadline Remaining' },
+                  { key: 'duplicateOverrideBadge', label: 'Duplicate Override Badge' }
+                ].map((field) => {
+                  const enabled = jobCardDesignForm.visibility[field.key as keyof typeof jobCardDesignForm.visibility] !== false;
+                  // Keep this check aligned with JobListings.renderJobCard: do not infer
+                  // availability from unrelated aliases such as company/applicationDeadline.
+                  const hasUsableDate = (value: unknown): boolean => {
+                    if (typeof value !== 'string' || !value.trim()) return false;
+                    const clean = value.trim();
+                    const dmy = clean.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/);
+                    const isoDate = clean.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                    const match = dmy || isoDate;
+                    if (match) {
+                      const year = Number(dmy ? match[3] : match[1]);
+                      const month = Number(match[2]) - 1;
+                      const day = Number(dmy ? match[1] : match[3]);
+                      const parsed = new Date(year, month, day);
+                      return parsed.getFullYear() === year && parsed.getMonth() === month && parsed.getDate() === day;
+                    }
+                    const parsed = new Date(clean);
+                    return !Number.isNaN(parsed.getTime());
+                  };
+                  const hasData = jobs.some((job) => {
+                    if (field.key === 'poster') {
+                      // These are the exact inputs used to derive posterLabel.
+                      // Renderer falls back to Employer for otherwise unclassified records.
+                      return jobs.length > 0;
+                    }
+                    if (field.key === 'relativePostedTime' || field.key === 'exactPostedDate') {
+                      const postedAt = hasUsableDate(job.postedAt) ? job.postedAt : job.createdAt;
+                      return hasUsableDate(postedAt);
+                    }
+                    if (field.key === 'deadlineDate' || field.key === 'deadlineRemaining') {
+                      return hasUsableDate(job.deadlineDate);
+                    }
+                    if (field.key === 'duplicateOverrideBadge') {
+                      return job.isDuplicateOverride === true;
+                    }
+                    return false;
+                  });
+                  const status = !enabled ? 'Disabled by Admin' : jobs.length === 0 ? 'No live job data loaded' : hasData ? 'Data available in loaded jobs' : 'Data unavailable in loaded jobs';
+                  const tone = !enabled ? 'text-rose-300 bg-rose-500/10 border-rose-500/30' : hasData && jobs.length > 0 ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30' : 'text-amber-300 bg-amber-500/10 border-amber-500/30';
+                  return <div key={field.key} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2 last:border-0">
+                    <span className="text-xs font-bold text-slate-200">{field.label}</span>
+                    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border ${tone}`}>{status}</span>
+                  </div>;
+                })}
+                <p className="text-[10px] text-slate-500">Note: “Data available” ka matlab record mein value mojood hai; premium/access policy ya individual job ki publication state ki wajah se har user ko visible hona guaranteed nahi. Final confirmation public user card par hoti hai.</p>
               </div>
 
               {/* Labels & Limits */}

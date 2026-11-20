@@ -28,6 +28,7 @@ interface AdminCampaignCenterProps {
   onUpdateAd: (updatedAd: Advertisement) => void;
   canManageCampaignOperations: boolean;
   canWaiveCampaignFee: boolean;
+  canViewCampaignContactDetails: boolean;
 }
 
 export type DynamicCampaignStatus = 'Active' | 'Scheduled' | 'Expired' | 'Pending Approval' | 'Paused' | 'Rejected';
@@ -63,8 +64,10 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
   ads,
   onUpdateAd,
   canManageCampaignOperations,
-  canWaiveCampaignFee
+  canWaiveCampaignFee,
+  canViewCampaignContactDetails
 }) => {
+  const [expandedContactAdId, setExpandedContactAdId] = useState<string | null>(null);
   const [selectedPlacementFilter, setSelectedPlacementFilter] = useState<string>('all');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -379,6 +382,14 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
                 </div>
 
                 <div className="flex items-center space-x-1.5">
+                  {canViewCampaignContactDetails && <button
+                    onClick={() => setExpandedContactAdId((current) => current === ad.id ? null : ad.id)}
+                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-sky-300"
+                    title={expandedContactAdId === ad.id ? 'Hide Advertiser Contact Details' : 'Show Advertiser Contact Details'}
+                    aria-label={expandedContactAdId === ad.id ? 'Hide advertiser contact details' : 'Show advertiser contact details'}
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                  </button>}
                   {canWaiveCampaignFee && <button
                     onClick={() => handleMakeCampaignFree(ad)}
                     className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-emerald-400"
@@ -388,6 +399,15 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
                   </button>}
                 </div>
               </div>
+
+              {canViewCampaignContactDetails && expandedContactAdId === ad.id && (
+                <div className="p-3 rounded-2xl bg-slate-950/70 border border-sky-500/20 space-y-1.5 text-xs">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-sky-300">Advertiser Contact Details · Admin Only</div>
+                  <div className="text-slate-300">Name: <span className="text-white">{ad.clientName || ad.submittedByUserName || 'Not provided'}</span></div>
+                  <div className="text-slate-300">Email: <span className="text-white break-all">{ad.clientEmail || ad.submittedByUserEmail || 'Not provided'}</span></div>
+                  <div className="text-slate-300">Phone: <span className="text-white">{ad.submittedByUserPhone || 'Not provided'}</span></div>
+                </div>
+              )}
 
             </div>
           );

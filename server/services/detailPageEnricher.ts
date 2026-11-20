@@ -292,6 +292,7 @@ interface ExtractedDetailData {
   ageLimit?: string;
   deadlineDate?: string;
   applicationStartDate?: string;
+  expiryDate?: string;
   datePosted?: string;
   description?: string;
   requirements?: string[];
@@ -519,6 +520,7 @@ function parseDetailPageHtml(html: string, currentUrl: string, portalConfig?: Sc
     { key: 'experience', patterns: [/^(Experience|Required\s*Experience|Min\s*Experience|Work\s*Experience)$/i] },
     { key: 'ageLimit', patterns: [/^(Age\s*Limit|Age|Maximum\s*Age|Age\s*Relaxation)$/i] },
     { key: 'applicationStartDate', patterns: [/^(Application\s*(?:Start|Opening)\s*Date|Applications?\s*(?:Open|Start)\s*Date|Opening\s*Date|Apply\s*From)$/i] },
+    { key: 'expiryDate', patterns: [/^(Job\\s*Expiry\\s*Date|Posting\\s*Expiry\\s*Date|Vacancy\\s*Expiry\\s*Date)$/i] },
     { key: 'deadline', patterns: [/^(Application\s*Deadline|Deadline|Last\s*Date(?:\s*to\s*Apply)?|Closing\s*Date|Valid\s*Through|Apply\s*Before)$/i] },
     { key: 'location', patterns: [/^(Location|Place\s*of\s*Posting|Station|City|District|Province|Domicile)$/i] },
     { key: 'salary', patterns: [/^(Salary|Pay\s*Package|Remuneration|Pay)$/i] }
@@ -617,6 +619,11 @@ function parseDetailPageHtml(html: string, currentUrl: string, portalConfig?: Sc
   if (kvData.applicationStartDate && !detail.applicationStartDate) {
     const startMatch = kvData.applicationStartDate.match(DATE_REGEX);
     if (startMatch) detail.applicationStartDate = startMatch[0];
+  }
+
+  if (kvData.expiryDate) {
+    const expiryMatch = kvData.expiryDate.match(DATE_REGEX);
+    if (expiryMatch) detail.expiryDate = expiryMatch[0];
   }
 
   if (kvData.deadline && !detail.deadlineDate) {
@@ -787,6 +794,10 @@ function mergeDetailIntoListing(
 
   if (detail.applicationStartDate && !listing.applicationStartDate) {
     merged.applicationStartDate = detail.applicationStartDate;
+  }
+
+  if (detail.expiryDate && !listing.expiryDate) {
+    merged.expiryDate = detail.expiryDate;
   }
 
   if (detail.deadlineDate) {

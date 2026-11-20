@@ -147,7 +147,7 @@ export { ADMIN_TAB_CATEGORIES, buildAllModulesMenuGroups, buildProfessionalAllMo
 import { getProvinceForCity } from '../utils/locationCatalog';
 import { WhatsAppSupportConfig, DEFAULT_WHATSAPP_CONFIG } from './WhatsAppStickyButton';
 import { INITIAL_PAYMENT_TRANSACTIONS } from '../data/mockTransactions';
-import { LandingPageConfig } from '../types/landing';
+import { LandingPageConfig, LandingDesignSystem } from '../types/landing';
 import { 
   SiteSeoConfig, 
   CurrencyExchangeConfig, 
@@ -232,6 +232,8 @@ interface AdminDashboardProps {
   onChangeJobPostingPricing?: (config: JobPostingPricingConfig) => void;
   onSaveJobPostingPricing?: (config: JobPostingPricingConfig) => Promise<any> | any | void;
   landingConfig?: LandingPageConfig;
+  landingDesignSystem?: LandingDesignSystem;
+  onSelectLandingDesign?: (designId: LandingDesignSystem['activeDesignId']) => Promise<any>;
   onUpdateLandingConfig?: (config: LandingPageConfig) => Promise<any> | any | void;
   onSaveLandingAndCampaignConfig?: (landing: LandingPageConfig, campaign: CampaignCustomizationConfig) => Promise<any>;
   onSaveCompleteFeeConfig?: (payload: CompleteFeeConfigSavePayload) => Promise<any> | any | void;
@@ -3632,6 +3634,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {adminTab === 'landing-customizer' && canAccessAdminTab('landing-customizer') && landingConfig && onUpdateLandingConfig && (
         <LandingPageCustomizer
           config={landingConfig}
+          designSystem={landingDesignSystem}
+          onSelectDesign={onSelectLandingDesign}
           onUpdateConfig={onUpdateLandingConfig}
           campaignConfig={campaignConfig || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG}
           onUpdateCampaignConfig={onUpdateCampaignConfig || (() => {})}

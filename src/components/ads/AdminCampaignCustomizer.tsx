@@ -67,7 +67,7 @@ import {
 
 interface AdminCampaignCustomizerProps {
   config?: CampaignCustomizationConfig;
-  onSaveConfig: (updatedConfig: CampaignCustomizationConfig) => void;
+  onSaveConfig: (updatedConfig: CampaignCustomizationConfig) => void | Promise<unknown>;
   onResetDefaults?: () => void;
 }
 
@@ -95,6 +95,8 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
   >('popup-modes');
 
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   // New Promo Banner Modal State
   const [isAddPromoOpen, setIsAddPromoOpen] = useState(false);
@@ -110,21 +112,43 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
   // Custom Index Quick Adder State
   const [quickIndexInput, setQuickIndexInput] = useState<string>('');
 
-  // Save changes handler
-  const handleSave = () => {
-    onSaveConfig(localConfig);
-    setSaveSuccessMessage('All campaign settings, placement rules, and appearance modes saved successfully!');
-    setTimeout(() => setSaveSuccessMessage(null), 3500);
+  // Show success only after the parent confirms the authoritative save.
+  const handleSave = async () => {
+    setIsSaving(true);
+    setSaveErrorMessage(null);
+    setSaveSuccessMessage(null);
+    try {
+      await onSaveConfig(localConfig);
+      setSaveSuccessMessage('Campaign settings saved to the database.');
+      setTimeout(() => setSaveSuccessMessage(null), 3500);
+    } catch (error: any) {
+      console.error('[AdminCampaignCustomizer] Save failed:', error);
+      setSaveErrorMessage(error?.message || 'Campaign settings could not be saved. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  // Global reset handler
-  const handleReset = () => {
-    if (window.confirm('Reset all campaign settings to platform defaults?')) {
-      setLocalConfig(DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG);
-      onSaveConfig(DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG);
+  // Reset only reports success after the authoritative save succeeds.
+  const handleReset = async () => {
+    if (!window.confirm('Reset all campaign settings to platform defaults?')) return;
+
+    const previousConfig = localConfig;
+    setIsSaving(true);
+    setSaveErrorMessage(null);
+    setSaveSuccessMessage(null);
+    setLocalConfig(DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG);
+    try {
+      await onSaveConfig(DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG);
       if (onResetDefaults) onResetDefaults();
-      setSaveSuccessMessage('Reset to platform defaults successfully!');
+      setSaveSuccessMessage('Campaign settings reset to platform defaults.');
       setTimeout(() => setSaveSuccessMessage(null), 3000);
+    } catch (error: any) {
+      setLocalConfig(previousConfig);
+      console.error('[AdminCampaignCustomizer] Reset failed:', error);
+      setSaveErrorMessage(error?.message || 'Campaign settings could not be reset. Please try again.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -354,7 +378,8 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
         <div className="flex items-center space-x-3">
           <button
             onClick={handleReset}
-            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5"
+            disabled={isSaving}
+            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 disabled:opacity-50 disabled:cursor-wait"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Reset Defaults</span>
@@ -362,10 +387,11 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
 
           <button
             onClick={handleSave}
-            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 text-xs font-black shadow-lg shadow-emerald-500/20 transition-all cursor-pointer flex items-center space-x-1.5 active:scale-95"
+            disabled={isSaving}
+            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 text-xs font-black shadow-lg shadow-emerald-500/20 transition-all cursor-pointer flex items-center space-x-1.5 active:scale-95 disabled:opacity-50 disabled:cursor-wait"
           >
             <Save className="w-4 h-4" />
-            <span>Save All Configurations</span>
+            <span>{isSaving ? 'Saving...' : 'Save All Configurations'}</span>
           </button>
         </div>
       </div>
@@ -377,6 +403,12 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
             <span>{saveSuccessMessage}</span>
           </div>
+        </div>
+      )}
+
+      {saveErrorMessage && (
+        <div role="alert" className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/40 text-rose-300 text-xs font-bold">
+          {saveErrorMessage}
         </div>
       )}
 

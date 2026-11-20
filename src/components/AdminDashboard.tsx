@@ -223,9 +223,9 @@ interface AdminDashboardProps {
   onDeleteAd?: (adId: string) => void;
   onResetAdMetrics?: (adId?: string) => void;
   pricingConfig?: AdPricingConfig;
-  onUpdatePricingConfig?: (config: AdPricingConfig) => void;
+  onUpdatePricingConfig?: (config: AdPricingConfig) => void | Promise<unknown>;
   campaignConfig?: CampaignCustomizationConfig;
-  onUpdateCampaignConfig?: (config: CampaignCustomizationConfig) => void;
+  onUpdateCampaignConfig?: (config: CampaignCustomizationConfig) => void | Promise<unknown>;
   onApproveAd?: (adId: string) => void;
   onRejectAd?: (adId: string, reason: string) => void;
   jobPostingPricing?: JobPostingPricingConfig;
@@ -3692,21 +3692,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         />
       )}
 
-      {/* TAB: VISUAL CAMPAIGN COMMAND CENTER & GRANULAR DATES */}
+      {/* TAB: CAMPAIGN OPERATIONS & SCHEDULING */}
       {adminTab === 'campaign-center' && canAccessAdminTab('campaign-center') && (
         <AdminCampaignCenter
           ads={ads || []}
-          campaignConfig={
-            campaignConfig?.placementOptions
-              ? campaignConfig
-              : { ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG, ...(campaignConfig || {}) }
-          }
-          onUpdateCampaignConfig={onUpdateCampaignConfig || (() => {})}
           onUpdateAd={onUpdateAd || (() => {})}
-          onDeleteAd={onDeleteAd || (() => {})}
-          onResetAdMetrics={onResetAdMetrics || (() => {})}
-          onApproveAd={onApproveAd}
-          onRejectAd={onRejectAd}
         />
       )}
 
@@ -3882,6 +3872,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onUpdateCampaignConfig={onUpdateCampaignConfig}
           onApproveAd={onApproveAd}
           onRejectAd={onRejectAd}
+          canManageAdConfiguration={hasAdminUiPermission('finance.manage')}
+          isPricingReady={isPricingReady}
         />
       )}
 

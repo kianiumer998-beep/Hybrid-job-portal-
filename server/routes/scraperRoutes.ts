@@ -491,10 +491,14 @@ scraperRouter.get('/runs/page', requireAdminPermission('scraper.manage'), async 
   try {
     const rawOffset = Number(req.query.offset ?? 0);
     const rawLimit = Number(req.query.limit ?? 50);
+    const rawCursor = req.query.cursor;
     if (!Number.isInteger(rawOffset) || rawOffset < 0 || !Number.isInteger(rawLimit) || rawLimit < 1) {
       return res.status(400).json({ success: false, message: 'offset must be a non-negative integer and limit must be a positive integer.' });
     }
-    const page = await ScraperRepository.getRunsPage(rawOffset, Math.min(rawLimit, 100));
+    if (rawCursor !== undefined && (typeof rawCursor !== 'string' || rawCursor.length > 64)) {
+      return res.status(400).json({ success: false, message: 'cursor must be a valid short string.' });
+    }
+    const page = await ScraperRepository.getRunsPage(rawOffset, Math.min(rawLimit, 100), rawCursor as string | undefined);
     return res.json({ success: true, ...page, offset: rawOffset, limit: Math.min(rawLimit, 100) });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message || 'Error fetching paginated scraper runs' });

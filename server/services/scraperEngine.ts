@@ -1253,6 +1253,13 @@ export async function executeScraperWithWizard(
           pagesAttempted: sourcePagesAttempted,
           pagesSuccessful: sourcePagesSuccessful,
           failed: sourceFailed,
+          failureCategory: sourceSaveFailures > 0
+            ? 'Database Save Failed'
+            : sourceValid === 0 && sourceRejected > 0
+              ? 'Incomplete Extraction'
+              : sourceValid === 0
+                ? 'No Jobs Found'
+                : undefined,
           error: sourceError || lastErrorNotice,
           lastSuccessfulScrapeAt: isCheckpointEligible ? sourceCompletedAt : target.lastSuccessfulScrapeAt
         });
@@ -1325,6 +1332,15 @@ export async function executeScraperWithWizard(
           pagesAttempted: sourcePagesAttempted,
           pagesSuccessful: sourcePagesSuccessful,
           failed: true,
+          failureCategory: isDbError
+            ? 'Database Save Failed'
+            : classifiedHealth === '404' || classifiedHealth === '403' || classifiedHealth === 'Timeout'
+              ? 'Website Unavailable'
+              : classifiedHealth === 'Invalid PDF'
+                ? 'Document Failed'
+                : classifiedHealth === 'HTML'
+                  ? 'Extraction Failed'
+                  : 'Extraction Failed',
           error: sourceError,
           lastSuccessfulScrapeAt: target.lastSuccessfulScrapeAt
         });

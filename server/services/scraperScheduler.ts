@@ -283,25 +283,25 @@ export async function runSchedulerTick(
             successfulRunResults.push(runResult);
             console.log(`[Scheduler Engine] Source "${src.name}" scraped. Found: ${runResult.totalFound}, Duplicates: ${runResult.totalDuplicates}`);
           } catch (srcErr: any) {
+            const errMsg = srcErr?.message || String(srcErr);
             if (isScraperRunConflictError(srcErr)) {
-              const conflictMsg = srcErr?.message || 'Another scraper execution is already in progress';
-              console.warn(`[Scheduler Engine] Skipped due source "${src.name}" (${src.id}) and will stop this tick without advancing its schedule: ${conflictMsg}`);
+              console.warn(`[Scheduler Engine] Skipped due source "${src.name}" (${src.id}) and will stop this tick without advancing its schedule: ${errMsg}`);
               conflictSource = {
                 sourceId: src.id,
                 sourceName: src.name || src.id,
                 sourceUrl: src.url || '',
-                error: conflictMsg
+                error: errMsg
               };
+            } else {
+              failed.push(src.id);
+              failedErrors.push({
+                sourceId: src.id,
+                sourceName: src.name || src.id,
+                sourceUrl: src.url || '',
+                error: errMsg
+              });
+              console.error(`[Scheduler Engine] Source "${src.name}" execution error: ${errMsg}. Scheduler continuing with other due sources.`);
             }
-            const errMsg = srcErr?.message || String(srcErr);
-            failed.push(src.id);
-            failedErrors.push({
-              sourceId: src.id,
-              sourceName: src.name || src.id,
-              sourceUrl: src.url || '',
-              error: errMsg
-            });
-            console.error(`[Scheduler Engine] Source "${src.name}" execution error: ${errMsg}. Scheduler continuing with other due sources.`);
           }
 
           // A conflict means another run owns the scraper lock. Keep this source due

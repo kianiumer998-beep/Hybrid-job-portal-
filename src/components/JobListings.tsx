@@ -599,7 +599,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
             {design.visibility.applyButton && (
                 <button
                     onClick={() => onApplyClick(job)}
-                    className={`px-2.5 sm:px-4 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-gradient-to-r ${accentStyles.solidBg} to-teal-600 ${accentStyles.solidHover} hover:to-teal-500 text-slate-950 font-extrabold text-[10px] sm:text-xs shadow-md ${accentStyles.shadow} flex items-center space-x-1 sm:space-x-1.5 active:scale-95 transition-all cursor-pointer`}
+                    className={`px-2.5 sm:px-4 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-gradient-to-r ${accentStyles.gradientFrom} to-teal-600 ${accentStyles.gradientHoverFrom} hover:to-teal-500 text-slate-950 font-extrabold text-[10px] sm:text-xs shadow-md ${accentStyles.shadow} flex items-center space-x-1 sm:space-x-1.5 active:scale-95 transition-all cursor-pointer`}
                 >
                     <Send className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 text-slate-950" />
                     <span>{design.labels.applyButton || 'Apply'}</span>

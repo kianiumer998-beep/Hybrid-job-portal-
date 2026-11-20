@@ -963,6 +963,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                 <section className={`grid gap-3 p-4 sm:p-6 ${previewMode === 'mobile' ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-3'}`}>
                   {customCards.filter((card) => card.isEnabled).sort((a, b) => a.order - b.order).map((card) => (
                     <article key={card.id} className={`rounded-2xl bg-gradient-to-br ${card.bgGradient} p-4 text-white shadow-lg`}>
+                      {card.imageUrl && <img src={card.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="mb-3 max-h-36 w-full rounded-xl object-cover" />}
                       {card.badge && <span className="text-[9px] font-black uppercase tracking-wider text-white/80">{card.badge}</span>}
                       <h2 className="mt-2 text-sm font-black">{card.title}</h2>
                       <p className="mt-2 text-xs leading-relaxed text-white/80">{card.description}</p>

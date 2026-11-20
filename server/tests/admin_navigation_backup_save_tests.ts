@@ -1402,17 +1402,49 @@ async function runSuite() {
     assert.ok(campaignOps.includes('canWaiveCampaignFee && <button'));
     assert.ok(campaignOps.includes('if (!canWaiveCampaignFee) return;'));
     assert.ok(campaignOps.includes('canManageCampaignOperations && <button'));
+    assert.ok(campaignOps.includes('canViewCampaignContactDetails &&'));
+    assert.ok(campaignOps.includes('Advertiser Contact Details · Admin Only'));
 
     const dashboard = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'), 'utf8');
     assert.ok(dashboard.includes("canWaiveCampaignFee={hasAdminUiPermission('finance.manage')}"));
+    assert.ok(dashboard.includes("canViewCampaignContactDetails={effectiveAdminRole === 'Admin' || effectiveAdminRole === 'Super Admin'}"));
     assert.ok(dashboard.includes("return hasPerm('advertisements.manage') || hasPerm('finance.manage');"));
 
     const adRoutes = fs.readFileSync(path.resolve(process.cwd(), 'server/routes/adRoutes.ts'), 'utf8');
     assert.ok(adRoutes.includes('const canManageCampaigns = Boolean('));
     assert.ok(adRoutes.includes("hasAdminPermission(user.role, 'finance.manage')"));
-    assert.ok(adRoutes.includes("const financeFields = ['paymentStatus', 'campaignCostPkr', 'budget', 'walletTxId', 'paymentTransactionId', 'transactionRef'];"));
-    assert.ok(adRoutes.includes('changedFinanceFields.length > 0 && !canManageFinance'));
-    assert.ok(adRoutes.includes('changedNonFinanceFields.length > 0 && !canManageAds'));
+    assert.ok(adRoutes.includes("const financeVisibleFields = ["));
+    assert.ok(adRoutes.includes("user?.role === 'Admin' || user?.role === 'Super Admin'"));
+    assert.ok(adRoutes.includes("const advertisementEditableFields = new Set(["));
+    assert.ok(adRoutes.includes("const financeWaiverFields = new Set(['paymentStatus', 'campaignCostPkr']);"));
+    assert.ok(adRoutes.includes("updates.paymentStatus !== 'Exempt' || Number(updates.campaignCostPkr) !== 0"));
+    assert.ok(adRoutes.includes("safeUpdates = Object.fromEntries(changedFields.map((key) => [key, updates[key]]));"));
+  });
+
+  await runTest('W6 campaign access: Finance Manager receives no contact PII, Admin retains full records, and delegated updates are allowlisted', () => {
+    const adRoutes = fs.readFileSync(path.resolve(process.cwd(), 'server/routes/adRoutes.ts'), 'utf8');
+    const getBlock = adRoutes.slice(adRoutes.indexOf("adRouter.get('/',"), adRoutes.indexOf('// 2. Create Advertisement'));
+    const financeProjection = getBlock.slice(getBlock.indexOf('const financeCampaigns'), getBlock.indexOf('return res.json({ success: true, advertisements: financeCampaigns });'));
+    const putBlock = adRoutes.slice(adRoutes.indexOf("adRouter.put('/:id'"), adRoutes.indexOf('// 4. Delete Advertisement'));
+
+    assert.ok(getBlock.includes("user?.role === 'Admin' || user?.role === 'Super Admin'"));
+    assert.ok(getBlock.includes("hasAdminPermission(user?.role, 'advertisements.manage')"));
+    assert.ok(financeProjection.includes('const financeVisibleFields = ['));
+    assert.ok(!financeProjection.includes("'submittedByUserEmail'"));
+    assert.ok(!financeProjection.includes("'submittedByUserPhone'"));
+    assert.ok(!financeProjection.includes("'submittedByUserName'"));
+    assert.ok(!financeProjection.includes("'submittedByUserId'"));
+    assert.ok(!financeProjection.includes("'clientName'"));
+    assert.ok(!financeProjection.includes("'clientEmail'"));
+
+    assert.ok(putBlock.includes("const advertisementEditableFields = new Set(["));
+    assert.ok(putBlock.includes("'theme', 'dismissable', 'autoCloseDelay', 'smsSenderId', 'smsAudience'"));
+    assert.ok(putBlock.includes("const financeWaiverFields = new Set(['paymentStatus', 'campaignCostPkr']);"));
+    assert.ok(putBlock.includes("key !== 'updatedAt'"));
+    assert.ok(putBlock.includes("updates.paymentStatus !== 'Exempt' || Number(updates.campaignCostPkr) !== 0"));
+    assert.ok(putBlock.includes('unsupportedFields.length > 0'));
+    assert.ok(putBlock.includes('safeUpdates = Object.fromEntries(changedFields.map((key) => [key, updates[key]]));'));
+    assert.ok(putBlock.includes("const isFullAdmin = role === 'Admin' || role === 'Super Admin'"));
   });
 
   await runTest('Classic Parity Restoration: preserves 7 categories and exposes all 32 canonical modules through the existing Classic menu', () => {

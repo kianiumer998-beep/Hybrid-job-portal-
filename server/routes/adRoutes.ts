@@ -18,7 +18,32 @@ adRouter.get('/', async (req, res) => {
 
     if (canManageCampaigns) {
       const rawAds = await AdRepository.getAllAsync({ status, placement });
-      return res.json({ success: true, advertisements: rawAds });
+      const isFullAdmin = user?.role === 'Admin' || user?.role === 'Super Admin';
+
+      // Admins retain the complete campaign record. Finance-only access is deliberately
+      // limited to campaign/payment identifiers and financial fields, never contact details.
+      if (isFullAdmin || hasAdminPermission(user?.role, 'advertisements.manage')) {
+        return res.json({ success: true, advertisements: rawAds });
+      }
+
+      const financeCampaigns = rawAds.map((ad: any) => {
+        const financeView: Record<string, any> = {};
+        const financeVisibleFields = [
+          'id', 'title', 'type', 'placement', 'status', 'approvalStatus',
+          'durationUnit', 'durationValue', 'durationDisplay',
+          'targetPages', 'campaignCostPkr', 'paymentStatus', 'walletTxId',
+          'paymentTransactionId', 'transactionRef', 'budget', 'startDate', 'endDate',
+          'scheduledStartAt', 'scheduledEndAt', 'createdAt', 'updatedAt'
+        ];
+        for (const field of financeVisibleFields) {
+          if (Object.prototype.hasOwnProperty.call(ad || {}, field)) {
+            financeView[field] = (ad as any)[field];
+          }
+        }
+        return financeView;
+      });
+
+      return res.json({ success: true, advertisements: financeCampaigns });
     }
 
     const authUserId = user?.userId || user?.id ? String(user.userId || user.id).trim() : '';
@@ -373,21 +398,68 @@ adRouter.put('/:id', requireAuth, async (req: any, res) => {
     }
 
     const updates = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
-    const financeFields = ['paymentStatus', 'campaignCostPkr', 'budget', 'walletTxId', 'paymentTransactionId', 'transactionRef'];
+    // updatedAt is server-managed by the repository and must never be trusted from the client.
     const changedFields = Object.keys(updates).filter(
-      (key) => JSON.stringify((existingAd as any)[key]) !== JSON.stringify(updates[key])
+      (key) => key !== 'updatedAt' && JSON.stringify((existingAd as any)[key]) !== JSON.stringify(updates[key])
     );
-    const changedFinanceFields = changedFields.filter((key) => financeFields.includes(key));
-    const changedNonFinanceFields = changedFields.filter((key) => !financeFields.includes(key));
+    const isFullAdmin = role === 'Admin' || role === 'Super Admin';
 
-    if (changedFinanceFields.length > 0 && !canManageFinance) {
-      return res.status(403).json({ success: false, message: 'Access denied: Finance permission is required to change campaign payment or fee fields.' });
-    }
-    if (changedNonFinanceFields.length > 0 && !canManageAds) {
-      return res.status(403).json({ success: false, message: 'Access denied: Advertisement management permission is required for campaign operations.' });
+    // Only fields used by the existing campaign-operation and creative UI are editable
+    // by Advertisement Managers. Identity, ownership, payment references and unknown
+    // properties remain immutable for delegated roles.
+    const advertisementEditableFields = new Set([
+      'title', 'type', 'placement', 'status', 'approvalStatus', 'targetPages',
+      'durationUnit', 'durationValue', 'durationDisplay', 'scheduledStartAt',
+      'scheduledEndAt', 'approvedAt', 'rejectionReason', 'rejectedAt',
+      'headline', 'bodyText', 'imageUrl', 'ctaText', 'ctaUrl', 'badgeText',
+      'theme', 'dismissable', 'autoCloseDelay', 'smsSenderId', 'smsAudience'
+    ]);
+    const financeWaiverFields = new Set(['paymentStatus', 'campaignCostPkr']);
+
+    let safeUpdates: Record<string, any> = updates;
+    if (!isFullAdmin) {
+      const unsupportedFields = changedFields.filter((key) =>
+        canManageAds
+          ? !advertisementEditableFields.has(key) && !(canManageFinance && financeWaiverFields.has(key))
+          : !financeWaiverFields.has(key)
+      );
+
+      if (unsupportedFields.length > 0) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied: One or more campaign fields are not editable with this role.'
+        });
+      }
+
+      const changedFinanceFields = changedFields.filter((key) => financeWaiverFields.has(key));
+      if (changedFinanceFields.length > 0) {
+        if (!canManageFinance) {
+          return res.status(403).json({
+            success: false,
+            message: 'Access denied: Finance permission is required to waive campaign fees.'
+          });
+        }
+        if (updates.paymentStatus !== 'Exempt' || Number(updates.campaignCostPkr) !== 0) {
+          return res.status(403).json({
+            success: false,
+            message: 'Finance Managers may only apply the approved fee-waiver action (Exempt / PKR 0).'
+          });
+        }
+      }
+
+      if (changedFields.length > 0 && !canManageAds && changedFinanceFields.length === 0) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied: Advertisement management permission is required for campaign operations.'
+        });
+      }
+
+      // Never pass unchanged client-supplied fields to the repository. This prevents
+      // full-object UI payloads from writing protected ownership/payment metadata.
+      safeUpdates = Object.fromEntries(changedFields.map((key) => [key, updates[key]]));
     }
 
-    const updated = await AdRepository.updateAsync(req.params.id, updates);
+    const updated = await AdRepository.updateAsync(req.params.id, safeUpdates);
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Ad not found.' });
     }

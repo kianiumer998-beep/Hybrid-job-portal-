@@ -379,6 +379,7 @@ export class ScraperRepository {
         withMongoTimeout<any[]>(
           coll.find(filter)
             .sort({ _id: -1 })
+            .skip(cursor ? 0 : safeOffset)
             .limit(safeLimit + 1)
             .toArray(),
           15000,

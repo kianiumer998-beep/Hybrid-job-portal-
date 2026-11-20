@@ -378,7 +378,8 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
         <div className="flex items-center space-x-3">
           <button
             onClick={handleReset}
-            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5"
+            disabled={isSaving}
+            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 disabled:opacity-50 disabled:cursor-wait"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Reset Defaults</span>
@@ -386,10 +387,11 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
 
           <button
             onClick={handleSave}
-            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 text-xs font-black shadow-lg shadow-emerald-500/20 transition-all cursor-pointer flex items-center space-x-1.5 active:scale-95"
+            disabled={isSaving}
+            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 text-xs font-black shadow-lg shadow-emerald-500/20 transition-all cursor-pointer flex items-center space-x-1.5 active:scale-95 disabled:opacity-50 disabled:cursor-wait"
           >
             <Save className="w-4 h-4" />
-            <span>Save All Configurations</span>
+            <span>{isSaving ? 'Saving...' : 'Save All Configurations'}</span>
           </button>
         </div>
       </div>
@@ -401,6 +403,12 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
             <span>{saveSuccessMessage}</span>
           </div>
+        </div>
+      )}
+
+      {saveErrorMessage && (
+        <div role="alert" className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/40 text-rose-300 text-xs font-bold">
+          {saveErrorMessage}
         </div>
       )}
 

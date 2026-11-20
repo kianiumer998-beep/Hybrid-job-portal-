@@ -1408,6 +1408,8 @@ async function runSuite() {
     assert.ok(dashboard.includes("return hasPerm('advertisements.manage') || hasPerm('finance.manage');"));
 
     const adRoutes = fs.readFileSync(path.resolve(process.cwd(), 'server/routes/adRoutes.ts'), 'utf8');
+    assert.ok(adRoutes.includes('const canManageCampaigns = Boolean('));
+    assert.ok(adRoutes.includes("hasAdminPermission(user.role, 'finance.manage')"));
     assert.ok(adRoutes.includes("const financeFields = ['paymentStatus', 'campaignCostPkr', 'budget', 'walletTxId', 'paymentTransactionId', 'transactionRef'];"));
     assert.ok(adRoutes.includes('changedFinanceFields.length > 0 && !canManageFinance'));
     assert.ok(adRoutes.includes('changedNonFinanceFields.length > 0 && !canManageAds'));

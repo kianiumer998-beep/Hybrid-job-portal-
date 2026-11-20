@@ -334,7 +334,10 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-400">{section.description}</p>
+                    <p className="text-xs text-slate-400">
+                      {section.description}
+                      {section.id === 'top-sponsor-ads' && ' Global banner is rendered in a fixed top position; this sequence cannot move it.'}
+                    </p>
                   </div>
                 </div>
 
@@ -355,9 +358,9 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                   {/* Move Up */}
                   <button
                     onClick={() => moveSection(index, 'up')}
-                    disabled={index === 0}
+                    disabled={index === 0 || section.id === 'top-sponsor-ads'}
                     className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300 transition-all cursor-pointer"
-                    title="Move Up"
+                    title={section.id === 'top-sponsor-ads' ? 'Fixed global banner position' : 'Move Up'}
                   >
                     <ArrowUp className="w-4 h-4" />
                   </button>
@@ -365,9 +368,9 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                   {/* Move Down */}
                   <button
                     onClick={() => moveSection(index, 'down')}
-                    disabled={index === sections.length - 1}
+                    disabled={index === sections.length - 1 || section.id === 'top-sponsor-ads'}
                     className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300 transition-all cursor-pointer"
-                    title="Move Down"
+                    title={section.id === 'top-sponsor-ads' ? 'Fixed global banner position' : 'Move Down'}
                   >
                     <ArrowDown className="w-4 h-4" />
                   </button>

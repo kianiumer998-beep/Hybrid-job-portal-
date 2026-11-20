@@ -3,8 +3,6 @@ import {
   Advertisement, 
   AdPlacement, 
   AdStatus, 
-  CampaignCustomizationConfig,
-  isAdCurrentlyRunning,
   formatTimeRemaining
 } from '../../types/ad';
 import { 

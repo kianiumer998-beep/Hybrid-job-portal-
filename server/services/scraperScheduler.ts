@@ -397,7 +397,7 @@ export async function runSchedulerTick(
         error: error.error,
         failureCategory: 'Scheduler Execution Failed'
       }));
-      const completedRunCount = successfulRunResults.filter(result => result?.status === 'Completed').length;
+      const completedRunCount = successfulRunResults.filter(result => !result?.status || result.status === 'Completed').length;
       const partialRunCount = successfulRunResults.filter(result => result?.status === 'Partial' || result?.status === 'Stopped').length;
       const failedRunCount = successfulRunResults.filter(result => result?.status === 'Failed').length;
       const batchFailedSourceCount = failed.length + failedRunCount;

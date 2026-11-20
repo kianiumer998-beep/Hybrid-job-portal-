@@ -26,6 +26,8 @@ import {
 interface AdminCampaignCenterProps {
   ads: Advertisement[];
   onUpdateAd: (updatedAd: Advertisement) => void;
+  canManageCampaignOperations: boolean;
+  canWaiveCampaignFee: boolean;
 }
 
 export type DynamicCampaignStatus = 'Active' | 'Scheduled' | 'Expired' | 'Pending Approval' | 'Paused' | 'Rejected';
@@ -59,7 +61,9 @@ export function getCampaignDynamicStatus(ad: Advertisement): DynamicCampaignStat
 
 export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
   ads,
-  onUpdateAd
+  onUpdateAd,
+  canManageCampaignOperations,
+  canWaiveCampaignFee
 }) => {
   const [selectedPlacementFilter, setSelectedPlacementFilter] = useState<string>('all');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('all');
@@ -72,6 +76,7 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
 
   // Quick Action Handlers
   const handleTogglePause = (ad: Advertisement) => {
+    if (!canManageCampaignOperations) return;
     // Only approved campaigns may be paused or resumed.
     // Pending/rejected campaigns must never be promoted by this quick action.
     if (ad.approvalStatus && ad.approvalStatus !== 'Approved') return;
@@ -85,13 +90,14 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
   };
 
   const handleOpenDateModal = (ad: Advertisement) => {
+    if (!canManageCampaignOperations) return;
     setEditingDateAd(ad);
     setEditStartDate(ad.scheduledStartAt ? ad.scheduledStartAt.slice(0, 16).replace(' ', 'T') : new Date().toISOString().slice(0, 16));
     setEditEndDate(ad.scheduledEndAt ? ad.scheduledEndAt.slice(0, 16).replace(' ', 'T') : new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 16));
   };
 
   const handleSaveDateRange = () => {
-    if (!editingDateAd) return;
+    if (!canManageCampaignOperations || !editingDateAd) return;
 
     const startMs = new Date(editStartDate).getTime();
     const endMs = new Date(editEndDate).getTime();
@@ -115,6 +121,7 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
   };
 
   const handleMakeCampaignFree = (ad: Advertisement) => {
+    if (!canWaiveCampaignFee) return;
     if (ad.paymentStatus === 'Exempt' && Number(ad.campaignCostPkr || 0) === 0) return;
     const confirmed = window.confirm(
       `Waive the campaign fee for "${ad.title}"? This will set its recorded campaign cost to PKR 0 and mark payment as Exempt.`
@@ -286,7 +293,7 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
                 </div>
 
                 <div className="flex items-center space-x-1 shrink-0">
-                  <button
+                  {canManageCampaignOperations && <button
                     onClick={() => handleTogglePause(ad)}
                     disabled={
                       (ad.status !== 'active' && ad.status !== 'paused') ||
@@ -304,7 +311,7 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
                     }
                   >
                     {ad.status === 'active' ? <Pause className="w-3.5 h-3.5 text-amber-400" /> : <Play className="w-3.5 h-3.5 text-emerald-400" />}
-                  </button>
+                  </button>}
                 </div>
               </div>
 
@@ -336,13 +343,13 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
                     <Calendar className="w-3 h-3 text-purple-400" />
                     Granular Date Window
                   </span>
-                  <button
+                  {canManageCampaignOperations && <button
                     onClick={() => handleOpenDateModal(ad)}
                     className="text-[10px] font-bold text-purple-400 hover:text-purple-300 flex items-center gap-1 cursor-pointer"
                   >
                     <Edit3 className="w-3 h-3" />
                     <span>Edit Dates</span>
-                  </button>
+                  </button>}
                 </div>
 
                 <div className="font-mono text-[11px] text-slate-200 font-bold">
@@ -372,13 +379,13 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
                 </div>
 
                 <div className="flex items-center space-x-1.5">
-                  <button
+                  {canWaiveCampaignFee && <button
                     onClick={() => handleMakeCampaignFree(ad)}
                     className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-emerald-400"
                     title="Waive Campaign Fee"
                   >
                     <Gift className="w-3.5 h-3.5" />
-                  </button>
+                  </button>}
                 </div>
               </div>
 

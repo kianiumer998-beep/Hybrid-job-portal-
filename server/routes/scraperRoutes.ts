@@ -257,6 +257,8 @@ export function mapScrapedResultToRouteJob(
     govtDepartment: r.govtDepartment,
     govtScale: r.govtScale,
     deadlineDate: r.deadlineDate,
+    applicationStartDate: r.applicationStartDate,
+    expiryDate: r.expiryDate,
     pdfTotalVacanciesInCase: r.pdfTotalVacanciesInCase,
     domicileQuota: r.domicileQuota,
     ageRelaxationNote: r.ageRelaxationNote,

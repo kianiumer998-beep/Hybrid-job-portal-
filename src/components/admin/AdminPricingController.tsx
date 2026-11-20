@@ -44,11 +44,6 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
       futureJobFeePkr: 800,
       vipBundleFeePkr: 2500,
       freePostingAllowed: true,
-      enableStandard: true,
-      enableUrgent: true,
-      enableFeaturedTop: true,
-      enableFutureJob: true,
-      enableVipBundle: true,
       standardDurationDays: 30,
       urgentDurationDays: 15,
       featuredTopDurationDays: 30,
@@ -97,7 +92,14 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
     try {
       const data = await api.pricing.get();
       if (data && data.success && data.pricing) {
-        setPricing(data.pricing);
+        setPricing((prev: any) => ({
+          ...prev,
+          ...data.pricing,
+          jobPosting: { ...prev.jobPosting, ...(data.pricing.jobPosting || {}) },
+          advertisements: { ...prev.advertisements, ...(data.pricing.advertisements || {}) },
+          subscriptions: { ...prev.subscriptions, ...(data.pricing.subscriptions || {}) },
+          cvBuilder: { ...prev.cvBuilder, ...(data.pricing.cvBuilder || {}) }
+        }));
       } else {
         setLoadError(data?.message || 'Failed to load authoritative pricing configuration.');
       }
@@ -436,6 +438,31 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                 <div className="sm:col-span-2">
                   <label className="block text-xs text-slate-400 mb-1">Standard Listing Description</label>
                   <input type="text" value={pricing.jobPosting?.standardDescription || 'Regular chronological placement'} onChange={(e) => updateNested('jobPosting', 'standardDescription', e.target.value)} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white text-xs" />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 p-4 bg-slate-950/90 border border-slate-800 rounded-xl space-y-2 text-xs">
+              <div className="font-bold text-white flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>Public Job Ranking Order</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2 text-[11px] text-slate-300">
+                <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800">
+                  <strong className="text-purple-300 block mb-1">1st: VIP & Pinned Top</strong>
+                  VIP and pinned listings appear before all other job tiers.
+                </div>
+                <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800">
+                  <strong className="text-amber-300 block mb-1">2nd: Featured</strong>
+                  Featured listings follow pinned jobs.
+                </div>
+                <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800">
+                  <strong className="text-rose-300 block mb-1">3rd: Urgent</strong>
+                  Urgent listings appear before regular listings.
+                </div>
+                <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800">
+                  <strong className="text-indigo-300 block mb-1">4th: Future & Standard</strong>
+                  Future jobs show their countdown; standard jobs sort by recency.
                 </div>
               </div>
             </div>

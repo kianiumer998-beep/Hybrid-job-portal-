@@ -5454,6 +5454,11 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                           <tbody className="divide-y divide-slate-800/60 text-slate-300">
                             {statsList.map((st, sIdx) => {
                               const isFailed = Boolean(st.failed);
+                              const outcomeLabel = st.failureCategory || (isFailed ? 'Failed' : 'Success');
+                              const isWarningOutcome = Boolean(
+                                st.failureCategory &&
+                                !['Success', 'No Jobs Found', 'Duplicate Skipped'].includes(st.failureCategory)
+                              );
 
                               return (
                                 <tr key={st.sourceId || sIdx} className="hover:bg-slate-800/30 transition-all">
@@ -5479,10 +5484,12 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                                       className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                         isFailed
                                           ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                                          : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                          : isWarningOutcome || outcomeLabel === 'No Jobs Found' || outcomeLabel === 'Duplicate Skipped'
+                                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                            : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                                       }`}
                                     >
-                                      {isFailed ? 'Failed' : 'Success'}
+                                      {outcomeLabel}
                                     </span>
                                   </td>
 

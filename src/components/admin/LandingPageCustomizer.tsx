@@ -6,7 +6,9 @@ import {
   LandingSectionOrder,
   LandingSectionId,
   LandingDesignSystem,
-  JobCardDesignConfig
+  JobCardDesignConfig,
+  JOB_CARD_ACCENT_STYLES,
+  getJobCardAccentColor
 } from '../../types/landing';
 import { CampaignCustomizationConfig, PromoDiscountBanner } from '../../types/ad';
 import { 

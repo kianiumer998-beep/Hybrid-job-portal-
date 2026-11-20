@@ -399,6 +399,8 @@ export async function runSchedulerTick(
       }));
       const batchStatus = failed.length > 0
         ? (triggered.length > 0 ? 'Partial' : 'Failed')
+        : scheduleUpdateErrors.length > 0
+        ? 'Partial'
         : 'Completed';
       try {
         await addRunFn({

@@ -162,6 +162,9 @@ export async function runSchedulerTick(
 
   isTickExecuting = true;
   const tickStartedAt = new Date();
+  // One stable batch ID groups all per-source executions triggered by this scheduler tick.
+  // Individual run IDs remain unique for backward compatibility.
+  const schedulerBatchId = `SCHED-BATCH-${tickStartedAt.getTime().toString(36).toUpperCase()}`;
   lastTickTime = tickStartedAt.toISOString();
   const triggered: string[] = [];
   const failed: string[] = [];
@@ -261,7 +264,8 @@ export async function runSchedulerTick(
               startPage: scheduledMode === 'page_range' ? validStartPage : undefined,
               endPage: scheduledMode === 'page_range' ? validEndPage : undefined,
               autoPublishTrusted: (settings.autoApprove ?? src.autoApprove) && isAutoApproveEnabled,
-              duplicateMode: settings.duplicateMode === 'without' ? 'without' : 'with'
+              duplicateMode: settings.duplicateMode === 'without' ? 'without' : 'with',
+              batchId: schedulerBatchId
             });
 
             triggered.push(src.id);
@@ -325,8 +329,8 @@ export async function runSchedulerTick(
       const tickEnd = new Date();
       try {
         await addRunFn({
-          id: `SCHED-${tickEnd.getTime().toString(36).toUpperCase()}`,
-          batchId: `SCHED-${tickEnd.getTime().toString(36).toUpperCase()}`,
+          id: `SCHED-FAIL-${tickEnd.getTime().toString(36).toUpperCase()}`,
+          batchId: schedulerBatchId,
           startedAt: tickStartedAt.toISOString(),
           completedAt: tickEnd.toISOString(),
           mode: settings.scanMode || 'since_last',

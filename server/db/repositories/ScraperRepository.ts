@@ -1,3 +1,4 @@
+import { ObjectId } from 'mongodb';
 import {
   getScraperSourcesCollection,
   getScraperRunsCollection,
@@ -350,30 +351,35 @@ export class ScraperRepository {
   }
 
   /**
-   * Retrieves one bounded page of scraper history without truncating MongoDB history.
-   * Offset pagination keeps the existing /runs response contract available to older clients.
+   * Retrieves one bounded page of scraper history.
+   * MongoDB uses an immutable _id cursor so new inserts cannot shift later pages.
+   * Offset remains supported for older callers; the admin UI uses nextCursor.
    */
   static async getRunsPage(
     offset = 0,
     limit = 50,
+    cursor?: string,
     _deps?: {
       isMongoConfiguredFn?: () => boolean;
       getCollectionFn?: () => Promise<any>;
     }
-  ): Promise<{ runs: any[]; total: number; hasMore: boolean }> {
+  ): Promise<{ runs: any[]; total: number; hasMore: boolean; nextCursor: string | null }> {
     const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
     const safeLimit = Math.min(100, Math.max(1, Math.floor(Number(limit) || 50)));
     const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
     const getCollFn = _deps?.getCollectionFn || getScraperRunsCollection;
 
     if (isMongoCfgFn()) {
+      if (cursor && !ObjectId.isValid(cursor)) {
+        throw new Error('Invalid scraper history cursor.');
+      }
       const coll = await getCollFn();
-      const [runs, total] = await Promise.all([
+      const filter = cursor ? { _id: { $lt: new ObjectId(cursor) } } : {};
+      const [documents, total] = await Promise.all([
         withMongoTimeout<any[]>(
-          coll.find({}, { projection: { _id: 0 } })
-            .sort({ startedAt: -1, timestamp: -1, id: -1 })
-            .skip(safeOffset)
-            .limit(safeLimit)
+          coll.find(filter)
+            .sort({ _id: -1 })
+            .limit(safeLimit + 1)
             .toArray(),
           15000,
           'getRunsPage'
@@ -381,18 +387,36 @@ export class ScraperRepository {
         withMongoTimeout<number>(coll.countDocuments({}), 15000, 'countScraperRuns')
       ]);
 
-      if (!Array.isArray(runs) || !Number.isFinite(total)) {
+      if (!Array.isArray(documents) || !Number.isFinite(total)) {
         throw new Error('Unexpected response reading paginated scraper history from MongoDB');
       }
-      if (safeOffset === 0) this.cachedRuns = runs.slice(0, 100);
-      return { runs, total, hasMore: safeOffset + runs.length < total };
+
+      const hasMore = documents.length > safeLimit;
+      const pageDocuments = hasMore ? documents.slice(0, safeLimit) : documents;
+      const nextCursor = hasMore && pageDocuments.length > 0
+        ? (typeof pageDocuments[pageDocuments.length - 1]._id?.toHexString === 'function'
+          ? pageDocuments[pageDocuments.length - 1]._id.toHexString()
+          : String(pageDocuments[pageDocuments.length - 1]._id))
+        : null;
+      const runs = pageDocuments.map(({ _id, ...run }) => run);
+
+      if (!cursor && safeOffset === 0) this.cachedRuns = runs.slice(0, 100);
+      return { runs, total, hasMore, nextCursor };
     }
 
-    const runs = this.cachedRuns.slice(safeOffset, safeOffset + safeLimit);
+    const memoryOffset = cursor?.startsWith('memory:')
+      ? Number(cursor.slice('memory:'.length))
+      : safeOffset;
+    if (!Number.isInteger(memoryOffset) || memoryOffset < 0) {
+      throw new Error('Invalid in-memory scraper history cursor.');
+    }
+    const runs = this.cachedRuns.slice(memoryOffset, memoryOffset + safeLimit);
+    const hasMore = memoryOffset + runs.length < this.cachedRuns.length;
     return {
       runs,
       total: this.cachedRuns.length,
-      hasMore: safeOffset + runs.length < this.cachedRuns.length
+      hasMore,
+      nextCursor: hasMore ? `memory:${memoryOffset + runs.length}` : null
     };
   }
 

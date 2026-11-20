@@ -352,10 +352,12 @@ export async function runSchedulerTick(
     // Persist one aggregate parent record for this scheduler batch. Per-source run records remain untouched.
     if (plannedSourceIds.length > 0) {
       const batchEndedAt = new Date();
+      const plannedFailedErrors = failedErrors.filter(error => plannedSourceIds.includes(error.sourceId));
+      const plannedScheduleUpdateErrors = scheduleUpdateErrors.filter(error => plannedSourceIds.includes(error.sourceId));
       const successfulSourcesStats = successfulRunResults.flatMap(result =>
         Array.isArray(result?.sourcesStats) ? result.sourcesStats : []
       );
-      const failedSourcesStats = failedErrors.map(error => ({
+      const failedSourcesStats = plannedFailedErrors.map(error => ({
         sourceId: error.sourceId,
         sourceName: error.sourceName,
         sourceUrl: error.sourceUrl,
@@ -389,8 +391,8 @@ export async function runSchedulerTick(
       const completedRunCount = successfulRunResults.filter(result => !result?.status || result.status === 'Completed').length;
       const partialRunCount = successfulRunResults.filter(result => result?.status === 'Partial' || result?.status === 'Stopped').length;
       const failedRunCount = successfulRunResults.filter(result => result?.status === 'Failed').length;
-      const batchFailedSourceCount = failed.length + failedRunCount;
-      const batchStatus = conflictSource || partialRunCount > 0 || scheduleUpdateErrors.length > 0
+      const batchFailedSourceCount = plannedFailedErrors.length + failedRunCount;
+      const batchStatus = conflictSource || partialRunCount > 0 || plannedScheduleUpdateErrors.length > 0
         ? 'Partial'
         : (batchFailedSourceCount > 0
           ? (completedRunCount > 0 ? 'Partial' : 'Failed')
@@ -411,7 +413,7 @@ export async function runSchedulerTick(
           partialSources: partialRunCount,
           failedSources: batchFailedSourceCount,
           skippedSources: skippedConflictStats.length,
-          scheduleUpdateFailures: scheduleUpdateErrors.length,
+          scheduleUpdateFailures: plannedScheduleUpdateErrors.length,
           status: batchStatus,
           totalFound: successfulRunResults.reduce((sum, result) => sum + (Number(result?.totalFound) || 0), 0),
           totalNew: successfulRunResults.reduce((sum, result) => sum + (Number(result?.totalNew) || 0), 0),
@@ -421,9 +423,9 @@ export async function runSchedulerTick(
           newPending: successfulRunResults.reduce((sum, result) => sum + (Number(result?.totalPending) || 0), 0),
           duplicatesFlagged: successfulRunResults.reduce((sum, result) => sum + (Number(result?.totalDuplicates) || 0), 0),
           executionTimeMs: batchEndedAt.getTime() - tickStartedAt.getTime(),
-          scheduleUpdateErrors,
+          scheduleUpdateErrors: plannedScheduleUpdateErrors,
           sourcesStats: [...successfulSourcesStats, ...failedSourcesStats, ...skippedConflictStats],
-          message: `Scheduler batch: ${completedRunCount} completed, ${partialRunCount} partial, ${batchFailedSourceCount} failed, ${skippedConflictStats.length} skipped due to active-run conflict, ${scheduleUpdateErrors.length} schedule update warning(s) across ${plannedSourceIds.length} due sources.`
+          message: `Scheduler batch: ${completedRunCount} completed, ${partialRunCount} partial, ${batchFailedSourceCount} failed, ${skippedConflictStats.length} skipped due to active-run conflict, ${plannedScheduleUpdateErrors.length} schedule update warning(s) across ${plannedSourceIds.length} due sources.`
         });
         if (persistedBatchSummary?.persistenceError) {
           batchSummaryPersistenceError = String(persistedBatchSummary.persistenceError);

@@ -211,6 +211,8 @@ export interface Job {
   deadlineDate?: string;
   /** Explicit source-published date when applications open; never inferred from deadline. */
   applicationStartDate?: string;
+  /** Separate source-stated job listing expiry date; not inferred from application deadline. */
+  expiryDate?: string;
 
   // Scraper History & Ingestion Audit Extensions
   scraperBatchId?: string;

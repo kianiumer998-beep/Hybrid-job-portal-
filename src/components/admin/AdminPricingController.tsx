@@ -201,7 +201,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
             </div>
             <div>
               <h2 className="text-xl font-black text-white">Universal Pricing Controller</h2>
-              <p className="text-xs text-slate-400">Configure public job fees, banner advertisement rates, subscription tiers, and duration limits dynamically.</p>
+              <p className="text-xs text-slate-400">Configure job-posting fees, subscription tiers, CV services and duration limits. Active ad campaign rates are managed separately in Ad Hub.</p>
             </div>
           </div>
         </div>
@@ -592,112 +592,19 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
           </div>
         </div>
 
-        {/* 2. Advertisements by Placement & Day */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-            <div className="flex items-center space-x-2.5">
-              <Tag className="w-5 h-5 text-indigo-400" />
-              <h3 className="font-bold text-white text-base">Advertisement Placement Rates</h3>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Percent className="w-4 h-4 text-slate-400" />
-              <span className="text-xs text-slate-400">Default Discount:</span>
-              <input
-                type="number"
-                value={pricing.advertisements?.defaultDiscountPercent || 0}
-                onChange={(e) => updateNested('advertisements', 'defaultDiscountPercent', Number(e.target.value))}
-                className="w-16 px-2 py-1 bg-slate-950 border border-slate-700 rounded text-center text-xs text-amber-400 font-bold"
-              />
-              <span className="text-xs text-slate-400">%</span>
-            </div>
+        {/* Advertisement pricing is maintained in Ad Hub's authoritative Rate Card. */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-3">
+          <div className="flex items-center gap-2">
+            <Tag className="w-5 h-5 text-indigo-400" />
+            <h3 className="font-bold text-white text-base">Ad Campaign Rates — Managed in Ad Hub</h3>
           </div>
-
-          <div className="space-y-3.5 text-sm">
-            <div className="flex items-center justify-between p-3 bg-slate-950/60 rounded-xl border border-slate-800">
-              <div>
-                <span className="font-semibold text-white block">Top Header Banner</span>
-                <span className="text-xs text-slate-400">Positioned above navigation and hero</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="number"
-                  value={pricing.advertisements?.topBannerPerDayPkr || 0}
-                  onChange={(e) => updateNested('advertisements', 'topBannerPerDayPkr', Number(e.target.value))}
-                  className="w-28 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm font-semibold"
-                />
-                <span className="text-xs text-slate-400">PKR / Day</span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between p-3 bg-slate-950/60 rounded-xl border border-slate-800">
-              <div>
-                <span className="font-semibold text-white block">Standard In-Feed Ad Card</span>
-                <span className="text-xs text-slate-400">Blended naturally between job search cards</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="number"
-                  value={pricing.advertisements?.feedAdPerDayPkr || 0}
-                  onChange={(e) => updateNested('advertisements', 'feedAdPerDayPkr', Number(e.target.value))}
-                  className="w-28 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm font-semibold"
-                />
-                <span className="text-xs text-slate-400">PKR / Day</span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between p-3 bg-slate-950/60 rounded-xl border border-slate-800">
-              <div>
-                <span className="font-semibold text-white block">Interactive Popup Modal Ad</span>
-                <span className="text-xs text-slate-400">Centered attention modal on initial visit</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="number"
-                  value={pricing.advertisements?.popupPerDayPkr || 0}
-                  onChange={(e) => updateNested('advertisements', 'popupPerDayPkr', Number(e.target.value))}
-                  className="w-28 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm font-semibold"
-                />
-                <span className="text-xs text-slate-400">PKR / Day</span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between p-3 bg-slate-950/60 rounded-xl border border-slate-800">
-              <div>
-                <span className="font-semibold text-white block">Featured Company Profile</span>
-                <span className="text-xs text-slate-400">Brand page with verified badge & direct apply</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="number"
-                  value={pricing.advertisements?.featuredEmployerPerMonthPkr || 0}
-                  onChange={(e) => updateNested('advertisements', 'featuredEmployerPerMonthPkr', Number(e.target.value))}
-                  className="w-28 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm font-semibold"
-                />
-                <span className="text-xs text-slate-400">PKR / Month</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Min Campaign Days</label>
-                <input
-                  type="number"
-                  value={pricing.advertisements?.minCampaignDurationDays || 3}
-                  onChange={(e) => updateNested('advertisements', 'minCampaignDurationDays', Number(e.target.value))}
-                  className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Max Campaign Days</label>
-                <input
-                  type="number"
-                  value={pricing.advertisements?.maxCampaignDurationDays || 90}
-                  onChange={(e) => updateNested('advertisements', 'maxCampaignDurationDays', Number(e.target.value))}
-                  className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
-                />
-              </div>
-            </div>
-          </div>
+          <p className="text-xs text-slate-300">
+            The active campaign calculator uses the Ad Hub Rate Card (hourly, daily, weekly and monthly rates, placement/page multipliers and SMS charges).
+            Open <strong>Ads & Campaigns → Ad Hub & Banner Slots → Rate Card & Pricing Matrix</strong> to manage those values.
+          </p>
+          <p className="text-[11px] text-slate-500">
+            Older advertisement rate fields remain preserved in the saved configuration for backward compatibility. They are not edited here and are not the active campaign-calculation source.
+          </p>
         </div>
 
         {/* 3. Subscriptions & Candidate Plans */}

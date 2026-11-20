@@ -223,7 +223,7 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
         let newAd: any = null;
         let calc: any = null;
         try {
-          calc = PricingRepository.calculateAdPrice(adPricingInput);
+          calc = await PricingRepository.calculateAdPrice(adPricingInput);
 
           if (Number(verifiedTx.amount) !== Number(calc.finalPrice)) {
             const mismatchErr: any = new Error(

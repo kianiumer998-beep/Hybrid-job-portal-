@@ -550,6 +550,20 @@ export default function App() {
       normalizedApprovalStatus = 'Rejected';
     }
 
+    // Explicit approval decisions from the backend must take precedence over
+    // a generic/legacy "active" campaign status. Never promote Pending/Rejected
+    // campaigns to Approved during client normalization.
+    const approvalDecision = rawApprovalStatus.toLowerCase();
+    if (approvalDecision === 'pending') {
+      normalizedStatus = 'pending_approval';
+      normalizedApprovalStatus = 'Pending';
+    } else if (approvalDecision === 'rejected') {
+      normalizedStatus = 'rejected';
+      normalizedApprovalStatus = 'Rejected';
+    } else if (approvalDecision === 'approved') {
+      normalizedApprovalStatus = 'Approved';
+    }
+
     const targetPages: Advertisement['targetPages'] =
       Array.isArray(rawAd?.targetPages) && rawAd.targetPages.length > 0
         ? rawAd.targetPages

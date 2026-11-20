@@ -338,49 +338,6 @@ export async function runSchedulerTick(
       }
     }
 
-    // Persist scheduler failure/execution record when an unexpected execution error threw before executeScraperWithWizard recorded a run
-    if (failed.length > 0) {
-      const tickEnd = new Date();
-      try {
-        await addRunFn({
-          id: `SCHED-${tickEnd.getTime().toString(36).toUpperCase()}`,
-          batchId: schedulerBatchId,
-          startedAt: tickStartedAt.toISOString(),
-          completedAt: tickEnd.toISOString(),
-          mode: settings.scanMode || 'since_last',
-          triggerType: 'Scheduled Cron',
-          targetsScraped: triggered.length + failed.length,
-          totalTargetsPlanned: triggered.length + failed.length,
-          status: triggered.length > 0 ? 'Partial' : 'Failed',
-          totalFound: 0,
-          totalNew: 0,
-          totalDuplicates: 0,
-          newPublished: 0,
-          newPending: 0,
-          duplicatesFlagged: 0,
-          failedSources: failed.length,
-          executionTimeMs: tickEnd.getTime() - tickStartedAt.getTime(),
-          message: `Scheduler tick encountered ${failed.length} source execution error(s): ${failedErrors.map(e => `${e.sourceName}: ${e.error}`).join('; ')}`,
-          sourcesStats: failedErrors.map(e => ({
-            sourceId: e.sourceId,
-            sourceName: e.sourceName,
-            sourceUrl: e.sourceUrl,
-            startedAt: tickStartedAt.toISOString(),
-            completedAt: tickEnd.toISOString(),
-            found: 0,
-            newCount: 0,
-            dupCount: 0,
-            pagesAttempted: 1,
-            pagesSuccessful: 0,
-            failed: true,
-            error: e.error
-          }))
-        });
-      } catch (runPersistErr: any) {
-        console.warn('[Scheduler Engine] Unable to record failed tick run summary:', runPersistErr?.message || runPersistErr);
-      }
-    }
-
     // Persist one aggregate parent record for this scheduler batch. Per-source run records remain untouched.
     if (plannedSourceIds.length > 0) {
       const batchEndedAt = new Date();

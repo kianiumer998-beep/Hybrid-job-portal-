@@ -300,10 +300,73 @@ export function normalizeLandingDesignSystem(
     if (!config || typeof config !== 'object' || !config.hero || !Array.isArray(config.sections) || !Array.isArray(config.customCards)) {
       return fallback;
     }
+    const safeUrl = (value: unknown, fallbackUrl: string): string => {
+      if (typeof value !== 'string') return fallbackUrl;
+      const candidate = value.trim().slice(0, 2048);
+      if (/^(#|\/)(?!\/)/.test(candidate)) return candidate;
+      if (/^https:\/\//i.test(candidate)) return candidate;
+      if (/^mailto:[^\s@]+@[^\s@]+$/i.test(candidate)) return candidate;
+      return fallbackUrl;
+    };
+    const hero = { ...fallback.config.hero, ...config.hero };
+    Object.keys(hero).forEach((key) => {
+      const typedKey = key as keyof LandingHeroConfig;
+      const rawValue = hero[typedKey];
+      if (typedKey.endsWith('Url')) {
+        hero[typedKey] = safeUrl(rawValue, fallback.config.hero[typedKey] as string) as never;
+      } else if (typeof rawValue !== 'string') {
+        hero[typedKey] = fallback.config.hero[typedKey] as never;
+      } else {
+        hero[typedKey] = rawValue.slice(0, 500) as never;
+      }
+    });
+
+    const allowedSectionIds: LandingSectionId[] = ['hero', 'promo-banners', 'top-sponsor-ads', 'quick-stats', 'custom-announcements', 'jobs-feed'];
+    const seenSectionIds = new Set<string>();
+    const sections = config.sections
+      .filter((section: any) => section && allowedSectionIds.includes(section.id) && !seenSectionIds.has(section.id) && (seenSectionIds.add(section.id), true))
+      .map((section: LandingSectionOrder, index: number) => ({
+        ...section,
+        name: typeof section.name === 'string' ? section.name.slice(0, 100) : fallback.config.sections[index]?.name || section.id,
+        description: typeof section.description === 'string' ? section.description.slice(0, 240) : '',
+        isEnabled: section.isEnabled !== false,
+        order: Number.isFinite(Number(section.order)) ? Math.max(1, Math.min(100, Math.floor(Number(section.order)))) : index + 1
+      }));
+    const seenCardIds = new Set<string>();
+    const customCards = config.customCards
+      .filter((card: any) => card && typeof card.id === 'string' && card.id.trim() && !seenCardIds.has(card.id) && (seenCardIds.add(card.id), true))
+      .slice(0, 30)
+      .map((card: CustomLandingCard, index: number) => ({
+        ...card,
+        id: card.id.slice(0, 80),
+        title: typeof card.title === 'string' ? card.title.slice(0, 160) : '',
+        description: typeof card.description === 'string' ? card.description.slice(0, 600) : '',
+        badge: typeof card.badge === 'string' ? card.badge.slice(0, 60) : '',
+        buttonText: typeof card.buttonText === 'string' ? card.buttonText.slice(0, 80) : '',
+        buttonUrl: safeUrl(card.buttonUrl, '#jobs'),
+        bgGradient: typeof card.bgGradient === 'string' ? card.bgGradient.slice(0, 160) : 'from-slate-800 to-slate-950',
+        isEnabled: card.isEnabled !== false,
+        order: Number.isFinite(Number(card.order)) ? Math.max(1, Math.min(100, Math.floor(Number(card.order)))) : index + 1
+      }));
+
     return {
       ...fallback,
       name: typeof found?.name === 'string' && found.name.trim() ? found.name.trim().slice(0, 80) : fallback.name,
-      config: { ...fallback.config, ...config }
+      config: {
+        ...fallback.config,
+        ...config,
+        hero,
+        sections: sections.length ? sections : fallback.config.sections,
+        customCards,
+        jobCardDesign: {
+          ...fallback.config.jobCardDesign,
+          ...(config.jobCardDesign || {}),
+          theme: { ...fallback.config.jobCardDesign.theme, ...(config.jobCardDesign?.theme || {}) },
+          visibility: { ...fallback.config.jobCardDesign.visibility, ...(config.jobCardDesign?.visibility || {}) },
+          labels: { ...fallback.config.jobCardDesign.labels, ...(config.jobCardDesign?.labels || {}) },
+          limits: { ...fallback.config.jobCardDesign.limits, ...(config.jobCardDesign?.limits || {}) }
+        }
+      }
     };
   });
   const activeDesignId = allowedIds.includes(candidate.activeDesignId as LandingDesignId)

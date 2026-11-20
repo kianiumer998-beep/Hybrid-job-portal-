@@ -365,7 +365,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'ads',
     proCategory: 'ads-campaigns',
     label: 'Ad Hub & Banner Slots',
-    description: 'Create and edit ad creatives, configure banner slots and targeting, and manage ad setup.',
+    description: 'Manage creative campaigns, approval queue, placement timeline, performance and the active ad rate card. Finance permission is required for pricing and campaign configuration.',
     urdu: 'اشتہاری بینر سلاٹس',
     classicSubTabUrdu: 'بینر سلاٹس',
     icon: Layers,

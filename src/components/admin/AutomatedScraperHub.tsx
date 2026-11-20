@@ -363,6 +363,7 @@ export interface ScraperSourceStat {
 
 export interface ScraperRunRecord {
   id?: string;
+  recordType?: string;
   runId: string;
   batchId?: string;
   timestamp?: string;

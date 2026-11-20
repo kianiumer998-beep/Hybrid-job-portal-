@@ -650,6 +650,8 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [regionFilter, setRegionFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | '7days' | '30days'>('all');
   const [historyBatchFilter, setHistoryBatchFilter] = useState<string>('all');
+  const [historySourceFilter, setHistorySourceFilter] = useState<string>('all');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'Completed' | 'Partial' | 'Failed' | 'Stopped'>('all');
   const [resultsTypeFilter, setResultsTypeFilter] = useState<'all' | 'Approved' | 'Pending' | 'Duplicate' | 'Error'>('all');
   const [reviewTypeFilter, setReviewTypeFilter] = useState<'all' | 'pending' | 'duplicate' | 'conflict'>('all');
 
@@ -1046,6 +1048,19 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       .sort((a, b) => b.localeCompare(a));
   }, [liveRuns]);
 
+  const availableHistorySources = useMemo(() => {
+    const byId = new Map<string, string>();
+    liveRuns.forEach(run => {
+      (run.sourcesStats || []).forEach(source => {
+        if (source.sourceId) byId.set(source.sourceId, source.sourceName || source.sourceId);
+      });
+      if (run.sourceId) byId.set(run.sourceId, run.sourceId);
+    });
+    return Array.from(byId.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [liveRuns]);
+
   const filteredRuns = useMemo(() => {
     return liveRuns.filter(run => {
       if (searchQuery.trim()) {
@@ -1057,6 +1072,14 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       }
 
       if (historyBatchFilter !== 'all' && run.batchId !== historyBatchFilter) return false;
+      if (historySourceFilter !== 'all') {
+        const sourceMatches =
+          run.sourceId === historySourceFilter ||
+          (Array.isArray(run.sourceIds) && run.sourceIds.includes(historySourceFilter)) ||
+          (run.sourcesStats || []).some(source => source.sourceId === historySourceFilter);
+        if (!sourceMatches) return false;
+      }
+      if (historyStatusFilter !== 'all' && deriveRunStatus(run) !== historyStatusFilter) return false;
 
       if (dateFilter !== 'all') {
         const runTime = run.startedAt || run.timestamp;
@@ -1074,7 +1097,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
       return true;
     });
-  }, [liveRuns, searchQuery, dateFilter, historyBatchFilter]);
+  }, [liveRuns, searchQuery, dateFilter, historyBatchFilter, historySourceFilter, historyStatusFilter]);
 
   // -------------------------------------------------------------
   // Review Queue Items (Pending jobs & duplicate warnings from MongoDB)
@@ -4625,6 +4648,29 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   {d === 'all' ? 'All Time' : d === 'today' ? 'Today' : d === '7days' ? 'Past 7 Days' : 'Past 30 Days'}
                 </button>
               ))}
+              <select
+                value={historySourceFilter}
+                onChange={(e) => setHistorySourceFilter(e.target.value)}
+                aria-label="Filter scraper history by source"
+                className="px-3 py-1.5 bg-slate-950 text-slate-200 border border-slate-800 rounded-xl text-xs font-bold"
+              >
+                <option value="all">All Sources ({availableHistorySources.length})</option>
+                {availableHistorySources.map(source => (
+                  <option key={source.id} value={source.id}>{source.name}</option>
+                ))}
+              </select>
+              <select
+                value={historyStatusFilter}
+                onChange={(e) => setHistoryStatusFilter(e.target.value as any)}
+                aria-label="Filter scraper history by status"
+                className="px-3 py-1.5 bg-slate-950 text-slate-200 border border-slate-800 rounded-xl text-xs font-bold"
+              >
+                <option value="all">All Statuses</option>
+                <option value="Completed">Completed</option>
+                <option value="Partial">Partial</option>
+                <option value="Failed">Failed</option>
+                <option value="Stopped">Stopped</option>
+              </select>
               <select
                 value={historyBatchFilter}
                 onChange={(e) => setHistoryBatchFilter(e.target.value)}

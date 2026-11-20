@@ -50,6 +50,8 @@ export interface ScrapedJobResult {
   deadlineDate?: string;
   /** Explicit application opening date extracted from source evidence. */
   applicationStartDate?: string;
+  /** Separate source-stated job listing expiry date. */
+  expiryDate?: string;
   applicationsCount: number;
   status: 'Approved' | 'Pending';
   sourceUrl: string;

@@ -472,10 +472,11 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
             <span>Avg Latency</span>
             <Zap className="w-4 h-4 text-amber-400" />
           </div>
-          <div className="text-2xl font-black text-white">{stats.avgLatency}<span className="text-xs text-slate-400 font-normal ml-0.5">ms</span></div>
-          <div className="text-[10px] text-emerald-400 font-medium flex items-center space-x-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping inline-block"></span>
-            <span>99.8% System Uptime</span>
+          <div className="text-2xl font-black text-white">
+            {stats.avgLatency !== null ? <>{stats.avgLatency}<span className="text-xs text-slate-400 font-normal ml-0.5">ms</span></> : 'N/A'}
+          </div>
+          <div className="text-[10px] text-slate-400 font-medium">
+            {stats.avgLatency !== null ? 'Average of recorded job timings' : 'No measured timing data available'}
           </div>
         </div>
       </div>

@@ -115,12 +115,11 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
   }, [currentLogs]);
 
   const availableBatchIds = useMemo(() => {
-    return Array.from(new Set(
-      currentLogs
-        .map(entry => String(entry.batchId || '').trim())
-        .filter(Boolean)
-    )).sort((a, b) => b.localeCompare(a));
-  }, [currentLogs]);
+    return Array.from(new Set([
+      ...currentLogs.map(entry => String(entry.batchId || '').trim()),
+      ...(batchRuns || []).map(batch => String(batch.batchId || '').trim())
+    ].filter(Boolean))).sort((a, b) => b.localeCompare(a));
+  }, [currentLogs, batchRuns]);
 
   // Filtered Audit Entries
   const filteredAuditLogs = useMemo(() => {

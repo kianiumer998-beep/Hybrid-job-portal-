@@ -865,6 +865,42 @@ export default function App() {
     }
   }, [landingConfig, landingDesignSystem, applyAuthoritativePricing]);
 
+  const handleSaveLandingAndCampaignConfig = useCallback(async (
+    nextLandingConfig: LandingPageConfig,
+    nextCampaignConfig: CampaignCustomizationConfig
+  ) => {
+    const previousLanding = landingConfig;
+    const previousCampaign = campaignConfig;
+    const previousDesignSystem = landingDesignSystem;
+    const nextDesignSystem: LandingDesignSystem = {
+      ...landingDesignSystem,
+      designs: landingDesignSystem.designs.map((design) =>
+        design.id === landingDesignSystem.activeDesignId
+          ? { ...design, config: nextLandingConfig }
+          : design
+      )
+    };
+    setLandingConfig(nextLandingConfig);
+    setCampaignConfig(nextCampaignConfig);
+    setLandingDesignSystem(nextDesignSystem);
+    try {
+      // One request prevents landing and campaign settings from racing each other.
+      const res = await api.pricing.update({
+        landingPageConfig: nextLandingConfig,
+        landingPageDesignSystem: nextDesignSystem,
+        campaignCustomizationConfig: nextCampaignConfig
+      });
+      if (!res || !res.success) throw new Error(res?.message || 'Failed to save landing and campaign settings');
+      if (res.pricing) applyAuthoritativePricing(res.pricing);
+      return res;
+    } catch (err) {
+      setLandingConfig(previousLanding);
+      setCampaignConfig(previousCampaign);
+      setLandingDesignSystem(previousDesignSystem);
+      throw err;
+    }
+  }, [landingConfig, campaignConfig, landingDesignSystem, applyAuthoritativePricing]);
+
   const handleSaveJobPostingPricing = useCallback(async (nextConfig: JobPostingPricingConfig) => {
     if (!isPricingReady) {
       return {
@@ -4186,6 +4222,7 @@ export default function App() {
             onSaveJobPostingPricing={handleSaveJobPostingPricing}
             landingConfig={landingConfig}
             onUpdateLandingConfig={handleUpdateLandingConfig}
+            onSaveLandingAndCampaignConfig={handleSaveLandingAndCampaignConfig}
             onSaveCompleteFeeConfig={handleSaveFeeManagementConfig}
             onSyncAuthoritativePricing={applyAuthoritativePricing}
             isPricingLoading={isPricingLoading}

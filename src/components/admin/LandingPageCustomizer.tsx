@@ -905,6 +905,34 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
         </div>
       )}
 
+      {/* TAB: CUSTOM ANNOUNCEMENT CARDS */}
+      {activeTab === 'custom-cards' && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div><h3 className="text-base font-black text-white">Announcement Cards Editor</h3><p className="text-xs text-slate-400">Edit each design's own card text, image, CTA, visibility and order. These cards are admin content, not paid sponsor inventory.</p></div>
+            <button type="button" onClick={handleAddCustomCard} className="inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-xs font-black text-white"><Plus className="h-4 w-4"/>Add Card</button>
+          </div>
+          {customCards.length === 0 && <div className="rounded-xl border border-slate-800 bg-slate-950 p-6 text-center text-xs text-slate-400">No announcement cards configured for this design.</div>}
+          {customCards.map((card,index) => (
+            <article key={card.id} className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2"><span className="rounded-lg bg-slate-800 px-2 py-1 text-xs font-mono text-indigo-300">#{index+1}</span><button type="button" onClick={() => handleUpdateCard(card.id,{isEnabled:!card.isEnabled})} className={`rounded-lg px-3 py-1.5 text-[10px] font-black ${card.isEnabled?'bg-emerald-500/20 text-emerald-300':'bg-slate-800 text-slate-400'}`}>{card.isEnabled?'Visible':'Hidden'}</button></div>
+                <div className="flex items-center gap-1"><button type="button" disabled={index===0} onClick={() => moveCard(index,'up')} className="rounded-lg bg-slate-800 p-2 text-slate-300 disabled:opacity-30" aria-label="Move card up"><ArrowUp className="h-4 w-4"/></button><button type="button" disabled={index===customCards.length-1} onClick={() => moveCard(index,'down')} className="rounded-lg bg-slate-800 p-2 text-slate-300 disabled:opacity-30" aria-label="Move card down"><ArrowDown className="h-4 w-4"/></button><button type="button" onClick={() => handleDeleteCard(card.id)} className="rounded-lg bg-rose-500/15 p-2 text-rose-300" aria-label="Delete card"><Trash2 className="h-4 w-4"/></button></div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="space-y-1 text-[10px] font-bold text-slate-400">Title<input value={card.title} onChange={e=>handleUpdateCard(card.id,{title:e.target.value})} maxLength={160} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"/></label>
+                <label className="space-y-1 text-[10px] font-bold text-slate-400">Badge<input value={card.badge} onChange={e=>handleUpdateCard(card.id,{badge:e.target.value})} maxLength={60} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"/></label>
+                <label className="space-y-1 text-[10px] font-bold text-slate-400 sm:col-span-2">Description<textarea value={card.description} onChange={e=>handleUpdateCard(card.id,{description:e.target.value})} maxLength={600} rows={3} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"/></label>
+                <label className="space-y-1 text-[10px] font-bold text-slate-400">Image URL (optional)<input value={card.imageUrl||''} onChange={e=>handleUpdateCard(card.id,{imageUrl:e.target.value})} placeholder="https://... or /uploads/..." className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"/></label>
+                <label className="space-y-1 text-[10px] font-bold text-slate-400">Background gradient classes<input value={card.bgGradient} onChange={e=>handleUpdateCard(card.id,{bgGradient:e.target.value})} maxLength={160} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"/></label>
+                <label className="space-y-1 text-[10px] font-bold text-slate-400">Button text<input value={card.buttonText} onChange={e=>handleUpdateCard(card.id,{buttonText:e.target.value})} maxLength={80} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"/></label>
+                <label className="space-y-1 text-[10px] font-bold text-slate-400">Button URL (HTTPS or #internal)<input value={card.buttonUrl} onChange={e=>handleUpdateCard(card.id,{buttonUrl:e.target.value})} maxLength={1000} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"/></label>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+
       {/* TAB: RESPONSIVE LANDING PREVIEW (configuration-only; no synthetic ads/jobs) */}
       {activeTab === 'preview' && (
         <div className="space-y-4">

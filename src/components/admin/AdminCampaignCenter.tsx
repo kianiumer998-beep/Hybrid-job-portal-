@@ -403,8 +403,8 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
               {canViewCampaignContactDetails && expandedContactAdId === ad.id && (
                 <div className="p-3 rounded-2xl bg-slate-950/70 border border-sky-500/20 space-y-1.5 text-xs">
                   <div className="text-[10px] font-black uppercase tracking-wider text-sky-300">Advertiser Contact Details · Admin Only</div>
-                  <div className="text-slate-300">Name: <span className="text-white">{ad.clientName || ad.submittedByUserName || 'Not provided'}</span></div>
-                  <div className="text-slate-300">Email: <span className="text-white break-all">{ad.clientEmail || ad.submittedByUserEmail || 'Not provided'}</span></div>
+                  <div className="text-slate-300">Name: <span className="text-white">{(ad as any).clientName || ad.submittedByUserName || 'Not provided'}</span></div>
+                  <div className="text-slate-300">Email: <span className="text-white break-all">{(ad as any).clientEmail || ad.submittedByUserEmail || 'Not provided'}</span></div>
                   <div className="text-slate-300">Phone: <span className="text-white">{ad.submittedByUserPhone || 'Not provided'}</span></div>
                 </div>
               )}

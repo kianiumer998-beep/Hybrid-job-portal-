@@ -389,7 +389,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'payments',
     proCategory: 'finance-payments',
     label: 'Universal Pricing Controller',
-    description: 'Manage job-posting, advertisement, subscription and CV-related rates in one place.',
+    description: 'Manage job-posting, subscription and CV rates. Active ad campaign rates are managed separately in Ad Hub.',
     urdu: 'تمام فیسیں اور اشتہارات ریٹ',
     icon: DollarSign,
     badge: 'NEW',

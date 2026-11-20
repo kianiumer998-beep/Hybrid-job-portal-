@@ -4121,16 +4121,19 @@ export default function App() {
         </div>
       )}
 
-      {/* Top Header Sticky Announcement / Banner Ad */}
-      <TopBannerAd
-        ads={advertisements}
-        currentPage={activeTab}
-        onAdClick={handleAdClick}
-        onNavigateTab={setActiveTab}
-        bannerDimensions={campaignConfig.bannerDimensions}
-        bannerAppearance={campaignConfig.bannerAppearance}
-        bannerBehavior={campaignConfig.bannerBehavior}
-      />
+      {/* Top Header Sticky Announcement / Banner Ad. The landing customizer's
+          section visibility switch controls this global paid placement. */}
+      {landingConfig.sections.find((section) => section.id === 'top-sponsor-ads')?.isEnabled !== false && (
+        <TopBannerAd
+          ads={advertisements}
+          currentPage={activeTab}
+          onAdClick={handleAdClick}
+          onNavigateTab={setActiveTab}
+          bannerDimensions={campaignConfig.bannerDimensions}
+          bannerAppearance={campaignConfig.bannerAppearance}
+          bannerBehavior={campaignConfig.bannerBehavior}
+        />
+      )}
 
       {/* Navigation Header */}
       <Header

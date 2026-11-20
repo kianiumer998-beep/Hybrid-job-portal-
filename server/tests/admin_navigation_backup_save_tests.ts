@@ -1402,9 +1402,12 @@ async function runSuite() {
     assert.ok(campaignOps.includes('canWaiveCampaignFee && <button'));
     assert.ok(campaignOps.includes('if (!canWaiveCampaignFee) return;'));
     assert.ok(campaignOps.includes('canManageCampaignOperations && <button'));
+    assert.ok(campaignOps.includes('canViewCampaignContactDetails &&'));
+    assert.ok(campaignOps.includes('Advertiser Contact Details · Admin Only'));
 
     const dashboard = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'), 'utf8');
     assert.ok(dashboard.includes("canWaiveCampaignFee={hasAdminUiPermission('finance.manage')}"));
+    assert.ok(dashboard.includes("canViewCampaignContactDetails={effectiveAdminRole === 'Admin' || effectiveAdminRole === 'Super Admin'}"));
     assert.ok(dashboard.includes("return hasPerm('advertisements.manage') || hasPerm('finance.manage');"));
 
     const adRoutes = fs.readFileSync(path.resolve(process.cwd(), 'server/routes/adRoutes.ts'), 'utf8');

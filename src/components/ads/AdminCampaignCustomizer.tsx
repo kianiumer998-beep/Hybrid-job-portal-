@@ -67,7 +67,7 @@ import {
 
 interface AdminCampaignCustomizerProps {
   config?: CampaignCustomizationConfig;
-  onSaveConfig: (updatedConfig: CampaignCustomizationConfig) => void;
+  onSaveConfig: (updatedConfig: CampaignCustomizationConfig) => void | Promise<unknown>;
   onResetDefaults?: () => void;
 }
 
@@ -95,6 +95,8 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
   >('popup-modes');
 
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   // New Promo Banner Modal State
   const [isAddPromoOpen, setIsAddPromoOpen] = useState(false);
@@ -110,21 +112,43 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
   // Custom Index Quick Adder State
   const [quickIndexInput, setQuickIndexInput] = useState<string>('');
 
-  // Save changes handler
-  const handleSave = () => {
-    onSaveConfig(localConfig);
-    setSaveSuccessMessage('All campaign settings, placement rules, and appearance modes saved successfully!');
-    setTimeout(() => setSaveSuccessMessage(null), 3500);
+  // Show success only after the parent confirms the authoritative save.
+  const handleSave = async () => {
+    setIsSaving(true);
+    setSaveErrorMessage(null);
+    setSaveSuccessMessage(null);
+    try {
+      await onSaveConfig(localConfig);
+      setSaveSuccessMessage('Campaign settings saved to the database.');
+      setTimeout(() => setSaveSuccessMessage(null), 3500);
+    } catch (error: any) {
+      console.error('[AdminCampaignCustomizer] Save failed:', error);
+      setSaveErrorMessage(error?.message || 'Campaign settings could not be saved. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  // Global reset handler
-  const handleReset = () => {
-    if (window.confirm('Reset all campaign settings to platform defaults?')) {
-      setLocalConfig(DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG);
-      onSaveConfig(DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG);
+  // Reset only reports success after the authoritative save succeeds.
+  const handleReset = async () => {
+    if (!window.confirm('Reset all campaign settings to platform defaults?')) return;
+
+    const previousConfig = localConfig;
+    setIsSaving(true);
+    setSaveErrorMessage(null);
+    setSaveSuccessMessage(null);
+    setLocalConfig(DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG);
+    try {
+      await onSaveConfig(DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG);
       if (onResetDefaults) onResetDefaults();
-      setSaveSuccessMessage('Reset to platform defaults successfully!');
+      setSaveSuccessMessage('Campaign settings reset to platform defaults.');
       setTimeout(() => setSaveSuccessMessage(null), 3000);
+    } catch (error: any) {
+      setLocalConfig(previousConfig);
+      console.error('[AdminCampaignCustomizer] Reset failed:', error);
+      setSaveErrorMessage(error?.message || 'Campaign settings could not be reset. Please try again.');
+    } finally {
+      setIsSaving(false);
     }
   };
 

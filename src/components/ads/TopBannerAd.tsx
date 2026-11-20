@@ -7,7 +7,8 @@ import {
   BannerAppearanceSettings,
   DEFAULT_BANNER_APPEARANCE,
   BannerBehaviorSettings,
-  DEFAULT_BANNER_BEHAVIOR
+  DEFAULT_BANNER_BEHAVIOR,
+  isAdCurrentlyRunning
 } from '../../types/ad';
 import { 
   X, 
@@ -85,7 +86,7 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   // Find all active banners matching the current page
   const matchingBanners = ads.filter(
     (ad) =>
-      ad.status === 'active' &&
+      isAdCurrentlyRunning(ad) &&
       ((ad.placement as string) === 'top-header' || (ad.type === 'banner' && (ad.placement as string) === 'top-header')) &&
       (ad.targetPages.includes('all') || ad.targetPages.includes(currentPage)) &&
       !dismissedIds.includes(ad.id)

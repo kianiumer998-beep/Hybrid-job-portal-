@@ -289,7 +289,10 @@ export function checkAdminTabPermission(
   if (['scraper', 'url-scraper', 'scraped-history'].includes(tabId)) {
     return hasPerm('scraper.manage');
   }
-  if (['campaign-center', 'advertisements', 'landing-customizer'].includes(tabId)) {
+  if (tabId === 'campaign-center') {
+    return hasPerm('advertisements.manage') || hasPerm('finance.manage');
+  }
+  if (['advertisements', 'landing-customizer'].includes(tabId)) {
     return hasPerm('advertisements.manage');
   }
   if (['admin-payment-methods'].includes(tabId)) {
@@ -3697,6 +3700,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <AdminCampaignCenter
           ads={ads || []}
           onUpdateAd={onUpdateAd || (() => {})}
+          canManageCampaignOperations={hasAdminUiPermission('advertisements.manage')}
+          canWaiveCampaignFee={hasAdminUiPermission('finance.manage')}
         />
       )}
 

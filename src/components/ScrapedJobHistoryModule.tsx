@@ -147,11 +147,25 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
         return false;
       }
 
-      // Date filter
+      // Date filters are calculated at runtime in Pakistan Standard Time.
+      // Never compare against fixed calendar dates: those become stale after the day changes.
       if (dateFilter !== 'all') {
-        const dateStr = entry.scrapedAt.substring(0, 10);
-        if (dateFilter === 'today' && dateStr !== '2026-08-26') return false;
-        if (dateFilter === 'yesterday' && dateStr !== '2026-08-25') return false;
+        const timestamp = new Date(entry.scrapedAt || '').getTime();
+        if (!Number.isFinite(timestamp)) return false;
+        const dateKey = (value: Date) => value.toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+        const entryDate = dateKey(new Date(timestamp));
+        const today = dateKey(new Date());
+        if (dateFilter === 'today' && entryDate !== today) return false;
+        if (dateFilter === 'yesterday') {
+          const yesterday = new Date();
+          yesterday.setDate(yesterday.getDate() - 1);
+          if (entryDate !== dateKey(yesterday)) return false;
+        }
+        if (dateFilter === 'week') {
+          const now = new Date();
+          const cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          if (timestamp < cutoff.getTime() || timestamp > now.getTime()) return false;
+        }
       }
 
       return true;
@@ -172,9 +186,12 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
     const autoApprovedCount = currentLogs.filter(l => l.status === 'Auto-Approved').length;
     const rejectedCount = currentLogs.filter(l => l.status === 'Rejected').length;
     const totalBatches = batchRuns.length;
-    const avgLatency = currentLogs.length > 0 
-      ? Math.round(currentLogs.reduce((acc, c) => acc + (c.crawlLatencyMs || 300), 0) / currentLogs.length) 
-      : 340;
+    const measuredLatencies = currentLogs
+      .map(entry => Number(entry.crawlLatencyMs))
+      .filter(value => Number.isFinite(value) && value > 0);
+    const avgLatency = measuredLatencies.length > 0
+      ? Math.round(measuredLatencies.reduce((total, value) => total + value, 0) / measuredLatencies.length)
+      : null;
 
     return {
       totalScraped,

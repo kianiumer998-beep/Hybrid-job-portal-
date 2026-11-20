@@ -124,6 +124,18 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
 
   const handleSaveDateRange = () => {
     if (!editingDateAd) return;
+
+    const startMs = new Date(editStartDate).getTime();
+    const endMs = new Date(editEndDate).getTime();
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+      alert('Please enter a valid campaign start and end date.');
+      return;
+    }
+    if (endMs <= startMs) {
+      alert('Campaign end date and time must be later than the start date and time.');
+      return;
+    }
+
     const cleanStart = editStartDate.replace('T', ' ');
     const cleanEnd = editEndDate.replace('T', ' ');
     onUpdateAd({
@@ -135,6 +147,12 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
   };
 
   const handleMakeCampaignFree = (ad: Advertisement) => {
+    if (ad.paymentStatus === 'Exempt' && Number(ad.campaignCostPkr || 0) === 0) return;
+    const confirmed = window.confirm(
+      `Waive the campaign fee for "${ad.title}"? This will set its recorded campaign cost to PKR 0 and mark payment as Exempt.`
+    );
+    if (!confirmed) return;
+
     onUpdateAd({
       ...ad,
       paymentStatus: 'Exempt',

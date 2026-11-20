@@ -104,6 +104,34 @@ export interface JobCardDesignConfig {
   };
 }
 
+export type JobCardAccentColor = 'emerald' | 'indigo' | 'violet' | 'rose' | 'amber' | 'sky';
+
+export const JOB_CARD_ACCENT_STYLES: Record<JobCardAccentColor, {
+  solidBg: string;
+  solidHover: string;
+  gradientFrom: string;
+  gradientHoverFrom: string;
+  text: string;
+  shadow: string;
+  ring: string;
+  hoverBorder: string;
+  gradientEnd: string;
+  previewSubtle: string;
+  previewSoft: string;
+}> = {
+  emerald: { solidBg: 'bg-emerald-500', solidHover: 'hover:bg-emerald-400', gradientFrom: 'from-emerald-500', gradientHoverFrom: 'hover:from-emerald-400', text: 'text-emerald-400', shadow: 'shadow-emerald-500/20', ring: 'ring-emerald-400/40', hoverBorder: 'hover:border-emerald-500/50', gradientEnd: 'to-emerald-950/30', previewSubtle: 'bg-emerald-500/20', previewSoft: 'bg-emerald-500/10' },
+  indigo: { solidBg: 'bg-indigo-500', solidHover: 'hover:bg-indigo-400', gradientFrom: 'from-indigo-500', gradientHoverFrom: 'hover:from-indigo-400', text: 'text-indigo-400', shadow: 'shadow-indigo-500/20', ring: 'ring-indigo-400/40', hoverBorder: 'hover:border-indigo-500/50', gradientEnd: 'to-indigo-950/30', previewSubtle: 'bg-indigo-500/20', previewSoft: 'bg-indigo-500/10' },
+  violet: { solidBg: 'bg-violet-500', solidHover: 'hover:bg-violet-400', gradientFrom: 'from-violet-500', gradientHoverFrom: 'hover:from-violet-400', text: 'text-violet-400', shadow: 'shadow-violet-500/20', ring: 'ring-violet-400/40', hoverBorder: 'hover:border-violet-500/50', gradientEnd: 'to-violet-950/30', previewSubtle: 'bg-violet-500/20', previewSoft: 'bg-violet-500/10' },
+  rose: { solidBg: 'bg-rose-500', solidHover: 'hover:bg-rose-400', gradientFrom: 'from-rose-500', gradientHoverFrom: 'hover:from-rose-400', text: 'text-rose-400', shadow: 'shadow-rose-500/20', ring: 'ring-rose-400/40', hoverBorder: 'hover:border-rose-500/50', gradientEnd: 'to-rose-950/30', previewSubtle: 'bg-rose-500/20', previewSoft: 'bg-rose-500/10' },
+  amber: { solidBg: 'bg-amber-500', solidHover: 'hover:bg-amber-400', gradientFrom: 'from-amber-500', gradientHoverFrom: 'hover:from-amber-400', text: 'text-amber-400', shadow: 'shadow-amber-500/20', ring: 'ring-amber-400/40', hoverBorder: 'hover:border-amber-500/50', gradientEnd: 'to-amber-950/30', previewSubtle: 'bg-amber-500/20', previewSoft: 'bg-amber-500/10' },
+  sky: { solidBg: 'bg-sky-500', solidHover: 'hover:bg-sky-400', gradientFrom: 'from-sky-500', gradientHoverFrom: 'hover:from-sky-400', text: 'text-sky-400', shadow: 'shadow-sky-500/20', ring: 'ring-sky-400/40', hoverBorder: 'hover:border-sky-500/50', gradientEnd: 'to-sky-950/30', previewSubtle: 'bg-sky-500/20', previewSoft: 'bg-sky-500/10' }
+};
+
+export const getJobCardAccentColor = (value: unknown): JobCardAccentColor =>
+  value === 'indigo' || value === 'violet' || value === 'rose' || value === 'amber' || value === 'sky' || value === 'emerald'
+    ? value
+    : 'emerald';
+
 export interface LandingPageConfig {
   hero: LandingHeroConfig;
   sections: LandingSectionOrder[];
@@ -262,7 +290,9 @@ export function createDefaultLandingDesignSystem(
   cleanProfessional.jobCardDesign = {
     ...cleanProfessional.jobCardDesign,
     layout: 'compact',
-    theme: { ...cleanProfessional.jobCardDesign.theme, accentColor: 'indigo', cardBgPreset: 'glass', density: 'compact' }
+    // Design 1 follows the portal's established emerald/teal brand by default.
+    // Admins can still customize this design's accent independently afterward.
+    theme: { ...cleanProfessional.jobCardDesign.theme, accentColor: 'emerald', cardBgPreset: 'glass', density: 'compact' }
   };
 
   const adsIntegrated = cloneConfig(legacyConfig);

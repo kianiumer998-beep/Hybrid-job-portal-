@@ -27,7 +27,7 @@ import { Advertisement, FeedInlineAdSettings, BannerDimensionSettings, FeedCardA
 import { sanitizeJobTitle, sanitizeJobCompanyName, sanitizeJobTags } from '../utils/jobSanitizer';
 import { InlineFeedAd } from './ads/InlineFeedAd';
 
-import { JobCardDesignConfig } from '../types/landing';
+import { JobCardDesignConfig, JOB_CARD_ACCENT_STYLES, getJobCardAccentColor } from '../types/landing';
 
 
 const parseJobCardDate = (value?: string, endOfDay = false): Date | null => {
@@ -166,7 +166,8 @@ export const JobListings: React.FC<JobListingsProps> = ({
     limits: { descriptionMaxWords: 25, maxTags: 4 }
   };
 
-  const accentColor = design.theme.accentColor || 'emerald';
+  const accentColor = getJobCardAccentColor(design.theme.accentColor);
+  const accentStyles = JOB_CARD_ACCENT_STYLES[accentColor];
 
   // STEP66-B.1: Separate Priority Jobs and Standard Jobs
   const priorityList = React.useMemo(() => {
@@ -288,9 +289,9 @@ export const JobListings: React.FC<JobListingsProps> = ({
   const densityPadding = design.theme.density === 'compact' ? 'p-2 sm:p-3.5' : design.theme.density === 'spacious' ? 'p-4 sm:p-7' : 'p-2 sm:p-5';
     
     if (design.theme.cardBgPreset === 'glass') {
-      cardBgStyle = `bg-slate-950/40 backdrop-blur-md border border-white/10 hover:border-${accentColor}-500/50`;
+      cardBgStyle = `bg-slate-950/40 backdrop-blur-md border border-white/10 ${accentStyles.hoverBorder}`;
     } else if (design.theme.cardBgPreset === 'gradient' && !tierBadgeText) {
-      cardBgStyle = `bg-gradient-to-br from-slate-900 via-slate-900 to-${accentColor}-950/30 border border-slate-800 hover:border-${accentColor}-500/50`;
+      cardBgStyle = `bg-gradient-to-br from-slate-900 via-slate-900 ${accentStyles.gradientEnd} border border-slate-800 ${accentStyles.hoverBorder}`;
     }
 
     const description = job.description || '';
@@ -420,7 +421,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                        {design.visibility.applyButton && (
                             <button 
                                 onClick={() => onApplyClick(job)}
-                                className={`px-3 py-1.5 rounded-lg bg-${accentColor}-500 text-slate-950 text-[10px] font-black hover:bg-${accentColor}-400 transition-colors`}
+                                className={`px-3 py-1.5 rounded-lg ${accentStyles.solidBg} text-slate-950 text-[10px] font-black ${accentStyles.solidHover} transition-colors`}
                             >
                                 {design.labels.applyButton || 'Apply'}
                             </button>
@@ -510,7 +511,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                 onClick={() => onToggleSaveJob(job.id)}
                 className={`p-1 sm:p-2 rounded-lg sm:rounded-xl transition-all shrink-0 cursor-pointer ${
                     isSaved
-                    ? `bg-${accentColor}-500 text-slate-950 font-bold`
+                    ? `${accentStyles.solidBg} text-slate-950 font-bold`
                     : 'bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-700'
                 }`}
                 title={isSaved ? 'Remove from Saved Jobs' : 'Save Job'}
@@ -582,7 +583,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
             {design.visibility.salary && (
                 <>
                     <span className="text-[8px] sm:text-[10px] uppercase font-semibold text-slate-500 block truncate">Salary</span>
-                    <span className={`text-[11px] sm:text-sm font-bold text-${accentColor}-400 truncate block`}>{job.salary}</span>
+                    <span className={`text-[11px] sm:text-sm font-bold ${accentStyles.text} truncate block`}>{job.salary}</span>
                 </>
             )}
           </div>
@@ -598,7 +599,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
             {design.visibility.applyButton && (
                 <button
                     onClick={() => onApplyClick(job)}
-                    className={`px-2.5 sm:px-4 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-gradient-to-r from-${accentColor}-500 to-teal-600 hover:from-${accentColor}-400 hover:to-teal-500 text-slate-950 font-extrabold text-[10px] sm:text-xs shadow-md shadow-${accentColor}-500/20 flex items-center space-x-1 sm:space-x-1.5 active:scale-95 transition-all cursor-pointer`}
+                    className={`px-2.5 sm:px-4 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-gradient-to-r ${accentStyles.gradientFrom} to-teal-600 ${accentStyles.gradientHoverFrom} hover:to-teal-500 text-slate-950 font-extrabold text-[10px] sm:text-xs shadow-md ${accentStyles.shadow} flex items-center space-x-1 sm:space-x-1.5 active:scale-95 transition-all cursor-pointer`}
                 >
                     <Send className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 text-slate-950" />
                     <span>{design.labels.applyButton || 'Apply'}</span>
@@ -745,7 +746,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                     onClick={() => handlePageSelect(pageNum)}
                     className={`min-w-[32px] sm:min-w-[36px] h-8 sm:h-9 px-1.5 sm:px-2 rounded-lg sm:rounded-xl text-xs font-bold transition-all cursor-pointer ${
                       pageNum === safePage
-                        ? `bg-${accentColor}-500 text-slate-950 shadow-lg scale-105 font-black ring-2 ring-${accentColor}-400/40`
+                        ? `${accentStyles.solidBg} text-slate-950 shadow-lg scale-105 font-black ring-2 ${accentStyles.ring}`
                         : 'bg-slate-950 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800'
                     }`}
                   >

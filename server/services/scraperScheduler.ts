@@ -173,6 +173,7 @@ export async function runSchedulerTick(
   const scheduleUpdateErrors: Array<{ sourceId: string; error: string }> = [];
   const failedErrors: Array<{ sourceId: string; sourceName: string; sourceUrl: string; error: string }> = [];
   let conflictSource: { sourceId: string; sourceName: string; sourceUrl: string; error: string } | null = null;
+  let batchSummaryPersistenceError: string | undefined;
 
   const isScraperEnabled = _deps?.isScraperEnabledFn ? _deps.isScraperEnabledFn() : featureFlags.enableWebScraper;
   const isAutoApproveEnabled = _deps?.isAutoApproveEnabledFn
@@ -425,10 +426,12 @@ export async function runSchedulerTick(
           message: `Scheduler batch: ${completedRunCount} completed, ${partialRunCount} partial, ${batchFailedSourceCount} failed, ${skippedConflictStats.length} skipped due to active-run conflict, ${scheduleUpdateErrors.length} schedule update warning(s) across ${plannedSourceIds.length} due sources.`
         });
         if (persistedBatchSummary?.persistenceError) {
-          console.warn('[Scheduler Engine] Aggregate batch summary was not persisted:', persistedBatchSummary.persistenceError);
+          batchSummaryPersistenceError = String(persistedBatchSummary.persistenceError);
+          console.warn('[Scheduler Engine] Aggregate batch summary was not persisted:', batchSummaryPersistenceError);
         }
       } catch (batchPersistErr: any) {
-        console.warn('[Scheduler Engine] Unable to persist aggregate batch summary:', batchPersistErr?.message || batchPersistErr);
+        batchSummaryPersistenceError = batchPersistErr?.message || String(batchPersistErr);
+        console.warn('[Scheduler Engine] Unable to persist aggregate batch summary:', batchSummaryPersistenceError);
       }
     }
 
@@ -495,8 +498,9 @@ export async function runSchedulerTick(
       aborted: Boolean(conflictSource),
       skippedDueToConflict: Boolean(conflictSource),
       error: conflictSource?.error,
+      historyPersistenceError: batchSummaryPersistenceError,
       summary: conflictSource
-        ? `Scheduler tick stopped at source "${conflictSource.sourceId}" because another scraper run is active. Prior source outcomes were recorded; the skipped source schedule was not advanced.`
+        ? `Scheduler tick stopped at source "${conflictSource.sourceId}" because another scraper run is active. Prior source outcomes were recorded; the skipped source schedule was not advanced.${batchSummaryPersistenceError ? ` Batch history warning: ${batchSummaryPersistenceError}` : ''}`
         : failed.length > 0
           ? `Tick completed (Scope: ${settings.scope}). Triggered ${triggered.length} sources, ${failed.length} failed.`
           : `Tick completed (Scope: ${settings.scope}). Triggered ${triggered.length} sources.`

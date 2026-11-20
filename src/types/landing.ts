@@ -27,6 +27,7 @@ export interface CustomLandingCard {
   badge: string;
   buttonText: string;
   buttonUrl: string;
+  imageUrl?: string; // Optional HTTPS or same-origin image for this design's announcement card
   bgGradient: string; // Tailwind gradient class
   isEnabled: boolean;
   order: number;
@@ -344,6 +345,7 @@ export function normalizeLandingDesignSystem(
         badge: typeof card.badge === 'string' ? card.badge.slice(0, 60) : '',
         buttonText: typeof card.buttonText === 'string' ? card.buttonText.slice(0, 80) : '',
         buttonUrl: safeUrl(card.buttonUrl, '#jobs'),
+        imageUrl: typeof card.imageUrl === 'string' && (card.imageUrl.startsWith('https://') || (card.imageUrl.startsWith('/') && !card.imageUrl.startsWith('//'))) ? card.imageUrl.slice(0, 1000) : undefined,
         bgGradient: typeof card.bgGradient === 'string' ? card.bgGradient.slice(0, 160) : 'from-slate-800 to-slate-950',
         isEnabled: card.isEnabled !== false,
         order: Number.isFinite(Number(card.order)) ? Math.max(1, Math.min(100, Math.floor(Number(card.order)))) : index + 1

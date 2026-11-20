@@ -253,7 +253,7 @@ export const PROFESSIONAL_ADMIN_CATEGORIES: ProCategoryDefinition[] = [
   }
 ];
 
-// Single canonical module registry powering Classic mode, All Modules quick matrix, and Professional mode (31 unique modules)
+// Single canonical module registry powering Classic mode, All Modules quick matrix, and Professional mode (32 unique modules)
 export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
   // 1. Overview & Analytics
   {
@@ -351,9 +351,9 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     id: 'campaign-center',
     classicCategory: 'ads',
     proCategory: 'ads-campaigns',
-    label: 'Visual Campaign Center',
-    description: 'Monitor live campaigns, schedule windows, status, approvals and operational actions.',
-    classicSubTabLabel: (c) => `Campaign Center (${c.activeAdsCount} Live)`,
+    label: 'Campaign Operations',
+    description: 'Pause or resume approved campaigns, edit schedule windows and apply authorised fee waivers. Use Ad Hub for creative editing, approvals, pricing, placement settings and analytics.',
+    classicSubTabLabel: (c) => `Campaign Operations (${c.activeAdsCount} Live)`,
     urdu: 'اشتہاری کیمپین کمانڈ سنٹر',
     classicSubTabUrdu: 'اشتہاری کیمپینز',
     icon: Megaphone,

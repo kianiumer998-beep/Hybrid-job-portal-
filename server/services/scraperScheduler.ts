@@ -172,6 +172,7 @@ export async function runSchedulerTick(
   const successfulRunResults: any[] = [];
   const scheduleUpdateErrors: Array<{ sourceId: string; error: string }> = [];
   const failedErrors: Array<{ sourceId: string; sourceName: string; sourceUrl: string; error: string }> = [];
+  let conflictSource: { sourceId: string; sourceName: string; sourceUrl: string; error: string } | null = null;
 
   const isScraperEnabled = _deps?.isScraperEnabledFn ? _deps.isScraperEnabledFn() : featureFlags.enableWebScraper;
   const isAutoApproveEnabled = _deps?.isAutoApproveEnabledFn
@@ -283,14 +284,12 @@ export async function runSchedulerTick(
           } catch (srcErr: any) {
             if (isScraperRunConflictError(srcErr)) {
               const conflictMsg = srcErr?.message || 'Another scraper execution is already in progress';
-              console.warn(`[Scheduler Engine] Skipped due source "${src.name}" (${src.id}) and aborted tick cleanly without advancing schedule: ${conflictMsg}`);
-              return {
-                triggeredSources: triggered,
-                failedSources: failed.length > 0 ? failed : undefined,
-                aborted: true,
-                skippedDueToConflict: true,
-                error: conflictMsg,
-                summary: `Scheduler tick skipped due source "${src.id}" and aborted cleanly (${conflictMsg}).`
+              console.warn(`[Scheduler Engine] Skipped due source "${src.name}" (${src.id}) and will stop this tick without advancing its schedule: ${conflictMsg}`);
+              conflictSource = {
+                sourceId: src.id,
+                sourceName: src.name || src.id,
+                sourceUrl: src.url || '',
+                error: conflictMsg
               };
             }
             const errMsg = srcErr?.message || String(srcErr);
@@ -302,6 +301,12 @@ export async function runSchedulerTick(
               error: errMsg
             });
             console.error(`[Scheduler Engine] Source "${src.name}" execution error: ${errMsg}. Scheduler continuing with other due sources.`);
+          }
+
+          // A conflict means another run owns the scraper lock. Keep this source due
+          // and stop the tick, but continue to the aggregate history write below.
+          if (conflictSource) {
+            break;
           }
 
           // Schedule next run regardless of single source outcome, mutating source runtime object only if persisted
@@ -364,15 +369,33 @@ export async function runSchedulerTick(
         error: error.error,
         failureCategory: 'Scheduler Execution Failed'
       }));
+      const skippedConflictStats = conflictSource ? [{
+        sourceId: conflictSource.sourceId,
+        sourceName: conflictSource.sourceName,
+        sourceUrl: conflictSource.sourceUrl,
+        startedAt: tickStartedAt.toISOString(),
+        completedAt: batchEndedAt.toISOString(),
+        found: 0,
+        newCount: 0,
+        dupCount: 0,
+        pagesAttempted: 0,
+        pagesSuccessful: 0,
+        failed: false,
+        skipped: true,
+        error: conflictSource.error,
+        failureCategory: 'Skipped - Active Run Conflict'
+      }] : [];
       const completedRunCount = successfulRunResults.filter(result => !result?.status || result.status === 'Completed').length;
       const partialRunCount = successfulRunResults.filter(result => result?.status === 'Partial' || result?.status === 'Stopped').length;
       const failedRunCount = successfulRunResults.filter(result => result?.status === 'Failed').length;
       const batchFailedSourceCount = failed.length + failedRunCount;
-      const batchStatus = batchFailedSourceCount > 0
-        ? (completedRunCount + partialRunCount > 0 ? 'Partial' : 'Failed')
-        : (partialRunCount > 0 || scheduleUpdateErrors.length > 0 ? 'Partial' : 'Completed');
+      const batchStatus = conflictSource || partialRunCount > 0 || scheduleUpdateErrors.length > 0
+        ? 'Partial'
+        : (batchFailedSourceCount > 0
+          ? (completedRunCount > 0 ? 'Partial' : 'Failed')
+          : 'Completed');
       try {
-        await addRunFn({
+        const persistedBatchSummary = await addRunFn({
           id: `SCHED-BATCH-SUMMARY-${tickStartedAt.getTime().toString(36).toUpperCase()}`,
           batchId: schedulerBatchId,
           recordType: 'batch_summary',
@@ -386,6 +409,7 @@ export async function runSchedulerTick(
           successfulSources: completedRunCount,
           partialSources: partialRunCount,
           failedSources: batchFailedSourceCount,
+          skippedSources: skippedConflictStats.length,
           scheduleUpdateFailures: scheduleUpdateErrors.length,
           status: batchStatus,
           totalFound: successfulRunResults.reduce((sum, result) => sum + (Number(result?.totalFound) || 0), 0),
@@ -397,9 +421,12 @@ export async function runSchedulerTick(
           duplicatesFlagged: successfulRunResults.reduce((sum, result) => sum + (Number(result?.totalDuplicates) || 0), 0),
           executionTimeMs: batchEndedAt.getTime() - tickStartedAt.getTime(),
           scheduleUpdateErrors,
-          sourcesStats: [...successfulSourcesStats, ...failedSourcesStats],
-          message: `Scheduler batch: ${completedRunCount} completed, ${partialRunCount} partial, ${batchFailedSourceCount} failed, ${scheduleUpdateErrors.length} schedule update warning(s) across ${plannedSourceIds.length} due sources.`
+          sourcesStats: [...successfulSourcesStats, ...failedSourcesStats, ...skippedConflictStats],
+          message: `Scheduler batch: ${completedRunCount} completed, ${partialRunCount} partial, ${batchFailedSourceCount} failed, ${skippedConflictStats.length} skipped due to active-run conflict, ${scheduleUpdateErrors.length} schedule update warning(s) across ${plannedSourceIds.length} due sources.`
         });
+        if (persistedBatchSummary?.persistenceError) {
+          console.warn('[Scheduler Engine] Aggregate batch summary was not persisted:', persistedBatchSummary.persistenceError);
+        }
       } catch (batchPersistErr: any) {
         console.warn('[Scheduler Engine] Unable to persist aggregate batch summary:', batchPersistErr?.message || batchPersistErr);
       }
@@ -465,9 +492,14 @@ export async function runSchedulerTick(
     return {
       triggeredSources: triggered,
       failedSources: failed.length > 0 ? failed : undefined,
-      summary: failed.length > 0
-        ? `Tick completed (Scope: ${settings.scope}). Triggered ${triggered.length} sources, ${failed.length} failed.`
-        : `Tick completed (Scope: ${settings.scope}). Triggered ${triggered.length} sources.`
+      aborted: Boolean(conflictSource),
+      skippedDueToConflict: Boolean(conflictSource),
+      error: conflictSource?.error,
+      summary: conflictSource
+        ? `Scheduler tick stopped at source "${conflictSource.sourceId}" because another scraper run is active. Prior source outcomes were recorded; the skipped source schedule was not advanced.`
+        : failed.length > 0
+          ? `Tick completed (Scope: ${settings.scope}). Triggered ${triggered.length} sources, ${failed.length} failed.`
+          : `Tick completed (Scope: ${settings.scope}). Triggered ${triggered.length} sources.`
     };
   } finally {
     isTickExecuting = false;

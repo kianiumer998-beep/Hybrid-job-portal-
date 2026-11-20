@@ -350,6 +350,53 @@ export class ScraperRepository {
   }
 
   /**
+   * Retrieves one bounded page of scraper history without truncating MongoDB history.
+   * Offset pagination keeps the existing /runs response contract available to older clients.
+   */
+  static async getRunsPage(
+    offset = 0,
+    limit = 50,
+    _deps?: {
+      isMongoConfiguredFn?: () => boolean;
+      getCollectionFn?: () => Promise<any>;
+    }
+  ): Promise<{ runs: any[]; total: number; hasMore: boolean }> {
+    const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
+    const safeLimit = Math.min(100, Math.max(1, Math.floor(Number(limit) || 50)));
+    const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
+    const getCollFn = _deps?.getCollectionFn || getScraperRunsCollection;
+
+    if (isMongoCfgFn()) {
+      const coll = await getCollFn();
+      const [runs, total] = await Promise.all([
+        withMongoTimeout<any[]>(
+          coll.find({}, { projection: { _id: 0 } })
+            .sort({ startedAt: -1, timestamp: -1 })
+            .skip(safeOffset)
+            .limit(safeLimit)
+            .toArray(),
+          15000,
+          'getRunsPage'
+        ),
+        withMongoTimeout<number>(coll.countDocuments({}), 15000, 'countScraperRuns')
+      ]);
+
+      if (!Array.isArray(runs) || !Number.isFinite(total)) {
+        throw new Error('Unexpected response reading paginated scraper history from MongoDB');
+      }
+      if (safeOffset === 0) this.cachedRuns = runs.slice(0, 100);
+      return { runs, total, hasMore: safeOffset + runs.length < total };
+    }
+
+    const runs = this.cachedRuns.slice(safeOffset, safeOffset + safeLimit);
+    return {
+      runs,
+      total: this.cachedRuns.length,
+      hasMore: safeOffset + runs.length < this.cachedRuns.length
+    };
+  }
+
+  /**
    * Records a new scraper execution run into MongoDB scraper_runs collection.
    * Does NOT throw on Mongo failure so active scrape runs never fail after jobs are persisted;
    * skips updating cachedRuns on failed/unacknowledged Mongo writes and marks isPersistedToMongo=false.

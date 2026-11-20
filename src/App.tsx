@@ -63,6 +63,8 @@ import {
   LandingPageConfig, 
   DEFAULT_LANDING_PAGE_CONFIG, 
   DEFAULT_CATEGORY_POSTING_FEES,
+  normalizeLandingDesignSystem,
+  LandingDesignSystem,
   CountryOption, 
   SUPPORTED_COUNTRIES 
 } from './types/landing';
@@ -460,6 +462,7 @@ export default function App() {
 
   // Dynamic Landing Page Builder Configuration State (Authoritative Backend /api/pricing)
   const [landingConfig, setLandingConfig] = useState<LandingPageConfig>(DEFAULT_LANDING_PAGE_CONFIG);
+  const [landingDesignSystem, setLandingDesignSystem] = useState<LandingDesignSystem>(() => normalizeLandingDesignSystem(null, DEFAULT_LANDING_PAGE_CONFIG));
 
   // Global SEO & Announcement State (Synchronized with Backend & Admin Suite)
   const [siteSeoConfig, setSiteSeoConfig] = useState<SiteSeoConfig>(() => {
@@ -731,14 +734,23 @@ export default function App() {
         : DEFAULT_JOB_POSTING_PRICING_CONFIG.standardFeePkr
     );
 
-    setLandingConfig({
+    const normalizedLegacyLanding: LandingPageConfig = {
       ...DEFAULT_LANDING_PAGE_CONFIG,
       ...lpRaw,
       categoryPostingFees: syncedCategoryFees,
       exemptUserEmails: syncedExemptEmails,
       isFreeAllPostings: syncedFreeAll,
       globalDiscount: syncedGlobalDiscount
-    });
+    };
+    const normalizedDesignSystem = normalizeLandingDesignSystem(
+      pricingData.landingPageDesignSystem,
+      normalizedLegacyLanding
+    );
+    setLandingDesignSystem(normalizedDesignSystem);
+    const activeDesign = normalizedDesignSystem.designs.find(
+      (design) => design.id === normalizedDesignSystem.activeDesignId
+    );
+    setLandingConfig(activeDesign?.config || normalizedLegacyLanding);
 
     if (Array.isArray(pricingData.subscriptionPackages)) {
       setSubscriptionPackages(pricingData.subscriptionPackages.filter((p: any) => p.enabled));
@@ -821,9 +833,23 @@ export default function App() {
   
   const handleUpdateLandingConfig = useCallback(async (nextLandingConfig: LandingPageConfig) => {
     const previous = landingConfig;
+    const previousDesignSystem = landingDesignSystem;
+    const nextDesignSystem: LandingDesignSystem = {
+      ...landingDesignSystem,
+      designs: landingDesignSystem.designs.map((design) =>
+        design.id === landingDesignSystem.activeDesignId
+          ? { ...design, config: nextLandingConfig }
+          : design
+      )
+    };
     setLandingConfig(nextLandingConfig);
+    setLandingDesignSystem(nextDesignSystem);
     try {
-      const res = await api.pricing.update({ landingPageConfig: nextLandingConfig });
+      // Persist the legacy-compatible active config and its design snapshot together.
+      const res = await api.pricing.update({
+        landingPageConfig: nextLandingConfig,
+        landingPageDesignSystem: nextDesignSystem
+      });
       if (!res || !res.success) {
         throw new Error(res?.message || 'Failed to update landing page configuration');
       }
@@ -832,11 +858,12 @@ export default function App() {
       }
       return res;
     } catch (err) {
-      console.error('[App] Failed to persist landingPageConfig:', err);
+      console.error('[App] Failed to persist landing page design:', err);
       setLandingConfig(previous);
+      setLandingDesignSystem(previousDesignSystem);
       throw err;
     }
-  }, [landingConfig, applyAuthoritativePricing]);
+  }, [landingConfig, landingDesignSystem, applyAuthoritativePricing]);
 
   const handleSaveJobPostingPricing = useCallback(async (nextConfig: JobPostingPricingConfig) => {
     if (!isPricingReady) {

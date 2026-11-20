@@ -3692,7 +3692,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         />
       )}
 
-      {/* TAB: VISUAL CAMPAIGN COMMAND CENTER & GRANULAR DATES */}
+      {/* TAB: CAMPAIGN OPERATIONS & SCHEDULING */}
       {adminTab === 'campaign-center' && canAccessAdminTab('campaign-center') && (
         <AdminCampaignCenter
           ads={ads || []}

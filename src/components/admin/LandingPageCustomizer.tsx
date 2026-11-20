@@ -750,8 +750,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                     if (field.key === 'poster') {
                       // These are the exact inputs used to derive posterLabel.
                       return job.sourceType === 'admin_created' || job.isAdminCreated === true ||
-                        job.sourceType === 'scraped' || job.isScraped === true ||
-                        Boolean(typeof job.scraperSourceName === 'string' && job.scraperSourceName.trim());
+                        job.sourceType === 'scraped' || job.isScraped === true;
                     }
                     if (field.key === 'relativePostedTime' || field.key === 'exactPostedDate') {
                       const postedAt = hasUsableDate(job.postedAt) ? job.postedAt : job.createdAt;

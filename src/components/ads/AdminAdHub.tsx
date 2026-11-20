@@ -71,7 +71,7 @@ interface AdminAdHubProps {
   pricingConfig?: AdPricingConfig;
   onUpdatePricingConfig?: (config: AdPricingConfig) => void | Promise<unknown>;
   campaignConfig?: CampaignCustomizationConfig;
-  onUpdateCampaignConfig?: (config: CampaignCustomizationConfig) => void;
+  onUpdateCampaignConfig?: (config: CampaignCustomizationConfig) => void | Promise<unknown>;
   onApproveAd?: (adId: string) => void;
   onRejectAd?: (adId: string, reason: string) => void;
 }
@@ -909,9 +909,10 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
         <AdminCampaignCustomizer
           config={campaignConfig}
           onSaveConfig={(updated) => {
-            if (onUpdateCampaignConfig) {
-              onUpdateCampaignConfig(updated);
+            if (!onUpdateCampaignConfig) {
+              throw new Error('Campaign settings save is unavailable.');
             }
+            return onUpdateCampaignConfig(updated);
           }}
         />
       )}

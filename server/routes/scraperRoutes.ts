@@ -495,8 +495,12 @@ scraperRouter.get('/runs/page', requireAdminPermission('scraper.manage'), async 
     if (!Number.isInteger(rawOffset) || rawOffset < 0 || !Number.isInteger(rawLimit) || rawLimit < 1) {
       return res.status(400).json({ success: false, message: 'offset must be a non-negative integer and limit must be a positive integer.' });
     }
-    if (rawCursor !== undefined && (typeof rawCursor !== 'string' || rawCursor.length > 64)) {
-      return res.status(400).json({ success: false, message: 'cursor must be a valid short string.' });
+    if (rawCursor !== undefined && (
+      typeof rawCursor !== 'string' ||
+      rawCursor.length > 64 ||
+      !(/^[a-fA-F0-9]{24}$/.test(rawCursor) || /^memory:\\d+$/.test(rawCursor))
+    )) {
+      return res.status(400).json({ success: false, message: 'cursor must be a valid scraper history cursor.' });
     }
     const page = await ScraperRepository.getRunsPage(rawOffset, Math.min(rawLimit, 100), rawCursor as string | undefined);
     return res.json({ success: true, ...page, offset: rawOffset, limit: Math.min(rawLimit, 100) });

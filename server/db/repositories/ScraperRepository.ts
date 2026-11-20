@@ -405,19 +405,32 @@ export class ScraperRepository {
       return { runs, total, hasMore, nextCursor };
     }
 
-    const memoryOffset = cursor?.startsWith('memory:')
-      ? Number(cursor.slice('memory:'.length))
-      : safeOffset;
+    let memoryOffset = safeOffset;
+    if (cursor?.startsWith('memory:')) {
+      let lastRunId = '';
+      try {
+        lastRunId = decodeURIComponent(cursor.slice('memory:'.length));
+      } catch {
+        throw new Error('Invalid in-memory scraper history cursor.');
+      }
+      const lastRunIndex = this.cachedRuns.findIndex(run => String(run.id || run.runId || '') === lastRunId);
+      if (!lastRunId || lastRunIndex < 0) {
+        throw new Error('In-memory scraper history cursor expired. Refresh history to continue.');
+      }
+      memoryOffset = lastRunIndex + 1;
+    }
     if (!Number.isInteger(memoryOffset) || memoryOffset < 0) {
       throw new Error('Invalid in-memory scraper history cursor.');
     }
     const runs = this.cachedRuns.slice(memoryOffset, memoryOffset + safeLimit);
     const hasMore = memoryOffset + runs.length < this.cachedRuns.length;
+    const lastRun = runs[runs.length - 1];
+    const lastRunId = lastRun ? String(lastRun.id || lastRun.runId || '') : '';
     return {
       runs,
       total: this.cachedRuns.length,
       hasMore,
-      nextCursor: hasMore ? `memory:${memoryOffset + runs.length}` : null
+      nextCursor: hasMore && lastRunId ? `memory:${encodeURIComponent(lastRunId)}` : null
     };
   }
 

@@ -87,7 +87,8 @@ export type AdminCanonicalTabId =
   | 'seo-config'
   | 'settings'
   | 'form-customizer'
-  | 'data-backup';
+  | 'data-backup'
+  | 'admin-security';
 
 export type AdminNavTabId = AdminCanonicalTabId | 'stats' | 'url-scraper' | 'scraped-history';
 
@@ -119,6 +120,7 @@ export interface AdminNavModuleDefinition {
   classicCategory: AdminCategory;
   proCategory: ProAdminCategoryId;
   label: string;
+  description: string;
   classicSubTabLabel?: (counts: AdminNavCounts) => string;
   allModulesLabel?: (counts: AdminNavCounts) => string;
   urdu: string;
@@ -136,6 +138,7 @@ export interface ProCategoryDefinition {
   id: ProAdminCategoryId;
   label: string;
   urdu: string;
+  description: string;
   icon: any;
 }
 
@@ -195,48 +198,56 @@ export const PROFESSIONAL_ADMIN_CATEGORIES: ProCategoryDefinition[] = [
   {
     id: 'overview-analytics',
     label: 'Overview & Analytics',
+    description: 'Monitor platform health, activity and key performance metrics.',
     urdu: 'مجموعی جائزہ اور اینالیٹکس',
     icon: BarChart3
   },
   {
     id: 'jobs-moderation',
     label: 'Jobs & Moderation',
+    description: 'Manage job listings, moderation queues and quality checks.',
     urdu: 'ملازمتیں اور منظوری',
     icon: Briefcase
   },
   {
     id: 'scraper-ingestion',
     label: 'Scraper & Ingestion',
+    description: 'Configure and monitor automated job collection and import workflows.',
     urdu: 'خودکار سکریپر سنٹر',
     icon: Bot
   },
   {
     id: 'ads-campaigns',
     label: 'Ads & Campaigns',
+    description: 'Manage ad inventory, banners, campaigns and homepage presentation.',
     urdu: 'اشتہارات اور کیمپینز',
     icon: Megaphone
   },
   {
     id: 'finance-payments',
     label: 'Finance & Payments',
+    description: 'Control rates, payment methods, receipt verification and fee records.',
     urdu: 'مالیات، فیس اور ادائیگیاں',
     icon: CreditCard
   },
   {
     id: 'users-kyc-support',
     label: 'Users, KYC & Support',
+    description: 'Manage user accounts, employer verification and support cases.',
     urdu: 'صارفین، تصدیق اور سپورٹ',
     icon: Users
   },
   {
     id: 'communication-alerts',
     label: 'Communication & Alerts',
+    description: 'Configure WhatsApp, email, SMS and bulk notifications.',
     urdu: 'پیغامات، واٹس ایپ اور الرٹس',
     icon: MessageSquare
   },
   {
     id: 'platform-settings-data',
     label: 'Platform Settings & Data',
+    description: 'Manage platform behaviour, forms, locations, security and data.',
     urdu: 'پلیٹ فارم سیٹنگز اور ڈیٹا',
     icon: Settings
   }
@@ -250,6 +261,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'settings',
     proCategory: 'overview-analytics',
     label: 'Executive Analytics & KPIs',
+    description: 'View portal-wide KPIs, revenue, job activity, user growth and performance reports.',
     classicSubTabLabel: () => 'Executive Analytics & KPIs',
     urdu: 'اینالیٹکس اور کارکردگی',
     classicSubTabUrdu: 'اینالیٹکس رپورٹس',
@@ -262,6 +274,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'settings',
     proCategory: 'overview-analytics',
     label: 'Security & Activity Trail',
+    description: 'Review administrator and platform activity events for audit and security follow-up.',
     urdu: 'سیکیورٹی لاگز',
     icon: ShieldCheck,
     keywords: ['audit', 'security', 'logs', 'activity', 'trail', 'history', 'events', 'لاگز', 'سیکیورٹی']
@@ -273,6 +286,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'jobs',
     proCategory: 'jobs-moderation',
     label: 'Live Listings',
+    description: 'Manage published job listings, edits, duplicate checks and bulk actions.',
     classicSubTabLabel: (c) => `Live Listings (${c.activeJobsCount})`,
     urdu: 'لائیو نوکریاں',
     classicSubTabUrdu: 'لائیو جابز',
@@ -285,6 +299,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'jobs',
     proCategory: 'jobs-moderation',
     label: 'Pending Approvals Queue',
+    description: 'Review pending job submissions and approve or reject them.',
     classicSubTabLabel: (c) => `Pending Approvals (${c.pendingJobsCount})`,
     urdu: 'منظوری کی منتظر نوکریاں',
     classicSubTabUrdu: 'زیرِ التواء منظوری',
@@ -298,6 +313,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'jobs',
     proCategory: 'jobs-moderation',
     label: 'Post Manual Job',
+    description: 'Create and submit a job listing manually using the admin form.',
     urdu: 'نئی جاب شامل کریں',
     classicSubTabUrdu: 'نئی جاب',
     icon: Plus,
@@ -308,6 +324,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'jobs',
     proCategory: 'jobs-moderation',
     label: 'AI Quality & Spam Guard',
+    description: 'Check job content quality and flag spam or incomplete listings.',
     classicSubTabLabel: () => 'AI Quality & Spam Filter',
     urdu: 'کوالٹی اور اسپیم چیکر',
     classicSubTabUrdu: 'کوالٹی فلٹر',
@@ -321,6 +338,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'scraper',
     proCategory: 'scraper-ingestion',
     label: 'Scraper Center',
+    description: 'Manage scraper runs, sources, imported records and extraction history.',
     urdu: 'خودکار ویب سکریپر سنٹر',
     icon: Bot,
     badge: 'Unified',
@@ -334,6 +352,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'ads',
     proCategory: 'ads-campaigns',
     label: 'Visual Campaign Center',
+    description: 'Monitor ad campaigns, statuses, schedules, approvals and placement activity.',
     classicSubTabLabel: (c) => `Campaign Center (${c.activeAdsCount} Live)`,
     urdu: 'اشتہاری کیمپین کمانڈ سنٹر',
     classicSubTabUrdu: 'اشتہاری کیمپینز',
@@ -346,6 +365,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'ads',
     proCategory: 'ads-campaigns',
     label: 'Ad Hub & Banner Slots',
+    description: 'Manage advertisement records, banner slots, placement options and ad display settings.',
     urdu: 'اشتہاری بینر سلاٹس',
     classicSubTabUrdu: 'بینر سلاٹس',
     icon: Layers,
@@ -356,6 +376,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'ads',
     proCategory: 'ads-campaigns',
     label: 'Landing Page Customizer',
+    description: 'Customize homepage sections, job-card design, banners and landing-page layout.',
     urdu: 'ہوم پیج بینر ڈیزائنر',
     classicSubTabUrdu: 'ہوم پیج بینرز',
     icon: Edit3,
@@ -368,6 +389,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'payments',
     proCategory: 'finance-payments',
     label: 'Universal Pricing Controller',
+    description: 'Manage job-posting, advertisement, subscription and CV-related rates in one place.',
     urdu: 'تمام فیسیں اور اشتہارات ریٹ',
     icon: DollarSign,
     badge: 'NEW',
@@ -379,6 +401,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'payments',
     proCategory: 'finance-payments',
     label: 'EasyPaisa, JazzCash & Durations Setup',
+    description: 'Configure payment account details and subscription/payment duration presets.',
     classicSubTabLabel: () => '💳 EasyPaisa, JazzCash & Duration Setup',
     urdu: 'ایڈمن کے اکاؤنٹس اور دن (1-دن، 1-ہفتہ، 15-دن، 20-دن)',
     classicSubTabUrdu: 'ایڈمن اکاؤنٹس اور دن',
@@ -392,6 +415,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'payments',
     proCategory: 'finance-payments',
     label: 'Payment Receipts Verification',
+    description: 'Review submitted receipts and approve or reject pending payment transactions.',
     classicSubTabLabel: (c) => `Receipt Proofs Verification (${c.pendingProofsCount})`,
     urdu: 'رسیدوں کی تصدیق',
     icon: Receipt,
@@ -403,6 +427,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'payments',
     proCategory: 'finance-payments',
     label: 'Category Fees & Pricing',
+    description: 'Set category posting fees, employer exemptions and individual job fee waivers.',
     urdu: 'پوسٹنگ فیس اور رعایتیں',
     classicSubTabUrdu: 'پوسٹنگ فیس',
     icon: DollarSign,
@@ -413,6 +438,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'payments',
     proCategory: 'finance-payments',
     label: 'Per-Job Fee Transaction Logs',
+    description: 'Review per-job posting fee records and transaction history.',
     classicSubTabLabel: (c) => `Per-Job Fee Logs (${c.feeLogsCount})`,
     urdu: 'فیس لین دین کا مکمل ریکارڈ',
     classicSubTabUrdu: 'فیس لین دین',
@@ -425,6 +451,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'payments',
     proCategory: 'finance-payments',
     label: 'Multi-Currency & Forex',
+    description: 'Manage supported currencies and exchange-rate settings.',
     urdu: 'کرنسی ایکسچینج ریٹس',
     classicSubTabUrdu: 'کرنسی ایکسچینج',
     icon: Coins,
@@ -437,6 +464,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'users',
     proCategory: 'users-kyc-support',
     label: 'User Directory & Profiles',
+    description: 'Search user accounts, inspect profiles and manage account-level actions.',
     classicSubTabLabel: (c) => `User Directory (${c.usersCount})`,
     urdu: 'تمام صارفین کی فہرست',
     classicSubTabUrdu: 'صارفین کی فہرست',
@@ -449,6 +477,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'users',
     proCategory: 'users-kyc-support',
     label: 'Employer KYC Verification',
+    description: 'Review employer identity and company verification requests.',
     classicSubTabLabel: (c) => `Employer KYC Verification ${c.kycBadgeText.startsWith('⏳') ? '(Loading...)' : c.kycBadgeText.startsWith('⚠️') ? '(Error loading)' : `(${c.kycPendingCount ?? 0})`}`,
     urdu: 'کمپنی شناختی تصدیق',
     classicSubTabUrdu: 'شناختی تصدیق',
@@ -461,6 +490,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'users',
     proCategory: 'users-kyc-support',
     label: 'Paid Subscribers',
+    description: 'View paid members, subscription status, contact details and expiry.',
     classicSubTabLabel: (c) => `Paid Subscribers (${c.subscribersCount})`,
     urdu: 'سبسکرائبرز',
     icon: DollarSign,
@@ -472,6 +502,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'users',
     proCategory: 'users-kyc-support',
     label: 'User Support Chat Hub',
+    description: 'Respond to user support conversations and manage incoming chats.',
     classicSubTabLabel: (c) => `User Support Chat Hub (${c.chatMessagesCount})`,
     urdu: 'چیٹ سپورٹ ان باکس',
     classicSubTabUrdu: 'چیٹ ان باکس',
@@ -486,6 +517,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'alerts',
     proCategory: 'communication-alerts',
     label: 'WhatsApp Alerts & Proofs Hub',
+    description: 'Manage WhatsApp alerts, support widget details and group/contact settings.',
     classicSubTabLabel: () => '💬 WhatsApp Support & Alerts Hub',
     urdu: 'واٹس ایپ الرٹس مینجر',
     classicSubTabUrdu: 'واٹس ایپ الرٹس',
@@ -497,6 +529,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'alerts',
     proCategory: 'communication-alerts',
     label: 'Broadcast Campaigns (Email/SMS)',
+    description: 'Create and manage email/SMS broadcast campaigns and provider settings.',
     classicSubTabLabel: () => '📣 Email & WhatsApp Broadcasts',
     urdu: 'براڈکاسٹ پیغامات',
     classicSubTabUrdu: 'براڈکاسٹ میسجز',
@@ -508,6 +541,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'alerts',
     proCategory: 'communication-alerts',
     label: 'Pro Bulk Notification Tool',
+    description: 'Send bulk portal notifications to selected user groups.',
     classicSubTabLabel: () => '🚀 Pro Bulk Notification Tool',
     urdu: 'بلک نوٹیفکیشنز',
     icon: Send,
@@ -520,6 +554,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'settings',
     proCategory: 'platform-settings-data',
     label: 'Cities & Provinces Manager',
+    description: 'Manage available cities, provinces and location catalogue entries.',
     classicSubTabLabel: () => '📍 Cities & Provinces Manager',
     urdu: 'شہروں اور صوبوں کی فہرست',
     icon: MapPin,
@@ -530,6 +565,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'settings',
     proCategory: 'platform-settings-data',
     label: 'Apply Button & Form Flow',
+    description: 'Configure application buttons, application flow and employer-facing form behaviour.',
     urdu: 'اپلائی بٹن اور سوالات',
     icon: FileText,
     badge: 'NEW',
@@ -541,6 +577,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'settings',
     proCategory: 'platform-settings-data',
     label: 'Modals & Popups Content Manager',
+    description: 'Edit modal, popup and announcement text displayed across the portal.',
     urdu: 'پاپ اپس اور موڈالز مینیجر',
     icon: Sliders,
     badge: 'NEW',
@@ -552,6 +589,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'settings',
     proCategory: 'platform-settings-data',
     label: 'Job Visibility Manager',
+    description: 'Control which job fields are visible to public, free and premium users.',
     urdu: 'ملازمت کی نمائش',
     icon: ShieldCheck,
     keywords: ['visibility', 'rules', 'masking', 'defaults', 'public', 'نمائش']
@@ -561,6 +599,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'settings',
     proCategory: 'platform-settings-data',
     label: 'Google Search SEO & Meta Tags',
+    description: 'Manage search metadata, SEO settings and structured page information.',
     classicSubTabLabel: () => '🌐 Google Search SEO & Meta Tags',
     urdu: 'گوگل ایس ای او اور میٹا ٹیگز',
     classicSubTabUrdu: 'گوگل ایس ای او',
@@ -568,10 +607,21 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     keywords: ['seo', 'google', 'meta', 'sitemap', 'robots', 'json-ld', 'search', 'ایس ای او']
   },
   {
+    id: 'admin-security',
+    classicCategory: 'settings',
+    proCategory: 'platform-settings-data',
+    label: 'Administrator Security',
+    description: 'Update the signed-in administrator password and review credential security.',
+    urdu: 'ایڈمن سیکیورٹی',
+    icon: ShieldCheck,
+    keywords: ['admin security', 'password', 'credentials', 'administrator', 'security']
+  },
+  {
     id: 'settings',
     classicCategory: 'settings',
     proCategory: 'platform-settings-data',
     label: 'Global Master Switches',
+    description: 'Control site-wide feature switches and enable or disable major portal capabilities.',
     urdu: 'ماسٹر سیٹنگز اور فیس',
     classicSubTabUrdu: 'ماسٹر سیٹنگز',
     icon: Settings,
@@ -582,6 +632,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'settings',
     proCategory: 'platform-settings-data',
     label: 'Registration Form Customizer',
+    description: 'Configure registration form fields, visibility and required/optional rules.',
     urdu: 'فارم فیلڈز سیٹنگ',
     classicSubTabUrdu: 'فارم سیٹنگز',
     icon: Edit3,
@@ -592,6 +643,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'settings',
     proCategory: 'platform-settings-data',
     label: 'Data Vault & CSV Export',
+    description: 'Export, restore and manage selected platform data snapshots.',
     classicSubTabLabel: () => 'Data Vault & CSV Backup',
     urdu: 'ڈیٹا بیک اپ اور ایکسپورٹ',
     classicSubTabUrdu: 'بیک اپ اور ایکسپورٹ',
@@ -662,6 +714,7 @@ export interface AllModulesMenuItem {
   id: string;
   label: string;
   urdu: string;
+  description?: string;
   icon: any;
   badge?: string;
 }
@@ -703,6 +756,7 @@ export const CLASSIC_CATEGORY_MODULE_ORDER: Record<AdminCategory, AdminCanonical
     'form-customizer',
     'activity-logs',
     'data-backup',
+    'admin-security',
     'analytics'
   ]
 };
@@ -747,7 +801,7 @@ export function buildProfessionalAllModulesMenuGroups(
     });
     return {
       catKey: cat.id,
-      catTitle: `${cat.label} (${cat.urdu})`,
+      catTitle: cat.label,
       items
     };
   });
@@ -786,6 +840,7 @@ export interface ProMenuModuleItem {
   id: AdminCanonicalTabId;
   label: string;
   urdu: string;
+  description: string;
   icon: any;
   badge?: string;
   isNew?: boolean;
@@ -797,6 +852,7 @@ export interface ProMenuCategoryGroup {
   id: ProAdminCategoryId;
   label: string;
   urdu: string;
+  description: string;
   icon: any;
   items: ProMenuModuleItem[];
 }
@@ -815,6 +871,7 @@ export function matchesAdminModuleSearch(
     mod.id,
     mod.label,
     mod.urdu,
+    mod.description,
     mod.allModulesUrdu || '',
     mod.classicSubTabUrdu || '',
     ...(mod.aliases || []),
@@ -847,6 +904,7 @@ export function buildProfessionalMenuCategories(
       id: mod.id,
       label: mod.label,
       urdu: mod.urdu,
+      description: mod.description,
       icon: mod.icon,
       badge: resolveModuleBadge(mod, counts),
       isNew: mod.isNew,
@@ -858,6 +916,7 @@ export function buildProfessionalMenuCategories(
       id: cat.id,
       label: cat.label,
       urdu: cat.urdu,
+      description: cat.description,
       icon: cat.icon,
       items
     };
@@ -875,6 +934,7 @@ export function searchAdminNavigationModules(
     id: mod.id,
     label: mod.label,
     urdu: mod.urdu,
+    description: mod.description,
     icon: mod.icon,
     badge: resolveModuleBadge(mod, counts),
     isNew: mod.isNew,
@@ -949,22 +1009,11 @@ export const AdminProfessionalSidebar: React.FC<AdminProfessionalSidebarProps> =
   const canonicalTab = resolveCanonicalAdminTab(activeTab);
   const activeDef = getAdminModuleDefinition(canonicalTab);
   const [searchQuery, setSearchQuery] = useState('');
-  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>(() => {
-    const initial: Record<string, boolean> = {};
-    if (activeDef?.proCategory) {
-      initial[activeDef.proCategory] = true;
-    } else {
-      initial['overview-analytics'] = true;
-    }
-    return initial;
-  });
+  const [expandedCategoryId, setExpandedCategoryId] = useState<ProAdminCategoryId | null>(activeDef?.proCategory || 'overview-analytics');
 
   useEffect(() => {
     if (activeDef?.proCategory) {
-      setExpandedCategories((prev) => ({
-        ...prev,
-        [activeDef.proCategory]: true
-      }));
+      setExpandedCategoryId(activeDef.proCategory);
     }
   }, [activeDef?.proCategory]);
 
@@ -974,10 +1023,7 @@ export const AdminProfessionalSidebar: React.FC<AdminProfessionalSidebarProps> =
   );
 
   const toggleCategory = (catId: ProAdminCategoryId) => {
-    setExpandedCategories((prev) => ({
-      ...prev,
-      [catId]: !prev[catId]
-    }));
+    setExpandedCategoryId((prev) => (prev === catId ? null : catId));
   };
 
   return (
@@ -992,7 +1038,7 @@ export const AdminProfessionalSidebar: React.FC<AdminProfessionalSidebarProps> =
         {!isCollapsed && (
           <div className="min-w-0">
             <p className="text-xs font-black text-white truncate">Admin Workspace</p>
-            <p className="text-[11px] text-slate-400 truncate">ایڈمن پروفیشنل مینو</p>
+            <p className="text-[11px] text-slate-400 truncate">Organized admin workspace</p>
           </div>
         )}
         <button
@@ -1015,7 +1061,7 @@ export const AdminProfessionalSidebar: React.FC<AdminProfessionalSidebarProps> =
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search modules, اردو, ID..."
+              placeholder="Search modules or keywords..."
               aria-label="Search professional admin modules"
               className="w-full pl-8 pr-7 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
             />
@@ -1055,7 +1101,7 @@ export const AdminProfessionalSidebar: React.FC<AdminProfessionalSidebarProps> =
           categories.map((cat) => {
             const CatIcon = cat.icon;
             const isSearching = searchQuery.trim().length > 0;
-            const isExpanded = isSearching || Boolean(expandedCategories[cat.id]);
+            const isExpanded = isSearching || expandedCategoryId === cat.id;
             const hasActiveChild = cat.items.some((item) => item.id === canonicalTab);
 
             if (isCollapsed) {
@@ -1069,7 +1115,7 @@ export const AdminProfessionalSidebar: React.FC<AdminProfessionalSidebarProps> =
                         key={item.id}
                         type="button"
                         onClick={() => onSelectTab(item.id)}
-                        title={`${cat.label} — ${item.label} (${item.urdu})`}
+                        title={`${cat.label} — ${item.label}: ${item.description}`}
                         aria-label={item.label}
                         aria-current={isCurrent ? 'page' : undefined}
                         className={`w-full flex items-center justify-center p-2.5 rounded-xl transition-all cursor-pointer ${
@@ -1102,6 +1148,7 @@ export const AdminProfessionalSidebar: React.FC<AdminProfessionalSidebarProps> =
                     <CatIcon className={`w-4 h-4 shrink-0 ${hasActiveChild ? 'text-amber-400' : 'text-slate-400'}`} />
                     <div className="min-w-0">
                       <span className="block truncate">{cat.label}</span>
+                      <span className="block text-[9px] leading-tight text-slate-500 truncate">{cat.description}</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -1148,7 +1195,7 @@ export const AdminProfessionalSidebar: React.FC<AdminProfessionalSidebarProps> =
                                   isCurrent ? 'text-slate-900 font-semibold' : 'text-slate-400'
                                 }`}
                               >
-                                {item.urdu}
+                                {item.description}
                               </span>
                             </div>
                           </div>
@@ -1211,6 +1258,12 @@ export const AdminProfessionalMobileDrawer: React.FC<AdminProfessionalMobileDraw
 }) => {
   const canonicalTab = resolveCanonicalAdminTab(activeTab);
   const [searchQuery, setSearchQuery] = useState('');
+  const [expandedCategoryId, setExpandedCategoryId] = useState<ProAdminCategoryId | null>(null);
+
+  useEffect(() => {
+    const activeDef = getAdminModuleDefinition(canonicalTab);
+    if (activeDef?.proCategory) setExpandedCategoryId(activeDef.proCategory);
+  }, [canonicalTab]);
 
   const categories = useMemo(
     () => buildProfessionalMenuCategories(counts, canAccessTab, searchQuery),
@@ -1236,7 +1289,7 @@ export const AdminProfessionalMobileDrawer: React.FC<AdminProfessionalMobileDraw
         <div className="p-3.5 border-b border-slate-800 flex items-center justify-between gap-2">
           <div className="min-w-0">
             <h3 className="text-sm font-black text-white truncate">Professional Admin Menu</h3>
-            <p className="text-[11px] text-slate-400 truncate">تمام ماڈیولز تلاش کریں</p>
+            <p className="text-[11px] text-slate-400 truncate">Choose a category, then a module</p>
           </div>
           <button
             type="button"
@@ -1256,7 +1309,7 @@ export const AdminProfessionalMobileDrawer: React.FC<AdminProfessionalMobileDraw
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search English, اردو, ID, category..."
+              placeholder="Search modules, purpose or category..."
               aria-label="Search modules in mobile drawer"
               className="w-full pl-9 pr-8 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
             />
@@ -1283,17 +1336,29 @@ export const AdminProfessionalMobileDrawer: React.FC<AdminProfessionalMobileDraw
             categories.map((cat) => {
               const CatIcon = cat.icon;
               return (
-                <div key={cat.id} className="space-y-1.5">
-                  <div className="flex items-center justify-between gap-2 px-1">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <CatIcon className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                      <span className="text-xs font-black text-amber-300 truncate">{cat.label}</span>
+                <div key={cat.id} className="rounded-xl border border-slate-800 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedCategoryId((prev) => (prev === cat.id ? null : cat.id))}
+                    aria-expanded={searchQuery.trim().length > 0 || expandedCategoryId === cat.id}
+                    className="w-full flex items-center justify-between gap-2 px-3 py-3 text-left bg-slate-950/70"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <CatIcon className="w-4 h-4 text-amber-400 shrink-0" />
+                      <div className="min-w-0">
+                        <span className="block text-xs font-black text-amber-300 truncate">{cat.label}</span>
+                        <span className="block text-[10px] text-slate-500 line-clamp-2">{cat.description}</span>
+                      </div>
                     </div>
-                    <span className="text-[10px] text-slate-400 shrink-0 tabular-nums">
-                      {cat.items.length}
+                    <span className="flex items-center gap-1.5 shrink-0 text-[10px] text-slate-400 tabular-nums">
+                      {cat.items.length} modules
+                      {(searchQuery.trim().length > 0 || expandedCategoryId === cat.id)
+                        ? <ChevronDown className="w-3.5 h-3.5" />
+                        : <ChevronRight className="w-3.5 h-3.5" />}
                     </span>
-                  </div>
-                  <div className="space-y-1">
+                  </button>
+                  {(searchQuery.trim().length > 0 || expandedCategoryId === cat.id) && (
+                  <div className="p-2 space-y-1">
                     {cat.items.map((item) => {
                       const ItemIcon = item.icon;
                       const isCurrent = item.id === canonicalTab;
@@ -1325,7 +1390,7 @@ export const AdminProfessionalMobileDrawer: React.FC<AdminProfessionalMobileDraw
                                   isCurrent ? 'text-slate-900' : 'text-slate-400'
                                 }`}
                               >
-                                {item.urdu}
+                                {item.description}
                               </span>
                             </div>
                           </div>
@@ -1344,6 +1409,7 @@ export const AdminProfessionalMobileDrawer: React.FC<AdminProfessionalMobileDraw
                       );
                     })}
                   </div>
+                  )}
                 </div>
               );
             })

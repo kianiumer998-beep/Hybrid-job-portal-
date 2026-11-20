@@ -948,60 +948,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onRejectPaymentTransaction,
   onUpdateChannelAvailability
 }) => {
-  const [tierPricingDraft, setTierPricingDraft] = useState<JobPostingPricingConfig>(jobPostingPricing);
-  const [isSavingTierPricing, setIsSavingTierPricing] = useState(false);
-  const [tierPricingNotice, setTierPricingNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-
-  useEffect(() => {
-    setTierPricingDraft(jobPostingPricing);
-  }, [jobPostingPricing]);
-
-  const handleSaveTierPricing = async (overrideConfig?: JobPostingPricingConfig) => {
-    const configToSave = overrideConfig ?? tierPricingDraft;
-    if (isPricingLoading || !isPricingReady) {
-      setTierPricingNotice({
-        type: 'error',
-        message: 'Pricing configuration has not finished loading from the server. Retry loading before saving.'
-      });
-      return;
-    }
-    setIsSavingTierPricing(true);
-    setTierPricingNotice(null);
-    try {
-      if (onSaveJobPostingPricing) {
-        const res = await onSaveJobPostingPricing(configToSave);
-        if (res && typeof res === 'object' && res.success === false) {
-          throw new Error(res.message || 'Failed to save job tier pricing.');
-        }
-      } else {
-        const res = await api.pricing.update({ jobPosting: configToSave });
-        if (!res || !res.success) {
-          throw new Error(res?.message || 'Failed to save job tier pricing.');
-        }
-        if (onSyncAuthoritativePricing && res.pricing) {
-          onSyncAuthoritativePricing(res.pricing);
-        } else {
-          if (onChangeJobPostingPricing) {
-            onChangeJobPostingPricing(res.pricing?.jobPosting || configToSave);
-          }
-          onChangeJobPostingFee(res.pricing?.jobPosting?.standardFeePkr ?? configToSave.standardFeePkr);
-        }
-      }
-      setTierPricingNotice({
-        type: 'success',
-        message: 'Job posting & priority placement rates saved to the database.'
-      });
-    } catch (err: any) {
-      setTierPricingNotice({
-        type: 'error',
-        message: err?.message || 'Failed to save job tier pricing to the database.'
-      });
-    } finally {
-      setIsSavingTierPricing(false);
-    }
-  };
-
-
   const [adminTab, setAdminTab] = useState<
     | 'analytics'
     | 'landing-customizer'
@@ -1036,6 +982,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'jobs'
     | 'subscribers'
     | 'settings'
+    | 'admin-security'
     | 'stats'
   >('analytics');
 
@@ -3532,7 +3479,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                         </span>
                                       )}
                                     </div>
-                                    <span className="text-[9px] sm:text-[10px] text-slate-400 block mt-0.5 truncate">{item.urdu}</span>
+                                    <span className="text-[9px] sm:text-[10px] text-slate-400 block mt-0.5 truncate">{item.description || item.urdu}</span>
                                   </div>
                                 </button>
                               );
@@ -3592,7 +3539,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <span className="text-slate-600">/</span>
                       <span className="font-black text-white truncate">{activeModuleDef.label}</span>
                       <span className="text-slate-600">·</span>
-                      <span className="text-amber-300 font-semibold truncate">{activeModuleDef.urdu}</span>
+                      <span className="text-amber-300 font-semibold text-[11px] truncate">{activeModuleDef.description}</span>
                     </div>
                     <button
                       type="button"
@@ -3607,11 +3554,111 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* TAB: WHATSAPP SUPPORT & ALERTS MANAGER */}
       {adminTab === 'whatsapp-manager' && canAccessAdminTab('whatsapp-manager') && (
-        <AdminWhatsAppManager
-          config={currentWhatsAppConfig}
-          onUpdateConfig={handleUpdateWhatsApp}
-          subscribersCount={subscribers.length}
-        />
+        <div className="space-y-6">
+          <AdminWhatsAppManager
+            config={currentWhatsAppConfig}
+            onUpdateConfig={handleUpdateWhatsApp}
+            subscribersCount={subscribers.length}
+          />
+          <AdminWhatsAppSettings
+            config={currentWhatsAppConfig}
+            onSave={handleUpdateWhatsApp}
+          />
+        </div>
+      )}
+
+      {/* TAB: ADMINISTRATOR SECURITY */}
+      {adminTab === 'admin-security' && canAccessAdminTab('admin-security') && (
+        <div className="space-y-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+            <h2 className="text-lg font-black text-white">Administrator Security</h2>
+            <p className="text-xs text-slate-400 mt-1">Update the password for the currently signed-in administrator account. This uses the existing server-authoritative password handler.</p>
+          </div>
+                    {/* ADMINISTRATOR PASSWORD & SECURITY MANAGEMENT */}
+          <div className="md:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white space-y-5 shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold flex items-center space-x-2 text-amber-400">
+                  <Key className="w-5 h-5 text-amber-400" />
+                  <span>Administrator Account & Password Security</span>
+                </h3>
+                <p className="text-xs text-slate-400 font-medium">Update your administrative credentials securely in the authoritative database.</p>
+              </div>
+              <span className="bg-amber-500/20 text-amber-300 text-xs font-bold px-3 py-1 rounded-full border border-amber-500/30">
+                Server-Authoritative
+              </span>
+            </div>
+
+            {adminPasswordStatus && (
+              <div className={`p-3.5 rounded-xl border text-xs font-semibold flex items-start space-x-2 ${
+                adminPasswordStatus.type === 'success'
+                  ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                  : 'bg-rose-950/60 border-rose-500/40 text-rose-300'
+              }`}>
+                {adminPasswordStatus.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                )}
+                <span>{adminPasswordStatus.message}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleAdminPasswordChangeSubmit} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  Current Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={adminCurrentPassword}
+                  onChange={(e) => setAdminCurrentPassword(e.target.value)}
+                  placeholder="Enter current password..."
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  New Password (min 8 chars)
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={adminNewPassword}
+                  onChange={(e) => setAdminNewPassword(e.target.value)}
+                  placeholder="Enter new password..."
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  Confirm New Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={adminConfirmPassword}
+                  onChange={(e) => setAdminConfirmPassword(e.target.value)}
+                  placeholder="Repeat new password..."
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div className="sm:col-span-3 flex justify-end pt-2">
+                <button
+                  type="submit"
+                  disabled={adminPasswordLoading}
+                  className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {adminPasswordLoading ? 'Updating Password...' : 'Save New Admin Password'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* TAB: PAYMENT PROOFS & DEPOSIT VERIFICATION HUB */}
@@ -6704,607 +6751,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         );
       })()}
 
-      {/* TAB 10: SETTINGS (MONTHLY SUBSCRIPTION & PER-JOB POSTING FEE) */}
+      {/* TAB: GLOBAL FEATURE CONTROLS */}
       {adminTab === 'settings' && (
         canAccessAdminTab('settings') && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-white">
+        <div className="space-y-6 text-white">
           
-          {/* LEGACY MONTHLY FEE INPUT REMOVED - NOW MANAGED VIA UNIVERSAL PRICING CONTROLLER */}
-
-          {/* PER-JOB POSTING & PRIORITY PLACEMENT FEE CONTROLLER */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white space-y-4 shadow-xl">
-            <h3 className="text-base font-bold border-b border-slate-800 pb-2 flex items-center justify-between">
-              <span className="flex items-center space-x-2">
-                <Receipt className="w-5 h-5 text-amber-400" />
-                <span>Base Per-Job Posting Fee</span>
-              </span>
-              <span className="text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-bold">
-                {tierPricingDraft.standardFeePkr > 0 ? `PKR ${tierPricingDraft.standardFeePkr.toLocaleString()}` : 'Free'}
-              </span>
-            </h3>
-            <div>
-              <label className="block text-xs font-bold text-slate-400 mb-1">Standard Job Posting Fee (PKR) [Set to 0 for Free]</label>
-              <input
-                type="number"
-                value={tierPricingDraft.standardFeePkr}
-                onChange={(e) => {
-                  const val = Math.max(0, Number(e.target.value) || 0);
-                  setTierPricingNotice(null);
-                  setTierPricingDraft((prev) => ({
-                    ...prev,
-                    standardFeePkr: val
-                  }));
-                }}
-                placeholder="1000"
-                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm font-bold focus:border-amber-400 outline-none"
-              />
-            </div>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              When set &gt; 0, employers posting regular standard jobs will be invoiced PKR {tierPricingDraft.standardFeePkr.toLocaleString()} before their job listing is reviewed and published.
-            </p>
-          </div>
-
-          {/* PRIORITY PLACEMENT & URGENT / FUTURE JOB FEES CONFIGURATION */}
-          <div className="md:col-span-2 bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/40 border border-indigo-500/40 rounded-2xl p-6 text-white space-y-6 shadow-2xl">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
-              <div>
-                <div className="flex items-center space-x-2">
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                    Priority Monetization & Tier Placements
-                  </span>
-                  <span className="text-xs text-slate-400 font-mono">Authoritative Database Pricing Engine</span>
-                </div>
-                <h3 className="text-lg font-black text-white flex items-center space-x-2 mt-1">
-                  <Sparkles className="w-5 h-5 text-amber-400" />
-                  <span>Job Feature Toggles, Rates & Duration Customization</span>
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Enable or disable any job placement tier, set custom rates (PKR), define listing duration (Days) shown to employers, and customize badge labels and descriptions.
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  disabled={isSavingTierPricing || isPricingLoading || !isPricingReady}
-                  onClick={() => {
-                    const resetCfg = {
-                      ...tierPricingDraft,
-                      ...DEFAULT_JOB_POSTING_PRICING_CONFIG
-                    };
-                    setTierPricingDraft(resetCfg);
-                    handleSaveTierPricing(resetCfg);
-                  }}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 cursor-pointer transition-all"
-                >
-                  Reset Defaults
-                </button>
-                <button
-                  type="button"
-                  disabled={isSavingTierPricing || isPricingLoading || !isPricingReady}
-                  onClick={() => handleSaveTierPricing()}
-                  className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-slate-950 text-xs font-black rounded-xl flex items-center space-x-1.5 cursor-pointer transition-all shadow-lg"
-                >
-                  <Save className="w-3.5 h-3.5" />
-                  <span>{isSavingTierPricing ? 'Saving...' : 'Save Job Tier Pricing'}</span>
-                </button>
-              </div>
-            </div>
-
-            {pricingLoadError && (
-              <div className="p-3 bg-rose-500/10 border border-rose-500/40 rounded-xl flex items-center justify-between gap-3 text-xs text-rose-300">
-                <span>{pricingLoadError}</span>
-                {onReloadPricingConfig && (
-                  <button
-                    type="button"
-                    onClick={() => onReloadPricingConfig()}
-                    className="px-2.5 py-1 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 rounded-lg font-bold text-white cursor-pointer"
-                  >
-                    Retry
-                  </button>
-                )}
-              </div>
-            )}
-
-            {tierPricingNotice && (
-              <div className={`p-3 rounded-xl border text-xs font-bold flex items-center space-x-2 ${
-                tierPricingNotice.type === 'success'
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                  : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
-              }`}>
-                {tierPricingNotice.type === 'success' ? (
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                )}
-                <span>{tierPricingNotice.message}</span>
-              </div>
-            )}
-
-            {/* 5 TIER FEE CONTROLS GRID WITH ENABLE/DISABLE & DURATION CONTROLS */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 text-xs">
-              
-              {/* TIER 1: STANDARD LISTING */}
-              <div className={`p-4 bg-slate-950/80 border rounded-2xl space-y-3 shadow-md transition-all ${
-                tierPricingDraft.enableStandard !== false ? 'border-slate-700' : 'border-slate-800 opacity-60'
-              }`}>
-                <div className="flex items-center justify-between">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-slate-800 text-slate-300 border border-slate-700">
-                    🏢 Standard Post
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTierPricingNotice(null);
-                      setTierPricingDraft((prev) => ({
-                        ...prev,
-                        enableStandard: !(prev.enableStandard !== false)
-                      }));
-                    }}
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
-                      tierPricingDraft.enableStandard !== false
-                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                        : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
-                    }`}
-                  >
-                    {tierPricingDraft.enableStandard !== false ? '✓ Enabled' : '✕ Disabled'}
-                  </button>
-                </div>
-
-                <div>
-                  <div className="font-bold text-white text-sm">Standard Listing</div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">Regular chronological placement</div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Base Fee (PKR) [0 = Free]</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-xs">PKR</span>
-                    <input
-                      type="number"
-                      value={tierPricingDraft.standardFeePkr}
-                      onChange={(e) => {
-                        const val = Math.max(0, Number(e.target.value) || 0);
-                        setTierPricingNotice(null);
-                        setTierPricingDraft((prev) => ({
-                          ...prev,
-                          standardFeePkr: val
-                        }));
-                      }}
-                      className="w-full pl-11 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-white font-bold font-mono focus:border-amber-400 outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Display Duration (Days)</label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      value={tierPricingDraft.standardDurationDays ?? 30}
-                      onChange={(e) => {
-                        setTierPricingNotice(null);
-                        setTierPricingDraft((prev) => ({
-                          ...prev,
-                          standardDurationDays: Math.max(1, Number(e.target.value) || 1)
-                        }));
-                      }}
-                      className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono focus:border-amber-400 outline-none"
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">Days</span>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Description for Users</label>
-                  <input
-                    type="text"
-                    value={tierPricingDraft.standardDescription || 'Standard chronological listing on public board.'}
-                    onChange={(e) => {
-                      setTierPricingNotice(null);
-                      setTierPricingDraft((prev) => ({
-                        ...prev,
-                        standardDescription: e.target.value
-                      }));
-                    }}
-                    className="w-full px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-slate-300 text-[11px] outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* TIER 2: URGENT HIRING */}
-              <div className={`p-4 bg-slate-950/80 border rounded-2xl space-y-3 shadow-md transition-all ${
-                tierPricingDraft.enableUrgent !== false ? 'border-rose-500/30' : 'border-slate-800 opacity-60'
-              }`}>
-                <div className="flex items-center justify-between">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                    🔥 Urgent Hiring
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTierPricingNotice(null);
-                      setTierPricingDraft((prev) => ({
-                        ...prev,
-                        enableUrgent: !(prev.enableUrgent !== false)
-                      }));
-                    }}
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
-                      tierPricingDraft.enableUrgent !== false
-                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                        : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
-                    }`}
-                  >
-                    {tierPricingDraft.enableUrgent !== false ? '✓ Enabled' : '✕ Disabled'}
-                  </button>
-                </div>
-
-                <div>
-                  <div className="font-bold text-white text-sm">Urgent Placement Fee</div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">Flashing badge & ranks above regular jobs</div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Fee Surcharge (PKR)</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-xs">PKR</span>
-                    <input
-                      type="number"
-                      value={tierPricingDraft.urgentFeePkr}
-                      onChange={(e) => {
-                        setTierPricingNotice(null);
-                        setTierPricingDraft((prev) => ({
-                          ...prev,
-                          urgentFeePkr: Math.max(0, Number(e.target.value) || 0)
-                        }));
-                      }}
-                      className="w-full pl-11 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-rose-300 font-bold font-mono focus:border-rose-400 outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Display Duration (Days)</label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      value={tierPricingDraft.urgentDurationDays ?? 15}
-                      onChange={(e) => {
-                        setTierPricingNotice(null);
-                        setTierPricingDraft((prev) => ({
-                          ...prev,
-                          urgentDurationDays: Math.max(1, Number(e.target.value) || 1)
-                        }));
-                      }}
-                      className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-rose-300 font-mono focus:border-rose-400 outline-none"
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">Days</span>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Badge Text</label>
-                  <input
-                    type="text"
-                    value={tierPricingDraft.urgentBadgeText || '🔥 Urgent Hiring'}
-                    onChange={(e) => {
-                      setTierPricingNotice(null);
-                      setTierPricingDraft((prev) => ({
-                        ...prev,
-                        urgentBadgeText: e.target.value
-                      }));
-                    }}
-                    className="w-full px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-rose-300 text-[11px] outline-none"
-                  />
-                </div>
-
-                <div className="text-[11px] bg-slate-900/90 p-2 rounded-xl border border-slate-800 text-slate-300">
-                  Total: <strong className="text-white font-mono">PKR {(tierPricingDraft.standardFeePkr + tierPricingDraft.urgentFeePkr).toLocaleString()}</strong>
-                </div>
-              </div>
-
-              {/* TIER 3: FEATURED & PINNED TOP */}
-              <div className={`p-4 bg-slate-950/80 border rounded-2xl space-y-3 shadow-md transition-all ${
-                tierPricingDraft.enableFeaturedTop !== false ? 'border-amber-500/30' : 'border-slate-800 opacity-60'
-              }`}>
-                <div className="flex items-center justify-between">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                    ⭐ Featured Top
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTierPricingNotice(null);
-                      setTierPricingDraft((prev) => ({
-                        ...prev,
-                        enableFeaturedTop: !(prev.enableFeaturedTop !== false)
-                      }));
-                    }}
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
-                      tierPricingDraft.enableFeaturedTop !== false
-                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                        : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
-                    }`}
-                  >
-                    {tierPricingDraft.enableFeaturedTop !== false ? '✓ Enabled' : '✕ Disabled'}
-                  </button>
-                </div>
-
-                <div>
-                  <div className="font-bold text-white text-sm">Pinned Top Placement Fee</div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">Locks position at top of search & cards</div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Fee Surcharge (PKR)</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-xs">PKR</span>
-                    <input
-                      type="number"
-                      value={tierPricingDraft.featuredTopFeePkr}
-                      onChange={(e) => {
-                        setTierPricingNotice(null);
-                        setTierPricingDraft((prev) => ({
-                          ...prev,
-                          featuredTopFeePkr: Math.max(0, Number(e.target.value) || 0)
-                        }));
-                      }}
-                      className="w-full pl-11 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-amber-300 font-bold font-mono focus:border-amber-400 outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Display Duration (Days)</label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      value={tierPricingDraft.featuredTopDurationDays ?? 30}
-                      onChange={(e) => {
-                        setTierPricingNotice(null);
-                        setTierPricingDraft((prev) => ({
-                          ...prev,
-                          featuredTopDurationDays: Math.max(1, Number(e.target.value) || 1)
-                        }));
-                      }}
-                      className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-amber-300 font-mono focus:border-amber-400 outline-none"
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">Days</span>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Badge Text</label>
-                  <input
-                    type="text"
-                    value={tierPricingDraft.featuredBadgeText || '⭐ Pinned Top & Featured'}
-                    onChange={(e) => {
-                      setTierPricingNotice(null);
-                      setTierPricingDraft((prev) => ({
-                        ...prev,
-                        featuredBadgeText: e.target.value
-                      }));
-                    }}
-                    className="w-full px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-amber-300 text-[11px] outline-none"
-                  />
-                </div>
-
-                <div className="text-[11px] bg-slate-900/90 p-2 rounded-xl border border-slate-800 text-slate-300">
-                  Total: <strong className="text-white font-mono">PKR {(tierPricingDraft.standardFeePkr + tierPricingDraft.featuredTopFeePkr).toLocaleString()}</strong>
-                </div>
-              </div>
-
-              {/* TIER 4: FUTURE JOB / ADVANCE INTAKE */}
-              <div className={`p-4 bg-slate-950/80 border rounded-2xl space-y-3 shadow-md transition-all ${
-                tierPricingDraft.enableFutureJob !== false ? 'border-indigo-500/30' : 'border-slate-800 opacity-60'
-              }`}>
-                <div className="flex items-center justify-between">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                    🚀 Future Intake
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTierPricingNotice(null);
-                      setTierPricingDraft((prev) => ({
-                        ...prev,
-                        enableFutureJob: !(prev.enableFutureJob !== false)
-                      }));
-                    }}
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
-                      tierPricingDraft.enableFutureJob !== false
-                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                        : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
-                    }`}
-                  >
-                    {tierPricingDraft.enableFutureJob !== false ? '✓ Enabled' : '✕ Disabled'}
-                  </button>
-                </div>
-
-                <div>
-                  <div className="font-bold text-white text-sm">Future Intake Placement</div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">Collect pre-registrations ahead of intake</div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Fee Surcharge (PKR)</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-xs">PKR</span>
-                    <input
-                      type="number"
-                      value={tierPricingDraft.futureJobFeePkr}
-                      onChange={(e) => {
-                        setTierPricingNotice(null);
-                        setTierPricingDraft((prev) => ({
-                          ...prev,
-                          futureJobFeePkr: Math.max(0, Number(e.target.value) || 0)
-                        }));
-                      }}
-                      className="w-full pl-11 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-indigo-300 font-bold font-mono focus:border-indigo-400 outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Display Duration (Days)</label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      value={tierPricingDraft.futureJobDurationDays ?? 60}
-                      onChange={(e) => {
-                        setTierPricingNotice(null);
-                        setTierPricingDraft((prev) => ({
-                          ...prev,
-                          futureJobDurationDays: Math.max(1, Number(e.target.value) || 1)
-                        }));
-                      }}
-                      className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-indigo-300 font-mono focus:border-indigo-400 outline-none"
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">Days</span>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Badge Text</label>
-                  <input
-                    type="text"
-                    value={tierPricingDraft.futureBadgeText || '🚀 Advance Intake'}
-                    onChange={(e) => {
-                      setTierPricingNotice(null);
-                      setTierPricingDraft((prev) => ({
-                        ...prev,
-                        futureBadgeText: e.target.value
-                      }));
-                    }}
-                    className="w-full px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-indigo-300 text-[11px] outline-none"
-                  />
-                </div>
-
-                <div className="text-[11px] bg-slate-900/90 p-2 rounded-xl border border-slate-800 text-slate-300">
-                  Total: <strong className="text-white font-mono">PKR {(tierPricingDraft.standardFeePkr + tierPricingDraft.futureJobFeePkr).toLocaleString()}</strong>
-                </div>
-              </div>
-
-              {/* TIER 5: VIP ALL-IN-ONE BUNDLE */}
-              <div className={`p-4 bg-slate-950/80 border rounded-2xl space-y-3 shadow-md transition-all ${
-                tierPricingDraft.enableVipBundle !== false ? 'border-purple-500/30' : 'border-slate-800 opacity-60'
-              }`}>
-                <div className="flex items-center justify-between">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                    👑 VIP Power Bundle
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTierPricingNotice(null);
-                      setTierPricingDraft((prev) => ({
-                        ...prev,
-                        enableVipBundle: !(prev.enableVipBundle !== false)
-                      }));
-                    }}
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
-                      tierPricingDraft.enableVipBundle !== false
-                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                        : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
-                    }`}
-                  >
-                    {tierPricingDraft.enableVipBundle !== false ? '✓ Enabled' : '✕ Disabled'}
-                  </button>
-                </div>
-
-                <div>
-                  <div className="font-bold text-white text-sm">VIP Power Package</div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">Top Pinned + Urgent + Featured + Future Tag</div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Flat Price (PKR)</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-xs">PKR</span>
-                    <input
-                      type="number"
-                      value={tierPricingDraft.vipBundleFeePkr}
-                      onChange={(e) => {
-                        setTierPricingNotice(null);
-                        setTierPricingDraft((prev) => ({
-                          ...prev,
-                          vipBundleFeePkr: Math.max(0, Number(e.target.value) || 0)
-                        }));
-                      }}
-                      className="w-full pl-11 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-purple-300 font-bold font-mono focus:border-purple-400 outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Display Duration (Days)</label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      value={tierPricingDraft.vipBundleDurationDays ?? 45}
-                      onChange={(e) => {
-                        setTierPricingNotice(null);
-                        setTierPricingDraft((prev) => ({
-                          ...prev,
-                          vipBundleDurationDays: Math.max(1, Number(e.target.value) || 1)
-                        }));
-                      }}
-                      className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-purple-300 font-mono focus:border-purple-400 outline-none"
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">Days</span>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Badge Text</label>
-                  <input
-                    type="text"
-                    value={tierPricingDraft.vipBadgeText || '👑 VIP Ultimate Placement'}
-                    onChange={(e) => {
-                      setTierPricingNotice(null);
-                      setTierPricingDraft((prev) => ({
-                        ...prev,
-                        vipBadgeText: e.target.value
-                      }));
-                    }}
-                    className="w-full px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-purple-300 text-[11px] outline-none"
-                  />
-                </div>
-
-                <div className="text-[11px] bg-slate-900/90 p-2 rounded-xl border border-slate-800 text-slate-300">
-                  Flat Price: <strong className="text-purple-300 font-mono font-bold">PKR {tierPricingDraft.vipBundleFeePkr.toLocaleString()}</strong>
-                </div>
-              </div>
-
-            </div>
-
-            {/* LIVE PRIORITY RANKING EXPLANATION */}
-            <div className="p-4 bg-slate-950/90 border border-slate-800 rounded-xl space-y-2 text-xs">
-              <div className="font-bold text-white flex items-center space-x-2">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span>How the Priority Algorithm Sorts Jobs on the Public Board:</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 text-[11px] text-slate-300">
-                <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800">
-                  <strong className="text-purple-300 block mb-1">1st: VIP & Pinned Top</strong>
-                  Jobs with Pinned Top & VIP bundle always display first above all listings.
-                </div>
-                <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800">
-                  <strong className="text-amber-300 block mb-1">2nd: Featured Posts</strong>
-                  Highlighted in warm gold border and displayed right after top pinned jobs.
-                </div>
-                <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800">
-                  <strong className="text-rose-300 block mb-1">3rd: Urgent Hiring</strong>
-                  Shows blinking fire badge and sits ahead of general regular listings.
-                </div>
-                <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800">
-                  <strong className="text-indigo-300 block mb-1">4th: Future & Standard</strong>
-                  Future jobs show advance countdown; standard listings sort by recency.
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* MASTER FEATURE SWITCHES PANEL */}
           <div className="md:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white space-y-5 shadow-xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
@@ -7475,102 +6926,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
 
             </div>
-          </div>
-
-          {/* ADMINISTRATOR PASSWORD & SECURITY MANAGEMENT */}
-          <div className="md:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white space-y-5 shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h3 className="text-base font-bold flex items-center space-x-2 text-amber-400">
-                  <Key className="w-5 h-5 text-amber-400" />
-                  <span>Administrator Account & Password Security</span>
-                </h3>
-                <p className="text-xs text-slate-400 font-medium">Update your administrative credentials securely in the authoritative database.</p>
-              </div>
-              <span className="bg-amber-500/20 text-amber-300 text-xs font-bold px-3 py-1 rounded-full border border-amber-500/30">
-                Server-Authoritative
-              </span>
-            </div>
-
-            {adminPasswordStatus && (
-              <div className={`p-3.5 rounded-xl border text-xs font-semibold flex items-start space-x-2 ${
-                adminPasswordStatus.type === 'success'
-                  ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
-                  : 'bg-rose-950/60 border-rose-500/40 text-rose-300'
-              }`}>
-                {adminPasswordStatus.type === 'success' ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                )}
-                <span>{adminPasswordStatus.message}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleAdminPasswordChangeSubmit} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Current Password
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={adminCurrentPassword}
-                  onChange={(e) => setAdminCurrentPassword(e.target.value)}
-                  placeholder="Enter current password..."
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  New Password (min 8 chars)
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={adminNewPassword}
-                  onChange={(e) => setAdminNewPassword(e.target.value)}
-                  placeholder="Enter new password..."
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Confirm New Password
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={adminConfirmPassword}
-                  onChange={(e) => setAdminConfirmPassword(e.target.value)}
-                  placeholder="Repeat new password..."
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-
-              <div className="sm:col-span-3 flex justify-end pt-2">
-                <button
-                  type="submit"
-                  disabled={adminPasswordLoading}
-                  className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
-                >
-                  {adminPasswordLoading ? 'Updating Password...' : 'Save New Admin Password'}
-                </button>
-              </div>
-            </form>
-          </div>
-
-          {/* WHATSAPP SUPPORT WIDGET SETTINGS */}
-          <AdminWhatsAppSettings
-            config={currentWhatsAppConfig}
-            onSave={handleUpdateWhatsApp}
-          />
-
-          {/* LOCATION CATALOG & CITY/PROVINCE MASTER MANAGEMENT */}
-          <div className="md:col-span-2">
-            <AdminLocationManager />
           </div>
 
         </div>

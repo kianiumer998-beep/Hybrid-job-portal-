@@ -29,6 +29,16 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
   const [pricing, setPricing] = useState<any>({
     jobPosting: {
       standardFeePkr: 1000,
+      enableStandard: true,
+      enableUrgent: true,
+      enableFeaturedTop: true,
+      enableFutureJob: true,
+      enableVipBundle: true,
+      standardDescription: 'Regular chronological placement',
+      urgentBadgeText: 'Urgent Hiring',
+      featuredBadgeText: 'Featured',
+      futureBadgeText: 'Future Job',
+      vipBadgeText: 'VIP Ultimate Placement',
       urgentFeePkr: 500,
       featuredTopFeePkr: 1500,
       futureJobFeePkr: 800,
@@ -388,6 +398,45 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                   onChange={(e) => updateNested('jobPosting', 'vipBundleDurationDays', Number(e.target.value))}
                   className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
                 />
+              </div>
+            </div>
+
+            {/* Advanced job-tier controls retained from the former mixed Settings page */}
+            <div className="mt-5 pt-5 border-t border-slate-800 space-y-4">
+              <div>
+                <h4 className="font-bold text-white text-sm">Tier Availability & Public Labels</h4>
+                <p className="text-xs text-slate-400">Enable or disable each job tier and control the badge text shown on job listings. Prices and durations remain managed above.</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                {[
+                  { field: 'enableStandard', label: 'Standard Listing' },
+                  { field: 'enableUrgent', label: 'Urgent Hiring' },
+                  { field: 'enableFeaturedTop', label: 'Pinned / Featured Top' },
+                  { field: 'enableFutureJob', label: 'Future Job' },
+                  { field: 'enableVipBundle', label: 'VIP Bundle' }
+                ].map((tier) => (
+                  <label key={tier.field} className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/70 p-3 text-slate-200">
+                    <span className="font-semibold">{tier.label}</span>
+                    <input type="checkbox" checked={pricing.jobPosting?.[tier.field] !== false} onChange={(e) => updateNested('jobPosting', tier.field, e.target.checked)} className="h-4 w-4 rounded border-slate-700 text-emerald-500 focus:ring-emerald-500" />
+                  </label>
+                ))}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  { field: 'urgentBadgeText', label: 'Urgent Badge Text', fallback: 'Urgent Hiring' },
+                  { field: 'featuredBadgeText', label: 'Featured Badge Text', fallback: 'Featured' },
+                  { field: 'futureBadgeText', label: 'Future Job Badge Text', fallback: 'Future Job' },
+                  { field: 'vipBadgeText', label: 'VIP Badge Text', fallback: 'VIP Ultimate Placement' }
+                ].map((badge) => (
+                  <div key={badge.field}>
+                    <label className="block text-xs text-slate-400 mb-1">{badge.label}</label>
+                    <input type="text" value={pricing.jobPosting?.[badge.field] || badge.fallback} onChange={(e) => updateNested('jobPosting', badge.field, e.target.value)} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white text-xs" />
+                  </div>
+                ))}
+                <div className="sm:col-span-2">
+                  <label className="block text-xs text-slate-400 mb-1">Standard Listing Description</label>
+                  <input type="text" value={pricing.jobPosting?.standardDescription || 'Regular chronological placement'} onChange={(e) => updateNested('jobPosting', 'standardDescription', e.target.value)} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white text-xs" />
+                </div>
               </div>
             </div>
 

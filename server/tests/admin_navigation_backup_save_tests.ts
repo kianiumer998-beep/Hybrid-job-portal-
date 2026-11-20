@@ -1034,7 +1034,7 @@ async function runSuite() {
   };
 
   await runTest('PHASE 8.1-B: Canonical module registry has exactly 32 unique modules mapped across 7 Classic and 8 Professional categories', () => {
-    assert.strictEqual(ADMIN_NAVIGATION_MODULES.length, 32, 'Expected exactly 31 unique modules (30 existing + locations-manager)');
+    assert.strictEqual(ADMIN_NAVIGATION_MODULES.length, 32, 'Expected 32 unique modules (30 existing plus locations-manager and admin-security)');
     const ids = ADMIN_NAVIGATION_MODULES.map((m) => m.id);
     assert.strictEqual(new Set(ids).size, 32, 'Canonical module IDs must be strictly unique');
     assert.strictEqual(CLASSIC_ADMIN_CATEGORIES.length, 7);
@@ -1067,12 +1067,12 @@ async function runSuite() {
       );
     }
 
-    // Classic All Modules Matrix preserves original 30 modules and zero duplicates (excluding locations-manager)
+    // Classic All Modules Matrix exposes all 32 modules and zero duplicates
     const allModulesGroups = buildAllModulesMenuGroups(sampleNavCounts);
     const matrixIds = allModulesGroups.flatMap((g) => g.items.map((i) => i.id));
-    assert.strictEqual(matrixIds.length, 30);
-    assert.strictEqual(new Set(matrixIds).size, 30);
-    assert.strictEqual(matrixIds.includes('locations-manager'), false, 'Classic All Modules Matrix must NOT include locations-manager');
+    assert.strictEqual(matrixIds.length, 32);
+    assert.strictEqual(new Set(matrixIds).size, 32);
+    assert.strictEqual(matrixIds.includes('locations-manager'), true, 'Classic All Modules Matrix must include the dedicated Location Manager submenu');
     assert.strictEqual(matrixIds.filter((id) => id === 'whatsapp-manager').length, 1);
 
     // Every module ID and alias exists in ADMIN_TAB_CATEGORIES

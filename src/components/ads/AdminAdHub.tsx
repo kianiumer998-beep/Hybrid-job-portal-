@@ -74,6 +74,7 @@ interface AdminAdHubProps {
   onUpdateCampaignConfig?: (config: CampaignCustomizationConfig) => void | Promise<unknown>;
   onApproveAd?: (adId: string) => void;
   onRejectAd?: (adId: string, reason: string) => void;
+  canManageAdConfiguration?: boolean;
 }
 
 export const AdminAdHub: React.FC<AdminAdHubProps> = ({
@@ -87,7 +88,8 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
   campaignConfig = DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
   onUpdateCampaignConfig,
   onApproveAd,
-  onRejectAd
+  onRejectAd,
+  canManageAdConfiguration = false
 }) => {
   // Main Sub-Tab: Directory, Pending Approvals, Placement Slots, Campaign Customizer, Pricing Engine, Performance Charts
   const [activeTab, setActiveTab] = useState<'directory' | 'approvals' | 'slots' | 'customizer' | 'pricing' | 'performance'>('approvals');
@@ -455,7 +457,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
           <span>Placement Slots & Live Timeline</span>
         </button>
 
-        <button
+        {canManageAdConfiguration && <button
           onClick={() => setActiveTab('customizer')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
             activeTab === 'customizer'
@@ -465,7 +467,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
         >
           <Sliders className="w-4 h-4" />
           <span>Campaign Options & Page Scheduler</span>
-        </button>
+        </button>}
 
         <button
           onClick={() => setActiveTab('directory')}
@@ -479,7 +481,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
           <span>All Campaigns Directory ({ads.length})</span>
         </button>
 
-        <button
+        {canManageAdConfiguration && <button
           onClick={() => setActiveTab('pricing')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
             activeTab === 'pricing'
@@ -489,7 +491,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
         >
           <Settings className="w-4 h-4" />
           <span>Rate Card & Pricing Matrix</span>
-        </button>
+        </button>}
 
         <button
           onClick={() => setActiveTab('performance')}
@@ -905,7 +907,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
       {/* ========================================================================= */}
       {/* TAB 3: CAMPAIGN OPTIONS & PORTAL PAGE SCHEDULER */}
       {/* ========================================================================= */}
-      {activeTab === 'customizer' && (
+      {activeTab === 'customizer' && canManageAdConfiguration && (
         <AdminCampaignCustomizer
           config={campaignConfig}
           onSaveConfig={(updated) => {
@@ -920,7 +922,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
       {/* ========================================================================= */}
       {/* TAB 4: RATE CARD & PRICING MATRIX CONFIGURATION */}
       {/* ========================================================================= */}
-      {activeTab === 'pricing' && (
+      {activeTab === 'pricing' && canManageAdConfiguration && (
         <div className="space-y-6">
           <form onSubmit={handleSavePricingConfig} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
             

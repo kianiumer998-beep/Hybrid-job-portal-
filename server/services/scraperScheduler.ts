@@ -153,6 +153,7 @@ export async function runSchedulerTick(
   aborted?: boolean;
   skippedDueToConflict?: boolean;
   error?: string;
+  historyPersistenceError?: string;
   summary: any;
 }> {
   if (isTickExecuting) {

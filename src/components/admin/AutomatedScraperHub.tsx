@@ -4745,7 +4745,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     {filteredRuns.map(run => (
                       <tr key={run.runId || run.id} className="hover:bg-slate-800/40 transition-all">
                         <td className="p-4 font-mono font-bold text-white">
-                          {run.runId || run.id}
+                          <div>{run.runId || run.id}</div>
+                          {run.recordType === 'batch_summary' && (
+                            <span className="mt-1 inline-block rounded bg-indigo-500/15 px-1.5 py-0.5 text-[9px] font-bold text-indigo-300">BATCH SUMMARY</span>
+                          )}
                         </td>
                         <td className="p-4 font-mono text-[10px] text-indigo-300">
                           {run.batchId || 'Legacy / Not recorded'}

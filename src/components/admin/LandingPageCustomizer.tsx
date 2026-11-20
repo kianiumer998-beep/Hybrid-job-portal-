@@ -736,7 +736,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                   const hasUsableDate = (value: unknown): boolean => {
                     if (typeof value !== 'string' || !value.trim()) return false;
                     const clean = value.trim();
-  const dmy = clean.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/);
+                    const dmy = clean.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/);
                     if (dmy) {
                       const day = Number(dmy[1]);
                       const month = Number(dmy[2]) - 1;

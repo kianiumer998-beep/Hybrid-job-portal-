@@ -638,6 +638,9 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   // Live Backend State (Strict MongoDB-backed data)
   const [liveSources, setLiveSources] = useState<ScraperSourceItem[]>([]);
   const [liveRuns, setLiveRuns] = useState<ScraperRunRecord[]>([]);
+  const [runHistoryHasMore, setRunHistoryHasMore] = useState(false);
+  const [runHistoryTotal, setRunHistoryTotal] = useState(0);
+  const [isLoadingMoreRuns, setIsLoadingMoreRuns] = useState(false);
   const [schedulerStatus, setSchedulerStatus] = useState<any>(null);
   const [isLoadingLive, setIsLoadingLive] = useState(true);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -782,12 +785,16 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         setLiveSources(propsSources);
       }
 
-      // 2. Fetch Runs
-      const runsRes = await api.scraper.getRuns();
+      // 2. Fetch the first bounded page of run history.
+      const runsRes = await api.scraper.getRunsPage(0, 50);
       if (runsRes?.success && Array.isArray(runsRes.runs)) {
         setLiveRuns(runsRes.runs);
+        setRunHistoryHasMore(Boolean(runsRes.hasMore));
+        setRunHistoryTotal(Number.isFinite(Number(runsRes.total)) ? Number(runsRes.total) : runsRes.runs.length);
       } else {
         setLiveRuns([]);
+        setRunHistoryHasMore(false);
+        setRunHistoryTotal(0);
       }
 
       // 3. Fetch Scheduler Status & Authoritative Settings
@@ -1043,6 +1050,30 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   // -------------------------------------------------------------
   // Filtered Runs for Step 5: History
   // -------------------------------------------------------------
+  const handleLoadMoreRuns = useCallback(async () => {
+    if (isLoadingMoreRuns || !runHistoryHasMore) return;
+    setIsLoadingMoreRuns(true);
+    try {
+      const nextOffset = liveRuns.length;
+      const response = await api.scraper.getRunsPage(nextOffset, 50);
+      if (response?.success && Array.isArray(response.runs)) {
+        setLiveRuns(previous => {
+          const existingIds = new Set(previous.map(run => run.runId || run.id).filter(Boolean));
+          const additions = response.runs.filter((run: ScraperRunRecord) => !existingIds.has(run.runId || run.id));
+          return [...previous, ...additions];
+        });
+        setRunHistoryHasMore(Boolean(response.hasMore));
+        setRunHistoryTotal(Number.isFinite(Number(response.total)) ? Number(response.total) : runHistoryTotal);
+      } else {
+        setStatusMessage({ text: response?.message || 'Unable to load more scraper history.', type: 'error' });
+      }
+    } catch (error: any) {
+      setStatusMessage({ text: error?.message || 'Unable to load more scraper history.', type: 'error' });
+    } finally {
+      setIsLoadingMoreRuns(false);
+    }
+  }, [isLoadingMoreRuns, runHistoryHasMore, liveRuns, runHistoryTotal]);
+
   const availableHistoryBatchIds = useMemo(() => {
     return Array.from(new Set(liveRuns.map(run => String(run.batchId || '').trim()).filter(Boolean)))
       .sort((a, b) => b.localeCompare(a));
@@ -4765,6 +4796,19 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   </tbody>
                 </table>
               </div>
+            )}
+          </div>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
+            <span>Loaded {liveRuns.length} of {runHistoryTotal} recorded runs</span>
+            {runHistoryHasMore && (
+              <button
+                type="button"
+                onClick={handleLoadMoreRuns}
+                disabled={isLoadingMoreRuns}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-100 rounded-xl font-bold"
+              >
+                {isLoadingMoreRuns ? 'Loading…' : 'Load More History'}
+              </button>
             )}
           </div>
         </div>

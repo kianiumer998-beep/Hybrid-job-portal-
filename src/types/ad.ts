@@ -1252,7 +1252,10 @@ export function validateCampaignTargetPages(selectedPages: string[], portalConfi
 
 export function isAdCurrentlyRunning(ad: Advertisement, nowIso?: string): boolean {
   if (ad.status !== 'active') return false;
+  // Preserve legacy admin-created ads with omitted fields, but never display
+  // campaigns explicitly awaiting approval or payment.
   if (ad.approvalStatus && ad.approvalStatus !== 'Approved') return false;
+  if (ad.paymentStatus && !['Paid', 'Exempt'].includes(ad.paymentStatus)) return false;
 
   if (!ad.scheduledStartAt || !ad.scheduledEndAt) {
     return true; // Unscheduled admin ads default to always running when active

@@ -507,7 +507,22 @@ scraperRouter.post('/retry', requireAdminPermission('scraper.manage'), async (re
       return res.json({ success: true, message: 'No failed sources found to retry.', totalFound: 0, newJobsCount: 0, duplicatesFound: 0, sourcesStats: [] });
     }
 
-    const duplicateMode: 'with' | 'without' = req.body.duplicateMode === 'without' ? 'without' : 'with';
+    // Retry must inherit the saved scheduler policy unless the admin explicitly
+    // chooses a one-time override. This prevents "without duplicates" silently
+    // reverting to "with duplicates" on manual retry.
+    const savedSettings = await ScraperRepository.getSchedulerSettings();
+    const requestedDuplicateMode = req.body.duplicateMode;
+    if (requestedDuplicateMode !== undefined && !['with', 'without'].includes(requestedDuplicateMode)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid duplicateMode. Supported values are: with, without.'
+      });
+    }
+    const duplicateMode: 'with' | 'without' =
+      requestedDuplicateMode === 'with' || requestedDuplicateMode === 'without'
+        ? requestedDuplicateMode
+        : (savedSettings.duplicateMode || 'with');
+
     const result = await executeScraperWithWizard({
       mode: 'complete',
       sourceIds: targetIds,

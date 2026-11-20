@@ -1429,6 +1429,9 @@ async function runSuite() {
     assert.ok(financeProjection.includes('const financeVisibleFields = ['));
     assert.ok(!financeProjection.includes("'submittedByUserEmail'"));
     assert.ok(!financeProjection.includes("'submittedByUserPhone'"));
+    assert.ok(!financeProjection.includes("'submittedByUserName'"));
+    assert.ok(!financeProjection.includes("'submittedByUserId'"));
+    assert.ok(!financeProjection.includes("'clientName'"));
     assert.ok(!financeProjection.includes("'clientEmail'"));
 
     assert.ok(putBlock.includes("const advertisementEditableFields = new Set(["));

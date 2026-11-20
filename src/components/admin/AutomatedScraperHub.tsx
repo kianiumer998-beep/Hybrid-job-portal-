@@ -356,7 +356,7 @@ export interface ScraperSourceStat {
   pagesSuccessful?: number;
   failed?: boolean;
   /** Additive outcome category; legacy failed/error fields remain unchanged. */
-  failureCategory?: 'No Jobs Found' | 'Website Unavailable' | 'Extraction Failed' | 'Document Failed' | 'Incomplete Extraction' | 'Duplicate Skipped' | 'Database Save Failed' | 'Success' | string;
+  failureCategory?: 'No Jobs Found' | 'Website Unavailable' | 'Extraction Failed' | 'Document Failed' | 'Incomplete Extraction' | 'Duplicate Skipped' | 'Database Save Failed' | 'Database Error' | 'Success' | string;
   error?: string;
   lastSuccessfulScrapeAt?: string;
 }

@@ -397,11 +397,13 @@ export async function runSchedulerTick(
         error: error.error,
         failureCategory: 'Scheduler Execution Failed'
       }));
-      const batchStatus = failed.length > 0
-        ? (triggered.length > 0 ? 'Partial' : 'Failed')
-        : scheduleUpdateErrors.length > 0
-        ? 'Partial'
-        : 'Completed';
+      const completedRunCount = successfulRunResults.filter(result => result?.status === 'Completed').length;
+      const partialRunCount = successfulRunResults.filter(result => result?.status === 'Partial' || result?.status === 'Stopped').length;
+      const failedRunCount = successfulRunResults.filter(result => result?.status === 'Failed').length;
+      const batchFailedSourceCount = failed.length + failedRunCount;
+      const batchStatus = batchFailedSourceCount > 0
+        ? (triggered.length > batchFailedSourceCount ? 'Partial' : 'Failed')
+        : (partialRunCount > 0 || scheduleUpdateErrors.length > 0 ? 'Partial' : 'Completed');
       try {
         await addRunFn({
           id: `SCHED-BATCH-SUMMARY-${tickStartedAt.getTime().toString(36).toUpperCase()}`,
@@ -414,8 +416,9 @@ export async function runSchedulerTick(
           duplicateMode: settings.duplicateMode === 'without' ? 'without' : 'with',
           targetsScraped: triggered.length,
           totalTargetsPlanned: plannedSourceIds.length,
-          successfulSources: triggered.length,
-          failedSources: failed.length,
+          successfulSources: completedRunCount,
+          partialSources: partialRunCount,
+          failedSources: batchFailedSourceCount,
           scheduleUpdateFailures: scheduleUpdateErrors.length,
           status: batchStatus,
           totalFound: successfulRunResults.reduce((sum, result) => sum + (Number(result?.totalFound) || 0), 0),

@@ -1033,10 +1033,10 @@ async function runSuite() {
     chatMessagesCount: 6
   };
 
-  await runTest('PHASE 8.1-B: Canonical module registry has exactly 31 unique modules mapped across 7 Classic and 8 Professional categories', () => {
-    assert.strictEqual(ADMIN_NAVIGATION_MODULES.length, 31, 'Expected exactly 31 unique modules (30 existing + locations-manager)');
+  await runTest('PHASE 8.1-B: Canonical module registry has exactly 32 unique modules mapped across 7 Classic and 8 Professional categories', () => {
+    assert.strictEqual(ADMIN_NAVIGATION_MODULES.length, 32, 'Expected exactly 31 unique modules (30 existing + locations-manager)');
     const ids = ADMIN_NAVIGATION_MODULES.map((m) => m.id);
-    assert.strictEqual(new Set(ids).size, 31, 'Canonical module IDs must be strictly unique');
+    assert.strictEqual(new Set(ids).size, 32, 'Canonical module IDs must be strictly unique');
     assert.strictEqual(CLASSIC_ADMIN_CATEGORIES.length, 7);
     assert.strictEqual(PROFESSIONAL_ADMIN_CATEGORIES.length, 8);
 
@@ -1048,7 +1048,7 @@ async function runSuite() {
       'finance-payments': ['pricing-controller', 'admin-payment-methods', 'payment-proofs', 'fee-management', 'fee-logs', 'currency-forex'],
       'users-kyc-support': ['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'],
       'communication-alerts': ['whatsapp-manager', 'broadcast-center', 'bulk-notifications'],
-      'platform-settings-data': ['locations-manager', 'apply-settings', 'modal-content-manager', 'job-visibility', 'seo-config', 'settings', 'form-customizer', 'data-backup']
+      'platform-settings-data': ['locations-manager', 'apply-settings', 'modal-content-manager', 'job-visibility', 'seo-config', 'settings', 'form-customizer', 'data-backup', 'admin-security']
     };
 
     const superAdminCanAccess = (tabId: string) =>
@@ -1242,14 +1242,16 @@ async function runSuite() {
     // Classic sub-tabs respect permission filter AND omit locations-manager
     const classicSettingsTabs = getClassicCategorySubTabs('settings', sampleNavCounts, settingsCan).map((t) => t.id);
     assert.deepStrictEqual(classicSettingsTabs, [
+      'locations-manager',
       'apply-settings',
       'modal-content-manager',
       'job-visibility',
       'settings',
       'form-customizer',
+      'admin-security',
       'analytics'
     ]);
-    assert.strictEqual(classicSettingsTabs.includes('locations-manager'), false);
+    assert.strictEqual(classicSettingsTabs.includes('locations-manager'), true);
     assert.strictEqual(classicSettingsTabs.includes('data-backup'), false);
 
     // Unverified admin sees 0 categories/modules
@@ -1370,7 +1372,7 @@ async function runSuite() {
     }
   });
 
-  await runTest('Classic Parity Restoration: preserves exact 7 categories, original 30-module Classic sub-tabs & All Modules Matrix order, and keeps Location Manager inside Classic Settings', () => {
+  await runTest('Classic Parity Restoration: preserves 7 categories and exposes all 32 canonical modules through the existing Classic menu', () => {
     const expectedClassicOrder: Record<AdminCategory, string[]> = {
       jobs: ['jobs', 'pending', 'add-job', 'ai-enhancer'],
       scraper: ['scraper'],
@@ -1386,6 +1388,7 @@ async function runSuite() {
       users: ['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'],
       alerts: ['whatsapp-manager', 'broadcast-center', 'bulk-notifications'],
       settings: [
+        'locations-manager',
         'apply-settings',
         'modal-content-manager',
         'job-visibility',
@@ -1394,6 +1397,7 @@ async function runSuite() {
         'form-customizer',
         'activity-logs',
         'data-backup',
+        'admin-security',
         'analytics'
       ]
     };
@@ -1416,12 +1420,12 @@ async function runSuite() {
       );
     }
 
-    // Specifically verify Classic Settings has NO locations-manager entry and matches exact 9-item order
+    // Verify Classic Settings includes Location Manager and Administrator Security in the expected order
     const classicSettingsIds = getClassicCategorySubTabs('settings', sampleNavCounts, superCan).map((t) => t.id);
-    assert.strictEqual(classicSettingsIds.includes('locations-manager'), false);
+    assert.strictEqual(classicSettingsIds.includes('locations-manager'), true);
     assert.deepStrictEqual(classicSettingsIds, expectedClassicOrder.settings);
 
-    // Verify All Modules Matrix preserves exact original 7 groups and 30 ordered module IDs
+    // Verify All Modules Matrix preserves the 7 groups and exposes all 32 canonical modules
     const allModules = buildAllModulesMenuGroups(sampleNavCounts);
     assert.deepStrictEqual(
       allModules.map((g) => g.catKey),
@@ -1435,7 +1439,7 @@ async function runSuite() {
       );
       assert.strictEqual(
         group.items.some((i) => i.id === 'locations-manager'),
-        false,
+        group.catKey === 'settings',
         `All Modules Matrix group "${group.catKey}" must not contain locations-manager`
       );
     }
@@ -1458,15 +1462,18 @@ async function runSuite() {
     assert.strictEqual(usersSubTabs[2].label, 'Paid Subscribers (8)');
     assert.strictEqual(usersSubTabs[3].label, 'User Support Chat Hub (6)');
 
-    // Verify existing <AdminLocationManager /> remains rendered inside Classic settings tab in AdminDashboard.tsx
+    // Location Manager now has its own Classic Settings submenu and no longer appears as an unrelated panel inside Global Feature Controls.
     const dashSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'), 'utf8');
+    const locationsTabIdx = dashSource.indexOf("adminTab === 'locations-manager' && canAccessAdminTab('locations-manager')");
+    const locationsComponentIdx = dashSource.indexOf('<AdminLocationManager />', locationsTabIdx);
     const settingsTabIdx = dashSource.indexOf("{adminTab === 'settings' && (");
-    const locationsInSettingsIdx = dashSource.indexOf('<AdminLocationManager />', settingsTabIdx);
-    assert.ok(settingsTabIdx !== -1, 'Expected Classic settings tab render block in AdminDashboard.tsx');
-    assert.ok(locationsInSettingsIdx > settingsTabIdx, 'Expected original <AdminLocationManager /> inside Classic settings screen');
+    const settingsEndIdx = dashSource.indexOf('USER AUDIT DETAILED CONTROL MODAL', settingsTabIdx);
+    assert.ok(locationsTabIdx !== -1, 'Expected a dedicated guarded Location Manager page');
+    assert.ok(locationsComponentIdx > locationsTabIdx, 'Expected Location Manager to render inside its dedicated page');
+    assert.ok(!dashSource.slice(settingsTabIdx, settingsEndIdx).includes('<AdminLocationManager />'), 'Global Feature Controls must not contain unrelated location fields');
   });
 
-  await runTest('AUDIT-01: Professional All Modules modal exposes all 31 canonical modules grouped by PROFESSIONAL_ADMIN_CATEGORIES while Classic preserves 30', () => {
+  await runTest('AUDIT-01: Professional and Classic All Modules matrices expose all 32 canonical modules without duplicates', () => {
     const sampleNavCounts: AdminNavCounts = {
       activeJobsCount: 10,
       pendingJobsCount: 2,
@@ -1487,14 +1494,14 @@ async function runSuite() {
       PROFESSIONAL_ADMIN_CATEGORIES.map((c) => c.id)
     );
     const proIds = proMatrixGroups.flatMap((g) => g.items.map((i) => i.id));
-    assert.strictEqual(proIds.length, 31, 'Professional All Modules must contain all 31 canonical modules');
-    assert.strictEqual(new Set(proIds).size, 31, 'Professional All Modules must have zero duplicate module IDs');
+    assert.strictEqual(proIds.length, 32, 'Professional All Modules must contain all 32 canonical modules');
+    assert.strictEqual(new Set(proIds).size, 32, 'Professional All Modules must have zero duplicate module IDs');
     assert.ok(proIds.includes('locations-manager'), 'Professional All Modules must include locations-manager');
 
     const classicMatrixGroups = buildAllModulesMenuGroups(sampleNavCounts);
     const classicIds = classicMatrixGroups.flatMap((g) => g.items.map((i) => i.id));
-    assert.strictEqual(classicIds.length, 30, 'Classic All Modules must still contain exact 30 modules');
-    assert.strictEqual(classicIds.includes('locations-manager'), false);
+    assert.strictEqual(classicIds.length, 32, 'Classic All Modules must expose all 32 canonical modules');
+    assert.strictEqual(classicIds.includes('locations-manager'), true);
 
     const dashSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'), 'utf8');
     assert.ok(
@@ -1699,10 +1706,10 @@ async function runSuite() {
     assert.ok(html.includes('Save &amp; Publish Payment Settings'));
   });
 
-  await runTest('AUDIT-07: All 31 canonical AdminDashboard tabs have explicit permission guards in source', () => {
+  await runTest('AUDIT-07: All 32 canonical AdminDashboard tabs have explicit permission guards in source', () => {
     const dashSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'), 'utf8');
     const canonicalIds = ADMIN_NAVIGATION_MODULES.map((m) => m.id);
-    assert.strictEqual(canonicalIds.length, 31);
+    assert.strictEqual(canonicalIds.length, 32);
     for (const id of canonicalIds) {
       if (id === 'scraper') {
         assert.ok(

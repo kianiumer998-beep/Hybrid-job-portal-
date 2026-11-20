@@ -30,7 +30,7 @@ adRouter.get('/', async (req, res) => {
         const financeView: Record<string, any> = {};
         const financeVisibleFields = [
           'id', 'title', 'type', 'placement', 'status', 'approvalStatus',
-          'submittedByUserName', 'durationUnit', 'durationValue', 'durationDisplay',
+          'durationUnit', 'durationValue', 'durationDisplay',
           'targetPages', 'campaignCostPkr', 'paymentStatus', 'walletTxId',
           'paymentTransactionId', 'transactionRef', 'budget', 'startDate', 'endDate',
           'scheduledStartAt', 'scheduledEndAt', 'createdAt', 'updatedAt'

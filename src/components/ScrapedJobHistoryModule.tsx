@@ -104,6 +104,15 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
     return uniqueLogs;
   }, [auditLogs]);
 
+  // Build source choices from actual audit history instead of a hardcoded portal list.
+  const availableSourceNames = useMemo(() => {
+    return Array.from(new Set(
+      currentLogs
+        .map(entry => String(entry.sourcePortalName || '').trim())
+        .filter(Boolean)
+    )).sort((a, b) => a.localeCompare(b));
+  }, [currentLogs]);
+
   // Filtered Audit Entries
   const filteredAuditLogs = useMemo(() => {
     return currentLogs.filter((entry) => {
@@ -128,13 +137,9 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
         if (statusFilter === 'Rejected' && entry.status !== 'Rejected') return false;
       }
 
-      // Source filter
-      if (sourceFilter !== 'all') {
-        if (sourceFilter === 'rozee' && !entry.sourceDomain.includes('rozee')) return false;
-        if (sourceFilter === 'fpsc' && !entry.sourceDomain.includes('fpsc') && !entry.sourceDomain.includes('gov')) return false;
-        if (sourceFilter === 'jang' && !entry.sourceDomain.includes('jang')) return false;
-        if (sourceFilter === 'linkedin' && !entry.sourceDomain.includes('linkedin')) return false;
-        if (sourceFilter === 'gulftalent' && !entry.sourceDomain.includes('gulftalent')) return false;
+      // Source filter matches the actual source label stored with each audit record.
+      if (sourceFilter !== 'all' && entry.sourcePortalName !== sourceFilter) {
+        return false;
       }
 
       // Region filter
@@ -157,8 +162,7 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
         const today = dateKey(new Date());
         if (dateFilter === 'today' && entryDate !== today) return false;
         if (dateFilter === 'yesterday') {
-          const yesterday = new Date();
-          yesterday.setDate(yesterday.getDate() - 1);
+          const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
           if (entryDate !== dateKey(yesterday)) return false;
         }
         if (dateFilter === 'week') {
@@ -613,12 +617,10 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
                   onChange={(e) => setSourceFilter(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold"
                 >
-                  <option value="all">All Source Portals</option>
-                  <option value="rozee">Rozee.pk Tech Jobs</option>
-                  <option value="fpsc">FPSC / Govt Portals</option>
-                  <option value="jang">Daily Jang Classifieds</option>
-                  <option value="linkedin">LinkedIn Global Remote</option>
-                  <option value="gulftalent">GulfTalent UAE/Saudi</option>
+                  <option value="all">All Source Portals ({availableSourceNames.length})</option>
+                  {availableSourceNames.map(sourceName => (
+                    <option key={sourceName} value={sourceName}>{sourceName}</option>
+                  ))}
                 </select>
               </div>
 
@@ -650,8 +652,9 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold"
                 >
                   <option value="all">All Scraping Dates</option>
-                  <option value="today">Today (2026-08-26)</option>
-                  <option value="yesterday">Yesterday (2026-08-25)</option>
+                  <option value="today">Today (Pakistan Time)</option>
+                  <option value="yesterday">Yesterday (Pakistan Time)</option>
+                  <option value="week">Last 7 Days</option>
                 </select>
               </div>
             </div>

@@ -203,7 +203,9 @@ export interface Job {
   sourceUrl?: string;
   scraperSourceId?: string;
   scraperSourceName?: string;
+  sourcePortal?: string;
   scrapedSourceDomain?: string;
+  extractionMethod?: string;
   scrapedAt?: string; // "YYYY-MM-DD HH:MM:SS"
   scrapedTime?: string; // "HH:MM AM/PM"
   applicationUrl?: string;

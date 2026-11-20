@@ -275,7 +275,7 @@ export function normalizeLandingDesignSystem(
     }
     return {
       ...fallback,
-      name: typeof found.name === 'string' && found.name.trim() ? found.name.trim().slice(0, 80) : fallback.name,
+      name: typeof found?.name === 'string' && found.name.trim() ? found.name.trim().slice(0, 80) : fallback.name,
       config: { ...fallback.config, ...config }
     };
   });

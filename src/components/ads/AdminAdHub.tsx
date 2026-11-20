@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Advertisement, 
   AdType, 
@@ -75,6 +75,7 @@ interface AdminAdHubProps {
   onApproveAd?: (adId: string) => void;
   onRejectAd?: (adId: string, reason: string) => void;
   canManageAdConfiguration?: boolean;
+  isPricingReady?: boolean;
 }
 
 export const AdminAdHub: React.FC<AdminAdHubProps> = ({
@@ -89,7 +90,8 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
   onUpdateCampaignConfig,
   onApproveAd,
   onRejectAd,
-  canManageAdConfiguration = false
+  canManageAdConfiguration = false,
+  isPricingReady = false
 }) => {
   // Main Sub-Tab: Directory, Pending Approvals, Placement Slots, Campaign Customizer, Pricing Engine, Performance Charts
   const [activeTab, setActiveTab] = useState<'directory' | 'approvals' | 'slots' | 'customizer' | 'pricing' | 'performance'>('approvals');
@@ -115,6 +117,10 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
   // Pricing Matrix Form State
   const [editablePricing, setEditablePricing] = useState<AdPricingConfig>(pricingConfig);
+
+  useEffect(() => {
+    setEditablePricing(pricingConfig);
+  }, [pricingConfig]);
   const [isPricingSaved, setIsPricingSaved] = useState<boolean>(false);
   const [isPricingSaving, setIsPricingSaving] = useState<boolean>(false);
 
@@ -457,7 +463,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
           <span>Placement Slots & Live Timeline</span>
         </button>
 
-        {canManageAdConfiguration && <button
+        {canManageAdConfiguration && isPricingReady && <button
           onClick={() => setActiveTab('customizer')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
             activeTab === 'customizer'
@@ -481,7 +487,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
           <span>All Campaigns Directory ({ads.length})</span>
         </button>
 
-        {canManageAdConfiguration && <button
+        {canManageAdConfiguration && isPricingReady && <button
           onClick={() => setActiveTab('pricing')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
             activeTab === 'pricing'
@@ -907,7 +913,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
       {/* ========================================================================= */}
       {/* TAB 3: CAMPAIGN OPTIONS & PORTAL PAGE SCHEDULER */}
       {/* ========================================================================= */}
-      {activeTab === 'customizer' && canManageAdConfiguration && (
+      {activeTab === 'customizer' && canManageAdConfiguration && isPricingReady && (
         <AdminCampaignCustomizer
           config={campaignConfig}
           onSaveConfig={(updated) => {
@@ -922,7 +928,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
       {/* ========================================================================= */}
       {/* TAB 4: RATE CARD & PRICING MATRIX CONFIGURATION */}
       {/* ========================================================================= */}
-      {activeTab === 'pricing' && canManageAdConfiguration && (
+      {activeTab === 'pricing' && canManageAdConfiguration && isPricingReady && (
         <div className="space-y-6">
           <form onSubmit={handleSavePricingConfig} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
             

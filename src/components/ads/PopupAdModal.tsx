@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Advertisement, AdTargetPage, PopupDisplaySettings, PopupAppearanceSettings, DEFAULT_POPUP_APPEARANCE } from '../../types/ad';
+import { Advertisement, AdTargetPage, PopupDisplaySettings, PopupAppearanceSettings, DEFAULT_POPUP_APPEARANCE, isAdCurrentlyRunning } from '../../types/ad';
 import { X, Sparkles, ExternalLink, ArrowRight, ShieldCheck, CheckCircle2, Layers, ChevronRight } from 'lucide-react';
 
 interface PopupAdModalProps {
@@ -45,7 +45,7 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
   useEffect(() => {
     const candidates = ads.filter(
       (ad) =>
-        ad.status === 'active' &&
+        isAdCurrentlyRunning(ad) &&
         (ad.type === 'popup' || ad.placement === 'popup-modal') &&
         (ad.targetPages.includes('all') || ad.targetPages.includes(currentPage)) &&
         !dismissedSessionIds.includes(ad.id)

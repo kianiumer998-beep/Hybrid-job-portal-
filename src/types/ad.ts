@@ -1252,17 +1252,32 @@ export function validateCampaignTargetPages(selectedPages: string[], portalConfi
 
 export function isAdCurrentlyRunning(ad: Advertisement, nowIso?: string): boolean {
   if (ad.status !== 'active') return false;
+  // Preserve legacy admin-created ads with omitted fields, but never display
+  // campaigns explicitly awaiting approval or payment.
   if (ad.approvalStatus && ad.approvalStatus !== 'Approved') return false;
+  if (ad.paymentStatus && !['Paid', 'Exempt'].includes(ad.paymentStatus)) return false;
 
-  if (!ad.scheduledStartAt || !ad.scheduledEndAt) {
-    return true; // Unscheduled admin ads default to always running when active
-  }
+  // Preserve legacy admin ads with no schedule, but enforce whichever
+  // boundary is supplied. A malformed explicit date must fail closed.
+  if (!ad.scheduledStartAt && !ad.scheduledEndAt) return true;
 
   const now = nowIso ? new Date(nowIso).getTime() : Date.now();
-  const start = new Date(ad.scheduledStartAt.replace(' ', 'T')).getTime();
-  const end = new Date(ad.scheduledEndAt.replace(' ', 'T')).getTime();
+  if (!Number.isFinite(now)) return false;
 
-  return now >= start && now <= end;
+  const start = ad.scheduledStartAt
+    ? new Date(ad.scheduledStartAt.replace(' ', 'T')).getTime()
+    : undefined;
+  const end = ad.scheduledEndAt
+    ? new Date(ad.scheduledEndAt.replace(' ', 'T')).getTime()
+    : undefined;
+
+  if (start !== undefined && !Number.isFinite(start)) return false;
+  if (end !== undefined && !Number.isFinite(end)) return false;
+  if (start !== undefined && now < start) return false;
+  if (end !== undefined && now > end) return false;
+  if (start !== undefined && end !== undefined && start > end) return false;
+
+  return true;
 }
 
 /**

@@ -27,6 +27,7 @@ export interface CustomLandingCard {
   badge: string;
   buttonText: string;
   buttonUrl: string;
+  imageUrl?: string; // Optional HTTPS or same-origin image for this design's announcement card
   bgGradient: string; // Tailwind gradient class
   isEnabled: boolean;
   order: number;
@@ -219,6 +220,176 @@ export const DEFAULT_LANDING_PAGE_CONFIG: LandingPageConfig = {
     }
   }
 };
+
+export type LandingDesignId = 'legacy' | 'design-1' | 'design-2' | 'design-3';
+
+export interface LandingDesignEntry {
+  id: LandingDesignId;
+  name: string;
+  config: LandingPageConfig;
+}
+
+export interface LandingDesignSystem {
+  version: 1;
+  activeDesignId: LandingDesignId;
+  designs: LandingDesignEntry[];
+}
+
+/**
+ * Builds a backward-compatible design registry without changing the live page.
+ * New design slots begin as independent copies; administrators can customize
+ * each one before selecting it as the published design.
+ */
+export function createDefaultLandingDesignSystem(
+  legacyConfig: LandingPageConfig = DEFAULT_LANDING_PAGE_CONFIG
+): LandingDesignSystem {
+  const cloneConfig = (config: LandingPageConfig): LandingPageConfig =>
+    JSON.parse(JSON.stringify(config)) as LandingPageConfig;
+
+  const cleanProfessional = cloneConfig(legacyConfig);
+  cleanProfessional.jobCardDesign = {
+    ...cleanProfessional.jobCardDesign,
+    layout: 'compact',
+    theme: { ...cleanProfessional.jobCardDesign.theme, accentColor: 'indigo', cardBgPreset: 'glass', density: 'compact' }
+  };
+
+  const adsIntegrated = cloneConfig(legacyConfig);
+  // This is a genuine free portal feature card, not paid sponsor inventory.
+  if (!adsIntegrated.customCards.some((card) => card.id === 'card-ats-cv-builder')) {
+    adsIntegrated.customCards.push({
+      id: 'card-ats-cv-builder',
+      title: 'Build Your ATS-Ready CV',
+      description: 'Create and improve your professional resume with the portal\'s free ATS CV Builder.',
+      badge: 'Free Portal Tool',
+      buttonText: 'Build CV Free',
+      buttonUrl: '#cv',
+      bgGradient: 'from-indigo-700 via-blue-700 to-slate-900',
+      isEnabled: true,
+      order: 3
+    });
+  }
+  // The existing globally-rendered top banner and feed campaign placements remain
+  // connected to the approved/paid campaign pipeline; this preset only adjusts
+  // the page section order and does not create synthetic ad inventory.
+  adsIntegrated.sections = adsIntegrated.sections
+    .map((section) => ({ ...section, order: section.id === 'custom-announcements' ? 3 : section.id === 'quick-stats' ? 4 : section.order }))
+    .sort((a, b) => a.order - b.order)
+    .map((section, index) => ({ ...section, order: index + 1 }));
+  adsIntegrated.jobCardDesign = {
+    ...adsIntegrated.jobCardDesign,
+    theme: { ...adsIntegrated.jobCardDesign.theme, accentColor: 'amber', cardBgPreset: 'gradient', density: 'normal' }
+  };
+
+  const modernAlternative = cloneConfig(legacyConfig);
+  modernAlternative.jobCardDesign = {
+    ...modernAlternative.jobCardDesign,
+    layout: 'default',
+    theme: { ...modernAlternative.jobCardDesign.theme, accentColor: 'emerald', cardBgPreset: 'gradient', borderRadius: '3xl', density: 'spacious' }
+  };
+
+  return {
+    version: 1,
+    activeDesignId: 'legacy',
+    designs: [
+      { id: 'legacy', name: 'Existing Landing Page', config: cloneConfig(legacyConfig) },
+      { id: 'design-1', name: 'Design 1 — Clean Professional', config: cleanProfessional },
+      { id: 'design-2', name: 'Design 2 — Ads Integrated', config: adsIntegrated },
+      { id: 'design-3', name: 'Design 3 — Modern Alternative', config: modernAlternative }
+    ]
+  };
+}
+
+export function normalizeLandingDesignSystem(
+  value: unknown,
+  legacyConfig: LandingPageConfig = DEFAULT_LANDING_PAGE_CONFIG
+): LandingDesignSystem {
+  const defaults = createDefaultLandingDesignSystem(legacyConfig);
+  if (!value || typeof value !== 'object') return defaults;
+
+  const candidate = value as Partial<LandingDesignSystem>;
+  const allowedIds: LandingDesignId[] = ['legacy', 'design-1', 'design-2', 'design-3'];
+  const supplied = Array.isArray(candidate.designs) ? candidate.designs : [];
+  const designs = defaults.designs.map((fallback) => {
+    const found = supplied.find((item) => item && item.id === fallback.id);
+    const config = found?.config;
+    if (!config || typeof config !== 'object' || !config.hero || !Array.isArray(config.sections) || !Array.isArray(config.customCards)) {
+      return fallback;
+    }
+    const safeUrl = (value: unknown, fallbackUrl: string): string => {
+      if (typeof value !== 'string') return fallbackUrl;
+      const candidate = value.trim().slice(0, 2048);
+      if (/^(#|\/)(?!\/)/.test(candidate)) return candidate;
+      if (/^https:\/\//i.test(candidate)) return candidate;
+      if (/^mailto:[^\s@]+@[^\s@]+$/i.test(candidate)) return candidate;
+      return fallbackUrl;
+    };
+    const hero = { ...fallback.config.hero, ...config.hero };
+    Object.keys(hero).forEach((key) => {
+      const typedKey = key as keyof LandingHeroConfig;
+      const rawValue = hero[typedKey];
+      if (typedKey.endsWith('Url')) {
+        hero[typedKey] = safeUrl(rawValue, fallback.config.hero[typedKey] as string) as never;
+      } else if (typeof rawValue !== 'string') {
+        hero[typedKey] = fallback.config.hero[typedKey] as never;
+      } else {
+        hero[typedKey] = rawValue.slice(0, 500) as never;
+      }
+    });
+
+    const allowedSectionIds: LandingSectionId[] = ['hero', 'promo-banners', 'top-sponsor-ads', 'quick-stats', 'custom-announcements', 'jobs-feed'];
+    const seenSectionIds = new Set<string>();
+    const sections = config.sections
+      .filter((section: any) => section && allowedSectionIds.includes(section.id) && !seenSectionIds.has(section.id) && (seenSectionIds.add(section.id), true))
+      .map((section: LandingSectionOrder, index: number) => ({
+        ...section,
+        name: typeof section.name === 'string' ? section.name.slice(0, 100) : fallback.config.sections[index]?.name || section.id,
+        description: typeof section.description === 'string' ? section.description.slice(0, 240) : '',
+        isEnabled: section.isEnabled !== false,
+        order: Number.isFinite(Number(section.order)) ? Math.max(1, Math.min(100, Math.floor(Number(section.order)))) : index + 1
+      }));
+    const seenCardIds = new Set<string>();
+    const customCards = config.customCards
+      .filter((card: any) => card && typeof card.id === 'string' && card.id.trim() && !seenCardIds.has(card.id) && (seenCardIds.add(card.id), true))
+      .slice(0, 30)
+      .map((card: CustomLandingCard, index: number) => ({
+        ...card,
+        id: card.id.slice(0, 80),
+        title: typeof card.title === 'string' ? card.title.slice(0, 160) : '',
+        description: typeof card.description === 'string' ? card.description.slice(0, 600) : '',
+        badge: typeof card.badge === 'string' ? card.badge.slice(0, 60) : '',
+        buttonText: typeof card.buttonText === 'string' ? card.buttonText.slice(0, 80) : '',
+        buttonUrl: safeUrl(card.buttonUrl, '#jobs'),
+        imageUrl: typeof card.imageUrl === 'string' && (card.imageUrl.startsWith('https://') || (card.imageUrl.startsWith('/') && !card.imageUrl.startsWith('//'))) ? card.imageUrl.slice(0, 1000) : undefined,
+        bgGradient: typeof card.bgGradient === 'string' ? card.bgGradient.slice(0, 160) : 'from-slate-800 to-slate-950',
+        isEnabled: card.isEnabled !== false,
+        order: Number.isFinite(Number(card.order)) ? Math.max(1, Math.min(100, Math.floor(Number(card.order)))) : index + 1
+      }));
+
+    return {
+      ...fallback,
+      name: typeof found?.name === 'string' && found.name.trim() ? found.name.trim().slice(0, 80) : fallback.name,
+      config: {
+        ...fallback.config,
+        ...config,
+        hero,
+        sections: sections.length ? sections : fallback.config.sections,
+        customCards,
+        jobCardDesign: {
+          ...fallback.config.jobCardDesign,
+          ...(config.jobCardDesign || {}),
+          theme: { ...fallback.config.jobCardDesign.theme, ...(config.jobCardDesign?.theme || {}) },
+          visibility: { ...fallback.config.jobCardDesign.visibility, ...(config.jobCardDesign?.visibility || {}) },
+          labels: { ...fallback.config.jobCardDesign.labels, ...(config.jobCardDesign?.labels || {}) },
+          limits: { ...fallback.config.jobCardDesign.limits, ...(config.jobCardDesign?.limits || {}) }
+        }
+      }
+    };
+  });
+  const activeDesignId = allowedIds.includes(candidate.activeDesignId as LandingDesignId)
+    ? candidate.activeDesignId as LandingDesignId
+    : 'legacy';
+  return { version: 1, activeDesignId, designs };
+}
 
 export interface CountryOption {
   code: string;

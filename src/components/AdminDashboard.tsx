@@ -3872,6 +3872,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onUpdateCampaignConfig={onUpdateCampaignConfig}
           onApproveAd={onApproveAd}
           onRejectAd={onRejectAd}
+          canManageAdConfiguration={hasAdminUiPermission('finance.manage')}
         />
       )}
 

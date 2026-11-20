@@ -253,7 +253,7 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
   onMakeJobFree
 }) => {
   const initialFee = resolveAuthoritativeStandardFee(postingPricing, globalPostingFeePkr, jobPostingFeePkr);
-  const [activeSubTab, setActiveSubTab] = useState<'categories' | 'exemptions' | 'global-tiers' | 'job-waivers'>('categories');
+  const [activeSubTab, setActiveSubTab] = useState<'categories' | 'exemptions' | 'job-waivers'>('categories');
   const [standardFeeDraft, setStandardFeeDraft] = useState<number>(initialFee);
   const configuredStandardFeeRef = useRef<number>(initialFee);
   const [categoryFees, setCategoryFees] = useState<CategoryPostingFee[]>(() =>

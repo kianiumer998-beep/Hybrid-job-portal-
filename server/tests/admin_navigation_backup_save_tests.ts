@@ -1361,7 +1361,7 @@ async function runSuite() {
       ['src/components/ads/AdminAdHub.tsx', ["'directory' | 'approvals' | 'slots' | 'customizer' | 'pricing' | 'performance'"]],
       ['src/components/admin/AdminCampaignCenter.tsx', ['handleTogglePlacement', 'selectedPlacementFilter', 'selectedStatusFilter']],
       ['src/components/admin/LandingPageCustomizer.tsx', ["'hero' | 'sections' | 'custom-cards' | 'design' | 'promos' | 'preview'"]],
-      ['src/components/admin/AdminFeeManager.tsx', ["'categories' | 'exemptions' | 'global-tiers' | 'job-waivers'"]],
+      ['src/components/admin/AdminFeeManager.tsx', ["'categories' | 'exemptions' | 'job-waivers'"]],
       ['src/components/admin/AdminPaymentMethodsManager.tsx', ["'methods' | 'durations'"]],
       ['src/components/admin/AdminBroadcastCenter.tsx', ["'compose' | 'history' | 'templates' | 'providers'"]]
     ];

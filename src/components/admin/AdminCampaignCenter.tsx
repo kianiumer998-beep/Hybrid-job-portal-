@@ -104,6 +104,11 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
 
   // Quick Action Handlers
   const handleTogglePause = (ad: Advertisement) => {
+    // Only approved campaigns may be paused or resumed.
+    // Pending/rejected campaigns must never be promoted by this quick action.
+    if (ad.approvalStatus && ad.approvalStatus !== 'Approved') return;
+    if (ad.status !== 'active' && ad.status !== 'paused') return;
+
     const newStatus: AdStatus = ad.status === 'active' ? 'paused' : 'active';
     onUpdateAd({
       ...ad,
@@ -151,6 +156,7 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
         if (selectedStatusFilter === 'expired' && dynStatus !== 'Expired') return false;
         if (selectedStatusFilter === 'pending' && dynStatus !== 'Pending Approval') return false;
         if (selectedStatusFilter === 'paused' && dynStatus !== 'Paused') return false;
+        if (selectedStatusFilter === 'rejected' && dynStatus !== 'Rejected') return false;
       }
 
       if (searchQuery.trim()) {
@@ -251,7 +257,8 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
             { id: 'active', label: `🟢 Active (${ads.filter(a => getCampaignDynamicStatus(a) === 'Active').length})` },
             { id: 'scheduled', label: `🟡 Scheduled (${ads.filter(a => getCampaignDynamicStatus(a) === 'Scheduled').length})` },
             { id: 'expired', label: `🔴 Expired (${ads.filter(a => getCampaignDynamicStatus(a) === 'Expired').length})` },
-            { id: 'pending', label: `⏳ Pending (${ads.filter(a => getCampaignDynamicStatus(a) === 'Pending Approval').length})` }
+            { id: 'pending', label: `⏳ Pending (${ads.filter(a => getCampaignDynamicStatus(a) === 'Pending Approval').length})` },
+            { id: 'rejected', label: `Rejected (${ads.filter(a => getCampaignDynamicStatus(a) === 'Rejected').length})` }
           ].map((tab) => (
             <button
               key={tab.id}
@@ -337,8 +344,20 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
                 <div className="flex items-center space-x-1 shrink-0">
                   <button
                     onClick={() => handleTogglePause(ad)}
-                    className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all"
-                    title={ad.status === 'active' ? 'Pause Campaign' : 'Resume Campaign'}
+                    disabled={
+                      (ad.status !== 'active' && ad.status !== 'paused') ||
+                      Boolean(ad.approvalStatus && ad.approvalStatus !== 'Approved')
+                    }
+                    className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={
+                      ad.approvalStatus && ad.approvalStatus !== 'Approved'
+                        ? 'Only approved campaigns can be paused or resumed'
+                        : ad.status === 'active'
+                        ? 'Pause Campaign'
+                        : ad.status === 'paused'
+                        ? 'Resume Campaign'
+                        : 'Only active or paused campaigns can use this action'
+                    }
                   >
                     {ad.status === 'active' ? <Pause className="w-3.5 h-3.5 text-amber-400" /> : <Play className="w-3.5 h-3.5 text-emerald-400" />}
                   </button>

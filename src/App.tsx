@@ -4329,7 +4329,15 @@ export default function App() {
                     }
 
                     if (section.id === 'promo-banners') {
-                      const activeBanners = (campaignConfig.promoBanners || []).filter(b => b.isEnabled);
+                      const todayLocal = new Date();
+                      const todayKey = `${todayLocal.getFullYear()}-${String(todayLocal.getMonth() + 1).padStart(2, '0')}-${String(todayLocal.getDate()).padStart(2, '0')}`;
+                      const activeBanners = (campaignConfig.promoBanners || []).filter((banner) =>
+                        banner?.isEnabled === true &&
+                        Number.isFinite(Number(banner.discountPercent)) &&
+                        Number(banner.discountPercent) > 0 &&
+                        typeof banner.validUntil === 'string' &&
+                        banner.validUntil >= todayKey
+                      );
                       if (activeBanners.length === 0) return null;
                       return (
                         <div key="section-promo" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3">

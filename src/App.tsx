@@ -4442,6 +4442,10 @@ export default function App() {
                                       }
                                     } else if (card.buttonUrl?.startsWith('https://')) {
                                       window.open(card.buttonUrl, '_blank', 'noopener,noreferrer');
+                                    } else if (card.buttonUrl?.startsWith('/') && !card.buttonUrl.startsWith('//')) {
+                                      window.location.assign(card.buttonUrl);
+                                    } else if (card.buttonUrl?.startsWith('mailto:')) {
+                                      window.location.href = card.buttonUrl;
                                     }
                                   }}
                                   className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md"

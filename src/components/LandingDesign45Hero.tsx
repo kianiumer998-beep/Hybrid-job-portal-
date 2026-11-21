@@ -63,7 +63,7 @@ export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJo
         <div className="relative z-10 flex min-h-[520px] sm:min-h-[590px] items-center px-6 py-12 sm:px-14">
           <div className="max-w-3xl text-white">
             <span className="inline-flex rounded-full border border-emerald-300/40 bg-emerald-400/15 px-4 py-2 text-xs font-bold uppercase tracking-[.16em] text-emerald-200">{config.eyebrowBadgeText || 'Pakistan’s Career & Hiring Platform'}</span>
-            <h1 className="mt-6 text-4xl font-black leading-[1.08] tracking-tight sm:text-6xl lg:text-7xl">{config.mainHeadingPrefix} <span className="text-emerald-300">{config.gradientWord}</span> {config.mainHeadingSuffix}</h1>
+            <h1 className="mt-6 text-4xl font-black leading-[1.08] tracking-tight sm:text-6xl lg:text-7xl">{config.mainHeadingPrefix} <span style={{ color: config.design45AccentColor || '#0f9f78' }}>{config.gradientWord}</span> {config.mainHeadingSuffix}</h1>
             <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-200 sm:text-lg">{config.subHeading}</p>
             <div className="mt-8 grid grid-cols-1 gap-2 rounded-2xl border border-white/15 bg-slate-950/65 p-3 backdrop-blur sm:grid-cols-[minmax(0,1fr)_190px_auto]">
               <input aria-label="Search jobs" value={filters.searchQuery} onChange={(event) => onFiltersChange({ ...filters, searchQuery: event.target.value })} onKeyDown={(event) => { if (event.key === 'Enter') onExplore(); }} placeholder={config.searchPlaceholder || 'Search jobs, skills or company'} className="min-w-0 rounded-xl border border-white/15 bg-slate-900 px-4 py-3 text-sm text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400" />
@@ -74,7 +74,7 @@ export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJo
               <button onClick={onExplore} className="rounded-xl bg-emerald-400 px-5 py-3 text-sm font-black text-slate-950 hover:bg-emerald-300">Search Jobs</button>
             </div>
             <div className="mt-4 flex flex-wrap gap-3">
-              <button onClick={onExplore} className="rounded-xl bg-emerald-400 px-6 py-3.5 text-sm font-black text-slate-950 shadow-lg shadow-emerald-950/30 hover:bg-emerald-300">{config.primaryBtnText || 'Explore Latest Jobs'} <span aria-hidden>→</span></button>
+              <button onClick={onExplore} style={{ backgroundColor: config.design45AccentColor || '#0f9f78' }} className="rounded-xl px-6 py-3.5 text-sm font-black text-slate-950 shadow-lg shadow-emerald-950/30 hover:brightness-110">{config.primaryBtnText || 'Explore Latest Jobs'} <span aria-hidden>→</span></button>
               <button onClick={onCv} className="rounded-xl border border-white/45 bg-white/10 px-6 py-3.5 text-sm font-bold text-white backdrop-blur hover:bg-white/20">{config.secondaryBtnText || 'Build Your CV'}</button>
               <button onClick={onPostJob} className="rounded-xl border border-amber-300/60 bg-amber-300/10 px-6 py-3.5 text-sm font-bold text-amber-100 hover:bg-amber-300/20">{config.design4PostJobBtnText || 'Post a Job'}</button>
             </div>

@@ -146,16 +146,19 @@ export class UserRepository {
   }
 
   static create(userData: any): any {
+    const safeUserData = { ...(userData || {}) };
+    delete safeUserData.walletEscrowBalance;
+    delete safeUserData.walletEscrowOperations;
     if (isTest()) {
-      const id = userData.id || `user-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
-      const user = { ...userData, id };
+      const id = safeUserData.id || `user-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+      const user = { ...safeUserData, id, walletEscrowBalance: 0 };
       inMemoryUsers.set(id, user);
       return user;
     }
     if (isMongoActive()) {
       throw new Error('MongoDB is configured. Synchronous create is prohibited to ensure authoritative persistence; use createAsync.');
     }
-    return Database.addUser(userData);
+    return Database.addUser({ ...safeUserData, walletEscrowBalance: 0 });
   }
 
   /**

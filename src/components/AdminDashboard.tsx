@@ -3694,9 +3694,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <section className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 space-y-3">
           <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-3">
             {canAccessJobsWorkspace && <button type="button" onClick={() => setJobsAdsWorkspaceArea('jobs')} className={`px-4 py-2 rounded-xl text-xs font-black ${jobsAdsWorkspaceArea === 'jobs' ? 'bg-amber-500 text-slate-950' : 'bg-slate-950 text-slate-300 border border-slate-800'}`}>Jobs Management</button>}
-            {canAccessCampaignWorkspace && <button type="button" onClick={() => setJobsAdsWorkspaceArea('campaigns')} className={`px-4 py-2 rounded-xl text-xs font-black ${jobsAdsWorkspaceArea === 'campaigns' ? 'bg-emerald-500 text-slate-950' : 'bg-slate-950 text-slate-300 border border-slate-800'}`}>Ads & Campaigns</button>}
+            {canAccessCampaignWorkspace && <button type="button" onClick={() => setJobsAdsWorkspaceArea('campaigns')} className={`px-4 py-2 rounded-xl text-xs font-black  ${(jobsAdsWorkspaceArea === 'campaigns' || !canAccessJobsWorkspace) ? 'bg-emerald-500 text-slate-950' : 'bg-slate-950 text-slate-300 border border-slate-800'}`}>Ads & Campaigns</button>}
           </div>
-          {jobsAdsWorkspaceArea === 'jobs' ? (
+          {jobsAdsWorkspaceArea === 'jobs' && canAccessJobsWorkspace ? (
             <div className="flex flex-wrap gap-2">
               {([
                 ['pending', 'Submitted / Pending'],

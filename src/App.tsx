@@ -4288,7 +4288,7 @@ export default function App() {
           <>
             {/* JOBS PORTAL TAB (Dynamic Landing Page Sections Sequenced by Admin) */}
             {activeTab === 'jobs' && (
-              <div className="space-y-6">
+              <div className={`space-y-6 ${(landingDesignSystem.activeDesignId === 'design-4' || landingDesignSystem.activeDesignId === 'design-5') ? 'pb-24 md:pb-0' : ''}`}>
                 {(landingConfig.sections || [])
                   .filter((sec) => sec.isEnabled)
                   .sort((a, b) => a.order - b.order)
@@ -4307,6 +4307,8 @@ export default function App() {
                             }}
                             onCv={() => setActiveTab('cv')}
                             onPostJob={handlePostJobClick}
+                            filters={filters}
+                            onFiltersChange={handleFiltersChange}
                           />
                         );
                       }

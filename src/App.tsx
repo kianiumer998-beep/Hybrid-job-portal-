@@ -4497,7 +4497,7 @@ export default function App() {
                                   <h3 className="text-sm font-black text-white">Explore job sectors</h3>
                                   <div className="mt-3 flex flex-wrap gap-2">
                                     {['Government', 'Information Technology', 'Healthcare', 'Engineering', 'Education', 'Finance', 'Remote & Hybrid'].map((category) => (
-                                      <button key={category} onClick={() => document.getElementById('jobs-section')?.scrollIntoView({ behavior: 'smooth' })} className="rounded-full border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-emerald-500/50 hover:text-emerald-300">{category}</button>
+                                      <span key={category} className="rounded-full border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-300">{category}</span>
                                     ))}
                                   </div>
                                 </div>

@@ -314,7 +314,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicSubTabUrdu: 'لائیو جابز',
     icon: Briefcase,
     badge: (c) => `${c.activeJobsCount} Active`,
-    keywords: ['jobs', 'listings', 'vacancies', 'live', 'posts', 'careers', 'employment', 'نوکریاں', 'ملازمتیں']
+    keywords: ['jobs', 'listings', 'vacancies', 'live', 'posts', 'careers', 'employment', 'نوکریاں', 'ملازمتیں'],
     hideInProfessionalNav: true,
   },
   {

@@ -54,6 +54,8 @@ const PROTECTED_ADMIN_UPDATE_FIELDS = new Set([
   'role',
   'permissions',
   'walletBalance',
+  'walletEscrowBalance',
+  'walletEscrowOperations',
   'passwordHash',
   'salt',
   'password',
@@ -569,7 +571,7 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
       }
 
       // Explicit allowlist of profile fields a normal user is permitted to self-update.
-      // Strictly prevents modification of: role, walletBalance, membershipStatus, permissions,
+      // Strictly prevents modification of: role, wallet balances/escrow ledger, membershipStatus, permissions,
       // plan, verified, kycStatus, activationDate, expiryDate, and administrative fields.
       finalUpdates = {};
       for (const [key, value] of Object.entries(updates)) {
@@ -711,6 +713,8 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
     delete finalUpdates.role;
     delete finalUpdates.permissions;
     delete finalUpdates.walletBalance;
+    delete finalUpdates.walletEscrowBalance;
+    delete finalUpdates.walletEscrowOperations;
 
     const updated = await UserRepository.updateAsync(id, finalUpdates);
     if (!updated) {

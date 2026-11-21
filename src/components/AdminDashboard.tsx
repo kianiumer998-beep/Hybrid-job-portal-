@@ -1048,8 +1048,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return checkAdminTabPermission(effectiveAdminRole, effectiveAdminPerms, isVerifiedAdmin, tabId);
   };
 
+  const jobsWorkspaceTabIds = ['pending', 'jobs', 'add-job', 'ai-enhancer', 'pricing-controller', 'fee-logs'];
+  const campaignWorkspaceTabIds = ['advertisements', 'campaign-center', 'landing-customizer'];
+  const canAccessJobsWorkspace = jobsWorkspaceTabIds.some(canAccessAdminTab);
+  const canAccessCampaignWorkspace = campaignWorkspaceTabIds.some(canAccessAdminTab);
   const effectiveAdminTab = adminTab === 'jobs-ads-control-center'
-    ? (jobsAdsWorkspaceArea === 'jobs' ? jobsWorkspaceSection : campaignWorkspaceSection)
+    ? (jobsAdsWorkspaceArea === 'jobs' && canAccessJobsWorkspace
+        ? (canAccessAdminTab(jobsWorkspaceSection) ? jobsWorkspaceSection : jobsWorkspaceTabIds.find(canAccessAdminTab) || 'jobs')
+        : (canAccessCampaignWorkspace
+            ? (canAccessAdminTab(campaignWorkspaceSection) ? campaignWorkspaceSection : campaignWorkspaceTabIds.find(canAccessAdminTab) || 'campaign-center')
+            : jobsWorkspaceTabIds.find(canAccessAdminTab) || 'jobs'))
     : adminTab;
 
   const canAccessAdminCategory = (cat: AdminCategory): boolean => {
@@ -3685,8 +3693,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {adminTab === 'jobs-ads-control-center' && canAccessAdminTab('jobs-ads-control-center') && (
         <section className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 space-y-3">
           <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-3">
-            <button type="button" onClick={() => setJobsAdsWorkspaceArea('jobs')} className={`px-4 py-2 rounded-xl text-xs font-black ${jobsAdsWorkspaceArea === 'jobs' ? 'bg-amber-500 text-slate-950' : 'bg-slate-950 text-slate-300 border border-slate-800'}`}>Jobs Management</button>
-            <button type="button" onClick={() => setJobsAdsWorkspaceArea('campaigns')} className={`px-4 py-2 rounded-xl text-xs font-black ${jobsAdsWorkspaceArea === 'campaigns' ? 'bg-emerald-500 text-slate-950' : 'bg-slate-950 text-slate-300 border border-slate-800'}`}>Ads & Campaigns</button>
+            {canAccessJobsWorkspace && <button type="button" onClick={() => setJobsAdsWorkspaceArea('jobs')} className={`px-4 py-2 rounded-xl text-xs font-black ${jobsAdsWorkspaceArea === 'jobs' ? 'bg-amber-500 text-slate-950' : 'bg-slate-950 text-slate-300 border border-slate-800'}`}>Jobs Management</button>}
+            {canAccessCampaignWorkspace && <button type="button" onClick={() => setJobsAdsWorkspaceArea('campaigns')} className={`px-4 py-2 rounded-xl text-xs font-black ${jobsAdsWorkspaceArea === 'campaigns' ? 'bg-emerald-500 text-slate-950' : 'bg-slate-950 text-slate-300 border border-slate-800'}`}>Ads & Campaigns</button>}
           </div>
           {jobsAdsWorkspaceArea === 'jobs' ? (
             <div className="flex flex-wrap gap-2">

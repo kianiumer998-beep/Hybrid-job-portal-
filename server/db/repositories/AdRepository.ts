@@ -19,7 +19,7 @@ export interface AdvertisementRecord {
   durationDisplay?: string;
   targetPages?: string[];
   campaignCostPkr?: number;
-  paymentStatus?: 'Paid' | 'Pending Wallet Deduction' | 'Refunded' | 'Exempt';
+  paymentStatus?: 'Paid' | 'Pending Wallet Deduction' | 'Escrow' | 'Refunded' | 'Exempt';
   walletTxId?: string;
   paymentTransactionId?: string;
   transactionRef?: string;

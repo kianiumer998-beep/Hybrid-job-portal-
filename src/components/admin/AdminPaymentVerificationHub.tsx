@@ -693,6 +693,46 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                           )}
                         </div>
 
+                        {(() => {
+                          const linkedUser = users.find((user) => String(user.id) === String(selectedTx.userId || ''));
+                          return (
+                            <div className="grid grid-cols-2 gap-2 bg-slate-900/80 border border-emerald-500/20 rounded-xl p-3">
+                              <div className="col-span-2 text-[10px] font-black uppercase tracking-wider text-emerald-300">
+                                Live Wallet Snapshot
+                              </div>
+                              <div>
+                                <span className="text-slate-500 block text-[10px]">Current Available Balance</span>
+                                <strong className="text-emerald-300 font-mono text-sm">
+                                  PKR {Number(linkedUser?.walletBalance ?? 0).toLocaleString()}
+                                </strong>
+                              </div>
+                              <div>
+                                <span className="text-slate-500 block text-[10px]">Current Escrow / Held</span>
+                                <strong className="text-amber-300 font-mono text-sm">
+                                  PKR {Number(linkedUser?.walletEscrowBalance ?? 0).toLocaleString()}
+                                </strong>
+                              </div>
+                              <div>
+                                <span className="text-slate-500 block text-[10px]">Balance Before This Transaction</span>
+                                <strong className="text-slate-200 font-mono text-xs">
+                                  {typeof selectedTx.balanceBefore === 'number' ? `PKR ${selectedTx.balanceBefore.toLocaleString()}` : 'Not recorded'}
+                                </strong>
+                              </div>
+                              <div>
+                                <span className="text-slate-500 block text-[10px]">Balance After This Transaction</span>
+                                <strong className="text-slate-200 font-mono text-xs">
+                                  {typeof selectedTx.balanceAfter === 'number' ? `PKR ${selectedTx.balanceAfter.toLocaleString()}` : 'Not recorded'}
+                                </strong>
+                              </div>
+                              {!linkedUser && (
+                                <div className="col-span-2 text-[10px] text-amber-300">
+                                  Live user wallet record is not available in the current admin directory.
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
                         <div>
                           <span className="text-slate-500 block text-[10px]">Sender Name / Account</span>
                           <span className="text-white font-bold">{selectedTx.senderName || 'Not specified'}</span>

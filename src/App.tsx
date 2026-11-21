@@ -2350,6 +2350,7 @@ export default function App() {
         await loadBackendTransactions(currentUser?.id);
         await loadBackendFeeLogs();
         await loadBackendJobs();
+        await loadBackendAdminUsers();
         return { success: true, transaction: normalized };
       } else {
         // Attempt safe backend reconciliation refresh

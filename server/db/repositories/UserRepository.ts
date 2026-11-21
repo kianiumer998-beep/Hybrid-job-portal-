@@ -120,11 +120,13 @@ export class UserRepository {
     }
 
     const { _id: _ignoredId, ...cleanUserData } = userData || {};
+    delete cleanUserData.walletEscrowBalance;
+    delete cleanUserData.walletEscrowOperations;
     const userToSave = {
       ...cleanUserData,
       id,
       walletBalance: initialWalletBalance,
-      walletEscrowBalance: Number.isFinite(Number(userData?.walletEscrowBalance)) && Number(userData?.walletEscrowBalance) >= 0 ? Number(userData.walletEscrowBalance) : 0,
+      walletEscrowBalance: 0,
       createdAt: userData?.createdAt || new Date().toISOString(),
       updatedAt: userData?.updatedAt || new Date().toISOString()
     };

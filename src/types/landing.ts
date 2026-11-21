@@ -381,6 +381,8 @@ export function normalizeLandingDesignSystem(
       const rawValue = hero[typedKey];
       if (typedKey.endsWith('Url')) {
         hero[typedKey] = safeUrl(rawValue, fallback.config.hero[typedKey] as string) as never;
+      } else if (typedKey === 'design45HeroOverlay') {
+        hero[typedKey] = (Number.isFinite(Number(rawValue)) ? Math.max(35, Math.min(90, Number(rawValue))) : 68) as never;
       } else if (typeof rawValue !== 'string') {
         hero[typedKey] = fallback.config.hero[typedKey] as never;
       } else {

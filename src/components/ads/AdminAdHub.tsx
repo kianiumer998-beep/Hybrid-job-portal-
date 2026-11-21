@@ -600,7 +600,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
                         <p className="text-xs text-slate-400 max-w-2xl">{ad.bodyText}</p>
 
                         <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 pt-1">
-                          <span>Advertiser: <strong className="text-white">{ad.submittedByUserName || 'Portal User'} ({ad.submittedByUserEmail || 'user@example.com'})</strong></span>
+                          <span>Advertiser: <button type="button" onClick={() => handleOpenCampaignDetails(ad)} className="text-white underline decoration-dotted underline-offset-2 hover:text-indigo-300 font-bold">{ad.submittedByUserName || 'Not provided'} ({ad.submittedByUserEmail || 'Not provided'})</button></span>
                           <span>•</span>
                           <span>{ad.paymentStatus === 'Escrow' ? 'Fee Held in Escrow:' : 'Fee Paid:'} <strong className="text-emerald-400 font-mono">PKR {(ad.campaignCostPkr || 0).toLocaleString()}</strong></span>
                           <span>•</span>
@@ -1223,8 +1223,8 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
             </div>
             <div className="flex flex-wrap justify-end gap-2">
               <button type="button" onClick={() => { setDetailsAd(null); setPreviewAd(detailsAd); setSimulatorMode(detailsAd.placement === 'top-header' ? 'desktop-banner' : detailsAd.placement === 'popup-modal' ? 'popup-modal' : 'feed-inline'); }} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs font-bold">Preview creative</button>
-              {detailsAd.status === 'pending_approval' && <button type="button" onClick={() => { const ad = detailsAd; setDetailsAd(null); setRejectingAd(ad); setRejectionReasonInput('Creative image resolution is too low and does not meet portal quality guidelines.'); setCustomRejectionReason(''); }} className="px-3 py-2 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs font-bold">Reject with reason</button>}
-              {detailsAd.status === 'pending_approval' && <button type="button" onClick={() => { handleApprove(detailsAd); setDetailsAd(null); }} className="px-3 py-2 rounded-lg bg-emerald-500 text-slate-950 text-xs font-black">Approve & Publish</button>}
+              {(detailsAd.status === 'pending_approval' || detailsAd.approvalStatus === 'Pending') && <button type="button" onClick={() => { const ad = detailsAd; setDetailsAd(null); setRejectingAd(ad); setRejectionReasonInput('Creative image resolution is too low and does not meet portal quality guidelines.'); setCustomRejectionReason(''); }} className="px-3 py-2 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs font-bold">Reject with reason</button>}
+              {(detailsAd.status === 'pending_approval' || detailsAd.approvalStatus === 'Pending') && <button type="button" onClick={() => { handleApprove(detailsAd); setDetailsAd(null); }} className="px-3 py-2 rounded-lg bg-emerald-500 text-slate-950 text-xs font-black">Approve & Publish</button>}
             </div>
           </div>
         </div>

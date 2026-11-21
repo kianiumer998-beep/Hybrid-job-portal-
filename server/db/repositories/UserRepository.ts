@@ -124,6 +124,7 @@ export class UserRepository {
       ...cleanUserData,
       id,
       walletBalance: initialWalletBalance,
+      walletEscrowBalance: Number.isFinite(Number(userData?.walletEscrowBalance)) && Number(userData?.walletEscrowBalance) >= 0 ? Number(userData.walletEscrowBalance) : 0,
       createdAt: userData?.createdAt || new Date().toISOString(),
       updatedAt: userData?.updatedAt || new Date().toISOString()
     };
@@ -355,6 +356,188 @@ export class UserRepository {
     return Database.updateUser(cleanUserId, {
       ...setPayload,
       walletBalance: existingUser.walletBalance + amount
+    });
+  }
+
+  /** Atomically move available wallet funds into campaign escrow exactly once. */
+  static async holdWalletBalanceInEscrowAsync(userId: string, amount: number, operationKey: string): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanKey = String(operationKey || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+    if (!cleanUserId || !cleanKey) throw new Error('Valid user and escrow operation references are required.');
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error('Escrow hold amount must be greater than zero.');
+    const marker = `walletEscrowOperations.${cleanKey}`;
+    const updatedAt = new Date().toISOString();
+
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const operations = existing.walletEscrowOperations || {};
+      if (operations[cleanKey] === 'HELD') return existing;
+      const balance = Number(existing.walletBalance || 0);
+      if (!Number.isFinite(balance) || balance < amount) return null;
+      const updated = {
+        ...existing,
+        walletBalance: balance - amount,
+        walletEscrowBalance: Number(existing.walletEscrowBalance || 0) + amount,
+        walletEscrowOperations: { ...operations, [cleanKey]: 'HELD' },
+        updatedAt
+      };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        { id: cleanUserId, walletBalance: { $gte: amount }, [marker]: { $ne: 'HELD' } },
+        { $inc: { walletBalance: -amount, walletEscrowBalance: amount }, $set: { [marker]: 'HELD', updatedAt } },
+        { returnDocument: 'after' }
+      );
+      if (updatedDoc) {
+        const { _id, ...safe } = updatedDoc;
+        return safe;
+      }
+      const existing = await coll.findOne({ id: cleanUserId });
+      if (existing && existing.walletEscrowOperations?.[cleanKey] === 'HELD') {
+        const { _id, ...safe } = existing;
+        return safe;
+      }
+      return null;
+    }
+
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    const operations = existing.walletEscrowOperations || {};
+    if (operations[cleanKey] === 'HELD') return existing;
+    const balance = Number(existing.walletBalance || 0);
+    if (!Number.isFinite(balance) || balance < amount) return null;
+    return Database.updateUser(cleanUserId, {
+      walletBalance: balance - amount,
+      walletEscrowBalance: Number(existing.walletEscrowBalance || 0) + amount,
+      walletEscrowOperations: { ...operations, [cleanKey]: 'HELD' },
+      updatedAt
+    });
+  }
+
+  /** Settle a held campaign amount once: capture it or release it back to available wallet funds. */
+  static async settleWalletEscrowAsync(
+    userId: string,
+    amount: number,
+    operationKey: string,
+    releaseToWallet: boolean
+  ): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanKey = String(operationKey || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+    if (!cleanUserId || !cleanKey) throw new Error('Valid user and escrow settlement references are required.');
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error('Escrow settlement amount must be greater than zero.');
+    const marker = `walletEscrowOperations.${cleanKey}`;
+    const updatedAt = new Date().toISOString();
+    const resultState = releaseToWallet ? 'RELEASED' : 'CAPTURED';
+
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const operations = existing.walletEscrowOperations || {};
+      if (operations[cleanKey] === resultState) return existing;
+      const held = Number(existing.walletEscrowBalance || 0);
+      if (!Number.isFinite(held) || held < amount) return null;
+      const updated = {
+        ...existing,
+        walletEscrowBalance: held - amount,
+        ...(releaseToWallet ? { walletBalance: Number(existing.walletBalance || 0) + amount } : {}),
+        walletEscrowOperations: { ...operations, [cleanKey]: resultState },
+        updatedAt
+      };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const increments: Record<string, number> = { walletEscrowBalance: -amount };
+      if (releaseToWallet) increments.walletBalance = amount;
+      const updatedDoc = await coll.findOneAndUpdate(
+        { id: cleanUserId, walletEscrowBalance: { $gte: amount }, [marker]: { $ne: resultState } },
+        { $inc: increments, $set: { [marker]: resultState, updatedAt } },
+        { returnDocument: 'after' }
+      );
+      if (updatedDoc) {
+        const { _id, ...safe } = updatedDoc;
+        return safe;
+      }
+      const existing = await coll.findOne({ id: cleanUserId });
+      if (existing && existing.walletEscrowOperations?.[cleanKey] === resultState) {
+        const { _id, ...safe } = existing;
+        return safe;
+      }
+      return null;
+    }
+
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    const operations = existing.walletEscrowOperations || {};
+    if (operations[cleanKey] === resultState) return existing;
+    const held = Number(existing.walletEscrowBalance || 0);
+    if (!Number.isFinite(held) || held < amount) return null;
+    return Database.updateUser(cleanUserId, {
+      walletEscrowBalance: held - amount,
+      ...(releaseToWallet ? { walletBalance: Number(existing.walletBalance || 0) + amount } : {}),
+      walletEscrowOperations: { ...operations, [cleanKey]: resultState },
+      updatedAt
+    });
+  }
+
+  /** Idempotent credit used for refunds of older campaigns created before escrow was introduced. */
+  static async creditWalletBalanceOnceAsync(userId: string, amount: number, operationKey: string): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanKey = String(operationKey || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+    if (!cleanUserId || !cleanKey) throw new Error('Valid user and refund operation references are required.');
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error('Refund amount must be greater than zero.');
+    const marker = `walletEscrowOperations.${cleanKey}`;
+    const updatedAt = new Date().toISOString();
+
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const operations = existing.walletEscrowOperations || {};
+      if (operations[cleanKey] === 'REFUNDED') return existing;
+      const updated = {
+        ...existing,
+        walletBalance: Number(existing.walletBalance || 0) + amount,
+        walletEscrowOperations: { ...operations, [cleanKey]: 'REFUNDED' },
+        updatedAt
+      };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        { id: cleanUserId, [marker]: { $ne: 'REFUNDED' } },
+        { $inc: { walletBalance: amount }, $set: { [marker]: 'REFUNDED', updatedAt } },
+        { returnDocument: 'after' }
+      );
+      if (updatedDoc) {
+        const { _id, ...safe } = updatedDoc;
+        return safe;
+      }
+      const existing = await coll.findOne({ id: cleanUserId });
+      if (existing && existing.walletEscrowOperations?.[cleanKey] === 'REFUNDED') {
+        const { _id, ...safe } = existing;
+        return safe;
+      }
+      return null;
+    }
+
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    const operations = existing.walletEscrowOperations || {};
+    if (operations[cleanKey] === 'REFUNDED') return existing;
+    return Database.updateUser(cleanUserId, {
+      walletBalance: Number(existing.walletBalance || 0) + amount,
+      walletEscrowOperations: { ...operations, [cleanKey]: 'REFUNDED' },
+      updatedAt
     });
   }
 

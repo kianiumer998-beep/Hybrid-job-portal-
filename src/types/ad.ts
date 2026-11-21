@@ -77,6 +77,7 @@ export interface PopupDisplaySettings {
 export interface FeedInlineAdSettings {
   insertionMode: 'cadence' | 'custom_indices'; // 'cadence' = every N jobs, 'custom_indices' = after specific job numbers
   repeatEveryNJobs: number; // e.g. 2, 3, 4, 5
+  standardJobsPerPage?: number; // Admin-defined default count for standard jobs; priority jobs are separate
   customIndices: number[]; // e.g. [2, 5, 8] -> after 2nd job, after 5th job, after 8th job
   page1SpecificIndices?: number[]; // Optional different indices for page 1
   maxAdsPerPage: number; // e.g. 3
@@ -564,6 +565,7 @@ export const DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG: CampaignCustomizationConfig 
   feedInlineSettings: {
     insertionMode: 'custom_indices',
     repeatEveryNJobs: 3,
+    standardJobsPerPage: 10,
     customIndices: [2, 5, 8, 12], // After 2nd job, after 5th job, after 8th job
     page1SpecificIndices: [2, 5, 8],
     maxAdsPerPage: 3,

@@ -653,7 +653,8 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
         </div>
       )}
 
-      {activeTab === 'hero' && (\n        <div className="space-y-6">\n          <div className="p-5 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-4">
+      {activeTab === 'hero' && (
+        <div className="space-y-6">\n          <div className="p-5 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-4">
             <h3 className="text-base font-black text-white">Design 4 & 5 — Photography & Hero Settings</h3>
             <p className="text-xs text-slate-400">Set secure HTTPS image URLs for the Modern Professional background and the two Dual Audience panels. These settings are saved with the selected design only.</p>
             {([

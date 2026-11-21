@@ -435,8 +435,8 @@ adRouter.patch('/:id/review', requireAuth, async (req: any, res) => {
       updates = {
         status: 'active',
         approvalStatus: 'Approved',
-        paymentStatus: hasWalletPayment && existingAd.paymentStatus !== 'Exempt' ? 'Paid' : existingAd.paymentStatus,
-        escrowStatus: hasWalletPayment ? 'CAPTURED' : existingAd.escrowStatus,
+        paymentStatus: amount > 0 && hasWalletPayment && existingAd.paymentStatus !== 'Exempt' ? 'Paid' : amount <= 0 && existingAd.paymentStatus === 'Escrow' ? 'Exempt' : existingAd.paymentStatus,
+        escrowStatus: hasWalletPayment && amount > 0 ? 'CAPTURED' : existingAd.escrowStatus,
         approvedAt: timestamp,
         approvedBy: req.user?.name || 'Admin',
         scheduledStartAt: existingAd.scheduledStartAt || now.toISOString().slice(0, 10),
@@ -447,8 +447,8 @@ adRouter.patch('/:id/review', requireAuth, async (req: any, res) => {
       updates = {
         status: 'rejected',
         approvalStatus: 'Rejected',
-        paymentStatus: settlement?.refundReferenceId || existingAd.paymentStatus === 'Escrow' ? 'Refunded' : existingAd.paymentStatus,
-        escrowStatus: hasWalletPayment ? 'RELEASED' : existingAd.escrowStatus,
+        paymentStatus: settlement?.refundReferenceId ? 'Refunded' : amount <= 0 && existingAd.paymentStatus === 'Escrow' ? 'Exempt' : existingAd.paymentStatus,
+        escrowStatus: hasWalletPayment && amount > 0 ? 'RELEASED' : existingAd.escrowStatus,
         rejectionReason: typeof req.body?.reason === 'string' && req.body.reason.trim()
           ? req.body.reason.trim().slice(0, 1000)
           : 'Rejected by administrator',

@@ -290,10 +290,15 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
           }
           adData.campaignCostPkr = calc.finalPrice;
           adData.budget = calc.finalPrice;
-          if (calc.finalPrice > 0) {
+          if (calc.finalPrice > 0 && verifiedTx.escrowStatus === 'HELD') {
             adData.paymentStatus = 'Escrow';
             adData.escrowStatus = 'HELD';
             adData.escrowAmountPkr = calc.finalPrice;
+          } else if (calc.finalPrice > 0) {
+            // Backward compatibility for already-debited transactions created before escrow tracking.
+            adData.paymentStatus = 'Paid';
+            delete adData.escrowStatus;
+            delete adData.escrowAmountPkr;
           } else {
             adData.paymentStatus = 'Exempt';
             delete adData.escrowStatus;

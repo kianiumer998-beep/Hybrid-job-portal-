@@ -52,6 +52,10 @@ export interface PaymentTransaction {
   rejectionReason?: string;
   verifiedAt?: string;
   verifiedBy?: string;
+  balanceBefore?: number;
+  balanceAfter?: number;
+  escrowAmount?: number;
+  escrowStatus?: string;
   userId?: string;
   userName?: string;
   userEmail?: string;

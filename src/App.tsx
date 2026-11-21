@@ -4456,6 +4456,7 @@ export default function App() {
                             onReset={handleResetFilters}
                             totalResults={filteredJobs.length}
                             postsPerPage={postsPerPage}
+                            defaultPostsPerPage={campaignConfig.feedInlineSettings.standardJobsPerPage ?? 10}
                             onPostsPerPageChange={handlePostsPerPageChange}
                             userSelectedCountry={userSelectedCountry}
                             onOpenCountryModal={() => setShowCountryModal(true)}

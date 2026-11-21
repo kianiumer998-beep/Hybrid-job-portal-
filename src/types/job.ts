@@ -136,6 +136,7 @@ export interface UserAccount {
   customFieldsData?: Record<string, string>;
   appliedJobs?: JobApplication[];
   walletBalance?: number; // In PKR
+  walletEscrowBalance?: number; // Campaign funds held pending administrator approval
   adminNotes?: string;
   verificationStatus?: string;
   kycStatus?: string;

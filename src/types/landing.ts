@@ -18,6 +18,21 @@ export interface LandingHeroConfig {
   statBadge2Text: string;
   statBadge3Text: string;
   statBadge4Text: string;
+  design4HeroImageUrl?: string;
+  design5SeekerImageUrl?: string;
+  design5EmployerImageUrl?: string;
+  design45HeroOverlay?: number;
+  design45AccentColor?: string;
+  design4PostJobBtnText?: string;
+  design5SeekerEyebrow?: string;
+  design5SeekerHeading?: string;
+  design5SeekerDescription?: string;
+  design5SeekerPrimaryBtnText?: string;
+  design5SeekerSecondaryBtnText?: string;
+  design5EmployerEyebrow?: string;
+  design5EmployerHeading?: string;
+  design5EmployerDescription?: string;
+  design5EmployerBtnText?: string;
 }
 
 export interface CustomLandingCard {
@@ -58,7 +73,7 @@ export interface CategoryPostingFee {
 }
 
 export interface JobCardDesignConfig {
-  layout: 'default' | 'compact';
+  layout: 'default' | 'compact' | 'editorial';
   theme: {
     accentColor: string; // Tailwind color name like 'emerald', 'indigo', etc.
     borderRadius: 'none' | 'md' | 'xl' | '3xl';
@@ -176,7 +191,22 @@ export const DEFAULT_LANDING_PAGE_CONFIG: LandingPageConfig = {
     statBadge1Text: 'Verified Hybrid & Remote Jobs',
     statBadge2Text: '100% Free ATS Resume Builder',
     statBadge3Text: 'Province & City Granular Filters',
-    statBadge4Text: 'Direct WhatsApp & SMS Alerts'
+    statBadge4Text: 'Direct WhatsApp & SMS Alerts',
+    design4HeroImageUrl: 'https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=2000&q=85',
+    design5SeekerImageUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=1400&q=85',
+    design5EmployerImageUrl: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=1400&q=85',
+    design45HeroOverlay: 68,
+    design45AccentColor: '#0f9f78',
+    design4PostJobBtnText: 'Post a Job',
+    design5SeekerEyebrow: 'For Job Seekers',
+    design5SeekerHeading: 'Find your next opportunity.',
+    design5SeekerDescription: 'Discover verified jobs, explore career paths and build a professional CV with tools made for your next move.',
+    design5SeekerPrimaryBtnText: 'Explore Jobs',
+    design5SeekerSecondaryBtnText: 'Build CV',
+    design5EmployerEyebrow: 'For Employers',
+    design5EmployerHeading: 'Build your team with confidence.',
+    design5EmployerDescription: 'Reach skilled talent, publish vacancies and manage your hiring journey from one platform.',
+    design5EmployerBtnText: 'Post a Job'
   },
   sections: [
     { id: 'hero', name: '1. Hero Section & Employer Quick Action', description: 'Main banner, employer register CTA, and quick explore buttons.', isEnabled: true, order: 1 },
@@ -261,7 +291,7 @@ export const DEFAULT_LANDING_PAGE_CONFIG: LandingPageConfig = {
   }
 };
 
-export type LandingDesignId = 'legacy' | 'design-1' | 'design-2' | 'design-3';
+export type LandingDesignId = 'legacy' | 'design-1' | 'design-2' | 'design-3' | 'design-4' | 'design-5';
 
 export interface LandingDesignEntry {
   id: LandingDesignId;
@@ -329,6 +359,44 @@ export function createDefaultLandingDesignSystem(
     theme: { ...modernAlternative.jobCardDesign.theme, accentColor: 'emerald', cardBgPreset: 'gradient', borderRadius: '3xl', density: 'spacious' }
   };
 
+  // Designs 4 and 5 inherit every existing customer-facing landing capability
+  // (search/filter feed, promo banners, approved ad placements, announcements,
+  // quick stats, job-card actions and subscription entry points) from Legacy.
+  // Only their visual presets differ; no backend workflow is duplicated.
+  const modernProfessional = cloneConfig(legacyConfig);
+  modernProfessional.jobCardDesign = {
+    ...modernProfessional.jobCardDesign,
+    layout: 'editorial',
+    theme: { ...modernProfessional.jobCardDesign.theme, accentColor: 'emerald', cardBgPreset: 'glass', borderRadius: 'xl', density: 'normal' }
+  };
+
+  const dualAudience = cloneConfig(legacyConfig);
+  dualAudience.jobCardDesign = {
+    ...dualAudience.jobCardDesign,
+    layout: 'default',
+    theme: { ...dualAudience.jobCardDesign.theme, accentColor: 'indigo', cardBgPreset: 'gradient', borderRadius: '3xl', density: 'normal' }
+  };
+
+  // Membership/subscription is a real portal flow, not an advertisement.
+  // Add an editable customer-facing entry card to both new designs.
+  const addSubscriptionCard = (config: LandingPageConfig) => {
+    if (!config.customCards.some((card) => card.id === 'card-subscription-plans')) {
+      config.customCards.push({
+        id: 'card-subscription-plans',
+        title: 'Unlock More Career Benefits',
+        description: 'Explore available membership plans for job alerts and eligible premium career features. Plans and prices are loaded from the portal settings.',
+        badge: 'Membership Plans',
+        buttonText: 'View Subscription Plans',
+        buttonUrl: '#alerts',
+        bgGradient: 'from-emerald-700 via-teal-800 to-slate-950',
+        isEnabled: true,
+        order: config.customCards.length + 1
+      });
+    }
+  };
+  addSubscriptionCard(modernProfessional);
+  addSubscriptionCard(dualAudience);
+
   return {
     version: 1,
     activeDesignId: 'legacy',
@@ -336,7 +404,9 @@ export function createDefaultLandingDesignSystem(
       { id: 'legacy', name: 'Existing Landing Page', config: cloneConfig(legacyConfig) },
       { id: 'design-1', name: 'Design 1 — Clean Professional', config: cleanProfessional },
       { id: 'design-2', name: 'Design 2 — Ads Integrated', config: adsIntegrated },
-      { id: 'design-3', name: 'Design 3 — Modern Alternative', config: modernAlternative }
+      { id: 'design-3', name: 'Design 3 — Modern Alternative', config: modernAlternative },
+      { id: 'design-4', name: 'Design 4 — Modern Professional', config: modernProfessional },
+      { id: 'design-5', name: 'Design 5 — Elegant Dual Audience', config: dualAudience }
     ]
   };
 }
@@ -349,7 +419,7 @@ export function normalizeLandingDesignSystem(
   if (!value || typeof value !== 'object') return defaults;
 
   const candidate = value as Partial<LandingDesignSystem>;
-  const allowedIds: LandingDesignId[] = ['legacy', 'design-1', 'design-2', 'design-3'];
+  const allowedIds: LandingDesignId[] = ['legacy', 'design-1', 'design-2', 'design-3', 'design-4', 'design-5'];
   const supplied = Array.isArray(candidate.designs) ? candidate.designs : [];
   const designs = defaults.designs.map((fallback) => {
     const found = supplied.find((item) => item && item.id === fallback.id);
@@ -371,6 +441,10 @@ export function normalizeLandingDesignSystem(
       const rawValue = hero[typedKey];
       if (typedKey.endsWith('Url')) {
         hero[typedKey] = safeUrl(rawValue, fallback.config.hero[typedKey] as string) as never;
+      } else if (typedKey === 'design45HeroOverlay') {
+        hero[typedKey] = (Number.isFinite(Number(rawValue)) ? Math.max(35, Math.min(90, Number(rawValue))) : 68) as never;
+      } else if (typedKey === 'design45AccentColor') {
+        hero[typedKey] = (typeof rawValue === 'string' && /^#[0-9a-fA-F]{6}$/.test(rawValue) ? rawValue : '#0f9f78') as never;
       } else if (typeof rawValue !== 'string') {
         hero[typedKey] = fallback.config.hero[typedKey] as never;
       } else {

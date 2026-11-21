@@ -6,6 +6,7 @@ import {
   LandingSectionOrder,
   LandingSectionId,
   LandingDesignSystem,
+  createDefaultLandingDesignSystem,
   JobCardDesignConfig,
   JOB_CARD_ACCENT_STYLES,
   getJobCardAccentColor
@@ -184,18 +185,21 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
   };
 
   const handleAddPromoBanner = () => {
+    const defaultExpiry = new Date();
+    defaultExpiry.setDate(defaultExpiry.getDate() + 30);
+    const validUntil = `${defaultExpiry.getFullYear()}-${String(defaultExpiry.getMonth() + 1).padStart(2, '0')}-${String(defaultExpiry.getDate()).padStart(2, '0')}`;
     const newBanner: PromoDiscountBanner = {
       id: `promo-custom-${Date.now()}`,
-      isEnabled: true,
-      title: 'New High-Impact Flash Campaign',
-      description: 'Exclusive 40% discount on all header and sidebar ad placements.',
-      discountPercent: 40,
-      badgeText: '🔥 40% FLASH SALE',
-      promoCode: 'FLASH40',
+      isEnabled: false,
+      title: '',
+      description: '',
+      discountPercent: 0,
+      badgeText: '',
+      promoCode: '',
       targetPlacement: 'all',
-      validUntil: '2026-10-31',
+      validUntil,
       bgGradient: 'from-purple-600 via-rose-600 to-amber-600',
-      ctaText: 'Claim Discount Now',
+      ctaText: 'Configure offer',
       ctaUrl: '#dashboard'
     };
     setPromoBanners([...promoBanners, newBanner]);
@@ -251,8 +255,9 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
     const previousCustomCards = customCards;
     const previousJobCardDesign = jobCardDesignForm;
 
+    const selectedDesignDefaults = createDefaultLandingDesignSystem(DEFAULT_LANDING_PAGE_CONFIG).designs.find((design) => design.id === activeDesignId)?.config || DEFAULT_LANDING_PAGE_CONFIG;
     const newLandingConfig: LandingPageConfig = {
-      ...DEFAULT_LANDING_PAGE_CONFIG,
+      ...selectedDesignDefaults,
       categoryPostingFees: config.categoryPostingFees || DEFAULT_LANDING_PAGE_CONFIG.categoryPostingFees,
       exemptUserIds: config.exemptUserIds || DEFAULT_LANDING_PAGE_CONFIG.exemptUserIds,
       exemptUserEmails: config.exemptUserEmails || DEFAULT_LANDING_PAGE_CONFIG.exemptUserEmails
@@ -653,6 +658,59 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
         </div>
       )}
 
+      {activeTab === 'hero' && (
+        <div className="space-y-6">
+          <div className="p-5 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-4">
+            <h3 className="text-base font-black text-white">Design 4 & 5 — Photography & Hero Settings</h3>
+            <p className="text-xs text-slate-400">Set secure HTTPS image URLs for the Modern Professional background and the two Dual Audience panels. These settings are saved with the selected design only.</p>
+            {([
+              ['design4HeroImageUrl', 'Design 4 hero image URL'],
+              ['design5SeekerImageUrl', 'Design 5 job seeker image URL'],
+              ['design5EmployerImageUrl', 'Design 5 employer image URL']
+            ] as const).map(([key, label]) => (
+              <div key={key} className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-300">{label}</label>
+                <input
+                  type="url"
+                  value={heroForm[key] || ''}
+                  placeholder="https://..."
+                  onChange={(e) => setHeroForm({ ...heroForm, [key]: e.target.value })}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-xs text-white"
+                />
+              </div>
+            ))}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-300">Design 4 background overlay: {heroForm.design45HeroOverlay ?? 68}%</label>
+              <input type="range" min="35" max="90" value={heroForm.design45HeroOverlay ?? 68} onChange={(e) => setHeroForm({ ...heroForm, design45HeroOverlay: Number(e.target.value) })} className="w-full accent-emerald-500" />
+            </div>
+            <div className="flex items-center gap-3">
+              <label htmlFor="landing-design-accent" className="text-xs font-bold text-slate-300">Design 4 accent color</label>
+              <input id="landing-design-accent" type="color" value={/^#[0-9a-fA-F]{6}$/.test(heroForm.design45AccentColor || '') ? heroForm.design45AccentColor! : '#0f9f78'} onChange={(e) => setHeroForm({ ...heroForm, design45AccentColor: e.target.value })} className="h-9 w-14 cursor-pointer rounded border border-slate-700 bg-slate-950 p-1" />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-slate-800 pt-4">
+              {([
+                ['design4PostJobBtnText', 'Design 4 Post a Job button'],
+                ['design5SeekerEyebrow', 'Design 5 seeker label'],
+                ['design5SeekerHeading', 'Design 5 seeker heading'],
+                ['design5SeekerDescription', 'Design 5 seeker description'],
+                ['design5SeekerPrimaryBtnText', 'Design 5 seeker primary button'],
+                ['design5SeekerSecondaryBtnText', 'Design 5 seeker secondary button'],
+                ['design5EmployerEyebrow', 'Design 5 employer label'],
+                ['design5EmployerHeading', 'Design 5 employer heading'],
+                ['design5EmployerDescription', 'Design 5 employer description'],
+                ['design5EmployerBtnText', 'Design 5 employer button']
+              ] as const).map(([key, label]) => (
+                <label key={key} className="space-y-1.5">
+                  <span className="block text-xs font-bold text-slate-300">{label}</span>
+                  <input value={heroForm[key] || ''} onChange={(event) => setHeroForm({ ...heroForm, [key]: event.target.value.slice(0, 500) })} maxLength={500} className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-xs text-white" />
+                </label>
+              ))}
+            </div>
+            <p className="text-[11px] text-amber-300">Use HTTPS image URLs only. If an image URL is empty or unsafe, the live design uses its built-in fallback image.</p>
+          </div>
+        </div>
+      )}
+
       {/* TAB 4: JOB CARD DESIGNER */}
       {activeTab === 'design' && (
         <div className="space-y-6">
@@ -686,6 +744,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                     >
                       <option value="default">Standard Design 1 (Modern Cards)</option>
                       <option value="compact">Compact Design 2 (High-Density List)</option>
+                      <option value="editorial">Editorial Horizontal Rows (Design 4)</option>
                     </select>
                   </div>
 
@@ -1024,15 +1083,36 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
           <div className="overflow-x-auto rounded-2xl border border-slate-700 bg-slate-950 p-3 sm:p-5">
             <div className={`mx-auto min-h-[420px] overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 transition-all ${previewMode === 'mobile' ? 'w-[320px] max-w-full' : 'w-full max-w-5xl'}`}>
               {sections.find((section) => section.id === 'hero')?.isEnabled !== false && (
-                <section className="bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 px-4 py-8 text-center sm:px-8 sm:py-12">
-                  {heroForm.eyebrowBadgeText && <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-emerald-300">{heroForm.eyebrowBadgeText}</p>}
-                  <h1 className="mx-auto max-w-3xl text-2xl font-black leading-tight text-white sm:text-4xl">{heroForm.mainHeadingPrefix} <span className="text-emerald-400">{heroForm.gradientWord}</span> {heroForm.mainHeadingSuffix}</h1>
-                  <p className="mx-auto mt-3 max-w-2xl text-xs leading-relaxed text-slate-300 sm:text-sm">{heroForm.subHeading}</p>
-                  <div className="mt-5 flex flex-wrap justify-center gap-2">
-                    {heroForm.primaryBtnText && <span className="rounded-xl bg-emerald-400 px-4 py-2 text-xs font-black text-slate-950">{heroForm.primaryBtnText}</span>}
-                    {heroForm.secondaryBtnText && <span className="rounded-xl border border-slate-600 px-4 py-2 text-xs font-bold text-white">{heroForm.secondaryBtnText}</span>}
-                  </div>
-                </section>
+                activeDesignId === 'design-5' ? (
+                  <section className={`grid ${previewMode === 'mobile' ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                    <article className="relative flex min-h-[260px] items-end overflow-hidden bg-slate-800 p-5 text-left text-white">
+                      {heroForm.design5SeekerImageUrl && /^https:\/\//i.test(heroForm.design5SeekerImageUrl) && <img src={heroForm.design5SeekerImageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+                      <div className="absolute inset-0 bg-slate-950/70" />
+                      <div className="relative z-10"><span className="text-[10px] font-bold uppercase text-emerald-300">{heroForm.design5SeekerEyebrow || 'For Job Seekers'}</span><h2 className="mt-2 text-xl font-black">{heroForm.design5SeekerHeading || 'Find your next opportunity.'}</h2><p className="mt-2 text-xs text-white/80">{heroForm.design5SeekerDescription || 'Discover verified jobs and build your career.'}</p><span className="mt-3 inline-block rounded-lg bg-emerald-400 px-3 py-2 text-[10px] font-black text-slate-950">{heroForm.design5SeekerPrimaryBtnText || 'Explore Jobs'}</span></div>
+                    </article>
+                    <article className="relative flex min-h-[260px] items-end overflow-hidden bg-slate-800 p-5 text-left text-white">
+                      {heroForm.design5EmployerImageUrl && /^https:\/\//i.test(heroForm.design5EmployerImageUrl) && <img src={heroForm.design5EmployerImageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+                      <div className="absolute inset-0 bg-slate-950/70" />
+                      <div className="relative z-10"><span className="text-[10px] font-bold uppercase text-amber-300">{heroForm.design5EmployerEyebrow || 'For Employers'}</span><h2 className="mt-2 text-xl font-black">{heroForm.design5EmployerHeading || 'Build your team with confidence.'}</h2><p className="mt-2 text-xs text-white/80">{heroForm.design5EmployerDescription || 'Reach skilled talent and publish vacancies.'}</p><span className="mt-3 inline-block rounded-lg bg-white px-3 py-2 text-[10px] font-black text-slate-950">{heroForm.design5EmployerBtnText || 'Post a Job'}</span></div>
+                    </article>
+                  </section>
+                ) : activeDesignId === 'design-4' ? (
+                  <section className="relative overflow-hidden bg-slate-950 px-4 py-8 text-left sm:px-8 sm:py-12">
+                    {heroForm.design4HeroImageUrl && /^https:\/\//i.test(heroForm.design4HeroImageUrl) && <img src={heroForm.design4HeroImageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+                    <div className="absolute inset-0 bg-slate-950/70" />
+                    <div className="relative z-10"><p className="text-[10px] font-bold uppercase tracking-widest text-emerald-300">{heroForm.eyebrowBadgeText}</p><h1 className="mt-3 text-2xl font-black leading-tight text-white sm:text-4xl">{heroForm.mainHeadingPrefix} <span style={{ color: /^#[0-9a-fA-F]{6}$/.test(heroForm.design45AccentColor || '') ? heroForm.design45AccentColor : '#0f9f78' }}>{heroForm.gradientWord}</span> {heroForm.mainHeadingSuffix}</h1><p className="mt-3 max-w-2xl text-xs leading-relaxed text-slate-200 sm:text-sm">{heroForm.subHeading}</p><div className="mt-5 grid gap-2 sm:grid-cols-[1fr_auto]"><span className="rounded-lg border border-white/20 bg-slate-900/80 px-3 py-3 text-xs text-slate-300">{heroForm.searchPlaceholder}</span><span className="rounded-lg bg-emerald-400 px-4 py-3 text-center text-xs font-black text-slate-950">Search Jobs</span></div><div className="mt-3 flex flex-wrap gap-2"><span className="rounded-lg bg-emerald-400 px-3 py-2 text-xs font-black text-slate-950">{heroForm.primaryBtnText}</span><span className="rounded-lg border border-white/40 px-3 py-2 text-xs text-white">{heroForm.secondaryBtnText}</span><span className="rounded-lg border border-amber-300/50 px-3 py-2 text-xs text-white">{heroForm.design4PostJobBtnText || 'Post a Job'}</span></div></div>
+                  </section>
+                ) : (
+                  <section className="bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 px-4 py-8 text-center sm:px-8 sm:py-12">
+                    {heroForm.eyebrowBadgeText && <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-emerald-300">{heroForm.eyebrowBadgeText}</p>}
+                    <h1 className="mx-auto max-w-3xl text-2xl font-black leading-tight text-white sm:text-4xl">{heroForm.mainHeadingPrefix} <span className="text-emerald-400">{heroForm.gradientWord}</span> {heroForm.mainHeadingSuffix}</h1>
+                    <p className="mx-auto mt-3 max-w-2xl text-xs leading-relaxed text-slate-300 sm:text-sm">{heroForm.subHeading}</p>
+                    <div className="mt-5 flex flex-wrap justify-center gap-2">
+                      {heroForm.primaryBtnText && <span className="rounded-xl bg-emerald-400 px-4 py-2 text-xs font-black text-slate-950">{heroForm.primaryBtnText}</span>}
+                      {heroForm.secondaryBtnText && <span className="rounded-xl border border-slate-600 px-4 py-2 text-xs font-bold text-white">{heroForm.secondaryBtnText}</span>}
+                    </div>
+                  </section>
+                )
               )}
               {sections.find((section) => section.id === 'custom-announcements')?.isEnabled !== false && customCards.filter((card) => card.isEnabled).length > 0 && (
                 <section className={`grid gap-3 p-4 sm:p-6 ${previewMode === 'mobile' ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-3'}`}>

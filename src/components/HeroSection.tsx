@@ -20,7 +20,7 @@ interface HeroDesignStyle {
   primaryBtnIconColor: string;
 }
 
-const HERO_DESIGN_STYLES: Record<LandingDesignId, HeroDesignStyle> = {
+const HERO_DESIGN_STYLES: Partial<Record<LandingDesignId, HeroDesignStyle>> = {
   legacy: {
     sectionBg: 'relative overflow-hidden bg-slate-950 pt-2 pb-2.5 sm:pt-14 sm:pb-16 border-b border-slate-800/80',
     glowGradient: 'absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 bg-gradient-to-tr from-emerald-500/10 via-indigo-500/10 to-transparent blur-3xl pointer-events-none rounded-full',

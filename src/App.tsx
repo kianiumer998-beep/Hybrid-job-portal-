@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Header } from './components/Header';
 import { HeroSection } from './components/HeroSection';
+import { LandingDesign45Hero } from './components/LandingDesign45Hero';
 import { Filters } from './components/Filters';
 import { JobListings } from './components/JobListings';
 import { JobDetailModal } from './components/JobDetailModal';
@@ -4072,7 +4073,7 @@ export default function App() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-emerald-500 selection:text-slate-950">
+    <div className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-emerald-500 selection:text-slate-950 ${activeTab === 'jobs' && (landingDesignSystem.activeDesignId === 'design-4' || landingDesignSystem.activeDesignId === 'design-5') ? 'pb-20 md:pb-0' : ''}`}>
       
       {/* Dynamic Global Admin Announcement Banner */}
       {siteSeoConfig.announcementBanner?.enabled && !dismissAnnouncement && (
@@ -4293,6 +4294,24 @@ export default function App() {
                   .sort((a, b) => a.order - b.order)
                   .map((section) => {
                     if (section.id === 'hero') {
+                      if (landingDesignSystem.activeDesignId === 'design-4' || landingDesignSystem.activeDesignId === 'design-5') {
+                        return (
+                          <LandingDesign45Hero
+                            key={`section-hero-${landingDesignSystem.activeDesignId}`}
+                            designId={landingDesignSystem.activeDesignId}
+                            config={landingConfig.hero}
+                            totalJobsCount={jobs.length}
+                            onExplore={() => {
+                              const el = document.getElementById('jobs-section');
+                              el?.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            onCv={() => setActiveTab('cv')}
+                            onPostJob={handlePostJobClick}
+                            filters={filters}
+                            onFiltersChange={handleFiltersChange}
+                          />
+                        );
+                      }
                       return (
                         <HeroSection
                           key="section-hero"
@@ -4310,7 +4329,15 @@ export default function App() {
                     }
 
                     if (section.id === 'promo-banners') {
-                      const activeBanners = (campaignConfig.promoBanners || []).filter(b => b.isEnabled);
+                      const todayLocal = new Date();
+                      const todayKey = `${todayLocal.getFullYear()}-${String(todayLocal.getMonth() + 1).padStart(2, '0')}-${String(todayLocal.getDate()).padStart(2, '0')}`;
+                      const activeBanners = (campaignConfig.promoBanners || []).filter((banner) =>
+                        banner?.isEnabled === true &&
+                        Number.isFinite(Number(banner.discountPercent)) &&
+                        Number(banner.discountPercent) > 0 &&
+                        Number(banner.discountPercent) <= 100 &&
+                        (!banner.validUntil || (/^\d{4}-\d{2}-\d{2}$/.test(banner.validUntil) && banner.validUntil >= todayKey))
+                      );
                       if (activeBanners.length === 0) return null;
                       return (
                         <div key="section-promo" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3">
@@ -4415,6 +4442,10 @@ export default function App() {
                                       }
                                     } else if (card.buttonUrl?.startsWith('https://')) {
                                       window.open(card.buttonUrl, '_blank', 'noopener,noreferrer');
+                                    } else if (card.buttonUrl?.startsWith('/') && !card.buttonUrl.startsWith('//')) {
+                                      window.location.assign(card.buttonUrl);
+                                    } else if (card.buttonUrl?.startsWith('mailto:')) {
+                                      window.location.href = card.buttonUrl;
                                     }
                                   }}
                                   className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md"
@@ -4443,6 +4474,9 @@ export default function App() {
                             onOpenCountryModal={() => setShowCountryModal(true)}
                           />
 
+                          {/* Design 4 editorial two-column job feed; all existing filters, cards and ad rules stay intact. */}
+                          <div className={landingDesignSystem.activeDesignId === 'design-4' ? 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-6 items-start' : ''}>
+                            <div className="min-w-0">
                           {/* Job Cards Grid with Pagination and Inline Ads */}
                           <JobListings
                             priorityJobs={priorityJobs}
@@ -4464,6 +4498,26 @@ export default function App() {
                             onAdClick={handleAdClick}
                             onNavigateTab={setActiveTab}
                           />
+                            </div>
+                            {landingDesignSystem.activeDesignId === 'design-4' && (
+                              <aside className="space-y-4">
+                                <div className="rounded-2xl border border-emerald-500/25 bg-slate-900 p-5 shadow-xl">
+                                  <span className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-400">Career toolkit</span>
+                                  <h3 className="mt-2 text-xl font-black text-white">Make your next move count.</h3>
+                                  <p className="mt-2 text-sm leading-relaxed text-slate-400">Create an ATS-friendly CV and get ready to apply with confidence.</p>
+                                  <button onClick={() => setActiveTab('cv')} className="mt-4 w-full rounded-xl bg-emerald-400 px-4 py-3 text-sm font-black text-slate-950 hover:bg-emerald-300">Open CV Builder →</button>
+                                </div>
+                                <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+                                  <h3 className="text-sm font-black text-white">Explore job sectors</h3>
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                    {['Government', 'Information Technology', 'Healthcare', 'Engineering', 'Education', 'Finance', 'Remote & Hybrid'].map((category) => (
+                                      <span key={category} className="rounded-full border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-300">{category}</span>
+                                    ))}
+                                  </div>
+                                </div>
+                              </aside>
+                            )}
+                          </div>
                         </div>
                       );
                     }
@@ -4772,6 +4826,19 @@ export default function App() {
           config={whatsAppSupportConfig}
           onOpenLegalModal={() => setLegalModalOpen(true)}
         />
+      )}
+
+      {/* Five-tab mobile navigation for the photographic landing designs.
+          Each destination reuses the existing app tabs and authentication flow. */}
+      {activeTab === 'jobs' &&
+        (landingDesignSystem.activeDesignId === 'design-4' || landingDesignSystem.activeDesignId === 'design-5') && (
+        <nav aria-label="Mobile quick navigation" className="fixed inset-x-0 bottom-0 z-[60] grid grid-cols-5 border-t border-slate-700/80 bg-slate-950/95 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgba(0,0,0,0.35)] backdrop-blur-lg md:hidden">
+          <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="flex min-h-12 flex-col items-center justify-center gap-1 text-[10px] font-bold text-slate-200"><span aria-hidden>⌂</span><span>Home</span></button>
+          <button onClick={() => document.getElementById('jobs-section')?.scrollIntoView({ behavior: 'smooth' })} className="flex min-h-12 flex-col items-center justify-center gap-1 text-[10px] font-bold text-slate-200"><span aria-hidden>⌕</span><span>Jobs</span></button>
+          <button onClick={() => setActiveTab('cv')} className="flex min-h-12 flex-col items-center justify-center gap-1 text-[10px] font-bold text-slate-200"><span aria-hidden>▤</span><span>CV Builder</span></button>
+          <button onClick={() => setActiveTab('alerts')} className="flex min-h-12 flex-col items-center justify-center gap-1 text-[10px] font-bold text-slate-200"><span aria-hidden>♧</span><span>Alerts</span></button>
+          <button onClick={() => currentUser ? setActiveTab('dashboard') : setAuthModalOpen(true)} className="flex min-h-12 flex-col items-center justify-center gap-1 text-[10px] font-bold text-slate-200"><span aria-hidden>☰</span><span>More</span></button>
+        </nav>
       )}
 
     </div>

@@ -1138,7 +1138,51 @@ transactionRouter.post('/', async (req, res) => {
             );
             newTx.walletMutationState = 'DEDUCTED';
           } else {
-            if (enforcedAmount > 0) {
+            if (effectiveType === 'Advertisement' && enforcedAmount > 0) {
+              await persistTransactionState(
+                newTx.id,
+                { walletMutationState: 'DEDUCTING', escrowStatus: 'HOLDING', escrowAmount: enforcedAmount, updatedAt: new Date().toISOString() },
+                { key: 'walletMutationState', expected: 'DEDUCTING' }
+              );
+              walletMutationState = 'DEDUCTING';
+              newTx.walletMutationState = 'DEDUCTING';
+              newTx.escrowStatus = 'HOLDING';
+              newTx.escrowAmount = enforcedAmount;
+
+              let heldUser: any = null;
+              try {
+                heldUser = await UserRepository.holdWalletBalanceInEscrowAsync(
+                  effectiveUserId,
+                  enforcedAmount,
+                  `hold-${newTx.id}`
+                );
+              } catch (holdErr) {
+                walletMutationState = 'UNCERTAIN';
+                throw holdErr;
+              }
+              if (!heldUser) {
+                walletMutationState = 'NONE';
+                throw new Error('Insufficient available wallet balance for campaign escrow.');
+              }
+
+              walletMutationState = 'DEDUCTED';
+              effectiveBalanceAfter = Number(heldUser.walletBalance);
+              effectiveBalanceBefore = effectiveBalanceAfter + enforcedAmount;
+              const heldAmount = Number(heldUser.walletEscrowBalance || 0);
+              await persistTransactionState(newTx.id, {
+                walletMutationState: 'DEDUCTED',
+                escrowStatus: 'HELD',
+                escrowAmount: enforcedAmount,
+                escrowBalanceAfter: heldAmount,
+                balanceBefore: effectiveBalanceBefore,
+                balanceAfter: effectiveBalanceAfter,
+                updatedAt: new Date().toISOString()
+              });
+              newTx.walletMutationState = 'DEDUCTED';
+              newTx.escrowStatus = 'HELD';
+              newTx.escrowAmount = enforcedAmount;
+              newTx.escrowBalanceAfter = heldAmount;
+            } else if (enforcedAmount > 0) {
               await persistTransactionState(
                 newTx.id,
                 { walletMutationState: 'DEDUCTING', updatedAt: new Date().toISOString() },

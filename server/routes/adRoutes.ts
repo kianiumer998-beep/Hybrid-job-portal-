@@ -424,6 +424,7 @@ adRouter.patch('/:id/review', requireAuth, async (req: any, res) => {
         txId,
         action as 'approve' | 'refund',
         req.user?.name || role || 'Administrator',
+        role || 'Admin',
         typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 1000) : undefined
       );
     } else if (action === 'refund' && existingAd.paymentStatus === 'Paid' && amount > 0) {

@@ -4336,7 +4336,7 @@ export default function App() {
                         Number.isFinite(Number(banner.discountPercent)) &&
                         Number(banner.discountPercent) > 0 &&
                         Number(banner.discountPercent) <= 100 &&
-                        (!banner.validUntil || (/^\\d{4}-\\d{2}-\\d{2}$/.test(banner.validUntil) && banner.validUntil >= todayKey))
+                        (!banner.validUntil || (/^\d{4}-\d{2}-\d{2}$/.test(banner.validUntil) && banner.validUntil >= todayKey))
                       );
                       if (activeBanners.length === 0) return null;
                       return (

@@ -277,7 +277,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicSubTabUrdu: 'اینالیٹکس رپورٹس',
     icon: BarChart3,
     aliases: ['stats'],
-    keywords: ['analytics', 'stats', 'kpi', 'metrics', 'revenue', 'reports', 'overview', 'charts', 'statistics', 'رپورٹس']
+    keywords: ['analytics', 'stats', 'kpi', 'metrics', 'revenue', 'reports', 'overview', 'charts', 'statistics', 'رپورٹس'],
     hideInProfessionalNav: true,
   },
   {
@@ -306,7 +306,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
   {
     id: 'jobs',
     classicCategory: 'jobs',
-    proCategory: 'jobs-moderation',
+    proCategory: 'jobs-ads-control-center',
     label: 'Live Listings',
     description: 'Manage published job listings, edits, duplicate checks and bulk actions.',
     classicSubTabLabel: (c) => `Live Listings (${c.activeJobsCount})`,
@@ -315,6 +315,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     icon: Briefcase,
     badge: (c) => `${c.activeJobsCount} Active`,
     keywords: ['jobs', 'listings', 'vacancies', 'live', 'posts', 'careers', 'employment', 'نوکریاں', 'ملازمتیں']
+    hideInProfessionalNav: true,
   },
   {
     id: 'pending',
@@ -328,7 +329,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     icon: Clock,
     badge: (c) => `${c.pendingJobsCount} Pending`,
     classicSubTabBadge: (c) => (c.pendingJobsCount > 0 ? c.pendingJobsCount : undefined),
-    keywords: ['pending', 'approval', 'queue', 'moderation', 'review', 'approve', 'reject', 'منظوری']
+    keywords: ['pending', 'approval', 'queue', 'moderation', 'review', 'approve', 'reject', 'منظوری'],
     hideInProfessionalNav: true,
   },
   {
@@ -340,7 +341,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     urdu: 'نئی جاب شامل کریں',
     classicSubTabUrdu: 'نئی جاب',
     icon: Plus,
-    keywords: ['add', 'post', 'create', 'manual', 'new job', 'publish', 'نئی جاب', 'شامل']
+    keywords: ['add', 'post', 'create', 'manual', 'new job', 'publish', 'نئی جاب', 'شامل'],
     hideInProfessionalNav: true,
   },
   {
@@ -353,7 +354,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     urdu: 'کوالٹی اور اسپیم چیکر',
     classicSubTabUrdu: 'کوالٹی فلٹر',
     icon: Sparkles,
-    keywords: ['ai', 'quality', 'spam', 'enhancer', 'filter', 'moderation', 'cleanup', 'اسپیم', 'کوالٹی']
+    keywords: ['ai', 'quality', 'spam', 'enhancer', 'filter', 'moderation', 'cleanup', 'اسپیم', 'کوالٹی'],
     hideInProfessionalNav: true,
   },
 
@@ -383,7 +384,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicSubTabUrdu: 'اشتہاری کیمپینز',
     icon: Megaphone,
     badge: (c) => `${c.activeAdsCount} Live`,
-    keywords: ['campaign', 'campaigns', 'ads', 'promotions', 'popup', 'banners', 'کیمپین', 'اشتہارات']
+    keywords: ['campaign', 'campaigns', 'ads', 'promotions', 'popup', 'banners', 'کیمپین', 'اشتہارات'],
     hideInProfessionalNav: true,
   },
   {
@@ -395,7 +396,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     urdu: 'اشتہاری بینر سلاٹس',
     classicSubTabUrdu: 'بینر سلاٹس',
     icon: Layers,
-    keywords: ['advertisements', 'ad hub', 'slots', 'banners', 'approvals', 'بینر', 'سلاٹس']
+    keywords: ['advertisements', 'ad hub', 'slots', 'banners', 'approvals', 'بینر', 'سلاٹس'],
     hideInProfessionalNav: true,
   },
   {
@@ -407,7 +408,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     urdu: 'ہوم پیج بینر ڈیزائنر',
     classicSubTabUrdu: 'ہوم پیج بینرز',
     icon: Edit3,
-    keywords: ['landing', 'homepage', 'hero', 'customizer', 'cards', 'theme', 'ہوم پیج']
+    keywords: ['landing', 'homepage', 'hero', 'customizer', 'cards', 'theme', 'ہوم پیج'],
     hideInProfessionalNav: true,
   },
 
@@ -422,7 +423,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     icon: DollarSign,
     badge: 'NEW',
     isNew: true,
-    keywords: ['pricing', 'rates', 'packages', 'subscription', 'plans', 'tiers', 'پیکیجز', 'ریٹ', 'فیسیں']
+    keywords: ['pricing', 'rates', 'packages', 'subscription', 'plans', 'tiers', 'پیکیجز', 'ریٹ', 'فیسیں'],
     hideInProfessionalNav: true,
   },
   {
@@ -460,7 +461,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     urdu: 'پوسٹنگ فیس اور رعایتیں',
     classicSubTabUrdu: 'پوسٹنگ فیس',
     icon: DollarSign,
-    keywords: ['fee', 'fees', 'waivers', 'exemptions', 'category fees', 'discount', 'فیس', 'رعایت']
+    keywords: ['fee', 'fees', 'waivers', 'exemptions', 'category fees', 'discount', 'فیس', 'رعایت'],
     hideInProfessionalNav: true,
   },
   {
@@ -474,7 +475,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicSubTabUrdu: 'فیس لین دین',
     icon: Receipt,
     badge: (c) => `${c.feeLogsCount} Records`,
-    keywords: ['fee logs', 'ledger', 'transactions', 'job fees', 'billing', 'ریکارڈ']
+    keywords: ['fee logs', 'ledger', 'transactions', 'job fees', 'billing', 'ریکارڈ'],
     hideInProfessionalNav: true,
   },
   {

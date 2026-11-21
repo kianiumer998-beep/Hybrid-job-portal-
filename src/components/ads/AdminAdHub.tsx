@@ -21,6 +21,7 @@ import {
 import { AdminCampaignCustomizer } from './AdminCampaignCustomizer';
 import { CampaignLiveContextPreview } from './CampaignLiveContextPreview';
 import { AdminAdPerformanceCharts } from './AdminAdPerformanceCharts';
+import { api } from '../../services/api';
 import { 
   Megaphone, 
   Plus, 
@@ -54,6 +55,7 @@ import {
   Calendar,
   DollarSign,
   Receipt,
+  FileText,
   Settings,
   Users,
   Check,
@@ -113,6 +115,9 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
   // Live Simulator State
   const [previewAd, setPreviewAd] = useState<Advertisement | null>(null);
+  const [detailsAd, setDetailsAd] = useState<Advertisement | null>(null);
+  const [submitterProfile, setSubmitterProfile] = useState<any>(null);
+  const [isSubmitterProfileLoading, setIsSubmitterProfileLoading] = useState(false);
   const [simulatorMode, setSimulatorMode] = useState<'desktop-banner' | 'feed-inline' | 'popup-modal' | 'toast-float' | 'sms-phone'>('desktop-banner');
 
   // Pricing Matrix Form State
@@ -297,11 +302,31 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
     });
   };
 
+  // Load the advertiser's safe, admin-authorized profile when campaign details are opened.
+  const handleOpenCampaignDetails = async (ad: Advertisement) => {
+    setDetailsAd(ad);
+    setSubmitterProfile(null);
+    if (!ad.submittedByUserId || ad.submittedByUserId === 'admin') return;
+    setIsSubmitterProfileLoading(true);
+    try {
+      const response = await api.users.getProfile(String(ad.submittedByUserId));
+      if (response?.success && response.user) setSubmitterProfile(response.user);
+    } catch (error) {
+      console.warn('[AdminAdHub] Could not load advertiser profile:', error);
+    } finally {
+      setIsSubmitterProfileLoading(false);
+    }
+  };
+
   // Confirm Rejection Handler
   const handleConfirmRejection = () => {
     if (!rejectingAd) return;
 
-    const resolvedReason = rejectionReasonInput === 'Other (Specify Custom Reason)' ? (customRejectionReason || 'Violates advertising policy') : rejectionReasonInput;
+    const resolvedReason = rejectionReasonInput === 'Other (Specify Custom Reason)' ? customRejectionReason.trim() : rejectionReasonInput.trim();
+    if (!resolvedReason) {
+      alert('Please enter a clear rejection reason before continuing.');
+      return;
+    }
 
     if (onRejectAd) {
       onRejectAd(rejectingAd.id, resolvedReason);
@@ -586,6 +611,14 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
                     {/* Right actions */}
                     <div className="flex items-center space-x-2 w-full md:w-auto justify-end">
+                      <button
+                        onClick={() => handleOpenCampaignDetails(ad)}
+                        className="px-3 py-2 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-200 border border-indigo-500/30 rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>Details</span>
+                      </button>
+
                       <button
                         onClick={() => {
                           setPreviewAd(ad);
@@ -1148,6 +1181,53 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
             setIsEditorOpen(true);
           }}
         />
+      )}
+
+      {/* ========================================================================= */}
+      {/* CAMPAIGN DETAILS & SAFE SUBMITTER PROFILE */}
+      {/* ========================================================================= */}
+      {detailsAd && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/85 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-5 sm:p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto space-y-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-black text-white">Campaign Submission Details</h3>
+                <p className="text-xs text-slate-400">Review the submitted record and advertiser information before approval or rejection.</p>
+              </div>
+              <button type="button" onClick={() => setDetailsAd(null)} className="p-2 rounded-lg bg-slate-800 text-slate-300 hover:text-white"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-3"><span className="text-slate-500">Campaign title</span><div className="text-white font-bold mt-1">{detailsAd.title || detailsAd.headline}</div></div>
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-3"><span className="text-slate-500">Format / placement</span><div className="text-white font-bold mt-1">{detailsAd.type} · {getPlacementDisplayName(detailsAd.placement)}</div></div>
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-3"><span className="text-slate-500">Duration</span><div className="text-white font-bold mt-1">{detailsAd.durationDisplay || 'Not specified'}</div></div>
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-3"><span className="text-slate-500">Campaign fee</span><div className="text-emerald-300 font-bold mt-1">PKR {(detailsAd.campaignCostPkr || 0).toLocaleString()} · {detailsAd.paymentStatus || 'Not specified'}</div></div>
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-3 sm:col-span-2"><span className="text-slate-500">Target pages</span><div className="text-white font-bold mt-1">{(detailsAd.targetPages || []).map(getPageDisplayName).join(', ') || 'Not specified'}</div></div>
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-3 sm:col-span-2"><span className="text-slate-500">Headline</span><div className="text-white font-bold mt-1">{detailsAd.headline || 'Not provided'}</div><p className="text-slate-300 mt-2 whitespace-pre-wrap">{detailsAd.bodyText || 'No description provided.'}</p></div>
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-3"><span className="text-slate-500">CTA</span><div className="text-white mt-1">{detailsAd.ctaText || 'Not provided'}</div><div className="text-indigo-300 break-all">{detailsAd.ctaUrl || 'No URL'}</div></div>
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-3"><span className="text-slate-500">Schedule</span><div className="text-white mt-1">Start: {detailsAd.scheduledStartAt || 'Not set'}</div><div className="text-white">End: {detailsAd.scheduledEndAt || 'Not set'}</div></div>
+            </div>
+            {detailsAd.imageUrl && <div className="rounded-xl bg-slate-950 border border-slate-800 p-3"><div className="text-xs text-slate-500 mb-2">Submitted creative</div><img src={detailsAd.imageUrl} alt="Submitted campaign creative" className="max-h-64 max-w-full rounded-lg object-contain" /></div>}
+            <div className="rounded-xl bg-slate-950 border border-slate-800 p-4 space-y-2">
+              <h4 className="text-sm font-bold text-white">Advertiser Profile</h4>
+              <div className="text-xs text-slate-300">Submitted name: {detailsAd.submittedByUserName || 'Not provided'} · Email: {detailsAd.submittedByUserEmail || 'Not provided'} · Phone: {detailsAd.submittedByUserPhone || 'Not provided'}</div>
+              {isSubmitterProfileLoading ? <div className="text-xs text-slate-400">Loading verified account profile…</div> : submitterProfile ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <div><span className="text-slate-500">Account name</span><div className="text-white">{submitterProfile.name || submitterProfile.fullName || 'Not provided'}</div></div>
+                  <div><span className="text-slate-500">Account email</span><div className="text-white">{submitterProfile.email || 'Not provided'}</div></div>
+                  <div><span className="text-slate-500">Account phone</span><div className="text-white">{submitterProfile.phone || 'Not provided'}</div></div>
+                  <div><span className="text-slate-500">Role / status</span><div className="text-white">{submitterProfile.role || 'User'} · {submitterProfile.status || 'Status not provided'}</div></div>
+                  <div><span className="text-slate-500">Company</span><div className="text-white">{submitterProfile.companyName || 'Not provided'}</div></div>
+                  <div><span className="text-slate-500">Location</span><div className="text-white">{[submitterProfile.city, submitterProfile.province, submitterProfile.country].filter(Boolean).join(', ') || 'Not provided'}</div></div>
+                </div>
+              ) : <div className="text-xs text-slate-400">{detailsAd.submittedByUserId && detailsAd.submittedByUserId !== 'admin' ? 'Account profile could not be loaded; submitted identity is shown above.' : 'No registered advertiser account is linked to this campaign.'}</div>}
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              <button type="button" onClick={() => { setDetailsAd(null); setPreviewAd(detailsAd); setSimulatorMode(detailsAd.placement === 'top-header' ? 'desktop-banner' : detailsAd.placement === 'popup-modal' ? 'popup-modal' : 'feed-inline'); }} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs font-bold">Preview creative</button>
+              {detailsAd.status === 'pending_approval' && <button type="button" onClick={() => { const ad = detailsAd; setDetailsAd(null); setRejectingAd(ad); setRejectionReasonInput('Creative image resolution is too low and does not meet portal quality guidelines.'); setCustomRejectionReason(''); }} className="px-3 py-2 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs font-bold">Reject with reason</button>}
+              {detailsAd.status === 'pending_approval' && <button type="button" onClick={() => { handleApprove(detailsAd); setDetailsAd(null); }} className="px-3 py-2 rounded-lg bg-emerald-500 text-slate-950 text-xs font-black">Approve & Publish</button>}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ========================================================================= */}

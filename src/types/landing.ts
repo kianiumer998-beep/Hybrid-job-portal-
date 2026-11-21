@@ -443,6 +443,8 @@ export function normalizeLandingDesignSystem(
         hero[typedKey] = safeUrl(rawValue, fallback.config.hero[typedKey] as string) as never;
       } else if (typedKey === 'design45HeroOverlay') {
         hero[typedKey] = (Number.isFinite(Number(rawValue)) ? Math.max(35, Math.min(90, Number(rawValue))) : 68) as never;
+      } else if (typedKey === 'design45AccentColor') {
+        hero[typedKey] = (typeof rawValue === 'string' && /^#[0-9a-fA-F]{6}$/.test(rawValue) ? rawValue : '#0f9f78') as never;
       } else if (typeof rawValue !== 'string') {
         hero[typedKey] = fallback.config.hero[typedKey] as never;
       } else {

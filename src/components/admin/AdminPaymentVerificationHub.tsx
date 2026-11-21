@@ -703,13 +703,13 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                               <div>
                                 <span className="text-slate-500 block text-[10px]">Current Available Balance</span>
                                 <strong className="text-emerald-300 font-mono text-sm">
-                                  PKR {Number(linkedUser?.walletBalance ?? 0).toLocaleString()}
+                                  {linkedUser ? `PKR ${Number(linkedUser.walletBalance ?? 0).toLocaleString()}` : 'Not available'}
                                 </strong>
                               </div>
                               <div>
                                 <span className="text-slate-500 block text-[10px]">Current Escrow / Held</span>
                                 <strong className="text-amber-300 font-mono text-sm">
-                                  PKR {Number(linkedUser?.walletEscrowBalance ?? 0).toLocaleString()}
+                                  {linkedUser ? `PKR ${Number(linkedUser.walletEscrowBalance ?? 0).toLocaleString()}` : 'Not available'}
                                 </strong>
                               </div>
                               <div>

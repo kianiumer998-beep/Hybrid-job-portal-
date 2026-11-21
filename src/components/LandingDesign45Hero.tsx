@@ -13,18 +13,21 @@ interface Props {
   onFiltersChange: (filters: JobFilters) => void;
 }
 
+const DEFAULT_SEEKER_IMAGE = 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=1400&q=85';
+const DEFAULT_EMPLOYER_IMAGE = 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=1400&q=85';
+const DEFAULT_DESIGN4_IMAGE = 'https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=2000&q=85';
 const safeImage = (value: string | undefined, fallback: string) =>
-  value && (/^https:\/\//i.test(value) || (/^\/(?!\/)/.test(value))) ? value : fallback;
+  value && (/^https:\/\//i.test(value.trim()) || (/^\/(?!\/)/.test(value.trim()))) ? value.trim() : fallback;
 
 export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJobsCount, onExplore, onCv, onPostJob, filters, onFiltersChange }) => {
-  const seekerImage = safeImage(config.design5SeekerImageUrl, 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=1400&q=85');
-  const employerImage = safeImage(config.design5EmployerImageUrl, 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=1400&q=85');
+  const seekerImage = safeImage(config.design5SeekerImageUrl, DEFAULT_SEEKER_IMAGE);
+  const employerImage = safeImage(config.design5EmployerImageUrl, DEFAULT_EMPLOYER_IMAGE);
   if (designId === 'design-5') {
     return (
       <section className="mx-auto w-full max-w-[1440px] px-3 sm:px-6 pt-3 sm:pt-6">
         <div className="grid grid-cols-1 md:grid-cols-2 overflow-hidden rounded-[28px] border border-slate-200 shadow-2xl">
           <article className="relative min-h-[430px] sm:min-h-[500px] flex items-end bg-slate-900">
-            <img src={seekerImage} alt="Professional candidate" className="absolute inset-0 h-full w-full object-cover" />
+            <img src={seekerImage} alt="Professional candidate" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = DEFAULT_SEEKER_IMAGE; }} className="absolute inset-0 h-full w-full object-cover" />
             <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/55 to-slate-900/10" />
             <div className="relative z-10 p-7 sm:p-10 text-white max-w-xl">
               <span className="inline-flex rounded-full border border-white/30 bg-white/10 px-3 py-1 text-xs font-bold uppercase tracking-wider">{config.design5SeekerEyebrow || 'For Job Seekers'}</span>
@@ -35,7 +38,7 @@ export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJo
             </div>
           </article>
           <article className="relative min-h-[430px] sm:min-h-[500px] flex items-end bg-slate-900">
-            <img src={employerImage} alt="Employer and hiring professional" className="absolute inset-0 h-full w-full object-cover" />
+            <img src={employerImage} alt="Employer and hiring professional" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = DEFAULT_EMPLOYER_IMAGE; }} className="absolute inset-0 h-full w-full object-cover" />
             <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/60 to-slate-900/10" />
             <div className="relative z-10 p-7 sm:p-10 text-white max-w-xl">
               <span className="inline-flex rounded-full border border-white/30 bg-white/10 px-3 py-1 text-xs font-bold uppercase tracking-wider">{config.design5EmployerEyebrow || 'For Employers'}</span>
@@ -52,12 +55,12 @@ export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJo
       </section>
     );
   }
-  const heroImage = safeImage(config.design4HeroImageUrl, 'https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=2000&q=85');
+  const heroImage = safeImage(config.design4HeroImageUrl, DEFAULT_DESIGN4_IMAGE);
   const overlay = Math.max(35, Math.min(90, Number(config.design45HeroOverlay ?? 68)));
   return (
     <section className="mx-auto w-full max-w-[1440px] px-3 sm:px-6 pt-3 sm:pt-6">
       <div className="relative isolate min-h-[520px] sm:min-h-[590px] overflow-hidden rounded-[28px] bg-slate-950 shadow-2xl">
-        <img src={heroImage} alt="Professionals collaborating in a modern workplace" className="absolute inset-0 z-0 h-full w-full object-cover" />
+        <img src={heroImage} alt="Professionals collaborating in a modern workplace" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = DEFAULT_DESIGN4_IMAGE; }} className="absolute inset-0 z-0 h-full w-full object-cover" />
         <div className="absolute inset-0 z-0 bg-slate-950" style={{ opacity: overlay / 100 }} />
         <div className="absolute inset-0 z-0 bg-gradient-to-r from-slate-950 via-slate-950/80 to-emerald-950/30" />
         <div className="relative z-10 flex min-h-[520px] sm:min-h-[590px] items-center px-6 py-12 sm:px-14">

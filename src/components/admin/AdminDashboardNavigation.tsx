@@ -269,7 +269,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
   {
     id: 'analytics',
     classicCategory: 'settings',
-    proCategory: 'jobs-ads-control-center',
+    proCategory: 'overview-analytics',
     label: 'Executive Analytics & KPIs',
     description: 'View portal-wide KPIs, revenue, job activity, user growth and performance reports.',
     classicSubTabLabel: () => 'Executive Analytics & KPIs',
@@ -278,7 +278,6 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     icon: BarChart3,
     aliases: ['stats'],
     keywords: ['analytics', 'stats', 'kpi', 'metrics', 'revenue', 'reports', 'overview', 'charts', 'statistics', 'رپورٹس'],
-    hideInProfessionalNav: true,
   },
   {
     id: 'activity-logs',

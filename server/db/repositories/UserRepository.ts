@@ -439,6 +439,9 @@ export class UserRepository {
       if (!existing) return null;
       const operations = existing.walletEscrowOperations || {};
       if (operations[cleanKey] === resultState) return existing;
+      if (operations[cleanKey] === 'CAPTURED' || operations[cleanKey] === 'RELEASED') {
+        throw new Error(`Campaign escrow was already settled as ${operations[cleanKey]} and cannot be settled again.`);
+      }
       const held = Number(existing.walletEscrowBalance || 0);
       if (!Number.isFinite(held) || held < amount) return null;
       const updated = {
@@ -457,7 +460,7 @@ export class UserRepository {
       const increments: Record<string, number> = { walletEscrowBalance: -amount };
       if (releaseToWallet) increments.walletBalance = amount;
       const updatedDoc = await coll.findOneAndUpdate(
-        { id: cleanUserId, walletEscrowBalance: { $gte: amount }, [marker]: { $ne: resultState } },
+        { id: cleanUserId, walletEscrowBalance: { $gte: amount }, [marker]: { $exists: false } },
         { $inc: increments, $set: { [marker]: resultState, updatedAt } },
         { returnDocument: 'after' }
       );
@@ -470,6 +473,9 @@ export class UserRepository {
         const { _id, ...safe } = existing;
         return safe;
       }
+      if (existing && ['CAPTURED', 'RELEASED'].includes(existing.walletEscrowOperations?.[cleanKey])) {
+        throw new Error(`Campaign escrow was already settled as ${existing.walletEscrowOperations[cleanKey]} and cannot be settled again.`);
+      }
       return null;
     }
 
@@ -477,6 +483,9 @@ export class UserRepository {
     if (!existing) return null;
     const operations = existing.walletEscrowOperations || {};
     if (operations[cleanKey] === resultState) return existing;
+    if (operations[cleanKey] === 'CAPTURED' || operations[cleanKey] === 'RELEASED') {
+      throw new Error(`Campaign escrow was already settled as ${operations[cleanKey]} and cannot be settled again.`);
+    }
     const held = Number(existing.walletEscrowBalance || 0);
     if (!Number.isFinite(held) || held < amount) return null;
     return Database.updateUser(cleanUserId, {

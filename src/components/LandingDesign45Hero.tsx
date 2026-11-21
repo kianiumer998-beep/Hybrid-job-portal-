@@ -24,7 +24,7 @@ export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJo
     const target = (value || '').trim();
     if (!target) { fallback(); return; }
     if (/^https:\/\//i.test(target)) { window.open(target, '_blank', 'noopener,noreferrer'); return; }
-    if (target.startsWith('mailto:') && /^mailto:[^\\s@]+@[^\\s@]+$/i.test(target)) { window.location.href = target; return; }
+    if (target.startsWith('mailto:') && /^mailto:[^\s@]+@[^\s@]+$/i.test(target)) { window.location.href = target; return; }
     if (target.startsWith('#')) {
       const route = target.slice(1).toLowerCase();
       if (route === 'cv') { onCv(); return; }

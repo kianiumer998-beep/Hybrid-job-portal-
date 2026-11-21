@@ -612,7 +612,10 @@ adRouter.delete('/:id', requireAuth, async (req: any, res) => {
       return res.status(404).json({ success: false, message: 'Ad not found.' });
     }
 
-    if (existingAd.paymentStatus === 'Escrow') {
+    if (
+      existingAd.paymentStatus === 'Escrow' ||
+      (Boolean(existingAd.walletTxId || existingAd.paymentTransactionId) && existingAd.approvalStatus === 'Pending')
+    ) {
       return res.status(409).json({
         success: false,
         message: 'This campaign has wallet funds held in escrow. It must be approved or rejected with refund before it can be deleted.'

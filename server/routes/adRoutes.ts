@@ -290,7 +290,9 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
           }
           adData.campaignCostPkr = calc.finalPrice;
           adData.budget = calc.finalPrice;
-          adData.paymentStatus = 'Paid';
+          adData.paymentStatus = 'Escrow';
+          adData.escrowStatus = 'HELD';
+          adData.escrowAmountPkr = calc.finalPrice;
           adData.walletTxId = verifiedTx.id;
           adData.paymentTransactionId = verifiedTx.id;
           adData.transactionRef = verifiedTx.transactionId || verifiedTx.id;
@@ -382,7 +384,98 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
   }
 });
 
-// 3. Update Advertisement
+// 3. Administrator campaign review: capture escrow on approval or release/refund it on rejection.
+adRouter.patch('/:id/review', requireAuth, async (req: any, res) => {
+  try {
+    const role = String(req.user?.role || '');
+    const action = String(req.body?.action || '');
+    const canManageAds = hasAdminPermission(role, 'advertisements.manage');
+    const canManageFinance = hasAdminPermission(role, 'finance.manage');
+    if (!['approve', 'refund'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'Review action must be approve or refund.' });
+    }
+    if (action === 'approve' && !canManageAds) {
+      return res.status(403).json({ success: false, message: 'Advertisement management permission is required to approve campaigns.' });
+    }
+    if (action === 'refund' && !canManageAds && !canManageFinance) {
+      return res.status(403).json({ success: false, message: 'Advertisement or Finance permission is required to reject and refund campaigns.' });
+    }
+
+    const existingAd = AdRepository.getById(String(req.params.id));
+    if (!existingAd) return res.status(404).json({ success: false, message: 'Campaign not found.' });
+
+    const amount = Number(existingAd.campaignCostPkr || 0);
+    const hasWalletPayment = Boolean(existingAd.walletTxId || existingAd.paymentTransactionId);
+    let settlement: any = null;
+    if (hasWalletPayment && existingAd.paymentStatus !== 'Exempt' && amount > 0) {
+      const txId = String(existingAd.walletTxId || existingAd.paymentTransactionId);
+      settlement = await PaymentRepository.resolveAdvertisementEscrow(
+        txId,
+        action as 'approve' | 'refund',
+        req.user?.name || role || 'Administrator',
+        typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 1000) : undefined
+      );
+    } else if (action === 'refund' && existingAd.paymentStatus === 'Paid' && amount > 0) {
+      return res.status(409).json({
+        success: false,
+        message: 'This paid campaign has no linked wallet transaction. Refund was not attempted; finance reconciliation is required.'
+      });
+    }
+
+    const now = new Date();
+    const timestamp = now.toISOString().replace('T', ' ').substring(0, 16);
+    let updates: Record<string, any>;
+    if (action === 'approve') {
+      const endDate = new Date(now);
+      const duration = Math.max(1, Number(existingAd.durationValue || 1));
+      if (existingAd.durationUnit === 'hours') endDate.setHours(endDate.getHours() + duration);
+      else if (existingAd.durationUnit === 'weeks') endDate.setDate(endDate.getDate() + duration * 7);
+      else if (existingAd.durationUnit === 'months') endDate.setMonth(endDate.getMonth() + duration);
+      else endDate.setDate(endDate.getDate() + duration);
+      updates = {
+        status: 'active',
+        approvalStatus: 'Approved',
+        paymentStatus: hasWalletPayment && existingAd.paymentStatus !== 'Exempt' ? 'Paid' : existingAd.paymentStatus,
+        escrowStatus: hasWalletPayment ? 'CAPTURED' : existingAd.escrowStatus,
+        approvedAt: timestamp,
+        approvedBy: req.user?.name || 'Admin',
+        scheduledStartAt: existingAd.scheduledStartAt || now.toISOString().slice(0, 10),
+        scheduledEndAt: existingAd.scheduledEndAt || endDate.toISOString().slice(0, 10),
+        rejectionReason: undefined
+      };
+    } else {
+      updates = {
+        status: 'rejected',
+        approvalStatus: 'Rejected',
+        paymentStatus: settlement?.refundReferenceId || existingAd.paymentStatus === 'Escrow' ? 'Refunded' : existingAd.paymentStatus,
+        escrowStatus: hasWalletPayment ? 'RELEASED' : existingAd.escrowStatus,
+        rejectionReason: typeof req.body?.reason === 'string' && req.body.reason.trim()
+          ? req.body.reason.trim().slice(0, 1000)
+          : 'Rejected by administrator',
+        rejectedAt: timestamp
+      };
+    }
+
+    const updated = await AdRepository.updateAsync(String(req.params.id), updates);
+    if (!updated) return res.status(404).json({ success: false, message: 'Campaign could not be updated.' });
+    return res.json({
+      success: true,
+      advertisement: updated,
+      transaction: settlement?.transaction,
+      refundReferenceId: settlement?.refundReferenceId,
+      alreadySettled: settlement?.alreadySettled === true,
+      message: action === 'approve'
+        ? 'Campaign approved and escrow captured.'
+        : settlement?.refundReferenceId
+          ? 'Campaign rejected and wallet funds refunded.'
+          : 'Campaign rejected.'
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message || 'Campaign review failed.' });
+  }
+});
+
+// 4. Update Advertisement
 adRouter.put('/:id', requireAuth, async (req: any, res) => {
   try {
     const role = String(req.user?.role || '');
@@ -398,6 +491,17 @@ adRouter.put('/:id', requireAuth, async (req: any, res) => {
     }
 
     const updates = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    if (
+      existingAd.paymentStatus === 'Escrow' &&
+      (Object.prototype.hasOwnProperty.call(updates, 'status') ||
+        Object.prototype.hasOwnProperty.call(updates, 'approvalStatus') ||
+        Object.prototype.hasOwnProperty.call(updates, 'paymentStatus'))
+    ) {
+      return res.status(409).json({
+        success: false,
+        message: 'Campaign funds are held in escrow. Use the dedicated Approve or Reject & Refund action to settle the wallet safely.'
+      });
+    }
     // updatedAt is server-managed by the repository and must never be trusted from the client.
     const changedFields = Object.keys(updates).filter(
       (key) => key !== 'updatedAt' && JSON.stringify((existingAd as any)[key]) !== JSON.stringify(updates[key])

@@ -299,13 +299,13 @@ export const JobListings: React.FC<JobListingsProps> = ({
     const shortDesc = words.slice(0, design.limits.descriptionMaxWords || 25).join(' ') + (words.length > (design.limits.descriptionMaxWords || 25) ? '...' : '');
 
     // DESIGN 2: COMPACT MODERN
-    if (design.layout === 'compact') {
+    if (design.layout === 'compact' || design.layout === 'editorial') {
         return (
             <div
               key={job.id ? `${job.id}-${index}` : `job-${index}`}
-              className={`group relative ${borderRadiusClass} ${densityPadding} shadow-xl transition-all duration-300 flex flex-col justify-between ${cardBgStyle}`}
+              className={`group relative ${borderRadiusClass} ${densityPadding} shadow-xl transition-all duration-300 ${design.layout === 'editorial' ? 'flex flex-col lg:flex-row lg:items-center lg:gap-6' : 'flex flex-col justify-between'} ${cardBgStyle}`}
             >
-               <div className="space-y-2">
+               <div className={design.layout === 'editorial' ? 'min-w-0 flex-1 space-y-2' : 'space-y-2'}>
                     <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
                             {design.visibility.title && (
@@ -404,7 +404,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                     )}
                </div>
 
-               <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-800/50 pt-2">
+               <div className={design.layout === 'editorial' ? 'mt-3 flex items-center justify-between gap-2 border-t border-slate-800/50 pt-2 lg:mt-0 lg:min-w-[190px] lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0' : 'mt-3 flex items-center justify-between gap-2 border-t border-slate-800/50 pt-2'}>
                    <div className="flex items-center gap-2">
                         {design.visibility.urgentBadge && job.urgent && <Flame className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />}
                         {design.visibility.featuredBadge && job.featured && <Sparkles className="w-3.5 h-3.5 text-purple-400" />}
@@ -641,7 +641,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
               </span>
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6">
+          <div className={`grid grid-cols-1 ${jobCardDesign?.layout === 'editorial' ? '' : 'md:grid-cols-2 lg:grid-cols-3'} gap-3 sm:gap-4`}>
             {priorityList.map((job, idx) => renderJobCard(job, idx, true))}
           </div>
         </div>
@@ -659,7 +659,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
       </div>
 
       {/* 3. STANDARD JOBS GRID */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-6">
+      <div className={`grid grid-cols-1 ${jobCardDesign?.layout === 'editorial' ? '' : 'md:grid-cols-2 lg:grid-cols-3'} gap-2 sm:gap-4`}>
         {(() => {
           const eligibleAds = (ads || []).filter(
             (a) => a.placement === 'feed-inline' && isAdCurrentlyRunning(a)

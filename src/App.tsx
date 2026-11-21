@@ -3730,7 +3730,7 @@ export default function App() {
           userId: currentUser.id,
           userName: 'Portal Admin',
           senderRole: 'admin' as const,
-          text: `Your campaign "${createdAd.title}" has been submitted for admin approval! Campaign fee paid via wallet: PKR ${finalCost.toLocaleString()} (Ref: ${verifiedTx.transactionId || verifiedTx.id}).`,
+          text: `Your campaign "${createdAd.title}" has been submitted for admin approval. PKR ${finalCost.toLocaleString()} has been moved from your available wallet into escrow and will remain held until the admin approves or rejects the campaign (Ref: ${verifiedTx.transactionId || verifiedTx.id}).`,
           timestamp: new Date().toISOString()
         };
         api.chat.adminSendReply(confirmMsg).then(res => {

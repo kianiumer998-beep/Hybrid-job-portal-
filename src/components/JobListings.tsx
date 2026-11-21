@@ -641,7 +641,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
               </span>
             </div>
           </div>
-          <div className={`grid grid-cols-1 ${jobCardDesign?.layout === 'editorial' ? '' : 'md:grid-cols-2 lg:grid-cols-3'} gap-3 sm:gap-4`}>
+          <div className={`grid grid-cols-1 ${design.layout === 'editorial' ? '' : 'md:grid-cols-2 lg:grid-cols-3'} gap-3 sm:gap-4`}>
             {priorityList.map((job, idx) => renderJobCard(job, idx, true))}
           </div>
         </div>
@@ -659,7 +659,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
       </div>
 
       {/* 3. STANDARD JOBS GRID */}
-      <div className={`grid grid-cols-1 ${jobCardDesign?.layout === 'editorial' ? '' : 'md:grid-cols-2 lg:grid-cols-3'} gap-2 sm:gap-4`}>
+      <div className={`grid grid-cols-1 ${design.layout === 'editorial' ? '' : 'md:grid-cols-2 lg:grid-cols-3'} gap-2 sm:gap-4`}>
         {(() => {
           const eligibleAds = (ads || []).filter(
             (a) => a.placement === 'feed-inline' && isAdCurrentlyRunning(a)

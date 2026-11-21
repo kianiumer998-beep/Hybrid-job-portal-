@@ -259,6 +259,10 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
     typeof currentUser.walletBalance === 'number' && Number.isFinite(currentUser.walletBalance)
       ? currentUser.walletBalance
       : 0;
+  const walletEscrowBalance =
+    typeof currentUser.walletEscrowBalance === 'number' && Number.isFinite(currentUser.walletEscrowBalance)
+      ? currentUser.walletEscrowBalance
+      : 0;
   const isWalletSufficient = walletBalance >= costCalculation.totalCostPkr;
   const walletDeficit = costCalculation.totalCostPkr - walletBalance;
 
@@ -419,7 +423,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       setFormBodyText('');
       changeActiveSubTab('my-campaigns');
       alert(
-        `Campaign "${newAd.title}" submitted successfully! PKR ${chargedAmount.toLocaleString()} has been deducted from your wallet balance. ${
+        `Campaign "${newAd.title}" submitted successfully! PKR ${chargedAmount.toLocaleString()} has been moved from your available wallet balance into campaign escrow. The amount is held until admin review; if rejected, it will be returned to your available wallet balance. ${
           campaignConfig.formRules.requireAdminApproval
             ? 'The portal administrator will review and verify your campaign shortly.'
             : 'Your campaign is now live!'
@@ -635,7 +639,10 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                 <span>{walletBalance.toLocaleString()}</span>
               </div>
               <div className="text-[10px] sm:text-[11px] text-slate-400">
-                Available for instant campaign publishing
+                Available wallet balance
+              </div>
+              <div className="text-[11px] font-bold text-amber-300">
+                Held in campaign escrow: PKR {walletEscrowBalance.toLocaleString()}
               </div>
             </div>
 
@@ -834,7 +841,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                             ) : isPending ? (
                               <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[11px] font-black uppercase flex items-center space-x-1">
                                 <Clock className="w-3 h-3" />
-                                <span>Pending Admin Review</span>
+                                <span>Pending Review • Funds in Escrow</span>
                               </span>
                             ) : isRejected ? (
                               <span className="px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/40 text-[11px] font-black uppercase flex items-center space-x-1">

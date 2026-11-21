@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Header } from './components/Header';
 import { HeroSection } from './components/HeroSection';
+import { LandingDesign45Hero } from './components/LandingDesign45Hero';
 import { Filters } from './components/Filters';
 import { JobListings } from './components/JobListings';
 import { JobDetailModal } from './components/JobDetailModal';
@@ -4293,6 +4294,22 @@ export default function App() {
                   .sort((a, b) => a.order - b.order)
                   .map((section) => {
                     if (section.id === 'hero') {
+                      if (landingDesignSystem.activeDesignId === 'design-4' || landingDesignSystem.activeDesignId === 'design-5') {
+                        return (
+                          <LandingDesign45Hero
+                            key={`section-hero-${landingDesignSystem.activeDesignId}`}
+                            designId={landingDesignSystem.activeDesignId}
+                            config={landingConfig.hero}
+                            totalJobsCount={jobs.length}
+                            onExplore={() => {
+                              const el = document.getElementById('jobs-section');
+                              el?.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            onCv={() => setActiveTab('cv')}
+                            onPostJob={handlePostJobClick}
+                          />
+                        );
+                      }
                       return (
                         <HeroSection
                           key="section-hero"

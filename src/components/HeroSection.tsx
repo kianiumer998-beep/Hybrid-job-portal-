@@ -29,12 +29,12 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
   return (
     <section className={heroVariantClasses.section}>
       {/* Subtle Background Glow Elements */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 bg-gradient-to-tr ${heroVariantClasses.glow} blur-3xl pointer-events-none rounded-full" />
+      <div className={`absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 bg-gradient-to-tr ${heroVariantClasses.glow} blur-3xl pointer-events-none rounded-full`} />
       
       <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 relative z-10 space-y-2 sm:space-y-8">
         
         {/* PROMINENT HIRING / EMPLOYER CTA BANNER */}
-        <div className="${heroVariantClasses.banner} border rounded-xl sm:rounded-2xl p-2 sm:p-5 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-2 sm:gap-4">
+        <div className={`${heroVariantClasses.banner} border rounded-xl sm:rounded-2xl p-2 sm:p-5 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-2 sm:gap-4`}>
           <div className="flex items-center space-x-2 sm:space-x-3.5 w-full md:w-auto">
             <div className="w-7 h-7 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 p-0.5 shrink-0 shadow-lg shadow-emerald-500/20">
               <div className="w-full h-full bg-slate-950 rounded-[6px] sm:rounded-[10px] flex items-center justify-center">
@@ -69,7 +69,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
         <div className="text-center max-w-4xl mx-auto">
           
           {/* Eyebrow Badge */}
-          <div className="inline-flex items-center space-x-1 sm:space-x-2 px-2 py-0.5 sm:px-3.5 sm:py-1.5 rounded-full bg-slate-900/90 border ${heroVariantClasses.eyebrow} text-[9px] sm:text-xs font-semibold mb-1 sm:mb-6 shadow-md backdrop-blur-md">
+          <div className={`inline-flex items-center space-x-1 sm:space-x-2 px-2 py-0.5 sm:px-3.5 sm:py-1.5 rounded-full bg-slate-900/90 border ${heroVariantClasses.eyebrow} text-[9px] sm:text-xs font-semibold mb-1 sm:mb-6 shadow-md backdrop-blur-md`}>
             <span className="flex h-1.5 w-1.5 sm:h-2 sm:w-2 relative">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-1.5 w-1.5 sm:h-2 sm:w-2 bg-emerald-500"></span>
@@ -80,7 +80,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           {/* Main Heading */}
           <h1 className="text-lg sm:text-4xl md:text-5xl lg:text-6xl font-black text-white tracking-tight leading-tight">
             {heroConfig.mainHeadingPrefix || 'Find Your Next'}{' '}
-            <span className="bg-gradient-to-r ${heroVariantClasses.heading} bg-clip-text text-transparent">
+            <span className={`bg-gradient-to-r ${heroVariantClasses.heading} bg-clip-text text-transparent`}>
               {heroConfig.gradientWord || 'Hybrid or Remote'}
             </span>{' '}
             {heroConfig.mainHeadingSuffix || 'Role'}
@@ -95,7 +95,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           <div className="mt-2 sm:mt-8 flex flex-row items-center justify-center gap-1.5 sm:gap-4">
             <button
               onClick={onExploreClick}
-              className="flex-1 sm:flex-initial min-h-[34px] sm:min-h-[44px] px-2 sm:px-8 py-1.5 sm:py-4 rounded-lg sm:rounded-xl bg-gradient-to-r ${heroVariantClasses.primary} text-slate-950 font-bold text-[10px] min-[360px]:text-xs sm:text-base shadow-md shadow-emerald-500/20 active:scale-95 transition-all duration-200 flex items-center justify-center space-x-1 sm:space-x-2 cursor-pointer"
+              className={`flex-1 sm:flex-initial min-h-[34px] sm:min-h-[44px] px-2 sm:px-8 py-1.5 sm:py-4 rounded-lg sm:rounded-xl bg-gradient-to-r ${heroVariantClasses.primary} text-slate-950 font-bold text-[10px] min-[360px]:text-xs sm:text-base shadow-md shadow-emerald-500/20 active:scale-95 transition-all duration-200 flex items-center justify-center space-x-1 sm:space-x-2 cursor-pointer`}
             >
               <Search className="w-3 h-3 sm:w-5 sm:h-5 text-slate-950 shrink-0" />
               <span className="truncate">{heroConfig.primaryBtnText || `Browse ${totalJobsCount} Jobs`}</span>

@@ -19,7 +19,9 @@ export interface AdvertisementRecord {
   durationDisplay?: string;
   targetPages?: string[];
   campaignCostPkr?: number;
-  paymentStatus?: 'Paid' | 'Pending Wallet Deduction' | 'Refunded' | 'Exempt';
+  paymentStatus?: 'Paid' | 'Pending Wallet Deduction' | 'Escrow' | 'Refunded' | 'Exempt';
+  escrowStatus?: 'HELD' | 'CAPTURED' | 'RELEASED' | string;
+  escrowAmountPkr?: number;
   walletTxId?: string;
   paymentTransactionId?: string;
   transactionRef?: string;

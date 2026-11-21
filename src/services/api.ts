@@ -951,6 +951,13 @@ export const api = {
         body: JSON.stringify(adData)
       });
     },
+    async review(id: string, action: 'approve' | 'refund', reason?: string) {
+      return safeFetchJson(`${API_BASE}/ads/${encodeURIComponent(id)}/review`, {
+        method: 'PATCH',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ action, reason })
+      });
+    },
     async delete(id: string) {
       return safeFetchJson(`${API_BASE}/ads/${id}`, {
         method: 'DELETE',

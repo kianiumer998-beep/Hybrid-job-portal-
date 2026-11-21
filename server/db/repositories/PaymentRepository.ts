@@ -7,6 +7,7 @@ import { PricingRepository } from './PricingRepository';
 import { getMongoDb, isMongoConfigured } from '../mongodb';
 
 const activeCompensationLocks = new Set<string>();
+const activeEscrowSettlementLocks = new Set<string>();
 const isTest = () => process.env.IS_TEST === 'true';
 let mockTransactionsCollection: any = null;
 const isMockMongoActive = () =>
@@ -595,10 +596,12 @@ export class PaymentRepository {
       const rawCurrentBal = Number(user.walletBalance || 0);
       let currentBal = Number.isFinite(rawCurrentBal) && rawCurrentBal >= 0 ? rawCurrentBal : 0;
       let restoredBalance = currentBal + originalAmount;
+      const isEscrowHeld = tx.escrowStatus === 'HELD' || tx.escrowStatus === 'SETTLING_RELEASE';
 
       if (originalAmount > 0) {
         await this.updateAsync(lockKey, {
           compensationStatus: 'Compensating' as CompensationStatusState,
+          ...(isEscrowHeld ? { escrowStatus: 'SETTLING_RELEASE' } : {}),
           updatedAt: new Date().toISOString()
         });
 
@@ -609,12 +612,15 @@ export class PaymentRepository {
 
         let updatedUser: any = null;
         try {
-          updatedUser = await UserRepository.creditWalletBalanceAsync(user.id, originalAmount);
+          updatedUser = isEscrowHeld
+            ? await UserRepository.settleWalletEscrowAsync(user.id, originalAmount, `settle-${lockKey}`, true)
+            : await UserRepository.creditWalletBalanceAsync(user.id, originalAmount);
         } catch (creditErr) {
           await this.updateAsync(lockKey, {
             originalStatus: tx.status,
             status: 'Pending',
             compensationStatus: 'CompensationUncertain' as CompensationStatusState,
+            ...(isEscrowHeld ? { escrowStatus: 'SETTLING_RELEASE' } : {}),
             updatedAt: new Date().toISOString()
           });
           throw creditErr;
@@ -623,13 +629,14 @@ export class PaymentRepository {
         if (!updatedUser) {
           await this.updateAsync(lockKey, {
             compensationStatus: undefined,
+            ...(isEscrowHeld ? { escrowStatus: 'HELD' } : {}),
             updatedAt: new Date().toISOString()
           });
           throw new Error('Failed to restore user wallet balance during Advertisement payment compensation.');
         }
 
         restoredBalance = Number(updatedUser.walletBalance);
-        currentBal = restoredBalance - originalAmount;
+        currentBal = restoredBalance - (isEscrowHeld ? originalAmount : originalAmount);
       }
 
       const compensatedAt = new Date().toISOString();
@@ -643,6 +650,7 @@ export class PaymentRepository {
         compensated: true,
         refunded: true,
         compensationStatus: 'Compensated' as CompensationStatusState,
+        ...(isEscrowHeld ? { escrowStatus: 'RELEASED' } : {}),
         originalChargedAmount: originalAmount,
         refundedAmount: originalAmount,
         compensatedAt,
@@ -698,6 +706,125 @@ export class PaymentRepository {
       };
     } finally {
       activeCompensationLocks.delete(lockKey);
+    }
+  }
+
+  static async resolveAdvertisementEscrow(
+    txId: string,
+    action: 'approve' | 'refund',
+    actorName: string,
+    actorRole: string,
+    reason?: string
+  ): Promise<{ transaction: any; alreadySettled: boolean; refundReferenceId?: string }> {
+    const cleanId = String(txId || '').trim();
+    if (!cleanId) throw new Error('Campaign wallet transaction reference is required.');
+    if (activeEscrowSettlementLocks.has(cleanId)) throw new Error('This campaign wallet settlement is already being processed.');
+    activeEscrowSettlementLocks.add(cleanId);
+    try {
+      const tx = await this.getByIdAsync(cleanId);
+      if (!tx || tx.type !== 'Advertisement' || tx.paymentMethod !== 'Wallet Balance') {
+        throw new Error('The linked campaign wallet transaction could not be verified.');
+      }
+      if (!tx.userId) throw new Error('Campaign wallet transaction is missing its user account reference.');
+      const amount = Number(tx.escrowAmount ?? tx.amount);
+      if (!Number.isFinite(amount) || amount <= 0) throw new Error('Campaign escrow amount is invalid.');
+      const now = new Date().toISOString();
+      const isRefund = action === 'refund';
+      const settledState = isRefund ? 'RELEASED' : 'CAPTURED';
+      const settlingState = isRefund ? 'SETTLING_RELEASE' : 'SETTLING_CAPTURE';
+
+      if (tx.escrowStatus === settledState || (isRefund && this.isTransactionCompensated(tx))) {
+        return { transaction: tx, alreadySettled: true, ...(tx.refundReferenceId ? { refundReferenceId: tx.refundReferenceId } : {}) };
+      }
+      if (tx.escrowStatus && !['HELD', settlingState].includes(tx.escrowStatus)) {
+        throw new Error(`Campaign escrow is already in state ${tx.escrowStatus} and cannot be ${action === 'approve' ? 'approved' : 'refunded'}.`);
+      }
+      if (tx.status !== 'Success' && tx.escrowStatus !== settlingState) {
+        throw new Error(`Campaign payment is not settled (transaction status: ${tx.status}).`);
+      }
+
+      let updatedUser: any = null;
+      if (tx.escrowStatus === 'HELD' || tx.escrowStatus === settlingState) {
+        if (tx.escrowStatus === 'HELD') {
+          const claimed = await this.updateAsync(cleanId, {
+            escrowStatus: settlingState,
+            escrowSettlementAction: action,
+            escrowSettlementStartedAt: now
+          });
+          if (!claimed || claimed.escrowStatus !== settlingState) {
+            throw new Error('Could not safely claim this campaign escrow settlement.');
+          }
+        } else if (tx.escrowSettlementAction && tx.escrowSettlementAction !== action) {
+          throw new Error('A different campaign escrow settlement action is already in progress.');
+        }
+
+        updatedUser = await UserRepository.settleWalletEscrowAsync(
+          String(tx.userId),
+          amount,
+          `settle-${cleanId}`,
+          isRefund
+        );
+        if (!updatedUser) {
+          throw new Error('Campaign escrow could not be settled because the held wallet amount is unavailable. Manual reconciliation is required.');
+        }
+      } else if (isRefund && !tx.escrowStatus) {
+        // Backward compatibility: refund paid campaigns created before escrow tracking existed.
+        updatedUser = await UserRepository.creditWalletBalanceOnceAsync(
+          String(tx.userId),
+          amount,
+          `ad-refund-${cleanId}`
+        );
+        if (!updatedUser) throw new Error('Could not restore the legacy campaign payment to the user wallet.');
+      }
+
+      const refundReferenceId = isRefund ? `AD-REF-${tx.transactionId || cleanId}` : undefined;
+      const finalTx = await this.updateAsync(cleanId, {
+        escrowStatus: settledState,
+        escrowAmount: amount,
+        escrowSettledAt: now,
+        escrowSettlementAction: action,
+        ...(isRefund ? {
+          status: 'Refunded',
+          refunded: true,
+          refundedAmount: amount,
+          refundedAt: now,
+          refundReferenceId,
+          compensationReason: reason || 'Campaign rejected by administrator; escrow released to user wallet.',
+          compensationBalanceAfter: Number(updatedUser?.walletBalance ?? 0),
+          adminNote: `Campaign payment of ${amount} PKR refunded to wallet. Ref: ${refundReferenceId}`
+        } : {
+          status: 'Success',
+          capturedAmount: amount,
+          capturedAt: now,
+          adminNote: 'Campaign approved; escrow captured as campaign payment.'
+        })
+      });
+      if (!finalTx) throw new Error('Wallet settlement completed but its transaction record could not be finalized. Retry the same action to reconcile safely.');
+
+      const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
+        user: actorName || 'Administrator',
+        role: actorRole || 'Admin',
+        action: isRefund ? 'Campaign Escrow Refunded' : 'Campaign Escrow Captured',
+        target: `Transaction ${tx.transactionId || cleanId} (${amount} PKR)`,
+        status: isRefund ? 'Warning' : 'Success',
+        metadata: {
+          transactionId: cleanId,
+          userId: tx.userId,
+          adId: tx.adIdRef,
+          amount,
+          escrowStatus: settledState,
+          refundReferenceId
+        }
+      }, 'PaymentRepository.resolveAdvertisementEscrow');
+
+      return {
+        transaction: finalTx,
+        alreadySettled: false,
+        ...(refundReferenceId ? { refundReferenceId } : {}),
+        ...(auditOutcome.persisted ? {} : {})
+      };
+    } finally {
+      activeEscrowSettlementLocks.delete(cleanId);
     }
   }
 
@@ -1028,6 +1155,8 @@ export class PaymentRepository {
     return {
       userId,
       balance,
+      availableBalance: balance,
+      escrowBalance: Number(user?.walletEscrowBalance || 0),
       transactions: txs
     };
   }

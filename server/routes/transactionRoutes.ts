@@ -550,6 +550,12 @@ transactionRouter.post('/', async (req, res) => {
           message: 'Wallet Deposit cannot be funded using Wallet Balance.'
         });
       }
+      if (effectiveType === 'Advertisement' && paymentMethod === 'Wallet Balance' && !safeAdIdRef) {
+        return res.status(400).json({
+          success: false,
+          message: 'A campaign reference is required before wallet funds can be placed into escrow.'
+        });
+      }
 
       let targetJob: any = null;
       if (effectiveType === 'Job Posting') {
@@ -1138,7 +1144,53 @@ transactionRouter.post('/', async (req, res) => {
             );
             newTx.walletMutationState = 'DEDUCTED';
           } else {
-            if (enforcedAmount > 0) {
+            if (effectiveType === 'Advertisement' && enforcedAmount > 0) {
+              await persistTransactionState(
+                newTx.id,
+                { walletMutationState: 'DEDUCTING', escrowStatus: 'HOLDING', escrowAmount: enforcedAmount, updatedAt: new Date().toISOString() },
+                { key: 'walletMutationState', expected: 'DEDUCTING' }
+              );
+              walletMutationState = 'DEDUCTING';
+              newTx.walletMutationState = 'DEDUCTING';
+              newTx.escrowStatus = 'HOLDING';
+              newTx.escrowAmount = enforcedAmount;
+
+              let heldUser: any = null;
+              try {
+                heldUser = await UserRepository.holdWalletBalanceInEscrowAsync(
+                  effectiveUserId,
+                  enforcedAmount,
+                  `hold-${newTx.id}`
+                );
+              } catch (holdErr) {
+                walletMutationState = 'UNCERTAIN';
+                throw holdErr;
+              }
+              if (!heldUser) {
+                walletMutationState = 'NONE';
+                throw new Error('Insufficient available wallet balance for campaign escrow.');
+              }
+
+              walletMutationState = 'DEDUCTED';
+              newTx.escrowStatus = 'HELD';
+              newTx.escrowAmount = enforcedAmount;
+              effectiveBalanceAfter = Number(heldUser.walletBalance);
+              effectiveBalanceBefore = effectiveBalanceAfter + enforcedAmount;
+              const heldAmount = Number(heldUser.walletEscrowBalance || 0);
+              await persistTransactionState(newTx.id, {
+                walletMutationState: 'DEDUCTED',
+                escrowStatus: 'HELD',
+                escrowAmount: enforcedAmount,
+                escrowBalanceAfter: heldAmount,
+                balanceBefore: effectiveBalanceBefore,
+                balanceAfter: effectiveBalanceAfter,
+                updatedAt: new Date().toISOString()
+              });
+              newTx.walletMutationState = 'DEDUCTED';
+              newTx.escrowStatus = 'HELD';
+              newTx.escrowAmount = enforcedAmount;
+              newTx.escrowBalanceAfter = heldAmount;
+            } else if (enforcedAmount > 0) {
               await persistTransactionState(
                 newTx.id,
                 { walletMutationState: 'DEDUCTING', updatedAt: new Date().toISOString() },
@@ -1259,18 +1311,54 @@ transactionRouter.post('/', async (req, res) => {
           newTx.balanceAfter = effectiveBalanceAfter;
           finalStatus = 'Success';
         } catch (walletProcessingErr: any) {
-          const failedAt = new Date().toISOString();
           const failureReason = walletProcessingErr?.message || 'Wallet Balance processing failed.';
-          const nextStatus = canSafelyMarkTransactionFailed(walletMutationState) ? 'Failed' : 'Pending';
+          let escrowReleaseConfirmed = false;
 
-          await PaymentRepository.updateAsync(newTx.id, {
-            status: nextStatus,
-            walletMutationState,
-            rejectionReason: failureReason
-          });
-          newTx.status = nextStatus;
-          newTx.walletMutationState = walletMutationState;
-          newTx.rejectionReason = failureReason;
+          // If the wallet hold succeeded but transaction finalization failed, release that hold
+          // immediately instead of leaving money stranded without a campaign record.
+          if (effectiveType === 'Advertisement' && walletMutationState === 'DEDUCTED' && newTx.escrowStatus === 'HELD') {
+            try {
+              const restoredUser = await UserRepository.settleWalletEscrowAsync(
+                effectiveUserId,
+                enforcedAmount,
+                `settle-${newTx.id}`,
+                true
+              );
+              if (restoredUser) {
+                const refundReferenceId = `AD-REF-${newTx.transactionId || newTx.id}`;
+                const refundedTx = await PaymentRepository.updateAsync(newTx.id, {
+                  status: 'Refunded',
+                  walletMutationState: 'ROLLED_BACK',
+                  escrowStatus: 'RELEASED',
+                  refunded: true,
+                  refundedAmount: enforcedAmount,
+                  refundedAt: new Date().toISOString(),
+                  refundReferenceId,
+                  balanceAfter: Number(restoredUser.walletBalance),
+                  rejectionReason: failureReason
+                });
+                if (refundedTx) {
+                  Object.assign(newTx, refundedTx);
+                  escrowReleaseConfirmed = true;
+                }
+              }
+            } catch (releaseErr) {
+              console.error('[Transactions] Campaign escrow release after wallet processing failure is uncertain:', releaseErr);
+            }
+          }
+
+          if (!escrowReleaseConfirmed) {
+            const nextStatus = canSafelyMarkTransactionFailed(walletMutationState) ? 'Failed' : 'Pending';
+            await PaymentRepository.updateAsync(newTx.id, {
+              status: nextStatus,
+              walletMutationState,
+              ...(newTx.escrowStatus === 'HELD' ? { escrowStatus: 'SETTLING_RELEASE' } : {}),
+              rejectionReason: failureReason
+            });
+            newTx.status = nextStatus;
+            newTx.walletMutationState = walletMutationState;
+            newTx.rejectionReason = failureReason;
+          }
           throw walletProcessingErr;
         }
       }

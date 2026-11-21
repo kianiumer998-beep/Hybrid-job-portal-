@@ -47,6 +47,7 @@ export type AdminCategory =
 export type ProAdminCategoryId =
   | 'overview-analytics'
   | 'jobs-moderation'
+  | 'jobs-ads-control-center'
   | 'scraper-ingestion'
   | 'ads-campaigns'
   | 'finance-payments'
@@ -58,6 +59,7 @@ export type AdminNavMode = 'classic' | 'professional';
 
 export type AdminCanonicalTabId =
   | 'analytics'
+  | 'jobs-ads-control-center'
   | 'activity-logs'
   | 'jobs'
   | 'pending'
@@ -132,6 +134,7 @@ export interface AdminNavModuleDefinition {
   isNew?: boolean;
   keywords: string[];
   aliases?: string[];
+  hideInProfessionalNav?: boolean;
 }
 
 export interface ProCategoryDefinition {
@@ -210,6 +213,13 @@ export const PROFESSIONAL_ADMIN_CATEGORIES: ProCategoryDefinition[] = [
     icon: Briefcase
   },
   {
+    id: 'jobs-ads-control-center',
+    label: 'Jobs & Ads Control Center',
+    description: 'One place for submitted jobs, approvals, job rates, campaigns, ad placements and performance.',
+    urdu: 'جابز اور اشتہارات کا مرکزی کنٹرول',
+    icon: Megaphone
+  },
+  {
     id: 'scraper-ingestion',
     label: 'Scraper & Ingestion',
     description: 'Configure and monitor automated job collection and import workflows.',
@@ -267,7 +277,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicSubTabUrdu: 'اینالیٹکس رپورٹس',
     icon: BarChart3,
     aliases: ['stats'],
-    keywords: ['analytics', 'stats', 'kpi', 'metrics', 'revenue', 'reports', 'overview', 'charts', 'statistics', 'رپورٹس']
+    keywords: ['analytics', 'stats', 'kpi', 'metrics', 'revenue', 'reports', 'overview', 'charts', 'statistics', 'رپورٹس'],
   },
   {
     id: 'activity-logs',
@@ -280,11 +290,22 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     keywords: ['audit', 'security', 'logs', 'activity', 'trail', 'history', 'events', 'لاگز', 'سیکیورٹی']
   },
 
+  {
+    id: 'jobs-ads-control-center',
+    classicCategory: 'jobs',
+    proCategory: 'jobs-ads-control-center',
+    label: 'Jobs & Ads Control Center',
+    description: 'One workspace for job submissions, approvals, job rates, campaign slots, sizes, schedules and campaign fees.',
+    urdu: 'جابز اور اشتہارات کا مرکزی کنٹرول',
+    icon: Megaphone,
+    keywords: ['jobs ads control center', 'job submissions', 'campaign settings', 'campaign slots', 'job rates', 'job fees', 'کیمپین', 'جابز']
+  },
+
   // 2. Jobs & Moderation
   {
     id: 'jobs',
     classicCategory: 'jobs',
-    proCategory: 'jobs-moderation',
+    proCategory: 'jobs-ads-control-center',
     label: 'Live Listings',
     description: 'Manage published job listings, edits, duplicate checks and bulk actions.',
     classicSubTabLabel: (c) => `Live Listings (${c.activeJobsCount})`,
@@ -292,12 +313,13 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicSubTabUrdu: 'لائیو جابز',
     icon: Briefcase,
     badge: (c) => `${c.activeJobsCount} Active`,
-    keywords: ['jobs', 'listings', 'vacancies', 'live', 'posts', 'careers', 'employment', 'نوکریاں', 'ملازمتیں']
+    keywords: ['jobs', 'listings', 'vacancies', 'live', 'posts', 'careers', 'employment', 'نوکریاں', 'ملازمتیں'],
+    hideInProfessionalNav: true,
   },
   {
     id: 'pending',
     classicCategory: 'jobs',
-    proCategory: 'jobs-moderation',
+    proCategory: 'jobs-ads-control-center',
     label: 'Pending Approvals Queue',
     description: 'Review pending job submissions and approve or reject them.',
     classicSubTabLabel: (c) => `Pending Approvals (${c.pendingJobsCount})`,
@@ -306,30 +328,33 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     icon: Clock,
     badge: (c) => `${c.pendingJobsCount} Pending`,
     classicSubTabBadge: (c) => (c.pendingJobsCount > 0 ? c.pendingJobsCount : undefined),
-    keywords: ['pending', 'approval', 'queue', 'moderation', 'review', 'approve', 'reject', 'منظوری']
+    keywords: ['pending', 'approval', 'queue', 'moderation', 'review', 'approve', 'reject', 'منظوری'],
+    hideInProfessionalNav: true,
   },
   {
     id: 'add-job',
     classicCategory: 'jobs',
-    proCategory: 'jobs-moderation',
+    proCategory: 'jobs-ads-control-center',
     label: 'Post Manual Job',
     description: 'Create and submit a job listing manually using the admin form.',
     urdu: 'نئی جاب شامل کریں',
     classicSubTabUrdu: 'نئی جاب',
     icon: Plus,
-    keywords: ['add', 'post', 'create', 'manual', 'new job', 'publish', 'نئی جاب', 'شامل']
+    keywords: ['add', 'post', 'create', 'manual', 'new job', 'publish', 'نئی جاب', 'شامل'],
+    hideInProfessionalNav: true,
   },
   {
     id: 'ai-enhancer',
     classicCategory: 'jobs',
-    proCategory: 'jobs-moderation',
+    proCategory: 'jobs-ads-control-center',
     label: 'AI Quality & Spam Guard',
     description: 'Check job content quality and flag spam or incomplete listings.',
     classicSubTabLabel: () => 'AI Quality & Spam Filter',
     urdu: 'کوالٹی اور اسپیم چیکر',
     classicSubTabUrdu: 'کوالٹی فلٹر',
     icon: Sparkles,
-    keywords: ['ai', 'quality', 'spam', 'enhancer', 'filter', 'moderation', 'cleanup', 'اسپیم', 'کوالٹی']
+    keywords: ['ai', 'quality', 'spam', 'enhancer', 'filter', 'moderation', 'cleanup', 'اسپیم', 'کوالٹی'],
+    hideInProfessionalNav: true,
   },
 
   // 3. Scraper & Ingestion
@@ -350,7 +375,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
   {
     id: 'campaign-center',
     classicCategory: 'ads',
-    proCategory: 'ads-campaigns',
+    proCategory: 'jobs-ads-control-center',
     label: 'Campaign Operations',
     description: 'Pause or resume approved campaigns, edit schedule windows and apply authorised fee waivers. Use Ad Hub for creative editing, approvals, pricing, placement settings and analytics.',
     classicSubTabLabel: (c) => `Campaign Operations (${c.activeAdsCount} Live)`,
@@ -358,43 +383,47 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicSubTabUrdu: 'اشتہاری کیمپینز',
     icon: Megaphone,
     badge: (c) => `${c.activeAdsCount} Live`,
-    keywords: ['campaign', 'campaigns', 'ads', 'promotions', 'popup', 'banners', 'کیمپین', 'اشتہارات']
+    keywords: ['campaign', 'campaigns', 'ads', 'promotions', 'popup', 'banners', 'کیمپین', 'اشتہارات'],
+    hideInProfessionalNav: true,
   },
   {
     id: 'advertisements',
     classicCategory: 'ads',
-    proCategory: 'ads-campaigns',
+    proCategory: 'jobs-ads-control-center',
     label: 'Ad Hub & Banner Slots',
     description: 'Manage creative campaigns, approval queue, placement timeline, performance and the active ad rate card. Finance permission is required for pricing and campaign configuration.',
     urdu: 'اشتہاری بینر سلاٹس',
     classicSubTabUrdu: 'بینر سلاٹس',
     icon: Layers,
-    keywords: ['advertisements', 'ad hub', 'slots', 'banners', 'approvals', 'بینر', 'سلاٹس']
+    keywords: ['advertisements', 'ad hub', 'slots', 'banners', 'approvals', 'بینر', 'سلاٹس'],
+    hideInProfessionalNav: true,
   },
   {
     id: 'landing-customizer',
     classicCategory: 'ads',
-    proCategory: 'ads-campaigns',
+    proCategory: 'jobs-ads-control-center',
     label: 'Landing Page Customizer',
     description: 'Customize homepage sections, job-card design, banners and landing-page layout.',
     urdu: 'ہوم پیج بینر ڈیزائنر',
     classicSubTabUrdu: 'ہوم پیج بینرز',
     icon: Edit3,
-    keywords: ['landing', 'homepage', 'hero', 'customizer', 'cards', 'theme', 'ہوم پیج']
+    keywords: ['landing', 'homepage', 'hero', 'customizer', 'cards', 'theme', 'ہوم پیج'],
+    hideInProfessionalNav: true,
   },
 
   // 5. Finance & Payments
   {
     id: 'pricing-controller',
     classicCategory: 'payments',
-    proCategory: 'finance-payments',
+    proCategory: 'jobs-ads-control-center',
     label: 'Universal Pricing Controller',
     description: 'Manage job-posting, subscription and CV rates. Active ad campaign rates are managed separately in Ad Hub.',
     urdu: 'تمام فیسیں اور اشتہارات ریٹ',
     icon: DollarSign,
     badge: 'NEW',
     isNew: true,
-    keywords: ['pricing', 'rates', 'packages', 'subscription', 'plans', 'tiers', 'پیکیجز', 'ریٹ', 'فیسیں']
+    keywords: ['pricing', 'rates', 'packages', 'subscription', 'plans', 'tiers', 'پیکیجز', 'ریٹ', 'فیسیں'],
+    hideInProfessionalNav: true,
   },
   {
     id: 'admin-payment-methods',
@@ -425,18 +454,19 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
   {
     id: 'fee-management',
     classicCategory: 'payments',
-    proCategory: 'finance-payments',
+    proCategory: 'jobs-ads-control-center',
     label: 'Category Fees & Pricing',
     description: 'Set category posting fees, employer exemptions and individual job fee waivers.',
     urdu: 'پوسٹنگ فیس اور رعایتیں',
     classicSubTabUrdu: 'پوسٹنگ فیس',
     icon: DollarSign,
-    keywords: ['fee', 'fees', 'waivers', 'exemptions', 'category fees', 'discount', 'فیس', 'رعایت']
+    keywords: ['fee', 'fees', 'waivers', 'exemptions', 'category fees', 'discount', 'فیس', 'رعایت'],
+    hideInProfessionalNav: true,
   },
   {
     id: 'fee-logs',
     classicCategory: 'payments',
-    proCategory: 'finance-payments',
+    proCategory: 'jobs-ads-control-center',
     label: 'Per-Job Fee Transaction Logs',
     description: 'Review per-job posting fee records and transaction history.',
     classicSubTabLabel: (c) => `Per-Job Fee Logs (${c.feeLogsCount})`,
@@ -444,7 +474,8 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicSubTabUrdu: 'فیس لین دین',
     icon: Receipt,
     badge: (c) => `${c.feeLogsCount} Records`,
-    keywords: ['fee logs', 'ledger', 'transactions', 'job fees', 'billing', 'ریکارڈ']
+    keywords: ['fee logs', 'ledger', 'transactions', 'job fees', 'billing', 'ریکارڈ'],
+    hideInProfessionalNav: true,
   },
   {
     id: 'currency-forex',
@@ -790,7 +821,7 @@ export function buildProfessionalAllModulesMenuGroups(
   counts: AdminNavCounts
 ): AllModulesMenuGroup<ProAdminCategoryId>[] {
   return PROFESSIONAL_ADMIN_CATEGORIES.map((cat) => {
-    const items = ADMIN_NAVIGATION_MODULES.filter((m) => m.proCategory === cat.id).map((m) => {
+    const items = ADMIN_NAVIGATION_MODULES.filter((m) => m.proCategory === cat.id && !m.hideInProfessionalNav).map((m) => {
       const badge = resolveModuleBadge(m, counts);
       return {
         id: m.id,
@@ -899,6 +930,7 @@ export function buildProfessionalMenuCategories(
     const items: ProMenuModuleItem[] = ADMIN_NAVIGATION_MODULES.filter(
       (mod) =>
         mod.proCategory === cat.id &&
+        !mod.hideInProfessionalNav &&
         canAccessTab(mod.id) &&
         matchesAdminModuleSearch(mod, searchQuery)
     ).map((mod) => ({
@@ -930,7 +962,7 @@ export function searchAdminNavigationModules(
   canAccessTab: (tabId: string) => boolean
 ): ProMenuModuleItem[] {
   return ADMIN_NAVIGATION_MODULES.filter(
-    (mod) => canAccessTab(mod.id) && matchesAdminModuleSearch(mod, query)
+    (mod) => !mod.hideInProfessionalNav && canAccessTab(mod.id) && matchesAdminModuleSearch(mod, query)
   ).map((mod) => ({
     id: mod.id,
     label: mod.label,

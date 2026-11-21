@@ -660,7 +660,9 @@ export interface Advertisement {
   
   // Financial & Wallet
   campaignCostPkr?: number;
-  paymentStatus?: 'Paid' | 'Pending Wallet Deduction' | 'Refunded' | 'Exempt';
+  paymentStatus?: 'Paid' | 'Pending Wallet Deduction' | 'Escrow' | 'Refunded' | 'Exempt';
+  escrowStatus?: 'HELD' | 'CAPTURED' | 'RELEASED' | string;
+  escrowAmountPkr?: number;
   walletTxId?: string;
   
   // Visual & Content Details

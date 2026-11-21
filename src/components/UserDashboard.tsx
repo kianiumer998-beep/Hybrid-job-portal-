@@ -1652,6 +1652,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             <span className="text-xs sm:text-sm font-black font-mono">
               PKR {(currentUser.walletBalance ?? 0).toLocaleString()}
             </span>
+            <span className="text-[10px] sm:text-xs font-bold text-amber-300 ml-1">
+              Held: PKR {(currentUser.walletEscrowBalance ?? 0).toLocaleString()}
+            </span>
           </div>
 
           <div className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px]">

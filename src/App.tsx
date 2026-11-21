@@ -2350,6 +2350,7 @@ export default function App() {
         await loadBackendTransactions(currentUser?.id);
         await loadBackendFeeLogs();
         await loadBackendJobs();
+        await loadBackendAdminUsers();
         return { success: true, transaction: normalized };
       } else {
         // Attempt safe backend reconciliation refresh
@@ -3729,7 +3730,7 @@ export default function App() {
           userId: currentUser.id,
           userName: 'Portal Admin',
           senderRole: 'admin' as const,
-          text: `Your campaign "${createdAd.title}" has been submitted for admin approval! Campaign fee paid via wallet: PKR ${finalCost.toLocaleString()} (Ref: ${verifiedTx.transactionId || verifiedTx.id}).`,
+          text: `Your campaign "${createdAd.title}" has been submitted for admin approval. PKR ${finalCost.toLocaleString()} has been moved from your available wallet into escrow and will remain held until the admin approves or rejects the campaign (Ref: ${verifiedTx.transactionId || verifiedTx.id}).`,
           timestamp: new Date().toISOString()
         };
         api.chat.adminSendReply(confirmMsg).then(res => {
@@ -3841,42 +3842,21 @@ export default function App() {
     }
   };
 
-  // Admin Approves Ad Campaign
+  // Admin Approves Ad Campaign: backend captures held wallet escrow before activation.
   const handleApproveAd = async (adId: string) => {
     const adToApprove = advertisements.find((a) => a.id === adId);
     if (!adToApprove) return;
 
-    const now = new Date();
-    const startDateStr = now.toISOString().slice(0, 10);
-    const endDate = new Date(now);
-    if (adToApprove.durationUnit === 'hours') {
-      endDate.setHours(endDate.getHours() + (adToApprove.durationValue || 24));
-    } else if (adToApprove.durationUnit === 'weeks') {
-      endDate.setDate(endDate.getDate() + (adToApprove.durationValue || 1) * 7);
-    } else if (adToApprove.durationUnit === 'months') {
-      endDate.setMonth(endDate.getMonth() + (adToApprove.durationValue || 1));
-    } else {
-      // days
-      endDate.setDate(endDate.getDate() + (adToApprove.durationValue || 1));
-    }
-    const approvedAt = now.toISOString().replace('T', ' ').substring(0, 16);
-
-    const updatePayload = {
-      ...adToApprove,
-      status: 'active',
-      approvalStatus: 'Approved',
-      scheduledStartAt: adToApprove.scheduledStartAt || startDateStr,
-      scheduledEndAt: adToApprove.scheduledEndAt || endDate.toISOString().slice(0, 10),
-      approvedAt,
-      approvedBy: currentUser?.name || 'Admin',
-      rejectionReason: undefined
-    };
-
     try {
-      const res = await api.ads.update(adId, updatePayload);
+      const res = await api.ads.review(adId, 'approve');
       if (res && res.success && res.advertisement) {
         const normalized = normalizeBackendAd(res.advertisement);
         setAdvertisements((prev) => prev.map((a) => (a.id === adId ? normalized : a)));
+        if (res.transaction) {
+          const normalizedTransaction = normalizeBackendTransaction(res.transaction);
+          setPaymentTransactions((prev) => [normalizedTransaction, ...prev.filter((tx) => String(tx.id) !== String(normalizedTransaction.id))]);
+        }
+        await loadBackendAdminUsers();
 
         if (adToApprove.submittedByUserId) {
           const msg = {
@@ -3884,19 +3864,15 @@ export default function App() {
             userId: adToApprove.submittedByUserId,
             userName: 'Portal Admin',
             senderRole: 'admin' as const,
-            text: `🎉 Good news! Your campaign "${adToApprove.title}" has been APPROVED by the portal admin and is now LIVE on the platform!`,
+            text: `🎉 Good news! Your campaign "${adToApprove.title}" has been approved. Its held wallet amount has been captured as the campaign payment, and the campaign is now live.`,
             timestamp: new Date().toISOString()
           };
           api.chat.adminSendReply(msg).then(res => {
-            if (res?.success) {
-              setChatMessages(prev => [...prev, res.message]);
-            } else {
-              console.error('[App] Persistent chat notification failed for ad approval:', res?.message);
-            }
+            if (res?.success) setChatMessages(prev => [...prev, res.message]);
+            else console.error('[App] Persistent chat notification failed for ad approval:', res?.message);
           }).catch(err => console.warn('[App] Error sending persistent chat notification for ad approval:', err));
         }
-
-        alert(`Campaign "${adToApprove.title}" has been approved and activated!`);
+        alert(res.message || `Campaign "${adToApprove.title}" approved and escrow captured.`);
       } else {
         alert(res?.message || 'Failed to approve advertisement campaign.');
       }
@@ -3906,47 +3882,42 @@ export default function App() {
     }
   };
 
-  // Admin Rejects Ad Campaign with Reason (Backend moderation only; no frontend wallet mutation)
+  // Admin rejects a campaign through the backend's idempotent escrow refund action.
   const handleRejectAd = async (adId: string, reason: string = 'Violates advertising policy') => {
     const adToReject = advertisements.find((a) => a.id === adId);
     if (!adToReject) return;
 
-    const rejectedAt = new Date().toISOString().replace('T', ' ').substring(0, 16);
-    const updatePayload = {
-      ...adToReject,
-      status: 'rejected',
-      approvalStatus: 'Rejected',
-      rejectionReason: reason,
-      rejectedAt
-    };
-
     try {
-      const res = await api.ads.update(adId, updatePayload);
+      const res = await api.ads.review(adId, 'refund', reason);
       if (res && res.success && res.advertisement) {
         const normalized = normalizeBackendAd(res.advertisement);
         setAdvertisements((prev) => prev.map((a) => (a.id === adId ? normalized : a)));
+        if (res.transaction) {
+          const normalizedTransaction = normalizeBackendTransaction(res.transaction);
+          setPaymentTransactions((prev) => [normalizedTransaction, ...prev.filter((tx) => String(tx.id) !== String(normalizedTransaction.id))]);
+        }
+        await loadBackendAdminUsers();
 
         if (adToReject.submittedByUserId) {
+          const refundText = res.refundReferenceId
+            ? ` PKR ${Number(adToReject.campaignCostPkr || 0).toLocaleString()} has been returned to your available wallet balance (Ref: ${res.refundReferenceId}).`
+            : '';
           const msg = {
             id: 'msg-' + Date.now(),
             userId: adToReject.submittedByUserId,
             userName: 'Portal Admin',
             senderRole: 'admin' as const,
-            text: `⚠️ Campaign Update: Your campaign "${adToReject.title}" was not approved. Reason: ${reason}.`,
+            text: `⚠️ Campaign Update: Your campaign "${adToReject.title}" was not approved. Reason: ${reason}.${refundText}`,
             timestamp: new Date().toISOString()
           };
           api.chat.adminSendReply(msg).then(res => {
-            if (res?.success) {
-              setChatMessages(prev => [...prev, res.message]);
-            } else {
-              console.error('[App] Persistent chat notification failed for ad rejection:', res?.message);
-            }
+            if (res?.success) setChatMessages(prev => [...prev, res.message]);
+            else console.error('[App] Persistent chat notification failed for ad rejection:', res?.message);
           }).catch(err => console.warn('[App] Error sending persistent chat notification for ad rejection:', err));
         }
-
-        alert(`Campaign "${adToReject.title}" has been rejected.`);
+        alert(res.message || `Campaign "${adToReject.title}" rejected.`);
       } else {
-        alert(res?.message || 'Failed to reject advertisement campaign.');
+        alert(res?.message || 'Failed to reject and refund advertisement campaign.');
       }
     } catch (err: any) {
       console.error('Error rejecting advertisement on backend:', err);

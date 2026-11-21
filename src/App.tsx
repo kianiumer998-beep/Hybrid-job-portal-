@@ -4460,6 +4460,9 @@ export default function App() {
                             onOpenCountryModal={() => setShowCountryModal(true)}
                           />
 
+                          {/* Design 4 editorial two-column job feed; all existing filters, cards and ad rules stay intact. */}
+                          <div className={landingDesignSystem.activeDesignId === 'design-4' ? 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-6 items-start' : ''}>
+                            <div className="min-w-0">
                           {/* Job Cards Grid with Pagination and Inline Ads */}
                           <JobListings
                             priorityJobs={priorityJobs}
@@ -4481,6 +4484,26 @@ export default function App() {
                             onAdClick={handleAdClick}
                             onNavigateTab={setActiveTab}
                           />
+                            </div>
+                            {landingDesignSystem.activeDesignId === 'design-4' && (
+                              <aside className="space-y-4">
+                                <div className="rounded-2xl border border-emerald-500/25 bg-slate-900 p-5 shadow-xl">
+                                  <span className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-400">Career toolkit</span>
+                                  <h3 className="mt-2 text-xl font-black text-white">Make your next move count.</h3>
+                                  <p className="mt-2 text-sm leading-relaxed text-slate-400">Create an ATS-friendly CV and get ready to apply with confidence.</p>
+                                  <button onClick={() => setActiveTab('cv')} className="mt-4 w-full rounded-xl bg-emerald-400 px-4 py-3 text-sm font-black text-slate-950 hover:bg-emerald-300">Open CV Builder →</button>
+                                </div>
+                                <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+                                  <h3 className="text-sm font-black text-white">Explore job sectors</h3>
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                    {['Government', 'Information Technology', 'Healthcare', 'Engineering', 'Education', 'Finance', 'Remote & Hybrid'].map((category) => (
+                                      <button key={category} onClick={() => document.getElementById('jobs-section')?.scrollIntoView({ behavior: 'smooth' })} className="rounded-full border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-emerald-500/50 hover:text-emerald-300">{category}</button>
+                                    ))}
+                                  </div>
+                                </div>
+                              </aside>
+                            )}
+                          </div>
                         </div>
                       );
                     }

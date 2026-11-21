@@ -508,6 +508,19 @@ adRouter.put('/:id', requireAuth, async (req: any, res) => {
         message: 'Campaign funds are held in escrow. Use the dedicated Approve or Reject & Refund action to settle the wallet safely.'
       });
     }
+    if (
+      (existingAd.walletTxId || existingAd.paymentTransactionId) &&
+      (updates.status === 'rejected' ||
+        updates.approvalStatus === 'Rejected' ||
+        updates.paymentStatus === 'Refunded' ||
+        (existingAd.approvalStatus === 'Pending' && (updates.status === 'active' || updates.approvalStatus === 'Approved')) ||
+        (Object.prototype.hasOwnProperty.call(updates, 'escrowStatus') && updates.escrowStatus !== existingAd.escrowStatus))
+    ) {
+      return res.status(409).json({
+        success: false,
+        message: 'Wallet-backed campaign approval, rejection, and refunds must use the dedicated review action so escrow cannot be bypassed.'
+      });
+    }
     // updatedAt is server-managed by the repository and must never be trusted from the client.
     const changedFields = Object.keys(updates).filter(
       (key) => key !== 'updatedAt' && JSON.stringify((existingAd as any)[key]) !== JSON.stringify(updates[key])

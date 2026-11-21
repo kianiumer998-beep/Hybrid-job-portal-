@@ -184,18 +184,21 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
   };
 
   const handleAddPromoBanner = () => {
+    const defaultExpiry = new Date();
+    defaultExpiry.setDate(defaultExpiry.getDate() + 30);
+    const validUntil = `${defaultExpiry.getFullYear()}-${String(defaultExpiry.getMonth() + 1).padStart(2, '0')}-${String(defaultExpiry.getDate()).padStart(2, '0')}`;
     const newBanner: PromoDiscountBanner = {
       id: `promo-custom-${Date.now()}`,
-      isEnabled: true,
-      title: 'New High-Impact Flash Campaign',
-      description: 'Exclusive 40% discount on all header and sidebar ad placements.',
-      discountPercent: 40,
-      badgeText: '🔥 40% FLASH SALE',
-      promoCode: 'FLASH40',
+      isEnabled: false,
+      title: '',
+      description: '',
+      discountPercent: 0,
+      badgeText: '',
+      promoCode: '',
       targetPlacement: 'all',
-      validUntil: '2026-10-31',
+      validUntil,
       bgGradient: 'from-purple-600 via-rose-600 to-amber-600',
-      ctaText: 'Claim Discount Now',
+      ctaText: 'Configure offer',
       ctaUrl: '#dashboard'
     };
     setPromoBanners([...promoBanners, newBanner]);

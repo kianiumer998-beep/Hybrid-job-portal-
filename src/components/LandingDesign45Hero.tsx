@@ -59,7 +59,7 @@ export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJo
       <div className="relative isolate min-h-[520px] sm:min-h-[590px] overflow-hidden rounded-[28px] bg-slate-950 shadow-2xl">
         <img src={heroImage} alt="Professionals collaborating in a modern workplace" className="absolute inset-0 z-0 h-full w-full object-cover" />
         <div className="absolute inset-0 z-0 bg-slate-950" style={{ opacity: overlay / 100 }} />
-        <div className="absolute inset-0 z-0 bg-gradient-to-r" from-slate-950 via-slate-950/80 to-emerald-950/30" />
+        <div className="absolute inset-0 z-0 bg-gradient-to-r from-slate-950 via-slate-950/80 to-emerald-950/30" />
         <div className="relative z-10 flex min-h-[520px] sm:min-h-[590px] items-center px-6 py-12 sm:px-14">
           <div className="max-w-3xl text-white">
             <span className="inline-flex rounded-full border border-emerald-300/40 bg-emerald-400/15 px-4 py-2 text-xs font-bold uppercase tracking-[.16em] text-emerald-200">{config.eyebrowBadgeText || 'Pakistan’s Career & Hiring Platform'}</span>

@@ -47,6 +47,7 @@ export type AdminCategory =
 export type ProAdminCategoryId =
   | 'overview-analytics'
   | 'jobs-moderation'
+  | 'jobs-ads-control-center'
   | 'scraper-ingestion'
   | 'ads-campaigns'
   | 'finance-payments'
@@ -210,6 +211,13 @@ export const PROFESSIONAL_ADMIN_CATEGORIES: ProCategoryDefinition[] = [
     icon: Briefcase
   },
   {
+    id: 'jobs-ads-control-center',
+    label: 'Jobs & Ads Control Center',
+    description: 'One place for submitted jobs, approvals, job rates, campaigns, ad placements and performance.',
+    urdu: 'جابز اور اشتہارات کا مرکزی کنٹرول',
+    icon: Megaphone
+  },
+  {
     id: 'scraper-ingestion',
     label: 'Scraper & Ingestion',
     description: 'Configure and monitor automated job collection and import workflows.',
@@ -259,7 +267,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
   {
     id: 'analytics',
     classicCategory: 'settings',
-    proCategory: 'overview-analytics',
+    proCategory: 'jobs-ads-control-center',
     label: 'Executive Analytics & KPIs',
     description: 'View portal-wide KPIs, revenue, job activity, user growth and performance reports.',
     classicSubTabLabel: () => 'Executive Analytics & KPIs',
@@ -297,7 +305,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
   {
     id: 'pending',
     classicCategory: 'jobs',
-    proCategory: 'jobs-moderation',
+    proCategory: 'jobs-ads-control-center',
     label: 'Pending Approvals Queue',
     description: 'Review pending job submissions and approve or reject them.',
     classicSubTabLabel: (c) => `Pending Approvals (${c.pendingJobsCount})`,
@@ -311,7 +319,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
   {
     id: 'add-job',
     classicCategory: 'jobs',
-    proCategory: 'jobs-moderation',
+    proCategory: 'jobs-ads-control-center',
     label: 'Post Manual Job',
     description: 'Create and submit a job listing manually using the admin form.',
     urdu: 'نئی جاب شامل کریں',
@@ -322,7 +330,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
   {
     id: 'ai-enhancer',
     classicCategory: 'jobs',
-    proCategory: 'jobs-moderation',
+    proCategory: 'jobs-ads-control-center',
     label: 'AI Quality & Spam Guard',
     description: 'Check job content quality and flag spam or incomplete listings.',
     classicSubTabLabel: () => 'AI Quality & Spam Filter',
@@ -350,7 +358,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
   {
     id: 'campaign-center',
     classicCategory: 'ads',
-    proCategory: 'ads-campaigns',
+    proCategory: 'jobs-ads-control-center',
     label: 'Campaign Operations',
     description: 'Pause or resume approved campaigns, edit schedule windows and apply authorised fee waivers. Use Ad Hub for creative editing, approvals, pricing, placement settings and analytics.',
     classicSubTabLabel: (c) => `Campaign Operations (${c.activeAdsCount} Live)`,
@@ -363,7 +371,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
   {
     id: 'advertisements',
     classicCategory: 'ads',
-    proCategory: 'ads-campaigns',
+    proCategory: 'jobs-ads-control-center',
     label: 'Ad Hub & Banner Slots',
     description: 'Manage creative campaigns, approval queue, placement timeline, performance and the active ad rate card. Finance permission is required for pricing and campaign configuration.',
     urdu: 'اشتہاری بینر سلاٹس',
@@ -374,7 +382,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
   {
     id: 'landing-customizer',
     classicCategory: 'ads',
-    proCategory: 'ads-campaigns',
+    proCategory: 'jobs-ads-control-center',
     label: 'Landing Page Customizer',
     description: 'Customize homepage sections, job-card design, banners and landing-page layout.',
     urdu: 'ہوم پیج بینر ڈیزائنر',
@@ -387,7 +395,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
   {
     id: 'pricing-controller',
     classicCategory: 'payments',
-    proCategory: 'finance-payments',
+    proCategory: 'jobs-ads-control-center',
     label: 'Universal Pricing Controller',
     description: 'Manage job-posting, subscription and CV rates. Active ad campaign rates are managed separately in Ad Hub.',
     urdu: 'تمام فیسیں اور اشتہارات ریٹ',
@@ -425,7 +433,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
   {
     id: 'fee-management',
     classicCategory: 'payments',
-    proCategory: 'finance-payments',
+    proCategory: 'jobs-ads-control-center',
     label: 'Category Fees & Pricing',
     description: 'Set category posting fees, employer exemptions and individual job fee waivers.',
     urdu: 'پوسٹنگ فیس اور رعایتیں',
@@ -436,7 +444,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
   {
     id: 'fee-logs',
     classicCategory: 'payments',
-    proCategory: 'finance-payments',
+    proCategory: 'jobs-ads-control-center',
     label: 'Per-Job Fee Transaction Logs',
     description: 'Review per-job posting fee records and transaction history.',
     classicSubTabLabel: (c) => `Per-Job Fee Logs (${c.feeLogsCount})`,

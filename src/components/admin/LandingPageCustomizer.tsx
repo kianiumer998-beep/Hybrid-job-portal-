@@ -251,8 +251,9 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
     const previousCustomCards = customCards;
     const previousJobCardDesign = jobCardDesignForm;
 
+    const selectedDesignDefaults = designSystem?.designs.find((design) => design.id === activeDesignId)?.config || DEFAULT_LANDING_PAGE_CONFIG;
     const newLandingConfig: LandingPageConfig = {
-      ...DEFAULT_LANDING_PAGE_CONFIG,
+      ...selectedDesignDefaults,
       categoryPostingFees: config.categoryPostingFees || DEFAULT_LANDING_PAGE_CONFIG.categoryPostingFees,
       exemptUserIds: config.exemptUserIds || DEFAULT_LANDING_PAGE_CONFIG.exemptUserIds,
       exemptUserEmails: config.exemptUserEmails || DEFAULT_LANDING_PAGE_CONFIG.exemptUserEmails
@@ -677,6 +678,25 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-300">Design 4 background overlay: {heroForm.design45HeroOverlay ?? 68}%</label>
               <input type="range" min="35" max="90" value={heroForm.design45HeroOverlay ?? 68} onChange={(e) => setHeroForm({ ...heroForm, design45HeroOverlay: Number(e.target.value) })} className="w-full accent-emerald-500" />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-slate-800 pt-4">
+              {([
+                ['design4PostJobBtnText', 'Design 4 Post a Job button'],
+                ['design5SeekerEyebrow', 'Design 5 seeker label'],
+                ['design5SeekerHeading', 'Design 5 seeker heading'],
+                ['design5SeekerDescription', 'Design 5 seeker description'],
+                ['design5SeekerPrimaryBtnText', 'Design 5 seeker primary button'],
+                ['design5SeekerSecondaryBtnText', 'Design 5 seeker secondary button'],
+                ['design5EmployerEyebrow', 'Design 5 employer label'],
+                ['design5EmployerHeading', 'Design 5 employer heading'],
+                ['design5EmployerDescription', 'Design 5 employer description'],
+                ['design5EmployerBtnText', 'Design 5 employer button']
+              ] as const).map(([key, label]) => (
+                <label key={key} className="space-y-1.5">
+                  <span className="block text-xs font-bold text-slate-300">{label}</span>
+                  <input value={heroForm[key] || ''} onChange={(event) => setHeroForm({ ...heroForm, [key]: event.target.value.slice(0, 500) })} maxLength={500} className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-xs text-white" />
+                </label>
+              ))}
             </div>
             <p className="text-[11px] text-amber-300">Use HTTPS image URLs only. If an image URL is empty or unsafe, the live design uses its built-in fallback image.</p>
           </div>

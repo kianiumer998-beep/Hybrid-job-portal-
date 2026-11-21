@@ -1082,7 +1082,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
           <div className="overflow-x-auto rounded-2xl border border-slate-700 bg-slate-950 p-3 sm:p-5">
             <div className={`mx-auto min-h-[420px] overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 transition-all ${previewMode === 'mobile' ? 'w-[320px] max-w-full' : 'w-full max-w-5xl'}`}>
               {sections.find((section) => section.id === 'hero')?.isEnabled !== false && (
-                {activeDesignId === 'design-5' ? (
+                activeDesignId === 'design-5' ? (
                   <section className={`grid ${previewMode === 'mobile' ? 'grid-cols-1' : 'grid-cols-2'}`}>
                     <article className="relative flex min-h-[260px] items-end overflow-hidden bg-slate-800 p-5 text-left text-white">
                       {heroForm.design5SeekerImageUrl && /^https:\/\//i.test(heroForm.design5SeekerImageUrl) && <img src={heroForm.design5SeekerImageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />}
@@ -1111,7 +1111,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                       {heroForm.secondaryBtnText && <span className="rounded-xl border border-slate-600 px-4 py-2 text-xs font-bold text-white">{heroForm.secondaryBtnText}</span>}
                     </div>
                   </section>
-                )}
+                )
               )}
               {sections.find((section) => section.id === 'custom-announcements')?.isEnabled !== false && customCards.filter((card) => card.isEnabled).length > 0 && (
                 <section className={`grid gap-3 p-4 sm:p-6 ${previewMode === 'mobile' ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-3'}`}>

@@ -4814,6 +4814,19 @@ export default function App() {
         />
       )}
 
+      {/* Five-tab mobile navigation for the photographic landing designs.
+          Each destination reuses the existing app tabs and authentication flow. */}
+      {activeTab === 'jobs' &&
+        (landingDesignSystem.activeDesignId === 'design-4' || landingDesignSystem.activeDesignId === 'design-5') && (
+        <nav aria-label="Mobile quick navigation" className="fixed inset-x-0 bottom-0 z-[60] grid grid-cols-5 border-t border-slate-700/80 bg-slate-950/95 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgba(0,0,0,0.35)] backdrop-blur-lg md:hidden">
+          <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="flex min-h-12 flex-col items-center justify-center gap-1 text-[10px] font-bold text-slate-200"><span aria-hidden>⌂</span><span>Home</span></button>
+          <button onClick={() => document.getElementById('jobs-section')?.scrollIntoView({ behavior: 'smooth' })} className="flex min-h-12 flex-col items-center justify-center gap-1 text-[10px] font-bold text-slate-200"><span aria-hidden>⌕</span><span>Jobs</span></button>
+          <button onClick={() => setActiveTab('cv')} className="flex min-h-12 flex-col items-center justify-center gap-1 text-[10px] font-bold text-slate-200"><span aria-hidden>▤</span><span>CV Builder</span></button>
+          <button onClick={() => setActiveTab('alerts')} className="flex min-h-12 flex-col items-center justify-center gap-1 text-[10px] font-bold text-slate-200"><span aria-hidden>♧</span><span>Alerts</span></button>
+          <button onClick={() => currentUser ? setActiveTab('dashboard') : setAuthModalOpen(true)} className="flex min-h-12 flex-col items-center justify-center gap-1 text-[10px] font-bold text-slate-200"><span aria-hidden>☰</span><span>More</span></button>
+        </nav>
+      )}
+
     </div>
   );
 }

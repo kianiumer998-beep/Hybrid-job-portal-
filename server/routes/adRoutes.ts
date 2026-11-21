@@ -499,9 +499,9 @@ adRouter.put('/:id', requireAuth, async (req: any, res) => {
     const updates = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
     if (
       existingAd.paymentStatus === 'Escrow' &&
-      (Object.prototype.hasOwnProperty.call(updates, 'status') ||
-        Object.prototype.hasOwnProperty.call(updates, 'approvalStatus') ||
-        Object.prototype.hasOwnProperty.call(updates, 'paymentStatus'))
+      (['active', 'rejected'].includes(String(updates.status || '')) ||
+        ['Approved', 'Rejected'].includes(String(updates.approvalStatus || '')) ||
+        (Object.prototype.hasOwnProperty.call(updates, 'paymentStatus') && updates.paymentStatus !== 'Escrow'))
     ) {
       return res.status(409).json({
         success: false,
@@ -510,9 +510,9 @@ adRouter.put('/:id', requireAuth, async (req: any, res) => {
     }
     if (
       (existingAd.walletTxId || existingAd.paymentTransactionId) &&
-      (updates.status === 'rejected' ||
-        updates.approvalStatus === 'Rejected' ||
-        updates.paymentStatus === 'Refunded' ||
+      ((updates.status === 'rejected' && existingAd.status !== 'rejected') ||
+        (updates.approvalStatus === 'Rejected' && existingAd.approvalStatus !== 'Rejected') ||
+        (updates.paymentStatus === 'Refunded' && existingAd.paymentStatus !== 'Refunded') ||
         (existingAd.approvalStatus === 'Pending' && (updates.status === 'active' || updates.approvalStatus === 'Approved')) ||
         (Object.prototype.hasOwnProperty.call(updates, 'escrowStatus') && updates.escrowStatus !== existingAd.escrowStatus))
     ) {

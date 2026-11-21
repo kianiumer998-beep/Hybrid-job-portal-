@@ -6,6 +6,7 @@ import {
   LandingSectionOrder,
   LandingSectionId,
   LandingDesignSystem,
+  createDefaultLandingDesignSystem,
   JobCardDesignConfig,
   JOB_CARD_ACCENT_STYLES,
   getJobCardAccentColor
@@ -254,7 +255,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
     const previousCustomCards = customCards;
     const previousJobCardDesign = jobCardDesignForm;
 
-    const selectedDesignDefaults = designSystem?.designs.find((design) => design.id === activeDesignId)?.config || DEFAULT_LANDING_PAGE_CONFIG;
+    const selectedDesignDefaults = createDefaultLandingDesignSystem(DEFAULT_LANDING_PAGE_CONFIG).designs.find((design) => design.id === activeDesignId)?.config || DEFAULT_LANDING_PAGE_CONFIG;
     const newLandingConfig: LandingPageConfig = {
       ...selectedDesignDefaults,
       categoryPostingFees: config.categoryPostingFees || DEFAULT_LANDING_PAGE_CONFIG.categoryPostingFees,
@@ -681,6 +682,10 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-300">Design 4 background overlay: {heroForm.design45HeroOverlay ?? 68}%</label>
               <input type="range" min="35" max="90" value={heroForm.design45HeroOverlay ?? 68} onChange={(e) => setHeroForm({ ...heroForm, design45HeroOverlay: Number(e.target.value) })} className="w-full accent-emerald-500" />
+            </div>
+            <div className="flex items-center gap-3">
+              <label htmlFor="landing-design-accent" className="text-xs font-bold text-slate-300">Design 4 accent color</label>
+              <input id="landing-design-accent" type="color" value={/^#[0-9a-fA-F]{6}$/.test(heroForm.design45AccentColor || '') ? heroForm.design45AccentColor! : '#0f9f78'} onChange={(e) => setHeroForm({ ...heroForm, design45AccentColor: e.target.value })} className="h-9 w-14 cursor-pointer rounded border border-slate-700 bg-slate-950 p-1" />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-slate-800 pt-4">
               {([

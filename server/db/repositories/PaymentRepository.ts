@@ -713,6 +713,7 @@ export class PaymentRepository {
     txId: string,
     action: 'approve' | 'refund',
     actorName: string,
+    actorRole: string,
     reason?: string
   ): Promise<{ transaction: any; alreadySettled: boolean; refundReferenceId?: string }> {
     const cleanId = String(txId || '').trim();
@@ -802,7 +803,7 @@ export class PaymentRepository {
 
       const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
         user: actorName || 'Administrator',
-        role: 'Admin',
+        role: actorRole || 'Admin',
         action: isRefund ? 'Campaign Escrow Refunded' : 'Campaign Escrow Captured',
         target: `Transaction ${tx.transactionId || cleanId} (${amount} PKR)`,
         status: isRefund ? 'Warning' : 'Success',

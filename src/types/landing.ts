@@ -339,6 +339,24 @@ export function createDefaultLandingDesignSystem(
     theme: { ...modernAlternative.jobCardDesign.theme, accentColor: 'emerald', cardBgPreset: 'gradient', borderRadius: '3xl', density: 'spacious' }
   };
 
+  // Designs 4 and 5 inherit every existing customer-facing landing capability
+  // (search/filter feed, promo banners, approved ad placements, announcements,
+  // quick stats, job-card actions and subscription entry points) from Legacy.
+  // Only their visual presets differ; no backend workflow is duplicated.
+  const modernProfessional = cloneConfig(legacyConfig);
+  modernProfessional.jobCardDesign = {
+    ...modernProfessional.jobCardDesign,
+    layout: 'compact',
+    theme: { ...modernProfessional.jobCardDesign.theme, accentColor: 'emerald', cardBgPreset: 'glass', borderRadius: 'xl', density: 'normal' }
+  };
+
+  const dualAudience = cloneConfig(legacyConfig);
+  dualAudience.jobCardDesign = {
+    ...dualAudience.jobCardDesign,
+    layout: 'default',
+    theme: { ...dualAudience.jobCardDesign.theme, accentColor: 'indigo', cardBgPreset: 'gradient', borderRadius: '3xl', density: 'normal' }
+  };
+
   return {
     version: 1,
     activeDesignId: 'legacy',
@@ -346,7 +364,9 @@ export function createDefaultLandingDesignSystem(
       { id: 'legacy', name: 'Existing Landing Page', config: cloneConfig(legacyConfig) },
       { id: 'design-1', name: 'Design 1 — Clean Professional', config: cleanProfessional },
       { id: 'design-2', name: 'Design 2 — Ads Integrated', config: adsIntegrated },
-      { id: 'design-3', name: 'Design 3 — Modern Alternative', config: modernAlternative }
+      { id: 'design-3', name: 'Design 3 — Modern Alternative', config: modernAlternative },
+      { id: 'design-4', name: 'Design 4 — Modern Professional', config: modernProfessional },
+      { id: 'design-5', name: 'Design 5 — Elegant Dual Audience', config: dualAudience }
     ]
   };
 }

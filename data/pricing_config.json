@@ -1,31 +1,1774 @@
 {
+  "currency": "PKR",
   "jobPosting": {
-    "standardFeePkr": 1000,
-    "urgentFeePkr": 500,
+    "standardFeePkr": 0,
+    "urgentFeePkr": 1200,
     "featuredTopFeePkr": 1500,
-    "futureJobFeePkr": 800,
-    "vipBundleFeePkr": 2500,
+    "futureJobFeePkr": 1800,
+    "vipBundleFeePkr": 2000,
     "freePostingAllowed": true,
     "enableStandard": true,
     "enableUrgent": true,
     "enableFeaturedTop": true,
     "enableFutureJob": true,
     "enableVipBundle": true,
-    "standardDurationDays": 30,
+    "standardDurationDays": 7,
     "urgentDurationDays": 15,
-    "featuredTopDurationDays": 30,
-    "futureJobDurationDays": 60,
-    "vipBundleDurationDays": 45
+    "featuredTopDurationDays": 15,
+    "futureJobDurationDays": 15,
+    "vipBundleDurationDays": 15,
+    "urgentBadgeText": "🔥 Urgent Hiring",
+    "featuredBadgeText": "⭐ Pinned Top & Featured",
+    "futureBadgeText": "🚀 Advance Intake",
+    "vipBadgeText": "👑 VIP Ultimate Placement",
+    "standardDescription": "Standard chronological listing on public board.",
+    "urgentDescription": "Flashing badge & ranks above regular jobs for rapid hiring.",
+    "featuredTopDescription": "Locks position at top of search results and homepage cards.",
+    "futureJobDescription": "Accepts advance candidate pre-registrations with countdown.",
+    "vipBundleDescription": "Full package: Top Pinned #1 + Urgent Badge + Gold Highlighting.",
+    "homepagePrioritySlotConfig": {
+      "enabled": true,
+      "vip": {
+        "enabled": true,
+        "maxSlots": 4
+      },
+      "pinned": {
+        "enabled": true,
+        "maxSlots": 4
+      },
+      "featured": {
+        "enabled": true,
+        "maxSlots": 4
+      },
+      "urgent": {
+        "enabled": true,
+        "maxSlots": 4
+      }
+    },
+    "categoryPostingFees": [
+      {
+        "categoryId": "cat-it",
+        "categoryName": "IT, Software & AI Engineering",
+        "feePkr": 600,
+        "isFree": false,
+        "discountPercent": 0
+      },
+      {
+        "categoryId": "cat-govt",
+        "categoryName": "Government Sector & Public Scale",
+        "feePkr": 0,
+        "isFree": true,
+        "discountPercent": 0
+      },
+      {
+        "categoryId": "cat-health",
+        "categoryName": "Healthcare & Medical Practice",
+        "feePkr": 500,
+        "isFree": false,
+        "discountPercent": 0
+      },
+      {
+        "categoryId": "cat-eng",
+        "categoryName": "Engineering & Construction",
+        "feePkr": 500,
+        "isFree": false,
+        "discountPercent": 0
+      },
+      {
+        "categoryId": "cat-finance",
+        "categoryName": "Banking, Finance & Accounts",
+        "feePkr": 500,
+        "isFree": false,
+        "discountPercent": 0
+      },
+      {
+        "categoryId": "cat-edu",
+        "categoryName": "Education, Teaching & Academia",
+        "feePkr": 400,
+        "isFree": false,
+        "discountPercent": 0
+      },
+      {
+        "categoryId": "cat-remote",
+        "categoryName": "International Remote Roles",
+        "feePkr": 800,
+        "isFree": false,
+        "discountPercent": 0
+      },
+      {
+        "categoryId": "cat-corp",
+        "categoryName": "Private Corporate & HR",
+        "feePkr": 500,
+        "isFree": false,
+        "discountPercent": 0
+      },
+      {
+        "categoryId": "cat-news",
+        "categoryName": "Newspaper Classified Jobs",
+        "feePkr": 0,
+        "isFree": true,
+        "discountPercent": 0
+      }
+    ],
+    "exemptUserEmails": [
+      "vip.employer@devsinc.com",
+      "admin@careers.com"
+    ],
+    "isFreeAllPostings": false,
+    "globalDiscount": 0,
+    "extraWeekRate": 500
+  },
+  "landingPageConfig": {
+    "hero": {
+      "eyebrowBadgeText": "#1 Unified Remote Portal & Automated CV Engine for Pakistan & Global",
+      "hiringBannerTitle": "Want to Hire? Register now to post a job instantly!",
+      "hiringBannerSub": "Post your job today and find top verified remote & hybrid talent in Pakistan and worldwide.",
+      "hiringBannerBadge": "Hiring Employers & Recruiters",
+      "hiringBannerBtnText": "Post a Job Now",
+      "hiringBannerBtnUrl": "#dashboard",
+      "mainHeadingPrefix": "Find Your Next",
+      "gradientWord": "Hybrid or Remote",
+      "mainHeadingSuffix": "Career Opportunity",
+      "subHeading": "Browse verified opportunities globally or target localized jobs across Pakistan down to Province, City, and District levels. Build ATS-optimized resumes in minutes.",
+      "primaryBtnText": "Browse Verified Jobs",
+      "primaryBtnUrl": "#jobs-section",
+      "secondaryBtnText": "Build ATS Resume (Free)",
+      "secondaryBtnUrl": "#cv",
+      "searchPlaceholder": "Search job title, skills, keywords or company...",
+      "statBadge1Text": "Verified Hybrid & Remote Jobs",
+      "statBadge2Text": "100% Free ATS Resume Builder",
+      "statBadge3Text": "Province & City Granular Filters",
+      "statBadge4Text": "Direct WhatsApp & SMS Alerts",
+      "design4HeroImageUrl": "https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=2000&q=85",
+      "design5SeekerImageUrl": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=1400&q=85",
+      "design5EmployerImageUrl": "https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=1400&q=85",
+      "design45HeroOverlay": 68,
+      "design45AccentColor": "#0f9f78",
+      "design4PostJobBtnText": "Post a Job",
+      "design5SeekerEyebrow": "For Job Seekers",
+      "design5SeekerHeading": "Find your next opportunity.",
+      "design5SeekerDescription": "Discover verified jobs, explore career paths and build a professional CV with tools made for your next move.",
+      "design5SeekerPrimaryBtnText": "Explore Jobs",
+      "design5SeekerSecondaryBtnText": "Build CV",
+      "design5EmployerEyebrow": "For Employers",
+      "design5EmployerHeading": "Build your team with confidence.",
+      "design5EmployerDescription": "Reach skilled talent, publish vacancies and manage your hiring journey from one platform.",
+      "design5EmployerBtnText": "Post a Job"
+    },
+    "sections": [
+      {
+        "id": "hero",
+        "name": "1. Hero Section & Employer Quick Action",
+        "description": "Main banner, employer register CTA, and quick explore buttons.",
+        "isEnabled": true,
+        "order": 1
+      },
+      {
+        "id": "promo-banners",
+        "name": "2. Active Promotional Discount Banners",
+        "description": "Site-wide flash discounts (e.g. 50% Off, Free Posting Week).",
+        "isEnabled": true,
+        "order": 2
+      },
+      {
+        "id": "top-sponsor-ads",
+        "name": "3. Top Sponsor Sticky/Header Banner",
+        "description": "High-visibility sponsor brand advertisements.",
+        "isEnabled": true,
+        "order": 3
+      },
+      {
+        "id": "quick-stats",
+        "name": "4. Key Statistics & Trust Highlights",
+        "description": "Counters and verified credentials showcase.",
+        "isEnabled": true,
+        "order": 4
+      },
+      {
+        "id": "custom-announcements",
+        "name": "5. Custom Dynamic Announcement Cards",
+        "description": "Admin-created marketing blocks and special notices.",
+        "isEnabled": true,
+        "order": 5
+      },
+      {
+        "id": "jobs-feed",
+        "name": "6. Job Listings Feed & Search Filters",
+        "description": "Main searchable database of live verified career listings.",
+        "isEnabled": true,
+        "order": 6
+      }
+    ],
+    "customCards": [
+      {
+        "id": "card-relocation",
+        "title": "✈️ Gulf & Middle East Fast-Track Visas",
+        "description": "Exclusive sponsored vacancies in UAE, Saudi Arabia & Qatar with flight and visa sponsorship.",
+        "badge": "Overseas Jobs",
+        "buttonText": "View Gulf Opportunities",
+        "buttonUrl": "#jobs",
+        "bgGradient": "from-amber-600 via-orange-600 to-rose-700",
+        "isEnabled": true,
+        "order": 1
+      },
+      {
+        "id": "card-govt-gazette",
+        "title": "📜 FPSC & PPSC Official Gazettes",
+        "description": "Download verified government recruitment notices and challan forms directly.",
+        "badge": "Public Sector",
+        "buttonText": "Explore Govt Exams",
+        "buttonUrl": "#jobs",
+        "bgGradient": "from-emerald-700 via-teal-800 to-slate-900",
+        "isEnabled": true,
+        "order": 2
+      },
+      {
+        "id": "card-subscription-plans",
+        "title": "Unlock More Career Benefits",
+        "description": "Explore available membership plans for job alerts and eligible premium career features. Plans and prices are loaded from the portal settings.",
+        "badge": "Membership Plans",
+        "buttonText": "View Subscription Plans",
+        "buttonUrl": "#alerts",
+        "bgGradient": "from-emerald-700 via-teal-800 to-slate-950",
+        "isEnabled": true,
+        "order": 3
+      }
+    ],
+    "categoryPostingFees": [
+      {
+        "categoryId": "cat-it",
+        "categoryName": "IT, Software & AI Engineering",
+        "feePkr": 600,
+        "isFree": false,
+        "discountPercent": 0
+      },
+      {
+        "categoryId": "cat-govt",
+        "categoryName": "Government Sector & Public Scale",
+        "feePkr": 0,
+        "isFree": true,
+        "discountPercent": 0
+      },
+      {
+        "categoryId": "cat-health",
+        "categoryName": "Healthcare & Medical Practice",
+        "feePkr": 500,
+        "isFree": false,
+        "discountPercent": 0
+      },
+      {
+        "categoryId": "cat-eng",
+        "categoryName": "Engineering & Construction",
+        "feePkr": 500,
+        "isFree": false,
+        "discountPercent": 0
+      },
+      {
+        "categoryId": "cat-finance",
+        "categoryName": "Banking, Finance & Accounts",
+        "feePkr": 500,
+        "isFree": false,
+        "discountPercent": 0
+      },
+      {
+        "categoryId": "cat-edu",
+        "categoryName": "Education, Teaching & Academia",
+        "feePkr": 400,
+        "isFree": false,
+        "discountPercent": 0
+      },
+      {
+        "categoryId": "cat-remote",
+        "categoryName": "International Remote Roles",
+        "feePkr": 800,
+        "isFree": false,
+        "discountPercent": 0
+      },
+      {
+        "categoryId": "cat-corp",
+        "categoryName": "Private Corporate & HR",
+        "feePkr": 500,
+        "isFree": false,
+        "discountPercent": 0
+      },
+      {
+        "categoryId": "cat-news",
+        "categoryName": "Newspaper Classified Jobs",
+        "feePkr": 0,
+        "isFree": true,
+        "discountPercent": 0
+      }
+    ],
+    "exemptUserIds": [],
+    "exemptUserEmails": [
+      "vip.employer@devsinc.com",
+      "admin@careers.com"
+    ],
+    "jobCardDesign": {
+      "layout": "editorial",
+      "theme": {
+        "accentColor": "emerald",
+        "borderRadius": "xl",
+        "cardBgPreset": "glass",
+        "density": "normal"
+      },
+      "visibility": {
+        "title": true,
+        "company": true,
+        "location": true,
+        "postedDate": true,
+        "description": true,
+        "tags": true,
+        "salary": true,
+        "jobType": true,
+        "govtBadge": true,
+        "featuredBadge": true,
+        "urgentBadge": true,
+        "newspaperBadge": true,
+        "pdfBadge": true,
+        "futureBadge": true,
+        "vipBadge": true,
+        "pinnedBadge": true,
+        "poster": true,
+        "relativePostedTime": true,
+        "exactPostedDate": true,
+        "deadlineDate": true,
+        "deadlineRemaining": true,
+        "duplicateOverrideBadge": true,
+        "saveButton": true,
+        "detailsButton": true,
+        "applyButton": true
+      },
+      "labels": {
+        "saveButton": "Save",
+        "detailsButton": "Details",
+        "applyButton": "Apply",
+        "cardHeading": ""
+      },
+      "limits": {
+        "descriptionMaxWords": 25,
+        "maxTags": 4
+      }
+    },
+    "isFreeAllPostings": false,
+    "globalDiscount": 0
+  },
+  "landingPageDesignSystem": {
+    "version": 1,
+    "activeDesignId": "design-4",
+    "designs": [
+      {
+        "id": "legacy",
+        "name": "Existing Landing Page",
+        "config": {
+          "hero": {
+            "eyebrowBadgeText": "#1 Unified Remote Portal & Automated CV Engine for Pakistan & Global",
+            "hiringBannerTitle": "Want to Hire? Register now to post a job instantly!",
+            "hiringBannerSub": "Post your job today and find top verified remote & hybrid talent in Pakistan and worldwide.",
+            "hiringBannerBadge": "Hiring Employers & Recruiters",
+            "hiringBannerBtnText": "Post a Job Now",
+            "hiringBannerBtnUrl": "#dashboard",
+            "mainHeadingPrefix": "Find Your Next",
+            "gradientWord": "Hybrid or Remote",
+            "mainHeadingSuffix": "Career Opportunity",
+            "subHeading": "Browse verified opportunities globally or target localized jobs across Pakistan down to Province, City, and District levels. Build ATS-optimized resumes in minutes.",
+            "primaryBtnText": "Browse Verified Jobs",
+            "primaryBtnUrl": "#jobs-section",
+            "secondaryBtnText": "Build ATS Resume (Free)",
+            "secondaryBtnUrl": "#cv",
+            "searchPlaceholder": "Search job title, skills, keywords or company...",
+            "statBadge1Text": "Verified Hybrid & Remote Jobs",
+            "statBadge2Text": "100% Free ATS Resume Builder",
+            "statBadge3Text": "Province & City Granular Filters",
+            "statBadge4Text": "Direct WhatsApp & SMS Alerts",
+            "design4HeroImageUrl": "https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=2000&q=85",
+            "design5SeekerImageUrl": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=1400&q=85",
+            "design5EmployerImageUrl": "https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=1400&q=85",
+            "design45HeroOverlay": 68,
+            "design45AccentColor": "#0f9f78",
+            "design4PostJobBtnText": "Post a Job",
+            "design5SeekerEyebrow": "For Job Seekers",
+            "design5SeekerHeading": "Find your next opportunity.",
+            "design5SeekerDescription": "Discover verified jobs, explore career paths and build a professional CV with tools made for your next move.",
+            "design5SeekerPrimaryBtnText": "Explore Jobs",
+            "design5SeekerSecondaryBtnText": "Build CV",
+            "design5EmployerEyebrow": "For Employers",
+            "design5EmployerHeading": "Build your team with confidence.",
+            "design5EmployerDescription": "Reach skilled talent, publish vacancies and manage your hiring journey from one platform.",
+            "design5EmployerBtnText": "Post a Job"
+          },
+          "sections": [
+            {
+              "id": "hero",
+              "name": "1. Hero Section & Employer Quick Action",
+              "description": "Main banner, employer register CTA, and quick explore buttons.",
+              "isEnabled": true,
+              "order": 1
+            },
+            {
+              "id": "promo-banners",
+              "name": "2. Active Promotional Discount Banners",
+              "description": "Site-wide flash discounts (e.g. 50% Off, Free Posting Week).",
+              "isEnabled": true,
+              "order": 2
+            },
+            {
+              "id": "top-sponsor-ads",
+              "name": "3. Top Sponsor Sticky/Header Banner",
+              "description": "High-visibility sponsor brand advertisements.",
+              "isEnabled": true,
+              "order": 3
+            },
+            {
+              "id": "quick-stats",
+              "name": "4. Key Statistics & Trust Highlights",
+              "description": "Counters and verified credentials showcase.",
+              "isEnabled": true,
+              "order": 4
+            },
+            {
+              "id": "custom-announcements",
+              "name": "5. Custom Dynamic Announcement Cards",
+              "description": "Admin-created marketing blocks and special notices.",
+              "isEnabled": true,
+              "order": 5
+            },
+            {
+              "id": "jobs-feed",
+              "name": "6. Job Listings Feed & Search Filters",
+              "description": "Main searchable database of live verified career listings.",
+              "isEnabled": true,
+              "order": 6
+            }
+          ],
+          "customCards": [
+            {
+              "id": "card-relocation",
+              "title": "✈️ Gulf & Middle East Fast-Track Visas",
+              "description": "Exclusive sponsored vacancies in UAE, Saudi Arabia & Qatar with flight and visa sponsorship.",
+              "badge": "Overseas Jobs",
+              "buttonText": "View Gulf Opportunities",
+              "buttonUrl": "#jobs",
+              "bgGradient": "from-amber-600 via-orange-600 to-rose-700",
+              "isEnabled": true,
+              "order": 1
+            },
+            {
+              "id": "card-govt-gazette",
+              "title": "📜 FPSC & PPSC Official Gazettes",
+              "description": "Download verified government recruitment notices and challan forms directly.",
+              "badge": "Public Sector",
+              "buttonText": "Explore Govt Exams",
+              "buttonUrl": "#jobs",
+              "bgGradient": "from-emerald-700 via-teal-800 to-slate-900",
+              "isEnabled": true,
+              "order": 2
+            }
+          ],
+          "categoryPostingFees": [
+            {
+              "categoryId": "cat-it",
+              "categoryName": "IT, Software & AI Engineering",
+              "feePkr": 600,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-govt",
+              "categoryName": "Government Sector & Public Scale",
+              "feePkr": 0,
+              "isFree": true,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-health",
+              "categoryName": "Healthcare & Medical Practice",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-eng",
+              "categoryName": "Engineering & Construction",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-finance",
+              "categoryName": "Banking, Finance & Accounts",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-edu",
+              "categoryName": "Education, Teaching & Academia",
+              "feePkr": 400,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-remote",
+              "categoryName": "International Remote Roles",
+              "feePkr": 800,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-corp",
+              "categoryName": "Private Corporate & HR",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-news",
+              "categoryName": "Newspaper Classified Jobs",
+              "feePkr": 0,
+              "isFree": true,
+              "discountPercent": 0
+            }
+          ],
+          "exemptUserIds": [],
+          "exemptUserEmails": [
+            "vip.employer@devsinc.com",
+            "admin@careers.com"
+          ],
+          "jobCardDesign": {
+            "layout": "default",
+            "theme": {
+              "accentColor": "emerald",
+              "borderRadius": "xl",
+              "cardBgPreset": "slate",
+              "density": "normal"
+            },
+            "visibility": {
+              "title": true,
+              "company": true,
+              "location": true,
+              "postedDate": true,
+              "description": true,
+              "tags": true,
+              "salary": true,
+              "jobType": true,
+              "govtBadge": true,
+              "featuredBadge": true,
+              "urgentBadge": true,
+              "newspaperBadge": true,
+              "pdfBadge": true,
+              "futureBadge": true,
+              "vipBadge": true,
+              "pinnedBadge": true,
+              "poster": true,
+              "relativePostedTime": true,
+              "exactPostedDate": true,
+              "deadlineDate": true,
+              "deadlineRemaining": true,
+              "duplicateOverrideBadge": true,
+              "saveButton": true,
+              "detailsButton": true,
+              "applyButton": true
+            },
+            "labels": {
+              "saveButton": "Save",
+              "detailsButton": "Details",
+              "applyButton": "Apply",
+              "cardHeading": ""
+            },
+            "limits": {
+              "descriptionMaxWords": 25,
+              "maxTags": 4
+            }
+          },
+          "isFreeAllPostings": false,
+          "globalDiscount": 0
+        }
+      },
+      {
+        "id": "design-1",
+        "name": "Design 1 — Clean Professional",
+        "config": {
+          "hero": {
+            "eyebrowBadgeText": "#1 Unified Remote Portal & Automated CV Engine for Pakistan & Global",
+            "hiringBannerTitle": "Want to Hire? Register now to post a job instantly!",
+            "hiringBannerSub": "Post your job today and find top verified remote & hybrid talent in Pakistan and worldwide.",
+            "hiringBannerBadge": "Hiring Employers & Recruiters",
+            "hiringBannerBtnText": "Post a Job Now",
+            "hiringBannerBtnUrl": "#dashboard",
+            "mainHeadingPrefix": "Find Your Next",
+            "gradientWord": "Hybrid or Remote",
+            "mainHeadingSuffix": "Career Opportunity",
+            "subHeading": "Browse verified opportunities globally or target localized jobs across Pakistan down to Province, City, and District levels. Build ATS-optimized resumes in minutes.",
+            "primaryBtnText": "Browse Verified Jobs",
+            "primaryBtnUrl": "#jobs-section",
+            "secondaryBtnText": "Build ATS Resume (Free)",
+            "secondaryBtnUrl": "#cv",
+            "searchPlaceholder": "Search job title, skills, keywords or company...",
+            "statBadge1Text": "Verified Hybrid & Remote Jobs",
+            "statBadge2Text": "100% Free ATS Resume Builder",
+            "statBadge3Text": "Province & City Granular Filters",
+            "statBadge4Text": "Direct WhatsApp & SMS Alerts",
+            "design4HeroImageUrl": "https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=2000&q=85",
+            "design5SeekerImageUrl": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=1400&q=85",
+            "design5EmployerImageUrl": "https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=1400&q=85",
+            "design45HeroOverlay": 68,
+            "design45AccentColor": "#0f9f78",
+            "design4PostJobBtnText": "Post a Job",
+            "design5SeekerEyebrow": "For Job Seekers",
+            "design5SeekerHeading": "Find your next opportunity.",
+            "design5SeekerDescription": "Discover verified jobs, explore career paths and build a professional CV with tools made for your next move.",
+            "design5SeekerPrimaryBtnText": "Explore Jobs",
+            "design5SeekerSecondaryBtnText": "Build CV",
+            "design5EmployerEyebrow": "For Employers",
+            "design5EmployerHeading": "Build your team with confidence.",
+            "design5EmployerDescription": "Reach skilled talent, publish vacancies and manage your hiring journey from one platform.",
+            "design5EmployerBtnText": "Post a Job"
+          },
+          "sections": [
+            {
+              "id": "hero",
+              "name": "1. Hero Section & Employer Quick Action",
+              "description": "Main banner, employer register CTA, and quick explore buttons.",
+              "isEnabled": true,
+              "order": 1
+            },
+            {
+              "id": "promo-banners",
+              "name": "2. Active Promotional Discount Banners",
+              "description": "Site-wide flash discounts (e.g. 50% Off, Free Posting Week).",
+              "isEnabled": true,
+              "order": 2
+            },
+            {
+              "id": "top-sponsor-ads",
+              "name": "3. Top Sponsor Sticky/Header Banner",
+              "description": "High-visibility sponsor brand advertisements.",
+              "isEnabled": true,
+              "order": 3
+            },
+            {
+              "id": "quick-stats",
+              "name": "4. Key Statistics & Trust Highlights",
+              "description": "Counters and verified credentials showcase.",
+              "isEnabled": true,
+              "order": 4
+            },
+            {
+              "id": "custom-announcements",
+              "name": "5. Custom Dynamic Announcement Cards",
+              "description": "Admin-created marketing blocks and special notices.",
+              "isEnabled": true,
+              "order": 5
+            },
+            {
+              "id": "jobs-feed",
+              "name": "6. Job Listings Feed & Search Filters",
+              "description": "Main searchable database of live verified career listings.",
+              "isEnabled": true,
+              "order": 6
+            }
+          ],
+          "customCards": [
+            {
+              "id": "card-relocation",
+              "title": "✈️ Gulf & Middle East Fast-Track Visas",
+              "description": "Exclusive sponsored vacancies in UAE, Saudi Arabia & Qatar with flight and visa sponsorship.",
+              "badge": "Overseas Jobs",
+              "buttonText": "View Gulf Opportunities",
+              "buttonUrl": "#jobs",
+              "bgGradient": "from-amber-600 via-orange-600 to-rose-700",
+              "isEnabled": true,
+              "order": 1
+            },
+            {
+              "id": "card-govt-gazette",
+              "title": "📜 FPSC & PPSC Official Gazettes",
+              "description": "Download verified government recruitment notices and challan forms directly.",
+              "badge": "Public Sector",
+              "buttonText": "Explore Govt Exams",
+              "buttonUrl": "#jobs",
+              "bgGradient": "from-emerald-700 via-teal-800 to-slate-900",
+              "isEnabled": true,
+              "order": 2
+            }
+          ],
+          "categoryPostingFees": [
+            {
+              "categoryId": "cat-it",
+              "categoryName": "IT, Software & AI Engineering",
+              "feePkr": 600,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-govt",
+              "categoryName": "Government Sector & Public Scale",
+              "feePkr": 0,
+              "isFree": true,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-health",
+              "categoryName": "Healthcare & Medical Practice",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-eng",
+              "categoryName": "Engineering & Construction",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-finance",
+              "categoryName": "Banking, Finance & Accounts",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-edu",
+              "categoryName": "Education, Teaching & Academia",
+              "feePkr": 400,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-remote",
+              "categoryName": "International Remote Roles",
+              "feePkr": 800,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-corp",
+              "categoryName": "Private Corporate & HR",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-news",
+              "categoryName": "Newspaper Classified Jobs",
+              "feePkr": 0,
+              "isFree": true,
+              "discountPercent": 0
+            }
+          ],
+          "exemptUserIds": [],
+          "exemptUserEmails": [
+            "vip.employer@devsinc.com",
+            "admin@careers.com"
+          ],
+          "jobCardDesign": {
+            "layout": "compact",
+            "theme": {
+              "accentColor": "emerald",
+              "borderRadius": "xl",
+              "cardBgPreset": "glass",
+              "density": "compact"
+            },
+            "visibility": {
+              "title": true,
+              "company": true,
+              "location": true,
+              "postedDate": true,
+              "description": true,
+              "tags": true,
+              "salary": true,
+              "jobType": true,
+              "govtBadge": true,
+              "featuredBadge": true,
+              "urgentBadge": true,
+              "newspaperBadge": true,
+              "pdfBadge": true,
+              "futureBadge": true,
+              "vipBadge": true,
+              "pinnedBadge": true,
+              "poster": true,
+              "relativePostedTime": true,
+              "exactPostedDate": true,
+              "deadlineDate": true,
+              "deadlineRemaining": true,
+              "duplicateOverrideBadge": true,
+              "saveButton": true,
+              "detailsButton": true,
+              "applyButton": true
+            },
+            "labels": {
+              "saveButton": "Save",
+              "detailsButton": "Details",
+              "applyButton": "Apply",
+              "cardHeading": ""
+            },
+            "limits": {
+              "descriptionMaxWords": 25,
+              "maxTags": 4
+            }
+          },
+          "isFreeAllPostings": false,
+          "globalDiscount": 0
+        }
+      },
+      {
+        "id": "design-2",
+        "name": "Design 2 — Ads Integrated",
+        "config": {
+          "hero": {
+            "eyebrowBadgeText": "#1 Unified Remote Portal & Automated CV Engine for Pakistan & Global",
+            "hiringBannerTitle": "Want to Hire? Register now to post a job instantly!",
+            "hiringBannerSub": "Post your job today and find top verified remote & hybrid talent in Pakistan and worldwide.",
+            "hiringBannerBadge": "Hiring Employers & Recruiters",
+            "hiringBannerBtnText": "Post a Job Now",
+            "hiringBannerBtnUrl": "#dashboard",
+            "mainHeadingPrefix": "Find Your Next",
+            "gradientWord": "Hybrid or Remote",
+            "mainHeadingSuffix": "Career Opportunity",
+            "subHeading": "Browse verified opportunities globally or target localized jobs across Pakistan down to Province, City, and District levels. Build ATS-optimized resumes in minutes.",
+            "primaryBtnText": "Browse Verified Jobs",
+            "primaryBtnUrl": "#jobs-section",
+            "secondaryBtnText": "Build ATS Resume (Free)",
+            "secondaryBtnUrl": "#cv",
+            "searchPlaceholder": "Search job title, skills, keywords or company...",
+            "statBadge1Text": "Verified Hybrid & Remote Jobs",
+            "statBadge2Text": "100% Free ATS Resume Builder",
+            "statBadge3Text": "Province & City Granular Filters",
+            "statBadge4Text": "Direct WhatsApp & SMS Alerts",
+            "design4HeroImageUrl": "https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=2000&q=85",
+            "design5SeekerImageUrl": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=1400&q=85",
+            "design5EmployerImageUrl": "https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=1400&q=85",
+            "design45HeroOverlay": 68,
+            "design45AccentColor": "#0f9f78",
+            "design4PostJobBtnText": "Post a Job",
+            "design5SeekerEyebrow": "For Job Seekers",
+            "design5SeekerHeading": "Find your next opportunity.",
+            "design5SeekerDescription": "Discover verified jobs, explore career paths and build a professional CV with tools made for your next move.",
+            "design5SeekerPrimaryBtnText": "Explore Jobs",
+            "design5SeekerSecondaryBtnText": "Build CV",
+            "design5EmployerEyebrow": "For Employers",
+            "design5EmployerHeading": "Build your team with confidence.",
+            "design5EmployerDescription": "Reach skilled talent, publish vacancies and manage your hiring journey from one platform.",
+            "design5EmployerBtnText": "Post a Job"
+          },
+          "sections": [
+            {
+              "id": "hero",
+              "name": "1. Hero Section & Employer Quick Action",
+              "description": "Main banner, employer register CTA, and quick explore buttons.",
+              "isEnabled": true,
+              "order": 1
+            },
+            {
+              "id": "promo-banners",
+              "name": "2. Active Promotional Discount Banners",
+              "description": "Site-wide flash discounts (e.g. 50% Off, Free Posting Week).",
+              "isEnabled": true,
+              "order": 2
+            },
+            {
+              "id": "top-sponsor-ads",
+              "name": "3. Top Sponsor Sticky/Header Banner",
+              "description": "High-visibility sponsor brand advertisements.",
+              "isEnabled": true,
+              "order": 3
+            },
+            {
+              "id": "custom-announcements",
+              "name": "5. Custom Dynamic Announcement Cards",
+              "description": "Admin-created marketing blocks and special notices.",
+              "isEnabled": true,
+              "order": 4
+            },
+            {
+              "id": "quick-stats",
+              "name": "4. Key Statistics & Trust Highlights",
+              "description": "Counters and verified credentials showcase.",
+              "isEnabled": true,
+              "order": 5
+            },
+            {
+              "id": "jobs-feed",
+              "name": "6. Job Listings Feed & Search Filters",
+              "description": "Main searchable database of live verified career listings.",
+              "isEnabled": true,
+              "order": 6
+            }
+          ],
+          "customCards": [
+            {
+              "id": "card-relocation",
+              "title": "✈️ Gulf & Middle East Fast-Track Visas",
+              "description": "Exclusive sponsored vacancies in UAE, Saudi Arabia & Qatar with flight and visa sponsorship.",
+              "badge": "Overseas Jobs",
+              "buttonText": "View Gulf Opportunities",
+              "buttonUrl": "#jobs",
+              "bgGradient": "from-amber-600 via-orange-600 to-rose-700",
+              "isEnabled": true,
+              "order": 1
+            },
+            {
+              "id": "card-govt-gazette",
+              "title": "📜 FPSC & PPSC Official Gazettes",
+              "description": "Download verified government recruitment notices and challan forms directly.",
+              "badge": "Public Sector",
+              "buttonText": "Explore Govt Exams",
+              "buttonUrl": "#jobs",
+              "bgGradient": "from-emerald-700 via-teal-800 to-slate-900",
+              "isEnabled": true,
+              "order": 2
+            },
+            {
+              "id": "card-ats-cv-builder",
+              "title": "Build Your ATS-Ready CV",
+              "description": "Create and improve your professional resume with the portal's free ATS CV Builder.",
+              "badge": "Free Portal Tool",
+              "buttonText": "Build CV Free",
+              "buttonUrl": "#cv",
+              "bgGradient": "from-indigo-700 via-blue-700 to-slate-900",
+              "isEnabled": true,
+              "order": 3
+            }
+          ],
+          "categoryPostingFees": [
+            {
+              "categoryId": "cat-it",
+              "categoryName": "IT, Software & AI Engineering",
+              "feePkr": 600,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-govt",
+              "categoryName": "Government Sector & Public Scale",
+              "feePkr": 0,
+              "isFree": true,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-health",
+              "categoryName": "Healthcare & Medical Practice",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-eng",
+              "categoryName": "Engineering & Construction",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-finance",
+              "categoryName": "Banking, Finance & Accounts",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-edu",
+              "categoryName": "Education, Teaching & Academia",
+              "feePkr": 400,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-remote",
+              "categoryName": "International Remote Roles",
+              "feePkr": 800,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-corp",
+              "categoryName": "Private Corporate & HR",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-news",
+              "categoryName": "Newspaper Classified Jobs",
+              "feePkr": 0,
+              "isFree": true,
+              "discountPercent": 0
+            }
+          ],
+          "exemptUserIds": [],
+          "exemptUserEmails": [
+            "vip.employer@devsinc.com",
+            "admin@careers.com"
+          ],
+          "jobCardDesign": {
+            "layout": "default",
+            "theme": {
+              "accentColor": "amber",
+              "borderRadius": "xl",
+              "cardBgPreset": "gradient",
+              "density": "normal"
+            },
+            "visibility": {
+              "title": true,
+              "company": true,
+              "location": true,
+              "postedDate": true,
+              "description": true,
+              "tags": true,
+              "salary": true,
+              "jobType": true,
+              "govtBadge": true,
+              "featuredBadge": true,
+              "urgentBadge": true,
+              "newspaperBadge": true,
+              "pdfBadge": true,
+              "futureBadge": true,
+              "vipBadge": true,
+              "pinnedBadge": true,
+              "poster": true,
+              "relativePostedTime": true,
+              "exactPostedDate": true,
+              "deadlineDate": true,
+              "deadlineRemaining": true,
+              "duplicateOverrideBadge": true,
+              "saveButton": true,
+              "detailsButton": true,
+              "applyButton": true
+            },
+            "labels": {
+              "saveButton": "Save",
+              "detailsButton": "Details",
+              "applyButton": "Apply",
+              "cardHeading": ""
+            },
+            "limits": {
+              "descriptionMaxWords": 25,
+              "maxTags": 4
+            }
+          },
+          "isFreeAllPostings": false,
+          "globalDiscount": 0
+        }
+      },
+      {
+        "id": "design-3",
+        "name": "Design 3 — Modern Alternative",
+        "config": {
+          "hero": {
+            "eyebrowBadgeText": "#1 Unified Remote Portal & Automated CV Engine for Pakistan & Global",
+            "hiringBannerTitle": "Want to Hire? Register now to post a job instantly!",
+            "hiringBannerSub": "Post your job today and find top verified remote & hybrid talent in Pakistan and worldwide.",
+            "hiringBannerBadge": "Hiring Employers & Recruiters",
+            "hiringBannerBtnText": "Post a Job Now",
+            "hiringBannerBtnUrl": "#dashboard",
+            "mainHeadingPrefix": "Find Your Next",
+            "gradientWord": "Hybrid or Remote",
+            "mainHeadingSuffix": "Career Opportunity",
+            "subHeading": "Browse verified opportunities globally or target localized jobs across Pakistan down to Province, City, and District levels. Build ATS-optimized resumes in minutes.",
+            "primaryBtnText": "Browse Verified Jobs",
+            "primaryBtnUrl": "#jobs-section",
+            "secondaryBtnText": "Build ATS Resume (Free)",
+            "secondaryBtnUrl": "#cv",
+            "searchPlaceholder": "Search job title, skills, keywords or company...",
+            "statBadge1Text": "Verified Hybrid & Remote Jobs",
+            "statBadge2Text": "100% Free ATS Resume Builder",
+            "statBadge3Text": "Province & City Granular Filters",
+            "statBadge4Text": "Direct WhatsApp & SMS Alerts",
+            "design4HeroImageUrl": "https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=2000&q=85",
+            "design5SeekerImageUrl": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=1400&q=85",
+            "design5EmployerImageUrl": "https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=1400&q=85",
+            "design45HeroOverlay": 68,
+            "design45AccentColor": "#0f9f78",
+            "design4PostJobBtnText": "Post a Job",
+            "design5SeekerEyebrow": "For Job Seekers",
+            "design5SeekerHeading": "Find your next opportunity.",
+            "design5SeekerDescription": "Discover verified jobs, explore career paths and build a professional CV with tools made for your next move.",
+            "design5SeekerPrimaryBtnText": "Explore Jobs",
+            "design5SeekerSecondaryBtnText": "Build CV",
+            "design5EmployerEyebrow": "For Employers",
+            "design5EmployerHeading": "Build your team with confidence.",
+            "design5EmployerDescription": "Reach skilled talent, publish vacancies and manage your hiring journey from one platform.",
+            "design5EmployerBtnText": "Post a Job"
+          },
+          "sections": [
+            {
+              "id": "hero",
+              "name": "1. Hero Section & Employer Quick Action",
+              "description": "Main banner, employer register CTA, and quick explore buttons.",
+              "isEnabled": true,
+              "order": 1
+            },
+            {
+              "id": "promo-banners",
+              "name": "2. Active Promotional Discount Banners",
+              "description": "Site-wide flash discounts (e.g. 50% Off, Free Posting Week).",
+              "isEnabled": true,
+              "order": 2
+            },
+            {
+              "id": "top-sponsor-ads",
+              "name": "3. Top Sponsor Sticky/Header Banner",
+              "description": "High-visibility sponsor brand advertisements.",
+              "isEnabled": true,
+              "order": 3
+            },
+            {
+              "id": "quick-stats",
+              "name": "4. Key Statistics & Trust Highlights",
+              "description": "Counters and verified credentials showcase.",
+              "isEnabled": true,
+              "order": 4
+            },
+            {
+              "id": "custom-announcements",
+              "name": "5. Custom Dynamic Announcement Cards",
+              "description": "Admin-created marketing blocks and special notices.",
+              "isEnabled": true,
+              "order": 5
+            },
+            {
+              "id": "jobs-feed",
+              "name": "6. Job Listings Feed & Search Filters",
+              "description": "Main searchable database of live verified career listings.",
+              "isEnabled": true,
+              "order": 6
+            }
+          ],
+          "customCards": [
+            {
+              "id": "card-relocation",
+              "title": "✈️ Gulf & Middle East Fast-Track Visas",
+              "description": "Exclusive sponsored vacancies in UAE, Saudi Arabia & Qatar with flight and visa sponsorship.",
+              "badge": "Overseas Jobs",
+              "buttonText": "View Gulf Opportunities",
+              "buttonUrl": "#jobs",
+              "bgGradient": "from-amber-600 via-orange-600 to-rose-700",
+              "isEnabled": true,
+              "order": 1
+            },
+            {
+              "id": "card-govt-gazette",
+              "title": "📜 FPSC & PPSC Official Gazettes",
+              "description": "Download verified government recruitment notices and challan forms directly.",
+              "badge": "Public Sector",
+              "buttonText": "Explore Govt Exams",
+              "buttonUrl": "#jobs",
+              "bgGradient": "from-emerald-700 via-teal-800 to-slate-900",
+              "isEnabled": true,
+              "order": 2
+            }
+          ],
+          "categoryPostingFees": [
+            {
+              "categoryId": "cat-it",
+              "categoryName": "IT, Software & AI Engineering",
+              "feePkr": 600,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-govt",
+              "categoryName": "Government Sector & Public Scale",
+              "feePkr": 0,
+              "isFree": true,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-health",
+              "categoryName": "Healthcare & Medical Practice",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-eng",
+              "categoryName": "Engineering & Construction",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-finance",
+              "categoryName": "Banking, Finance & Accounts",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-edu",
+              "categoryName": "Education, Teaching & Academia",
+              "feePkr": 400,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-remote",
+              "categoryName": "International Remote Roles",
+              "feePkr": 800,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-corp",
+              "categoryName": "Private Corporate & HR",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-news",
+              "categoryName": "Newspaper Classified Jobs",
+              "feePkr": 0,
+              "isFree": true,
+              "discountPercent": 0
+            }
+          ],
+          "exemptUserIds": [],
+          "exemptUserEmails": [
+            "vip.employer@devsinc.com",
+            "admin@careers.com"
+          ],
+          "jobCardDesign": {
+            "layout": "default",
+            "theme": {
+              "accentColor": "emerald",
+              "borderRadius": "3xl",
+              "cardBgPreset": "gradient",
+              "density": "spacious"
+            },
+            "visibility": {
+              "title": true,
+              "company": true,
+              "location": true,
+              "postedDate": true,
+              "description": true,
+              "tags": true,
+              "salary": true,
+              "jobType": true,
+              "govtBadge": true,
+              "featuredBadge": true,
+              "urgentBadge": true,
+              "newspaperBadge": true,
+              "pdfBadge": true,
+              "futureBadge": true,
+              "vipBadge": true,
+              "pinnedBadge": true,
+              "poster": true,
+              "relativePostedTime": true,
+              "exactPostedDate": true,
+              "deadlineDate": true,
+              "deadlineRemaining": true,
+              "duplicateOverrideBadge": true,
+              "saveButton": true,
+              "detailsButton": true,
+              "applyButton": true
+            },
+            "labels": {
+              "saveButton": "Save",
+              "detailsButton": "Details",
+              "applyButton": "Apply",
+              "cardHeading": ""
+            },
+            "limits": {
+              "descriptionMaxWords": 25,
+              "maxTags": 4
+            }
+          },
+          "isFreeAllPostings": false,
+          "globalDiscount": 0
+        }
+      },
+      {
+        "id": "design-4",
+        "name": "Design 4 — Modern Professional",
+        "config": {
+          "hero": {
+            "eyebrowBadgeText": "#1 Unified Remote Portal & Automated CV Engine for Pakistan & Global",
+            "hiringBannerTitle": "Want to Hire? Register now to post a job instantly!",
+            "hiringBannerSub": "Post your job today and find top verified remote & hybrid talent in Pakistan and worldwide.",
+            "hiringBannerBadge": "Hiring Employers & Recruiters",
+            "hiringBannerBtnText": "Post a Job Now",
+            "hiringBannerBtnUrl": "#dashboard",
+            "mainHeadingPrefix": "Find Your Next",
+            "gradientWord": "Hybrid or Remote",
+            "mainHeadingSuffix": "Career Opportunity",
+            "subHeading": "Browse verified opportunities globally or target localized jobs across Pakistan down to Province, City, and District levels. Build ATS-optimized resumes in minutes.",
+            "primaryBtnText": "Browse Verified Jobs",
+            "primaryBtnUrl": "#jobs-section",
+            "secondaryBtnText": "Build ATS Resume (Free)",
+            "secondaryBtnUrl": "#cv",
+            "searchPlaceholder": "Search job title, skills, keywords or company...",
+            "statBadge1Text": "Verified Hybrid & Remote Jobs",
+            "statBadge2Text": "100% Free ATS Resume Builder",
+            "statBadge3Text": "Province & City Granular Filters",
+            "statBadge4Text": "Direct WhatsApp & SMS Alerts",
+            "design4HeroImageUrl": "https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=2000&q=85",
+            "design5SeekerImageUrl": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=1400&q=85",
+            "design5EmployerImageUrl": "https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=1400&q=85",
+            "design45HeroOverlay": 68,
+            "design45AccentColor": "#0f9f78",
+            "design4PostJobBtnText": "Post a Job",
+            "design5SeekerEyebrow": "For Job Seekers",
+            "design5SeekerHeading": "Find your next opportunity.",
+            "design5SeekerDescription": "Discover verified jobs, explore career paths and build a professional CV with tools made for your next move.",
+            "design5SeekerPrimaryBtnText": "Explore Jobs",
+            "design5SeekerSecondaryBtnText": "Build CV",
+            "design5EmployerEyebrow": "For Employers",
+            "design5EmployerHeading": "Build your team with confidence.",
+            "design5EmployerDescription": "Reach skilled talent, publish vacancies and manage your hiring journey from one platform.",
+            "design5EmployerBtnText": "Post a Job"
+          },
+          "sections": [
+            {
+              "id": "hero",
+              "name": "1. Hero Section & Employer Quick Action",
+              "description": "Main banner, employer register CTA, and quick explore buttons.",
+              "isEnabled": true,
+              "order": 1
+            },
+            {
+              "id": "promo-banners",
+              "name": "2. Active Promotional Discount Banners",
+              "description": "Site-wide flash discounts (e.g. 50% Off, Free Posting Week).",
+              "isEnabled": true,
+              "order": 2
+            },
+            {
+              "id": "top-sponsor-ads",
+              "name": "3. Top Sponsor Sticky/Header Banner",
+              "description": "High-visibility sponsor brand advertisements.",
+              "isEnabled": true,
+              "order": 3
+            },
+            {
+              "id": "quick-stats",
+              "name": "4. Key Statistics & Trust Highlights",
+              "description": "Counters and verified credentials showcase.",
+              "isEnabled": true,
+              "order": 4
+            },
+            {
+              "id": "custom-announcements",
+              "name": "5. Custom Dynamic Announcement Cards",
+              "description": "Admin-created marketing blocks and special notices.",
+              "isEnabled": true,
+              "order": 5
+            },
+            {
+              "id": "jobs-feed",
+              "name": "6. Job Listings Feed & Search Filters",
+              "description": "Main searchable database of live verified career listings.",
+              "isEnabled": true,
+              "order": 6
+            }
+          ],
+          "customCards": [
+            {
+              "id": "card-relocation",
+              "title": "✈️ Gulf & Middle East Fast-Track Visas",
+              "description": "Exclusive sponsored vacancies in UAE, Saudi Arabia & Qatar with flight and visa sponsorship.",
+              "badge": "Overseas Jobs",
+              "buttonText": "View Gulf Opportunities",
+              "buttonUrl": "#jobs",
+              "bgGradient": "from-amber-600 via-orange-600 to-rose-700",
+              "isEnabled": true,
+              "order": 1
+            },
+            {
+              "id": "card-govt-gazette",
+              "title": "📜 FPSC & PPSC Official Gazettes",
+              "description": "Download verified government recruitment notices and challan forms directly.",
+              "badge": "Public Sector",
+              "buttonText": "Explore Govt Exams",
+              "buttonUrl": "#jobs",
+              "bgGradient": "from-emerald-700 via-teal-800 to-slate-900",
+              "isEnabled": true,
+              "order": 2
+            },
+            {
+              "id": "card-subscription-plans",
+              "title": "Unlock More Career Benefits",
+              "description": "Explore available membership plans for job alerts and eligible premium career features. Plans and prices are loaded from the portal settings.",
+              "badge": "Membership Plans",
+              "buttonText": "View Subscription Plans",
+              "buttonUrl": "#alerts",
+              "bgGradient": "from-emerald-700 via-teal-800 to-slate-950",
+              "isEnabled": true,
+              "order": 3
+            }
+          ],
+          "categoryPostingFees": [
+            {
+              "categoryId": "cat-it",
+              "categoryName": "IT, Software & AI Engineering",
+              "feePkr": 600,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-govt",
+              "categoryName": "Government Sector & Public Scale",
+              "feePkr": 0,
+              "isFree": true,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-health",
+              "categoryName": "Healthcare & Medical Practice",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-eng",
+              "categoryName": "Engineering & Construction",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-finance",
+              "categoryName": "Banking, Finance & Accounts",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-edu",
+              "categoryName": "Education, Teaching & Academia",
+              "feePkr": 400,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-remote",
+              "categoryName": "International Remote Roles",
+              "feePkr": 800,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-corp",
+              "categoryName": "Private Corporate & HR",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-news",
+              "categoryName": "Newspaper Classified Jobs",
+              "feePkr": 0,
+              "isFree": true,
+              "discountPercent": 0
+            }
+          ],
+          "exemptUserIds": [],
+          "exemptUserEmails": [
+            "vip.employer@devsinc.com",
+            "admin@careers.com"
+          ],
+          "jobCardDesign": {
+            "layout": "editorial",
+            "theme": {
+              "accentColor": "emerald",
+              "borderRadius": "xl",
+              "cardBgPreset": "glass",
+              "density": "normal"
+            },
+            "visibility": {
+              "title": true,
+              "company": true,
+              "location": true,
+              "postedDate": true,
+              "description": true,
+              "tags": true,
+              "salary": true,
+              "jobType": true,
+              "govtBadge": true,
+              "featuredBadge": true,
+              "urgentBadge": true,
+              "newspaperBadge": true,
+              "pdfBadge": true,
+              "futureBadge": true,
+              "vipBadge": true,
+              "pinnedBadge": true,
+              "poster": true,
+              "relativePostedTime": true,
+              "exactPostedDate": true,
+              "deadlineDate": true,
+              "deadlineRemaining": true,
+              "duplicateOverrideBadge": true,
+              "saveButton": true,
+              "detailsButton": true,
+              "applyButton": true
+            },
+            "labels": {
+              "saveButton": "Save",
+              "detailsButton": "Details",
+              "applyButton": "Apply",
+              "cardHeading": ""
+            },
+            "limits": {
+              "descriptionMaxWords": 25,
+              "maxTags": 4
+            }
+          },
+          "isFreeAllPostings": false,
+          "globalDiscount": 0
+        }
+      },
+      {
+        "id": "design-5",
+        "name": "Design 5 — Elegant Dual Audience",
+        "config": {
+          "hero": {
+            "eyebrowBadgeText": "#1 Unified Remote Portal & Automated CV Engine for Pakistan & Global",
+            "hiringBannerTitle": "Want to Hire? Register now to post a job instantly!",
+            "hiringBannerSub": "Post your job today and find top verified remote & hybrid talent in Pakistan and worldwide.",
+            "hiringBannerBadge": "Hiring Employers & Recruiters",
+            "hiringBannerBtnText": "Post a Job Now",
+            "hiringBannerBtnUrl": "#dashboard",
+            "mainHeadingPrefix": "Find Your Next",
+            "gradientWord": "Hybrid or Remote",
+            "mainHeadingSuffix": "Career Opportunity",
+            "subHeading": "Browse verified opportunities globally or target localized jobs across Pakistan down to Province, City, and District levels. Build ATS-optimized resumes in minutes.",
+            "primaryBtnText": "Browse Verified Jobs",
+            "primaryBtnUrl": "#jobs-section",
+            "secondaryBtnText": "Build ATS Resume (Free)",
+            "secondaryBtnUrl": "#cv",
+            "searchPlaceholder": "Search job title, skills, keywords or company...",
+            "statBadge1Text": "Verified Hybrid & Remote Jobs",
+            "statBadge2Text": "100% Free ATS Resume Builder",
+            "statBadge3Text": "Province & City Granular Filters",
+            "statBadge4Text": "Direct WhatsApp & SMS Alerts",
+            "design4HeroImageUrl": "https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=2000&q=85",
+            "design5SeekerImageUrl": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=1400&q=85",
+            "design5EmployerImageUrl": "https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=1400&q=85",
+            "design45HeroOverlay": 68,
+            "design45AccentColor": "#0f9f78",
+            "design4PostJobBtnText": "Post a Job",
+            "design5SeekerEyebrow": "For Job Seekers",
+            "design5SeekerHeading": "Find your next opportunity.",
+            "design5SeekerDescription": "Discover verified jobs, explore career paths and build a professional CV with tools made for your next move.",
+            "design5SeekerPrimaryBtnText": "Explore Jobs",
+            "design5SeekerSecondaryBtnText": "Build CV",
+            "design5EmployerEyebrow": "For Employers",
+            "design5EmployerHeading": "Build your team with confidence.",
+            "design5EmployerDescription": "Reach skilled talent, publish vacancies and manage your hiring journey from one platform.",
+            "design5EmployerBtnText": "Post a Job"
+          },
+          "sections": [
+            {
+              "id": "hero",
+              "name": "1. Hero Section & Employer Quick Action",
+              "description": "Main banner, employer register CTA, and quick explore buttons.",
+              "isEnabled": true,
+              "order": 1
+            },
+            {
+              "id": "promo-banners",
+              "name": "2. Active Promotional Discount Banners",
+              "description": "Site-wide flash discounts (e.g. 50% Off, Free Posting Week).",
+              "isEnabled": true,
+              "order": 2
+            },
+            {
+              "id": "top-sponsor-ads",
+              "name": "3. Top Sponsor Sticky/Header Banner",
+              "description": "High-visibility sponsor brand advertisements.",
+              "isEnabled": true,
+              "order": 3
+            },
+            {
+              "id": "quick-stats",
+              "name": "4. Key Statistics & Trust Highlights",
+              "description": "Counters and verified credentials showcase.",
+              "isEnabled": true,
+              "order": 4
+            },
+            {
+              "id": "custom-announcements",
+              "name": "5. Custom Dynamic Announcement Cards",
+              "description": "Admin-created marketing blocks and special notices.",
+              "isEnabled": true,
+              "order": 5
+            },
+            {
+              "id": "jobs-feed",
+              "name": "6. Job Listings Feed & Search Filters",
+              "description": "Main searchable database of live verified career listings.",
+              "isEnabled": true,
+              "order": 6
+            }
+          ],
+          "customCards": [
+            {
+              "id": "card-relocation",
+              "title": "✈️ Gulf & Middle East Fast-Track Visas",
+              "description": "Exclusive sponsored vacancies in UAE, Saudi Arabia & Qatar with flight and visa sponsorship.",
+              "badge": "Overseas Jobs",
+              "buttonText": "View Gulf Opportunities",
+              "buttonUrl": "#jobs",
+              "bgGradient": "from-amber-600 via-orange-600 to-rose-700",
+              "isEnabled": true,
+              "order": 1
+            },
+            {
+              "id": "card-govt-gazette",
+              "title": "📜 FPSC & PPSC Official Gazettes",
+              "description": "Download verified government recruitment notices and challan forms directly.",
+              "badge": "Public Sector",
+              "buttonText": "Explore Govt Exams",
+              "buttonUrl": "#jobs",
+              "bgGradient": "from-emerald-700 via-teal-800 to-slate-900",
+              "isEnabled": true,
+              "order": 2
+            },
+            {
+              "id": "card-subscription-plans",
+              "title": "Unlock More Career Benefits",
+              "description": "Explore available membership plans for job alerts and eligible premium career features. Plans and prices are loaded from the portal settings.",
+              "badge": "Membership Plans",
+              "buttonText": "View Subscription Plans",
+              "buttonUrl": "#alerts",
+              "bgGradient": "from-emerald-700 via-teal-800 to-slate-950",
+              "isEnabled": true,
+              "order": 3
+            }
+          ],
+          "categoryPostingFees": [
+            {
+              "categoryId": "cat-it",
+              "categoryName": "IT, Software & AI Engineering",
+              "feePkr": 600,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-govt",
+              "categoryName": "Government Sector & Public Scale",
+              "feePkr": 0,
+              "isFree": true,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-health",
+              "categoryName": "Healthcare & Medical Practice",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-eng",
+              "categoryName": "Engineering & Construction",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-finance",
+              "categoryName": "Banking, Finance & Accounts",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-edu",
+              "categoryName": "Education, Teaching & Academia",
+              "feePkr": 400,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-remote",
+              "categoryName": "International Remote Roles",
+              "feePkr": 800,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-corp",
+              "categoryName": "Private Corporate & HR",
+              "feePkr": 500,
+              "isFree": false,
+              "discountPercent": 0
+            },
+            {
+              "categoryId": "cat-news",
+              "categoryName": "Newspaper Classified Jobs",
+              "feePkr": 0,
+              "isFree": true,
+              "discountPercent": 0
+            }
+          ],
+          "exemptUserIds": [],
+          "exemptUserEmails": [
+            "vip.employer@devsinc.com",
+            "admin@careers.com"
+          ],
+          "jobCardDesign": {
+            "layout": "default",
+            "theme": {
+              "accentColor": "indigo",
+              "borderRadius": "3xl",
+              "cardBgPreset": "gradient",
+              "density": "normal"
+            },
+            "visibility": {
+              "title": true,
+              "company": true,
+              "location": true,
+              "postedDate": true,
+              "description": true,
+              "tags": true,
+              "salary": true,
+              "jobType": true,
+              "govtBadge": true,
+              "featuredBadge": true,
+              "urgentBadge": true,
+              "newspaperBadge": true,
+              "pdfBadge": true,
+              "futureBadge": true,
+              "vipBadge": true,
+              "pinnedBadge": true,
+              "poster": true,
+              "relativePostedTime": true,
+              "exactPostedDate": true,
+              "deadlineDate": true,
+              "deadlineRemaining": true,
+              "duplicateOverrideBadge": true,
+              "saveButton": true,
+              "detailsButton": true,
+              "applyButton": true
+            },
+            "labels": {
+              "saveButton": "Save",
+              "detailsButton": "Details",
+              "applyButton": "Apply",
+              "cardHeading": ""
+            },
+            "limits": {
+              "descriptionMaxWords": 25,
+              "maxTags": 4
+            }
+          },
+          "isFreeAllPostings": false,
+          "globalDiscount": 0
+        }
+      }
+    ]
   },
   "advertisements": {
     "bannerPerDayPkr": 1500,
-    "topBannerPerDayPkr": 3000,
-    "popupPerDayPkr": 4500,
-    "feedAdPerDayPkr": 2000,
-    "featuredEmployerPerMonthPkr": 25000,
+    "topBannerPerDayPkr": 100,
+    "popupPerDayPkr": 200,
+    "feedAdPerDayPkr": 150,
+    "featuredEmployerPerMonthPkr": 15000,
     "allowDiscounts": true,
-    "defaultDiscountPercent": 10,
-    "minCampaignDurationDays": 3,
+    "defaultDiscountPercent": 0,
+    "minCampaignDurationDays": 7,
     "maxCampaignDurationDays": 90
   },
   "subscriptions": {
@@ -34,9 +1777,474 @@
     "vipMonthlyPkr": 3000,
     "govtAlertsWeeklyPkr": 400
   },
+  "subscriptionPackages": [
+    {
+      "id": "pkg-1795090539230",
+      "name": "New Package",
+      "pricePkr": 500,
+      "durationDays": 30,
+      "features": [
+        "Instant"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "pkg-1795090590742",
+      "name": "New Package",
+      "pricePkr": 500,
+      "durationDays": 30,
+      "features": [
+        "Feature 1"
+      ],
+      "enabled": true
+    }
+  ],
   "cvBuilder": {
     "standardPdfExportPkr": 0,
-    "premiumAiOptimizerPkr": 500,
+    "premiumAiOptimizerPkr": 0,
     "unlimitedTemplatesPkr": 1000
-  }
+  },
+  "addons": {
+    "highlightColor": 1000,
+    "whatsappBlast": 3000,
+    "socialShare": 2000,
+    "extraWeekRate": 500
+  },
+  "adPricingConfig": {
+    "hourlyRatePkr": 80,
+    "dailyRatePkr": 800,
+    "weeklyRatePkr": 4500,
+    "monthlyRatePkr": 16000,
+    "placementMultipliers": {
+      "top-header": 1.25,
+      "feed-inline": 1,
+      "popup-modal": 1.5,
+      "toast-float": 0.9,
+      "sidebar": 0.75,
+      "sms-broadcast": 1.1
+    },
+    "pageMultipliers": {
+      "all": 1.4,
+      "jobs": 1,
+      "cv": 0.9,
+      "alerts": 0.85,
+      "dashboard": 0.75,
+      "detail-modal": 0.65
+    },
+    "smsPerContactRatePkr": 1.5,
+    "minDepositAmountPkr": 500
+  },
+  "campaignCustomizationConfig": {
+    "portalPages": [
+      {
+        "id": "all",
+        "name": "All Portal Pages (Site-Wide)",
+        "description": "Displays across header and global notifications on every page.",
+        "routePath": "#all",
+        "iconName": "Globe",
+        "isEnabled": true,
+        "multiplier": 1.4,
+        "scheduleMode": "always_active",
+        "activeTimeStart": "00:00",
+        "activeTimeEnd": "23:59",
+        "minDurationHours": 6,
+        "maxDurationHours": 2160
+      },
+      {
+        "id": "alerts",
+        "name": "Job Alerts Page",
+        "description": "Target users actively subscribing to daily/weekly career alerts.",
+        "routePath": "#alerts",
+        "iconName": "Bell",
+        "isEnabled": true,
+        "multiplier": 0.85,
+        "scheduleMode": "always_active",
+        "activeTimeStart": "08:00",
+        "activeTimeEnd": "23:00",
+        "minDurationHours": 6,
+        "maxDurationHours": 720
+      },
+      {
+        "id": "jobs",
+        "name": "Explore Jobs Search Feed",
+        "description": "High intent applicants browsing verified jobs and filters.",
+        "routePath": "#jobs",
+        "iconName": "Briefcase",
+        "isEnabled": true,
+        "multiplier": 1,
+        "scheduleMode": "always_active",
+        "activeTimeStart": "00:00",
+        "activeTimeEnd": "23:59",
+        "minDurationHours": 6,
+        "maxDurationHours": 2160
+      },
+      {
+        "id": "cv",
+        "name": "ATS CV & Resume Builder",
+        "description": "Job seekers actively building, formatting, and scoring CVs.",
+        "routePath": "#cv",
+        "iconName": "FileText",
+        "isEnabled": true,
+        "multiplier": 0.9,
+        "scheduleMode": "always_active",
+        "activeTimeStart": "00:00",
+        "activeTimeEnd": "23:59",
+        "minDurationHours": 6,
+        "maxDurationHours": 1440
+      },
+      {
+        "id": "dashboard",
+        "name": "User Account Dashboard",
+        "description": "Registered candidates and employers checking application statuses.",
+        "routePath": "#dashboard",
+        "iconName": "Users",
+        "isEnabled": true,
+        "multiplier": 0.75,
+        "scheduleMode": "always_active",
+        "activeTimeStart": "00:00",
+        "activeTimeEnd": "23:59",
+        "minDurationHours": 6,
+        "maxDurationHours": 720
+      },
+      {
+        "id": "detail-modal",
+        "name": "Job Detail Popup Modal",
+        "description": "Shown when an applicant opens a specific job description modal.",
+        "routePath": "#jobs",
+        "iconName": "Layers",
+        "isEnabled": true,
+        "multiplier": 0.65,
+        "scheduleMode": "always_active",
+        "activeTimeStart": "00:00",
+        "activeTimeEnd": "23:59",
+        "minDurationHours": 6,
+        "maxDurationHours": 720
+      }
+    ],
+    "durationPresets": [
+      {
+        "id": "flash-6h",
+        "label": "6 Hours",
+        "subLabel": "Flash Slot",
+        "unit": "hours",
+        "value": 6,
+        "badge": "⚡ Flash Alert",
+        "isEnabled": true
+      },
+      {
+        "id": "halfday-12h",
+        "label": "12 Hours",
+        "subLabel": "Half Day",
+        "unit": "hours",
+        "value": 12,
+        "badge": "Quick Boost",
+        "isEnabled": true
+      },
+      {
+        "id": "fullday-24h",
+        "label": "24 Hours (1 Day)",
+        "subLabel": "Standard Daily",
+        "unit": "days",
+        "value": 1,
+        "isPopular": true,
+        "badge": "🔥 Most Popular",
+        "isEnabled": true
+      },
+      {
+        "id": "weekend-3d",
+        "label": "3 Days",
+        "subLabel": "Weekend Sprint",
+        "unit": "days",
+        "value": 3,
+        "badge": "Sprint Slot",
+        "isEnabled": true
+      },
+      {
+        "id": "week-1w",
+        "label": "1 Week (7 Days)",
+        "subLabel": "Full Hiring Week",
+        "unit": "weeks",
+        "value": 1,
+        "isPopular": true,
+        "badge": "⭐ High Impact",
+        "isEnabled": true
+      },
+      {
+        "id": "biweekly-2w",
+        "label": "2 Weeks (14 Days)",
+        "subLabel": "Extended Run",
+        "unit": "weeks",
+        "value": 2,
+        "discountPercent": 10,
+        "badge": "10% Discount",
+        "isEnabled": true
+      },
+      {
+        "id": "days-15d",
+        "label": "15 Days",
+        "subLabel": "Mid-Month Package",
+        "unit": "days",
+        "value": 15,
+        "discountPercent": 12,
+        "badge": "⚡ 15-Day Boost",
+        "isEnabled": true
+      },
+      {
+        "id": "days-20d",
+        "label": "20 Days",
+        "subLabel": "Strategic Hiring Window",
+        "unit": "days",
+        "value": 20,
+        "discountPercent": 15,
+        "badge": "⭐ 20-Day Pro Run",
+        "isEnabled": true
+      },
+      {
+        "id": "month-1m",
+        "label": "1 Month (30 Days)",
+        "subLabel": "Maximum Reach",
+        "unit": "months",
+        "value": 1,
+        "discountPercent": 20,
+        "badge": "💎 Best Value (20% Off)",
+        "isEnabled": true
+      },
+      {
+        "id": "quarter-2m",
+        "label": "2 Months (60 Days)",
+        "subLabel": "Enterprise Sponsor",
+        "unit": "months",
+        "value": 2,
+        "discountPercent": 30,
+        "badge": "Enterprise Plan",
+        "isEnabled": true
+      }
+    ],
+    "placementOptions": [
+      {
+        "id": "top-header",
+        "name": "Top Header Announcement Banner",
+        "description": "Sticky banner above the main portal navigation. Highest visibility across screens.",
+        "type": "banner",
+        "multiplier": 1.25,
+        "iconName": "Megaphone",
+        "badge": "High CTR",
+        "isEnabled": true
+      },
+      {
+        "id": "feed-inline",
+        "name": "Job Listings Feed Inline Card",
+        "description": "Blended seamlessly between job postings in search results and category feeds.",
+        "type": "banner",
+        "multiplier": 1.5,
+        "iconName": "Layers",
+        "badge": "Native Feed",
+        "isEnabled": true
+      },
+      {
+        "id": "popup-modal",
+        "name": "Centered Pop-up Lightbox Modal",
+        "description": "Prominent lightbox dialog overlay on entering target pages or job alert signups.",
+        "type": "popup",
+        "multiplier": 1.5,
+        "iconName": "Sparkles",
+        "badge": "Maximum Impact",
+        "isEnabled": true
+      },
+      {
+        "id": "toast-float",
+        "name": "Floating Toast Notification (Bottom-Right)",
+        "description": "Non-intrusive floating alert card with animated entry in the corner.",
+        "type": "notification",
+        "multiplier": 0.9,
+        "iconName": "Bell",
+        "badge": "Subtle Alert",
+        "isEnabled": true
+      },
+      {
+        "id": "sidebar",
+        "name": "Sidebar & Filter Widget Card",
+        "description": "Pinned alongside job search filters and alert subscription widgets.",
+        "type": "text",
+        "multiplier": 0.75,
+        "iconName": "Smartphone",
+        "badge": "Desktop & Tablet",
+        "isEnabled": true
+      },
+      {
+        "id": "sms-broadcast",
+        "name": "Direct SMS Text Message Broadcast",
+        "description": "Direct cellular SMS broadcast sent to registered job seeker phone numbers.",
+        "type": "sms",
+        "multiplier": 1.1,
+        "iconName": "Send",
+        "badge": "Direct Phone",
+        "isEnabled": true
+      }
+    ],
+    "badgePresets": [
+      "Featured Partner",
+      "Sponsored",
+      "Urgent Hiring",
+      "Special Offer",
+      "Verified Employer",
+      "Public Notice",
+      "Direct Relocation",
+      "Flash Discount",
+      "Govt Exam Prep",
+      "Top Rated Academy"
+    ],
+    "ctaPresets": [
+      {
+        "label": "Apply Now",
+        "defaultUrl": "#jobs"
+      },
+      {
+        "label": "Build ATS CV Free",
+        "defaultUrl": "#cv"
+      },
+      {
+        "label": "Set Instant Job Alert",
+        "defaultUrl": "#alerts"
+      },
+      {
+        "label": "Explore Remote Roles",
+        "defaultUrl": "#jobs"
+      },
+      {
+        "label": "Enroll with 40% Off",
+        "defaultUrl": "https://example.com"
+      },
+      {
+        "label": "Download Exam Guide",
+        "defaultUrl": "https://example.com/govt-exam"
+      },
+      {
+        "label": "Contact on WhatsApp",
+        "defaultUrl": "https://wa.me/923001234567"
+      },
+      {
+        "label": "Claim Relocation Bonus",
+        "defaultUrl": "#jobs"
+      },
+      {
+        "label": "Learn More",
+        "defaultUrl": "https://example.com"
+      }
+    ],
+    "popupSettings": {
+      "displayMode": "sequential",
+      "maxPopupsPerVisit": 99,
+      "delayBetweenPopupsSec": 0.8,
+      "showStackedDualOnDesktop": true,
+      "allowUnlimitedQueue": true
+    },
+    "feedInlineSettings": {
+      "insertionMode": "custom_indices",
+      "repeatEveryNJobs": 3,
+      "customIndices": [
+        2,
+        5,
+        8,
+        12
+      ],
+      "page1SpecificIndices": [
+        2,
+        5,
+        8
+      ],
+      "maxAdsPerPage": 3,
+      "rotateMultipleAds": true
+    },
+    "bannerDimensions": {
+      "desktopWidth": "100%",
+      "desktopHeight": "auto",
+      "mobileWidth": "100%",
+      "mobileHeight": "auto"
+    },
+    "bannerAppearance": {
+      "borderRadiusPreset": "3xl",
+      "paddingPreset": "standard",
+      "showBannerImage": true,
+      "imageSizePreset": "medium",
+      "imageFit": "cover",
+      "imagePosition": "left",
+      "showCtaButton": true,
+      "ctaSizePreset": "medium",
+      "ctaAlignment": "right",
+      "textAlignment": "left",
+      "showBadge": true,
+      "showDismissButton": true
+    },
+    "bannerBehavior": {
+      "autoRotate": true,
+      "rotationIntervalSeconds": 6,
+      "pauseOnHover": true,
+      "showNavigationArrows": true,
+      "showNavigationDots": true,
+      "allowDismiss": true
+    },
+    "popupAppearance": {
+      "popupWidthPreset": "standard",
+      "popupMaxHeightPreset": "standard",
+      "overlayOpacityPreset": "standard",
+      "showCloseButton": true,
+      "initialDisplayDelaySeconds": 1
+    },
+    "feedCardAppearance": {
+      "cardSizePreset": "standard",
+      "imageSizePreset": "medium",
+      "imagePosition": "left",
+      "ctaAlignment": "right",
+      "borderRadiusPreset": "3xl",
+      "paddingPreset": "standard"
+    },
+    "promoBanners": [
+      {
+        "id": "promo-flash-50",
+        "isEnabled": false,
+        "title": "50% Flash Discount On All High-Impact Placements",
+        "description": "Book Top Header, Native Feed, or Lightbox Popups at flat 50% discount for the next 7 days.",
+        "discountPercent": 50,
+        "badgeText": "🔥 50% OFF FLASH PROMO",
+        "promoCode": "CAREER50",
+        "targetPlacement": "all",
+        "validUntil": "2026-09-30",
+        "bgGradient": "from-amber-600 via-rose-600 to-indigo-700",
+        "ctaText": "Claim 50% Discount Slot",
+        "ctaUrl": "#dashboard"
+      },
+      {
+        "id": "promo-free-postings",
+        "isEnabled": false,
+        "title": "Free Employer Job Posting Week",
+        "description": "Post unlimited verified openings at 0 PKR standard publishing fee.",
+        "discountPercent": 100,
+        "badgeText": "🆓 100% FREE POSTING",
+        "promoCode": "FREEPOST",
+        "targetPlacement": "all",
+        "validUntil": "2026-09-15",
+        "bgGradient": "from-emerald-600 via-teal-600 to-cyan-700",
+        "ctaText": "Post Free Job Now",
+        "ctaUrl": "#dashboard"
+      }
+    ],
+    "jobPostingFeeSettings": {
+      "isFreeAll": true,
+      "customStandardFeePkr": 100,
+      "globalDiscountPercent": 0,
+      "promoBannerText": ""
+    },
+    "formRules": {
+      "requireImage": false,
+      "requireAdminApproval": true,
+      "allowCustomDateRange": true,
+      "maxCampaignDays": 90,
+      "allowDirectSms": true,
+      "instantPublishForPro": false,
+      "adminFreeCampaignBypass": true
+    }
+  },
+  "isPersistedToMongo": true,
+  "updatedAt": "2026-11-21T09:18:37.721Z"
 }

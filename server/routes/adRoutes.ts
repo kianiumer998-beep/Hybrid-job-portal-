@@ -290,9 +290,15 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
           }
           adData.campaignCostPkr = calc.finalPrice;
           adData.budget = calc.finalPrice;
-          adData.paymentStatus = 'Escrow';
-          adData.escrowStatus = 'HELD';
-          adData.escrowAmountPkr = calc.finalPrice;
+          if (calc.finalPrice > 0) {
+            adData.paymentStatus = 'Escrow';
+            adData.escrowStatus = 'HELD';
+            adData.escrowAmountPkr = calc.finalPrice;
+          } else {
+            adData.paymentStatus = 'Exempt';
+            delete adData.escrowStatus;
+            delete adData.escrowAmountPkr;
+          }
           adData.walletTxId = verifiedTx.id;
           adData.paymentTransactionId = verifiedTx.id;
           adData.transactionRef = verifiedTx.transactionId || verifiedTx.id;

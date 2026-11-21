@@ -429,15 +429,15 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     id: 'admin-payment-methods',
     classicCategory: 'payments',
     proCategory: 'finance-payments',
-    label: 'EasyPaisa, JazzCash & Durations Setup',
-    description: 'Configure payment account details and subscription/payment duration presets.',
-    classicSubTabLabel: () => '💳 EasyPaisa, JazzCash & Duration Setup',
-    urdu: 'ایڈمن کے اکاؤنٹس اور دن (1-دن، 1-ہفتہ، 15-دن، 20-دن)',
-    classicSubTabUrdu: 'ایڈمن اکاؤنٹس اور دن',
+    label: 'Manual Payment Accounts & Proof Setup',
+    description: 'Configure payment account details and receipt-proof requirements.',
+    classicSubTabLabel: () => '💳 Manual Payment Accounts & Proof Setup',
+    urdu: 'ایڈمن کے ادائیگی اکاؤنٹس اور رسید کی تصدیق',
+    classicSubTabUrdu: 'ایڈمن ادائیگی اکاؤنٹس',
     icon: CreditCard,
     badge: 'NEW',
     isNew: true,
-    keywords: ['easypaisa', 'jazzcash', 'bank', 'payment methods', 'accounts', 'durations', 'wallet', 'ایزی پیسہ', 'جاز کیش']
+    keywords: ['easypaisa', 'jazzcash', 'bank', 'payment methods', 'accounts', 'wallet', 'ایزی پیسہ', 'جاز کیش']
   },
   {
     id: 'payment-proofs',

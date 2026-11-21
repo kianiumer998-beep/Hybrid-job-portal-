@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   Smartphone,
   Building,
-  Clock,
   Plus,
   Trash2,
   AlertCircle,
@@ -20,18 +19,11 @@ import {
   ArrowDown
 } from 'lucide-react';
 import {
-  AdminReceivingPaymentConfig,
-  DEFAULT_ADMIN_RECEIVING_PAYMENT_CONFIG,
   PublicPaymentMethodConfig,
   CustomProofField,
   PublicPaymentSettings
 } from '../../types/adminPayment';
 import { api } from '../../services/api';
-
-interface AdminPaymentMethodsManagerProps {
-  initialConfig?: AdminReceivingPaymentConfig;
-  onSaveConfig?: (config: AdminReceivingPaymentConfig) => void;
-}
 
 const createDefaultMethod = (id: string, name: string): PublicPaymentMethodConfig => ({
   id,
@@ -61,62 +53,7 @@ const createDefaultMethod = (id: string, name: string): PublicPaymentMethodConfi
   customFields: []
 });
 
-export const CAMPAIGN_DURATION_PRESETS_KEY = 'hybrid_campaign_duration_presets';
-
-export function saveDurationPresetsToStorage(
-  storage: Pick<Storage, 'setItem'> | null | undefined,
-  config: AdminReceivingPaymentConfig
-): { ok: boolean; error?: string } {
-  if (!storage || typeof storage.setItem !== 'function') {
-    return {
-      ok: false,
-      error: 'Browser localStorage is unavailable — campaign duration presets were not saved. Your unsaved edits remain on screen.'
-    };
-  }
-  try {
-    storage.setItem(CAMPAIGN_DURATION_PRESETS_KEY, JSON.stringify(config));
-    return { ok: true };
-  } catch (err: any) {
-    return {
-      ok: false,
-      error: err?.message
-        ? `Failed to save campaign duration presets to browser storage: ${err.message}. Your unsaved edits remain on screen.`
-        : 'Failed to save campaign duration presets to browser storage (quota exceeded or storage blocked). Your unsaved edits remain on screen.'
-    };
-  }
-}
-
-export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProps> = ({
-  initialConfig,
-  onSaveConfig
-}) => {
-  // Campaign duration preset configuration (kept separate from payment accounts)
-  const [durationConfig, setDurationConfig] = useState<AdminReceivingPaymentConfig>(() => {
-    if (typeof localStorage !== 'undefined') {
-      try {
-        const savedNew = localStorage.getItem(CAMPAIGN_DURATION_PRESETS_KEY);
-        if (savedNew) {
-          const parsed = JSON.parse(savedNew);
-          if (parsed && typeof parsed === 'object' && Array.isArray(parsed.activeDurationOptions)) {
-            return parsed;
-          }
-        }
-        const savedLegacy = localStorage.getItem('admin_receiving_payment_config');
-        if (savedLegacy) {
-          const parsedLegacy = JSON.parse(savedLegacy);
-          if (parsedLegacy && typeof parsedLegacy === 'object' && Array.isArray(parsedLegacy.activeDurationOptions)) {
-            return parsedLegacy;
-          }
-        }
-      } catch (e) {
-        console.error(e);
-      }
-    }
-    return initialConfig || DEFAULT_ADMIN_RECEIVING_PAYMENT_CONFIG;
-  });
-
-  const [activeSubTab, setActiveSubTab] = useState<'methods' | 'durations'>('methods');
-
+export const AdminPaymentMethodsManager: React.FC = () => {
   // Server-Persisted Payment Methods State (includes base + any custom methods)
   const [methods, setMethods] = useState<Record<string, PublicPaymentMethodConfig>>({
     easypaisa: createDefaultMethod('easypaisa', 'EasyPaisa'),
@@ -134,14 +71,6 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [durationSaveSuccess, setDurationSaveSuccess] = useState<boolean>(false);
-  const [durationSaveError, setDurationSaveError] = useState<string | null>(null);
-
-  // New duration preset inputs
-  const [newDurationDays, setNewDurationDays] = useState('');
-  const [newDurationLabel, setNewDurationLabel] = useState('');
-  const [newDurationPrice, setNewDurationPrice] = useState('');
-
   // Expanded card sections tracking (which method has its advanced proof fields visible)
   const [expandedProofSections, setExpandedProofSections] = useState<Record<string, boolean>>({});
 
@@ -435,72 +364,6 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
     }
   };
 
-  // Save campaign duration presets locally
-  const handleSaveDurations = () => {
-    setDurationSaveError(null);
-    setDurationSaveSuccess(false);
-
-    const storageRef = typeof localStorage !== 'undefined' ? localStorage : null;
-    const writeResult = saveDurationPresetsToStorage(storageRef, durationConfig);
-    if (!writeResult.ok) {
-      setDurationSaveError(
-        writeResult.error ||
-          'Failed to save campaign duration presets to browser storage. Unsaved edits remain in place.'
-      );
-      return;
-    }
-
-    if (onSaveConfig) {
-      onSaveConfig(durationConfig);
-    }
-    setDurationSaveSuccess(true);
-    setTimeout(() => setDurationSaveSuccess(false), 3000);
-  };
-
-  const handleAddCustomDuration = (e: React.FormEvent) => {
-    e.preventDefault();
-    const days = parseInt(newDurationDays);
-    const price = parseInt(newDurationPrice) || 0;
-    if (isNaN(days) || days <= 0 || !newDurationLabel.trim()) return;
-
-    const newOption = {
-      id: `custom-${Date.now()}`,
-      label: newDurationLabel.trim(),
-      days,
-      enabled: true,
-      pricePkr: price,
-      isApprovedForDisplay: true,
-      badge: 'Custom'
-    };
-
-    setDurationConfig({
-      ...durationConfig,
-      activeDurationOptions: [...durationConfig.activeDurationOptions, newOption]
-    });
-
-    setNewDurationDays('');
-    setNewDurationLabel('');
-    setNewDurationPrice('');
-  };
-
-  const handleToggleDurationApproval = (id: string) => {
-    setDurationConfig({
-      ...durationConfig,
-      activeDurationOptions: durationConfig.activeDurationOptions.map((opt) =>
-        opt.id === id
-          ? { ...opt, isApprovedForDisplay: !opt.isApprovedForDisplay, enabled: !opt.isApprovedForDisplay }
-          : opt
-      )
-    });
-  };
-
-  const handleDeleteDuration = (id: string) => {
-    setDurationConfig({
-      ...durationConfig,
-      activeDurationOptions: durationConfig.activeDurationOptions.filter((opt) => opt.id !== id)
-    });
-  };
-
   const baseKeys = ['easypaisa', 'jazzcash', 'bank'];
   const customKeys = Object.keys(methods).filter((k) => !baseKeys.includes(k));
 
@@ -511,43 +374,32 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
         <div>
           <div className="flex items-center space-x-2 text-amber-400 text-xs font-bold uppercase tracking-wider mb-1">
             <CreditCard className="w-4 h-4" />
-            <span>Server-Persisted Payment Accounts &amp; Local Duration Presets</span>
+            <span>Server-Persisted Payment Accounts &amp; Proof Configuration</span>
           </div>
           <h2 className="text-xl font-black text-white">Public Receiving Payment Accounts</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Payment methods and default account settings are saved on the backend (/api/payment-settings). Campaign duration presets are stored locally in this browser.
+            Payment account details and receipt-proof requirements are saved on the backend and synchronized across users.
           </p>
         </div>
 
-        {activeSubTab === 'methods' ? (
-          <button
-            type="button"
-            onClick={handleSavePaymentSettings}
-            disabled={isSaving || isLoadingServerSettings}
-            className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-emerald-500/20 flex items-center justify-center space-x-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
-          >
-            {isSaving ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>Saving to Server...</span>
-              </>
-            ) : (
-              <>
-                <Save className="w-4 h-4" />
-                <span>Save & Publish Payment Settings</span>
-              </>
-            )}
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={handleSaveDurations}
-            className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-emerald-500 hover:from-amber-400 hover:to-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center space-x-2 cursor-pointer transition-all active:scale-95"
-          >
-            <Save className="w-4 h-4" />
-            <span>Save Local Duration Presets</span>
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={handleSavePaymentSettings}
+          disabled={isSaving || isLoadingServerSettings}
+          className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-emerald-500/20 flex items-center justify-center space-x-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+        >
+          {isSaving ? (
+            <>
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              <span>Saving to Server...</span>
+            </>
+          ) : (
+            <>
+              <Save className="w-4 h-4" />
+              <span>Save & Publish Payment Settings</span>
+            </>
+          )}
+        </button>
       </div>
 
       {/* Server Configuration Status Alert */}
@@ -583,58 +435,8 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
         </div>
       )}
 
-      {durationSaveSuccess && (
-        <div
-          role="status"
-          className="p-4 bg-amber-500/15 border border-amber-500/40 rounded-xl text-amber-200 font-bold text-xs flex items-center space-x-2 animate-in fade-in"
-        >
-          <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
-          <span>Campaign duration presets saved in browser localStorage only (not synced to backend database).</span>
-        </div>
-      )}
-
-      {durationSaveError && (
-        <div
-          role="alert"
-          className="p-4 bg-rose-500/20 border border-rose-500/50 rounded-xl text-rose-200 font-bold text-xs flex items-center space-x-2 animate-in fade-in"
-        >
-          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-          <span>{durationSaveError}</span>
-        </div>
-      )}
-
-      {/* Sub-tab Navigation */}
-      <div className="flex items-center space-x-3 border-b border-slate-800 pb-2">
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('methods')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer ${
-            activeSubTab === 'methods'
-              ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
-              : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
-          }`}
-        >
-          <Smartphone className="w-3.5 h-3.5" />
-          <span>Manual Payment Accounts & Proof Configuration</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('durations')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer ${
-            activeSubTab === 'durations'
-              ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 font-black'
-              : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
-          }`}
-        >
-          <Clock className="w-3.5 h-3.5" />
-          <span>Campaign Duration Presets</span>
-        </button>
-      </div>
-
       {/* TAB 1: PAYMENT CHANNELS & PROOF CONFIGURATION */}
-      {activeSubTab === 'methods' && (
-        <div className="space-y-6">
+      <div className="space-y-6">
           <div className="flex items-center justify-between bg-slate-950 p-3 rounded-xl border border-slate-800">
             <div className="text-xs text-slate-400">
               Default Recommended Channel:{' '}
@@ -1237,174 +1039,8 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
             </button>
           </div>
         </div>
-      )}
 
-      {/* TAB 2: CAMPAIGN DURATION OPTIONS */}
-      {activeSubTab === 'durations' && (
-        <div className="space-y-6">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
-              <div>
-                <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-                  <span>Campaign Duration Presets</span>
-                  <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold">
-                    Browser Local Storage Only
-                  </span>
-                  <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">
-                    {durationConfig.activeDurationOptions.filter((d) => d.isApprovedForDisplay).length} Enabled Locally
-                  </span>
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  These duration presets are stored in your browser (localStorage key: hybrid_campaign_duration_presets) and are separate from backend payment methods. Authoritative ad campaign pricing is configured in Universal Pricing Controller.
-                </p>
-              </div>
-            </div>
 
-            {/* List of Durations with Approval Toggles */}
-            <div className="space-y-2.5">
-              {durationConfig.activeDurationOptions.map((opt) => (
-                <div
-                  key={opt.id}
-                  className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${
-                    opt.isApprovedForDisplay
-                      ? 'bg-slate-950/80 border-emerald-500/40 shadow-sm shadow-emerald-500/5'
-                      : 'bg-slate-950/40 border-slate-800 opacity-60'
-                  }`}
-                >
-                  <div className="flex items-center space-x-3">
-                    <div
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs ${
-                        opt.isApprovedForDisplay
-                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                          : 'bg-slate-800 text-slate-500'
-                      }`}
-                    >
-                      {opt.days}d
-                    </div>
-
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-xs font-bold text-white">{opt.label}</span>
-                        {opt.badge && (
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
-                            {opt.badge}
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-[11px] text-slate-400">
-                        {opt.days} Calendar Days Run • PKR {opt.pricePkr.toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Status & Approval Toggle */}
-                  <div className="flex items-center space-x-3">
-                    <div className="flex items-center space-x-1.5">
-                      <span className="text-xs text-slate-400">Price PKR:</span>
-                      <input
-                        type="number"
-                        value={opt.pricePkr}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value) || 0;
-                          setDurationConfig({
-                            ...durationConfig,
-                            activeDurationOptions: durationConfig.activeDurationOptions.map((d) =>
-                              d.id === opt.id ? { ...d, pricePkr: val } : d
-                            )
-                          });
-                        }}
-                        className="w-24 px-2 py-1 bg-slate-900 border border-slate-800 rounded-lg text-xs text-emerald-400 font-bold outline-none"
-                      />
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleToggleDurationApproval(opt.id)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer transition-all ${
-                        opt.isApprovedForDisplay
-                          ? 'bg-emerald-500 text-slate-950 font-black shadow-md shadow-emerald-500/20'
-                          : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'
-                      }`}
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>{opt.isApprovedForDisplay ? 'Approved' : 'Disabled'}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteDuration(opt.id)}
-                      className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
-                      title="Delete Duration"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Add Custom Duration Form */}
-          <form
-            onSubmit={handleAddCustomDuration}
-            className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3"
-          >
-            <h4 className="text-xs font-bold text-white flex items-center space-x-1.5">
-              <Plus className="w-3.5 h-3.5 text-amber-400" />
-              <span>Add Another Duration Package</span>
-            </h4>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="block text-[11px] text-slate-400 mb-1">Package Name</label>
-                <input
-                  type="text"
-                  value={newDurationLabel}
-                  onChange={(e) => setNewDurationLabel(e.target.value)}
-                  placeholder="e.g. 10 Days Sprint"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-amber-500"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] text-slate-400 mb-1">Days Count</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="365"
-                  value={newDurationDays}
-                  onChange={(e) => setNewDurationDays(e.target.value)}
-                  placeholder="e.g. 10"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-amber-500"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] text-slate-400 mb-1">Price (PKR)</label>
-                <div className="flex space-x-2">
-                  <input
-                    type="number"
-                    min="0"
-                    value={newDurationPrice}
-                    onChange={(e) => setNewDurationPrice(e.target.value)}
-                    placeholder="e.g. 8000"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-amber-500"
-                    required
-                  />
-                  <button
-                    type="submit"
-                    className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl shrink-0 cursor-pointer shadow-md transition-all active:scale-95"
-                  >
-                    Add
-                  </button>
-                </div>
-              </div>
-            </div>
-          </form>
-        </div>
-      )}
     </div>
   );
 };

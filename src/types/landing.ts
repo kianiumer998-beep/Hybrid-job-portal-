@@ -357,6 +357,26 @@ export function createDefaultLandingDesignSystem(
     theme: { ...dualAudience.jobCardDesign.theme, accentColor: 'indigo', cardBgPreset: 'gradient', borderRadius: '3xl', density: 'normal' }
   };
 
+  // Membership/subscription is a real portal flow, not an advertisement.
+  // Add an editable customer-facing entry card to both new designs.
+  const addSubscriptionCard = (config: LandingPageConfig) => {
+    if (!config.customCards.some((card) => card.id === 'card-subscription-plans')) {
+      config.customCards.push({
+        id: 'card-subscription-plans',
+        title: 'Unlock More Career Benefits',
+        description: 'Explore available membership plans for job alerts and eligible premium career features. Plans and prices are loaded from the portal settings.',
+        badge: 'Membership Plans',
+        buttonText: 'View Subscription Plans',
+        buttonUrl: '#alerts',
+        bgGradient: 'from-emerald-700 via-teal-800 to-slate-950',
+        isEnabled: true,
+        order: config.customCards.length + 1
+      });
+    }
+  };
+  addSubscriptionCard(modernProfessional);
+  addSubscriptionCard(dualAudience);
+
   return {
     version: 1,
     activeDesignId: 'legacy',

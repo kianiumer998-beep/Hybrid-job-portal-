@@ -4073,7 +4073,7 @@ export default function App() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-emerald-500 selection:text-slate-950">
+    <div className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-emerald-500 selection:text-slate-950 ${activeTab === 'jobs' && (landingDesignSystem.activeDesignId === 'design-4' || landingDesignSystem.activeDesignId === 'design-5') ? 'pb-20 md:pb-0' : ''}`}>
       
       {/* Dynamic Global Admin Announcement Banner */}
       {siteSeoConfig.announcementBanner?.enabled && !dismissAnnouncement && (

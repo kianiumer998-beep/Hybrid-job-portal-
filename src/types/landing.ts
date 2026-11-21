@@ -73,7 +73,7 @@ export interface CategoryPostingFee {
 }
 
 export interface JobCardDesignConfig {
-  layout: 'default' | 'compact';
+  layout: 'default' | 'compact' | 'editorial';
   theme: {
     accentColor: string; // Tailwind color name like 'emerald', 'indigo', etc.
     borderRadius: 'none' | 'md' | 'xl' | '3xl';
@@ -366,7 +366,7 @@ export function createDefaultLandingDesignSystem(
   const modernProfessional = cloneConfig(legacyConfig);
   modernProfessional.jobCardDesign = {
     ...modernProfessional.jobCardDesign,
-    layout: 'compact',
+    layout: 'editorial',
     theme: { ...modernProfessional.jobCardDesign.theme, accentColor: 'emerald', cardBgPreset: 'glass', borderRadius: 'xl', density: 'normal' }
   };
 

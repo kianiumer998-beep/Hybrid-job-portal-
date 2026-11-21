@@ -666,12 +666,14 @@ export const JobListings: React.FC<JobListingsProps> = ({
           );
           const activeAdsList = eligibleAds;
 
-          const maxAds = feedInlineSettings?.maxAdsPerPage ?? 3;
+          const configuredMaxAds = Number(feedInlineSettings?.maxAdsPerPage ?? 3);
+          const maxAds = Number.isInteger(configuredMaxAds) ? Math.max(0, Math.min(10, configuredMaxAds)) : 3;
           const isCustomMode = feedInlineSettings?.insertionMode === 'custom_indices';
           const targetIndices = (safePage === 1 && feedInlineSettings?.page1SpecificIndices && feedInlineSettings.page1SpecificIndices.length > 0)
             ? feedInlineSettings.page1SpecificIndices
             : (feedInlineSettings?.customIndices || [2, 5, 8]);
-          const repeatCadence = feedInlineSettings?.repeatEveryNJobs || 3;
+          const configuredCadence = Number(feedInlineSettings?.repeatEveryNJobs ?? 3);
+          const repeatCadence = Number.isInteger(configuredCadence) && configuredCadence > 0 ? Math.min(100, configuredCadence) : 3;
 
           let adInsertedCount = 0;
 

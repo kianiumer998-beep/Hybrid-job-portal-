@@ -3852,6 +3852,10 @@ export default function App() {
       if (res && res.success && res.advertisement) {
         const normalized = normalizeBackendAd(res.advertisement);
         setAdvertisements((prev) => prev.map((a) => (a.id === adId ? normalized : a)));
+        if (res.transaction) {
+          const normalizedTransaction = normalizeBackendTransaction(res.transaction);
+          setPaymentTransactions((prev) => [normalizedTransaction, ...prev.filter((tx) => String(tx.id) !== String(normalizedTransaction.id))]);
+        }
         await loadBackendAdminUsers();
 
         if (adToApprove.submittedByUserId) {
@@ -3888,6 +3892,10 @@ export default function App() {
       if (res && res.success && res.advertisement) {
         const normalized = normalizeBackendAd(res.advertisement);
         setAdvertisements((prev) => prev.map((a) => (a.id === adId ? normalized : a)));
+        if (res.transaction) {
+          const normalizedTransaction = normalizeBackendTransaction(res.transaction);
+          setPaymentTransactions((prev) => [normalizedTransaction, ...prev.filter((tx) => String(tx.id) !== String(normalizedTransaction.id))]);
+        }
         await loadBackendAdminUsers();
 
         if (adToReject.submittedByUserId) {

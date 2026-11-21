@@ -10,6 +10,7 @@ interface FiltersProps {
   onReset: () => void;
   totalResults: number;
   postsPerPage?: number;
+  defaultPostsPerPage?: number;
   onPostsPerPageChange?: (postsPerPage: number) => void;
   userSelectedCountry?: CountryOption | null;
   onOpenCountryModal?: () => void;
@@ -21,6 +22,7 @@ export const Filters: React.FC<FiltersProps> = ({
   onReset,
   totalResults,
   postsPerPage = 10,
+  defaultPostsPerPage = 10,
   onPostsPerPageChange,
   userSelectedCountry,
   onOpenCountryModal
@@ -132,6 +134,9 @@ export const Filters: React.FC<FiltersProps> = ({
                 <option value={10}>10 / page</option>
                 <option value={15}>15 / page</option>
                 <option value={20}>20 / page</option>
+                {[defaultPostsPerPage].filter((value) => Number.isInteger(value) && value >= 1 && value <= 100 && ![10, 15, 20].includes(value)).map((value) => (
+                  <option key={value} value={value}>Admin default ({value} / page)</option>
+                ))}
               </select>
             </div>
           )}

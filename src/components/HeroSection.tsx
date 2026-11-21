@@ -106,7 +106,6 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
   designId = 'legacy'
 }) => {
   const theme = HERO_DESIGN_STYLES[designId] ?? HERO_DESIGN_STYLES.legacy;
-  */
 
   return (
     <section className={theme.sectionBg}>

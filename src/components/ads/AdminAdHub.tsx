@@ -577,7 +577,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
                         <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 pt-1">
                           <span>Advertiser: <strong className="text-white">{ad.submittedByUserName || 'Portal User'} ({ad.submittedByUserEmail || 'user@example.com'})</strong></span>
                           <span>•</span>
-                          <span>Fee Paid: <strong className="text-emerald-400 font-mono">PKR {(ad.campaignCostPkr || 0).toLocaleString()}</strong></span>
+                          <span>{ad.paymentStatus === 'Escrow' ? 'Fee Held in Escrow:' : 'Fee Paid:'} <strong className="text-emerald-400 font-mono">PKR {(ad.campaignCostPkr || 0).toLocaleString()}</strong></span>
                           <span>•</span>
                           <span>Target Pages: <strong className="text-slate-200">{ad.targetPages.map(getPageDisplayName).join(', ')}</strong></span>
                         </div>

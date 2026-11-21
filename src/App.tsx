@@ -4297,6 +4297,7 @@ export default function App() {
                         <HeroSection
                           key="section-hero"
                           heroConfig={landingConfig.hero}
+                          designId={landingDesignSystem.activeDesignId}
                           totalJobsCount={jobs.length}
                           onExploreClick={() => {
                             const el = document.getElementById('jobs-section');

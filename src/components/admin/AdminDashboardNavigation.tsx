@@ -59,6 +59,7 @@ export type AdminNavMode = 'classic' | 'professional';
 
 export type AdminCanonicalTabId =
   | 'analytics'
+  | 'jobs-ads-control-center'
   | 'activity-logs'
   | 'jobs'
   | 'pending'
@@ -133,6 +134,7 @@ export interface AdminNavModuleDefinition {
   isNew?: boolean;
   keywords: string[];
   aliases?: string[];
+  hideInProfessionalNav?: boolean;
 }
 
 export interface ProCategoryDefinition {
@@ -276,6 +278,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     icon: BarChart3,
     aliases: ['stats'],
     keywords: ['analytics', 'stats', 'kpi', 'metrics', 'revenue', 'reports', 'overview', 'charts', 'statistics', 'رپورٹس']
+    hideInProfessionalNav: true,
   },
   {
     id: 'activity-logs',
@@ -286,6 +289,17 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     urdu: 'سیکیورٹی لاگز',
     icon: ShieldCheck,
     keywords: ['audit', 'security', 'logs', 'activity', 'trail', 'history', 'events', 'لاگز', 'سیکیورٹی']
+  },
+
+  {
+    id: 'jobs-ads-control-center',
+    classicCategory: 'jobs',
+    proCategory: 'jobs-ads-control-center',
+    label: 'Jobs & Ads Control Center',
+    description: 'One workspace for job submissions, approvals, job rates, campaign slots, sizes, schedules and campaign fees.',
+    urdu: 'جابز اور اشتہارات کا مرکزی کنٹرول',
+    icon: Megaphone,
+    keywords: ['jobs ads control center', 'job submissions', 'campaign settings', 'campaign slots', 'job rates', 'job fees', 'کیمپین', 'جابز']
   },
 
   // 2. Jobs & Moderation
@@ -315,6 +329,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     badge: (c) => `${c.pendingJobsCount} Pending`,
     classicSubTabBadge: (c) => (c.pendingJobsCount > 0 ? c.pendingJobsCount : undefined),
     keywords: ['pending', 'approval', 'queue', 'moderation', 'review', 'approve', 'reject', 'منظوری']
+    hideInProfessionalNav: true,
   },
   {
     id: 'add-job',
@@ -326,6 +341,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicSubTabUrdu: 'نئی جاب',
     icon: Plus,
     keywords: ['add', 'post', 'create', 'manual', 'new job', 'publish', 'نئی جاب', 'شامل']
+    hideInProfessionalNav: true,
   },
   {
     id: 'ai-enhancer',
@@ -338,6 +354,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicSubTabUrdu: 'کوالٹی فلٹر',
     icon: Sparkles,
     keywords: ['ai', 'quality', 'spam', 'enhancer', 'filter', 'moderation', 'cleanup', 'اسپیم', 'کوالٹی']
+    hideInProfessionalNav: true,
   },
 
   // 3. Scraper & Ingestion
@@ -367,6 +384,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     icon: Megaphone,
     badge: (c) => `${c.activeAdsCount} Live`,
     keywords: ['campaign', 'campaigns', 'ads', 'promotions', 'popup', 'banners', 'کیمپین', 'اشتہارات']
+    hideInProfessionalNav: true,
   },
   {
     id: 'advertisements',
@@ -378,6 +396,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicSubTabUrdu: 'بینر سلاٹس',
     icon: Layers,
     keywords: ['advertisements', 'ad hub', 'slots', 'banners', 'approvals', 'بینر', 'سلاٹس']
+    hideInProfessionalNav: true,
   },
   {
     id: 'landing-customizer',
@@ -389,6 +408,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicSubTabUrdu: 'ہوم پیج بینرز',
     icon: Edit3,
     keywords: ['landing', 'homepage', 'hero', 'customizer', 'cards', 'theme', 'ہوم پیج']
+    hideInProfessionalNav: true,
   },
 
   // 5. Finance & Payments
@@ -403,6 +423,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     badge: 'NEW',
     isNew: true,
     keywords: ['pricing', 'rates', 'packages', 'subscription', 'plans', 'tiers', 'پیکیجز', 'ریٹ', 'فیسیں']
+    hideInProfessionalNav: true,
   },
   {
     id: 'admin-payment-methods',
@@ -440,6 +461,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicSubTabUrdu: 'پوسٹنگ فیس',
     icon: DollarSign,
     keywords: ['fee', 'fees', 'waivers', 'exemptions', 'category fees', 'discount', 'فیس', 'رعایت']
+    hideInProfessionalNav: true,
   },
   {
     id: 'fee-logs',
@@ -453,6 +475,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     icon: Receipt,
     badge: (c) => `${c.feeLogsCount} Records`,
     keywords: ['fee logs', 'ledger', 'transactions', 'job fees', 'billing', 'ریکارڈ']
+    hideInProfessionalNav: true,
   },
   {
     id: 'currency-forex',
@@ -798,7 +821,7 @@ export function buildProfessionalAllModulesMenuGroups(
   counts: AdminNavCounts
 ): AllModulesMenuGroup<ProAdminCategoryId>[] {
   return PROFESSIONAL_ADMIN_CATEGORIES.map((cat) => {
-    const items = ADMIN_NAVIGATION_MODULES.filter((m) => m.proCategory === cat.id).map((m) => {
+    const items = ADMIN_NAVIGATION_MODULES.filter((m) => m.proCategory === cat.id && !m.hideInProfessionalNav).map((m) => {
       const badge = resolveModuleBadge(m, counts);
       return {
         id: m.id,
@@ -907,6 +930,7 @@ export function buildProfessionalMenuCategories(
     const items: ProMenuModuleItem[] = ADMIN_NAVIGATION_MODULES.filter(
       (mod) =>
         mod.proCategory === cat.id &&
+        !mod.hideInProfessionalNav &&
         canAccessTab(mod.id) &&
         matchesAdminModuleSearch(mod, searchQuery)
     ).map((mod) => ({
@@ -938,7 +962,7 @@ export function searchAdminNavigationModules(
   canAccessTab: (tabId: string) => boolean
 ): ProMenuModuleItem[] {
   return ADMIN_NAVIGATION_MODULES.filter(
-    (mod) => canAccessTab(mod.id) && matchesAdminModuleSearch(mod, query)
+    (mod) => !mod.hideInProfessionalNav && canAccessTab(mod.id) && matchesAdminModuleSearch(mod, query)
   ).map((mod) => ({
     id: mod.id,
     label: mod.label,

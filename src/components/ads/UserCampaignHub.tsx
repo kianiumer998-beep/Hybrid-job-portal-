@@ -423,11 +423,9 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       setFormBodyText('');
       changeActiveSubTab('my-campaigns');
       alert(
-        `Campaign "${newAd.title}" submitted successfully! PKR ${chargedAmount.toLocaleString()} has been moved from your available wallet balance into campaign escrow. The amount is held until admin review; if rejected, it will be returned to your available wallet balance. ${
-          campaignConfig.formRules.requireAdminApproval
-            ? 'The portal administrator will review and verify your campaign shortly.'
-            : 'Your campaign is now live!'
-        }`
+        `Campaign "${newAd.title}" submitted successfully! ${chargedAmount > 0
+          ? `PKR ${chargedAmount.toLocaleString()} has been moved from your available wallet balance into campaign escrow.`
+          : 'No wallet funds were held because this campaign is free.'} The campaign is awaiting administrator review. If rejected, any held funds will be returned to your available wallet balance.`
       );
     } finally {
       setIsSubmittingCampaign(false);

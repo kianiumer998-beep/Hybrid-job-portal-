@@ -744,6 +744,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                     >
                       <option value="default">Standard Design 1 (Modern Cards)</option>
                       <option value="compact">Compact Design 2 (High-Density List)</option>
+                      <option value="editorial">Editorial Horizontal Rows (Design 4)</option>
                     </select>
                   </div>
 

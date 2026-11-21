@@ -1,6 +1,6 @@
 import React from 'react';
 import { Search, MapPin, Sparkles, ShieldCheck, MessageSquare, ArrowRight, Building2, PlusCircle } from 'lucide-react';
-import { LandingHeroConfig, DEFAULT_LANDING_PAGE_CONFIG } from '../types/landing';
+import { LandingHeroConfig, LandingDesignId, DEFAULT_LANDING_PAGE_CONFIG } from '../types/landing';
 
 interface HeroSectionProps {
   onSearchFocus?: () => void;
@@ -9,6 +9,7 @@ interface HeroSectionProps {
   onPostJobClick: () => void;
   totalJobsCount: number;
   heroConfig?: LandingHeroConfig;
+  designId?: LandingDesignId;
 }
 
 export const HeroSection: React.FC<HeroSectionProps> = ({
@@ -16,17 +17,24 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
   onCvClick,
   onPostJobClick,
   totalJobsCount,
-  heroConfig = DEFAULT_LANDING_PAGE_CONFIG.hero
+  heroConfig = DEFAULT_LANDING_PAGE_CONFIG.hero,
+  designId = 'legacy'
 }) => {
+  const heroVariantClasses = {
+    legacy: { section: 'relative overflow-hidden bg-slate-950 pt-2 pb-2.5 sm:pt-14 sm:pb-16 border-b border-slate-800/80', glow: 'from-emerald-500/10 via-indigo-500/10 to-transparent', banner: 'bg-gradient-to-r from-emerald-950 via-slate-900 to-indigo-950 border-emerald-500/30', heading: 'from-emerald-400 via-teal-300 to-indigo-400', eyebrow: 'border-emerald-500/30 text-emerald-400', primary: 'from-emerald-500 via-teal-500 to-emerald-600' },
+    'design-1': { section: 'relative overflow-hidden bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 pt-4 pb-5 sm:pt-16 sm:pb-20 border-b border-emerald-500/20', glow: 'from-emerald-400/15 via-teal-500/10 to-transparent', banner: 'bg-slate-900/90 border-emerald-400/40', heading: 'from-emerald-300 via-teal-200 to-cyan-300', eyebrow: 'border-emerald-400/40 text-emerald-300', primary: 'from-emerald-400 via-teal-400 to-cyan-500' },
+    'design-2': { section: 'relative overflow-hidden bg-gradient-to-br from-amber-950 via-slate-950 to-indigo-950 pt-3 pb-4 sm:pt-14 sm:pb-16 border-b border-amber-500/30', glow: 'from-amber-500/15 via-rose-500/10 to-indigo-500/10', banner: 'bg-gradient-to-r from-amber-950 via-slate-900 to-rose-950 border-amber-400/40', heading: 'from-amber-300 via-orange-300 to-rose-400', eyebrow: 'border-amber-400/40 text-amber-300', primary: 'from-amber-400 via-orange-500 to-rose-500' },
+    'design-3': { section: 'relative overflow-hidden bg-gradient-to-br from-indigo-950 via-slate-950 to-emerald-950 pt-5 pb-7 sm:pt-20 sm:pb-24 border-b border-indigo-500/30', glow: 'from-indigo-500/20 via-emerald-500/15 to-transparent', banner: 'bg-gradient-to-r from-indigo-950 via-slate-900 to-emerald-950 border-indigo-400/40', heading: 'from-indigo-300 via-sky-300 to-emerald-300', eyebrow: 'border-indigo-400/40 text-indigo-300', primary: 'from-indigo-400 via-sky-500 to-emerald-500' }
+  }[designId];
   return (
-    <section className="relative overflow-hidden bg-slate-950 pt-2 pb-2.5 sm:pt-14 sm:pb-16 border-b border-slate-800/80">
+    <section className={heroVariantClasses.section}>
       {/* Subtle Background Glow Elements */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 bg-gradient-to-tr from-emerald-500/10 via-indigo-500/10 to-transparent blur-3xl pointer-events-none rounded-full" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 bg-gradient-to-tr ${heroVariantClasses.glow} blur-3xl pointer-events-none rounded-full" />
       
       <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 relative z-10 space-y-2 sm:space-y-8">
         
         {/* PROMINENT HIRING / EMPLOYER CTA BANNER */}
-        <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-indigo-950 border border-emerald-500/30 rounded-xl sm:rounded-2xl p-2 sm:p-5 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-2 sm:gap-4">
+        <div className="${heroVariantClasses.banner} border rounded-xl sm:rounded-2xl p-2 sm:p-5 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-2 sm:gap-4">
           <div className="flex items-center space-x-2 sm:space-x-3.5 w-full md:w-auto">
             <div className="w-7 h-7 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 p-0.5 shrink-0 shadow-lg shadow-emerald-500/20">
               <div className="w-full h-full bg-slate-950 rounded-[6px] sm:rounded-[10px] flex items-center justify-center">
@@ -61,7 +69,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
         <div className="text-center max-w-4xl mx-auto">
           
           {/* Eyebrow Badge */}
-          <div className="inline-flex items-center space-x-1 sm:space-x-2 px-2 py-0.5 sm:px-3.5 sm:py-1.5 rounded-full bg-slate-900/90 border border-emerald-500/30 text-emerald-400 text-[9px] sm:text-xs font-semibold mb-1 sm:mb-6 shadow-md backdrop-blur-md">
+          <div className="inline-flex items-center space-x-1 sm:space-x-2 px-2 py-0.5 sm:px-3.5 sm:py-1.5 rounded-full bg-slate-900/90 border ${heroVariantClasses.eyebrow} text-[9px] sm:text-xs font-semibold mb-1 sm:mb-6 shadow-md backdrop-blur-md">
             <span className="flex h-1.5 w-1.5 sm:h-2 sm:w-2 relative">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-1.5 w-1.5 sm:h-2 sm:w-2 bg-emerald-500"></span>
@@ -72,7 +80,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           {/* Main Heading */}
           <h1 className="text-lg sm:text-4xl md:text-5xl lg:text-6xl font-black text-white tracking-tight leading-tight">
             {heroConfig.mainHeadingPrefix || 'Find Your Next'}{' '}
-            <span className="bg-gradient-to-r from-emerald-400 via-teal-300 to-indigo-400 bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r ${heroVariantClasses.heading} bg-clip-text text-transparent">
               {heroConfig.gradientWord || 'Hybrid or Remote'}
             </span>{' '}
             {heroConfig.mainHeadingSuffix || 'Role'}
@@ -87,7 +95,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           <div className="mt-2 sm:mt-8 flex flex-row items-center justify-center gap-1.5 sm:gap-4">
             <button
               onClick={onExploreClick}
-              className="flex-1 sm:flex-initial min-h-[34px] sm:min-h-[44px] px-2 sm:px-8 py-1.5 sm:py-4 rounded-lg sm:rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-slate-950 font-bold text-[10px] min-[360px]:text-xs sm:text-base shadow-md shadow-emerald-500/20 active:scale-95 transition-all duration-200 flex items-center justify-center space-x-1 sm:space-x-2 cursor-pointer"
+              className="flex-1 sm:flex-initial min-h-[34px] sm:min-h-[44px] px-2 sm:px-8 py-1.5 sm:py-4 rounded-lg sm:rounded-xl bg-gradient-to-r ${heroVariantClasses.primary} text-slate-950 font-bold text-[10px] min-[360px]:text-xs sm:text-base shadow-md shadow-emerald-500/20 active:scale-95 transition-all duration-200 flex items-center justify-center space-x-1 sm:space-x-2 cursor-pointer"
             >
               <Search className="w-3 h-3 sm:w-5 sm:h-5 text-slate-950 shrink-0" />
               <span className="truncate">{heroConfig.primaryBtnText || `Browse ${totalJobsCount} Jobs`}</span>

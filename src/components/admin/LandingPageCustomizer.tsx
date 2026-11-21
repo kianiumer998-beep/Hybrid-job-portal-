@@ -653,6 +653,34 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
         </div>
       )}
 
+          <div className="p-5 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-4">
+            <h3 className="text-base font-black text-white">Design 4 & 5 — Photography & Hero Settings</h3>
+            <p className="text-xs text-slate-400">Set secure HTTPS image URLs for the Modern Professional background and the two Dual Audience panels. These settings are saved with the selected design only.</p>
+            {([
+              ['design4HeroImageUrl', 'Design 4 hero image URL'],
+              ['design5SeekerImageUrl', 'Design 5 job seeker image URL'],
+              ['design5EmployerImageUrl', 'Design 5 employer image URL']
+            ] as const).map(([key, label]) => (
+              <div key={key} className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-300">{label}</label>
+                <input
+                  type="url"
+                  value={heroForm[key] || ''}
+                  placeholder="https://..."
+                  onChange={(e) => setHeroForm({ ...heroForm, [key]: e.target.value })}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-xs text-white"
+                />
+              </div>
+            ))}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-300">Design 4 background overlay: {heroForm.design45HeroOverlay ?? 68}%</label>
+              <input type="range" min="35" max="90" value={heroForm.design45HeroOverlay ?? 68} onChange={(e) => setHeroForm({ ...heroForm, design45HeroOverlay: Number(e.target.value) })} className="w-full accent-emerald-500" />
+            </div>
+            <p className="text-[11px] text-amber-300">Use HTTPS image URLs only. If an image URL is empty or unsafe, the live design uses its built-in fallback image.</p>
+          </div>
+        </div>
+      )}
+
       {/* TAB 4: JOB CARD DESIGNER */}
       {activeTab === 'design' && (
         <div className="space-y-6">

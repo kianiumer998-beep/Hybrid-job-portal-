@@ -80,7 +80,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
     ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
     ...config,
     popupSettings: config.popupSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.popupSettings,
-    feedInlineSettings: config.feedInlineSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings,
+    feedInlineSettings: { ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings, ...(config.feedInlineSettings || {}) },
     bannerDimensions: config.bannerDimensions || DEFAULT_BANNER_DIMENSIONS,
     bannerAppearance: config.bannerAppearance || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.bannerAppearance,
     bannerBehavior: config.bannerBehavior || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.bannerBehavior,
@@ -416,7 +416,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
       <div className="flex flex-wrap gap-2 p-1.5 bg-slate-900/80 border border-slate-800 rounded-2xl">
         {[
           { id: 'popup-modes', label: 'Centered Popup Lightbox', icon: Sparkles, badge: localConfig.popupSettings.displayMode },
-          { id: 'feed-positioning', label: 'Job Feed Inline Frequency', icon: Layers, badge: `${localConfig.feedInlineSettings.customIndices.length} slots` },
+          { id: 'feed-positioning', label: 'Job Feed & Ad Frequency', icon: Layers, badge: localConfig.feedInlineSettings.insertionMode === 'cadence' ? `Every ${localConfig.feedInlineSettings.repeatEveryNJobs || 3}` : `${(localConfig.feedInlineSettings.customIndices || []).length} slots` },
           { id: 'banner-dimensions', label: 'Banner Dimensions', icon: Sliders, badge: 'Custom Sizes' },
           { id: 'banner-appearance', label: 'Banner Styling & Rotation', icon: Eye, badge: 'Appearance' },
           { id: 'placements', label: 'All 6 Placement Models', icon: Layout, badge: 'Full Control' },
@@ -634,8 +634,86 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
                 <h3 className="text-lg font-black text-white">Job Feed Inline Sponsored Card Frequency</h3>
               </div>
               <p className="text-xs text-slate-400 mt-1">
-                Control exact job listing slot positions where sponsored cards are inserted.
+                Set the standard job count and control exactly where sponsored cards appear. Priority jobs stay above this feed and do not reduce its job limit.
               </p>
+            </div>
+
+            {/* Global default standard jobs per page */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-slate-950/60 border border-emerald-500/30 rounded-2xl p-4 space-y-2">
+                <label className="block text-xs font-bold text-slate-200">Default Standard Jobs Per Page</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  step="1"
+                  value={localConfig.feedInlineSettings.standardJobsPerPage ?? 10}
+                  onChange={(e) => {
+                    const value = Number(e.target.value);
+                    if (Number.isInteger(value) && value >= 1 && value <= 100) {
+                      handleUpdateFeedInlineSettings({ standardJobsPerPage: value });
+                    }
+                  }}
+                  className="w-full bg-slate-900 border border-slate-700 text-sm text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500"
+                />
+                <p className="text-[10px] text-slate-400">Applies as the initial default for all visitors. Allowed range: 1–100. Visitors can still use the existing page-size selector.</p>
+              </div>
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                <label className="block text-xs font-bold text-slate-200">Ad Insertion Mode</label>
+                <select
+                  value={localConfig.feedInlineSettings.insertionMode || 'custom_indices'}
+                  onChange={(e) => handleUpdateFeedInlineSettings({ insertionMode: e.target.value as FeedInlineAdSettings['insertionMode'] })}
+                  className="w-full bg-slate-900 border border-slate-700 text-sm text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="cadence">Automatic frequency (every N standard jobs)</option>
+                  <option value="custom_indices">Custom positions (selected job numbers)</option>
+                </select>
+                <p className="text-[10px] text-slate-400">Choose one mode. The other mode's settings are retained when you switch back.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                <label className="block text-xs font-bold text-slate-300">Insert Ad After Every</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  step="1"
+                  value={localConfig.feedInlineSettings.repeatEveryNJobs || 3}
+                  onChange={(e) => {
+                    const value = Number(e.target.value);
+                    if (Number.isInteger(value) && value >= 1 && value <= 100) handleUpdateFeedInlineSettings({ repeatEveryNJobs: value });
+                  }}
+                  disabled={localConfig.feedInlineSettings.insertionMode !== 'cadence'}
+                  className="w-full bg-slate-900 border border-slate-700 text-sm text-white rounded-xl px-3 py-2 font-bold disabled:opacity-40"
+                />
+                <p className="text-[10px] text-slate-500">Example: 3 = after standard jobs 3, 6, 9...</p>
+              </div>
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                <label className="block text-xs font-bold text-slate-300">Maximum Inline Ads Per Page</label>
+                <select
+                  value={localConfig.feedInlineSettings.maxAdsPerPage ?? 3}
+                  onChange={(e) => handleUpdateFeedInlineSettings({ maxAdsPerPage: Number(e.target.value) })}
+                  className="w-full bg-slate-900 border border-slate-700 text-sm text-white rounded-xl px-3 py-2 font-bold"
+                >
+                  {[0, 1, 2, 3, 4, 5, 6, 8, 10].map((value) => <option key={value} value={value}>{value === 0 ? '0 — Disable inline ads' : value}</option>)}
+                </select>
+                <p className="text-[10px] text-slate-500">A hard cap even if more positions are configured.</p>
+              </div>
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                <label className="block text-xs font-bold text-slate-300">Multiple Active Ads</label>
+                <label className="flex items-center gap-3 text-xs text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={localConfig.feedInlineSettings.rotateMultipleAds !== false}
+                    onChange={(e) => handleUpdateFeedInlineSettings({ rotateMultipleAds: e.target.checked })}
+                    className="h-4 w-4 accent-emerald-500"
+                  />
+                  Rotate ads between available active campaigns
+                </label>
+                <p className="text-[10px] text-slate-500">Off = repeat the first eligible active ad.</p>
+              </div>
             </div>
 
             {/* Custom Indices Slots */}
@@ -680,6 +758,21 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
                   </button>
                 </div>
               </div>
+            </div>
+
+            <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+              <label className="block text-xs font-bold text-slate-300">Page 1 Special Ad Positions (Optional)</label>
+              <input
+                type="text"
+                value={(localConfig.feedInlineSettings.page1SpecificIndices || []).join(', ')}
+                onChange={(e) => {
+                  const values = Array.from(new Set(e.target.value.split(',').map((part) => Number(part.trim())).filter((value) => Number.isInteger(value) && value >= 1 && value <= 100))).sort((a, b) => a - b);
+                  handleUpdateFeedInlineSettings({ page1SpecificIndices: values });
+                }}
+                placeholder="Example: 2, 5, 8"
+                className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-mono"
+              />
+              <p className="text-[10px] text-slate-500">Optional page 1 override. Leave empty to use the general custom positions. Ads are still limited by the maximum-per-page setting.</p>
             </div>
 
             {/* Feed Card Appearance Controls */}

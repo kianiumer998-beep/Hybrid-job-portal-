@@ -316,7 +316,11 @@ function deepMergePricing(base: any, incoming: any): any {
         : (base.campaignCustomizationConfig?.durationPresets || []),
       placementOptions: Array.isArray(src.campaignCustomizationConfig?.placementOptions)
         ? src.campaignCustomizationConfig.placementOptions
-        : (base.campaignCustomizationConfig?.placementOptions || [])
+        : (base.campaignCustomizationConfig?.placementOptions || []),
+      feedInlineSettings: {
+        ...(base.campaignCustomizationConfig?.feedInlineSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings),
+        ...(src.campaignCustomizationConfig?.feedInlineSettings || {})
+      }
     },
     addons: {
       ...(base.addons || {}),
@@ -416,6 +420,38 @@ export class PricingRepository {
     }
 
     const current = await this.get();
+
+    if (updates.campaignCustomizationConfig?.feedInlineSettings) {
+      const feed = updates.campaignCustomizationConfig.feedInlineSettings;
+      const validatePositiveInteger = (value: unknown, field: string, max: number) => {
+        const numeric = Number(value);
+        if (!Number.isInteger(numeric) || numeric < 1 || numeric > max) {
+          throw new Error(`campaignCustomizationConfig.feedInlineSettings.${field} must be an integer between 1 and ${max}`);
+        }
+      };
+      if (feed.insertionMode !== undefined && !['cadence', 'custom_indices'].includes(feed.insertionMode)) {
+        throw new Error('feedInlineSettings.insertionMode must be cadence or custom_indices');
+      }
+      if (feed.repeatEveryNJobs !== undefined) validatePositiveInteger(feed.repeatEveryNJobs, 'repeatEveryNJobs', 100);
+      if (feed.standardJobsPerPage !== undefined) validatePositiveInteger(feed.standardJobsPerPage, 'standardJobsPerPage', 100);
+      if (feed.maxAdsPerPage !== undefined) {
+        const maxAds = Number(feed.maxAdsPerPage);
+        if (!Number.isInteger(maxAds) || maxAds < 0 || maxAds > 10) {
+          throw new Error('feedInlineSettings.maxAdsPerPage must be an integer between 0 and 10');
+        }
+      }
+      for (const field of ['customIndices', 'page1SpecificIndices'] as const) {
+        if (feed[field] !== undefined) {
+          if (!Array.isArray(feed[field]) || feed[field].some((value: unknown) => !Number.isInteger(Number(value)) || Number(value) < 1 || Number(value) > 100)) {
+            throw new Error(`feedInlineSettings.${field} must contain job positions from 1 to 100`);
+          }
+          feed[field] = Array.from(new Set(feed[field].map(Number))).sort((a: number, b: number) => a - b);
+        }
+      }
+      if (feed.rotateMultipleAds !== undefined && typeof feed.rotateMultipleAds !== 'boolean') {
+        throw new Error('feedInlineSettings.rotateMultipleAds must be a boolean');
+      }
+    }
 
     if (updates.jobPosting) {
       const jp = updates.jobPosting;

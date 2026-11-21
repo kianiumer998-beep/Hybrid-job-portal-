@@ -18,6 +18,11 @@ export interface LandingHeroConfig {
   statBadge2Text: string;
   statBadge3Text: string;
   statBadge4Text: string;
+  design4HeroImageUrl?: string;
+  design5SeekerImageUrl?: string;
+  design5EmployerImageUrl?: string;
+  design45HeroOverlay?: number;
+  design45AccentColor?: string;
 }
 
 export interface CustomLandingCard {
@@ -176,7 +181,12 @@ export const DEFAULT_LANDING_PAGE_CONFIG: LandingPageConfig = {
     statBadge1Text: 'Verified Hybrid & Remote Jobs',
     statBadge2Text: '100% Free ATS Resume Builder',
     statBadge3Text: 'Province & City Granular Filters',
-    statBadge4Text: 'Direct WhatsApp & SMS Alerts'
+    statBadge4Text: 'Direct WhatsApp & SMS Alerts',
+    design4HeroImageUrl: 'https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=2000&q=85',
+    design5SeekerImageUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=1400&q=85',
+    design5EmployerImageUrl: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=1400&q=85',
+    design45HeroOverlay: 68,
+    design45AccentColor: '#0f9f78'
   },
   sections: [
     { id: 'hero', name: '1. Hero Section & Employer Quick Action', description: 'Main banner, employer register CTA, and quick explore buttons.', isEnabled: true, order: 1 },
@@ -261,7 +271,7 @@ export const DEFAULT_LANDING_PAGE_CONFIG: LandingPageConfig = {
   }
 };
 
-export type LandingDesignId = 'legacy' | 'design-1' | 'design-2' | 'design-3';
+export type LandingDesignId = 'legacy' | 'design-1' | 'design-2' | 'design-3' | 'design-4' | 'design-5';
 
 export interface LandingDesignEntry {
   id: LandingDesignId;
@@ -349,7 +359,7 @@ export function normalizeLandingDesignSystem(
   if (!value || typeof value !== 'object') return defaults;
 
   const candidate = value as Partial<LandingDesignSystem>;
-  const allowedIds: LandingDesignId[] = ['legacy', 'design-1', 'design-2', 'design-3'];
+  const allowedIds: LandingDesignId[] = ['legacy', 'design-1', 'design-2', 'design-3', 'design-4', 'design-5'];
   const supplied = Array.isArray(candidate.designs) ? candidate.designs : [];
   const designs = defaults.designs.map((fallback) => {
     const found = supplied.find((item) => item && item.id === fallback.id);

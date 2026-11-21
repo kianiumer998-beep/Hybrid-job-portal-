@@ -507,7 +507,10 @@ adRouter.put('/:id', requireAuth, async (req: any, res) => {
       existingAd.paymentStatus === 'Escrow' &&
       (['active', 'rejected'].includes(String(updates.status || '')) ||
         ['Approved', 'Rejected'].includes(String(updates.approvalStatus || '')) ||
-        (Object.prototype.hasOwnProperty.call(updates, 'paymentStatus') && updates.paymentStatus !== 'Escrow'))
+        (Object.prototype.hasOwnProperty.call(updates, 'paymentStatus') && updates.paymentStatus !== 'Escrow') ||
+        (Object.prototype.hasOwnProperty.call(updates, 'campaignCostPkr') && Number(updates.campaignCostPkr) !== Number(existingAd.campaignCostPkr)) ||
+        (Object.prototype.hasOwnProperty.call(updates, 'walletTxId') && updates.walletTxId !== existingAd.walletTxId) ||
+        (Object.prototype.hasOwnProperty.call(updates, 'paymentTransactionId') && updates.paymentTransactionId !== existingAd.paymentTransactionId))
     ) {
       return res.status(409).json({
         success: false,
@@ -520,7 +523,9 @@ adRouter.put('/:id', requireAuth, async (req: any, res) => {
         (updates.approvalStatus === 'Rejected' && existingAd.approvalStatus !== 'Rejected') ||
         (updates.paymentStatus === 'Refunded' && existingAd.paymentStatus !== 'Refunded') ||
         (existingAd.approvalStatus === 'Pending' && (updates.status === 'active' || updates.approvalStatus === 'Approved')) ||
-        (Object.prototype.hasOwnProperty.call(updates, 'escrowStatus') && updates.escrowStatus !== existingAd.escrowStatus))
+        (Object.prototype.hasOwnProperty.call(updates, 'escrowStatus') && updates.escrowStatus !== existingAd.escrowStatus) ||
+        (Object.prototype.hasOwnProperty.call(updates, 'walletTxId') && updates.walletTxId !== existingAd.walletTxId) ||
+        (Object.prototype.hasOwnProperty.call(updates, 'paymentTransactionId') && updates.paymentTransactionId !== existingAd.paymentTransactionId))
     ) {
       return res.status(409).json({
         success: false,

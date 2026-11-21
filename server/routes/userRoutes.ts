@@ -211,6 +211,7 @@ userRouter.get('/', requireAdminPermission('users.manage'), async (req, res) => 
       delete safe.salt;
       delete safe.password;
       delete safe.cvData;
+      delete safe.walletEscrowOperations;
       safe.permissions = getPermissionsForRole(u.role);
       return safe;
     });
@@ -536,7 +537,7 @@ userRouter.get('/:id', requireAuth, async (req: any, res) => {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
-    const { passwordHash, salt, password, cvData, ...safeUser } = user;
+    const { passwordHash, salt, password, cvData, walletEscrowOperations, ...safeUser } = user;
     // Only return the private CV draft to its owner, never to an administrator viewing another account.
     if (String(id) === String(currentUserId) && cvData !== undefined) {
       safeUser.cvData = cvData;

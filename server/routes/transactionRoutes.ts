@@ -1166,6 +1166,8 @@ transactionRouter.post('/', async (req, res) => {
               }
 
               walletMutationState = 'DEDUCTED';
+              newTx.escrowStatus = 'HELD';
+              newTx.escrowAmount = enforcedAmount;
               effectiveBalanceAfter = Number(heldUser.walletBalance);
               effectiveBalanceBefore = effectiveBalanceAfter + enforcedAmount;
               const heldAmount = Number(heldUser.walletEscrowBalance || 0);
@@ -1303,18 +1305,54 @@ transactionRouter.post('/', async (req, res) => {
           newTx.balanceAfter = effectiveBalanceAfter;
           finalStatus = 'Success';
         } catch (walletProcessingErr: any) {
-          const failedAt = new Date().toISOString();
           const failureReason = walletProcessingErr?.message || 'Wallet Balance processing failed.';
-          const nextStatus = canSafelyMarkTransactionFailed(walletMutationState) ? 'Failed' : 'Pending';
+          let escrowReleaseConfirmed = false;
 
-          await PaymentRepository.updateAsync(newTx.id, {
-            status: nextStatus,
-            walletMutationState,
-            rejectionReason: failureReason
-          });
-          newTx.status = nextStatus;
-          newTx.walletMutationState = walletMutationState;
-          newTx.rejectionReason = failureReason;
+          // If the wallet hold succeeded but transaction finalization failed, release that hold
+          // immediately instead of leaving money stranded without a campaign record.
+          if (effectiveType === 'Advertisement' && walletMutationState === 'DEDUCTED' && newTx.escrowStatus === 'HELD') {
+            try {
+              const restoredUser = await UserRepository.settleWalletEscrowAsync(
+                effectiveUserId,
+                enforcedAmount,
+                `settle-${newTx.id}`,
+                true
+              );
+              if (restoredUser) {
+                const refundReferenceId = `AD-REF-${newTx.transactionId || newTx.id}`;
+                const refundedTx = await PaymentRepository.updateAsync(newTx.id, {
+                  status: 'Refunded',
+                  walletMutationState: 'ROLLED_BACK',
+                  escrowStatus: 'RELEASED',
+                  refunded: true,
+                  refundedAmount: enforcedAmount,
+                  refundedAt: new Date().toISOString(),
+                  refundReferenceId,
+                  balanceAfter: Number(restoredUser.walletBalance),
+                  rejectionReason: failureReason
+                });
+                if (refundedTx) {
+                  Object.assign(newTx, refundedTx);
+                  escrowReleaseConfirmed = true;
+                }
+              }
+            } catch (releaseErr) {
+              console.error('[Transactions] Campaign escrow release after wallet processing failure is uncertain:', releaseErr);
+            }
+          }
+
+          if (!escrowReleaseConfirmed) {
+            const nextStatus = canSafelyMarkTransactionFailed(walletMutationState) ? 'Failed' : 'Pending';
+            await PaymentRepository.updateAsync(newTx.id, {
+              status: nextStatus,
+              walletMutationState,
+              ...(newTx.escrowStatus === 'HELD' ? { escrowStatus: 'SETTLING_RELEASE' } : {}),
+              rejectionReason: failureReason
+            });
+            newTx.status = nextStatus;
+            newTx.walletMutationState = walletMutationState;
+            newTx.rejectionReason = failureReason;
+          }
           throw walletProcessingErr;
         }
       }

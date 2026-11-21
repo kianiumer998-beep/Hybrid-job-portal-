@@ -20,6 +20,21 @@ const safeImage = (value: string | undefined, fallback: string) =>
   value && (/^https:\/\//i.test(value.trim()) || (/^\/(?!\/)/.test(value.trim()))) ? value.trim() : fallback;
 
 export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJobsCount, onExplore, onCv, onPostJob, filters, onFiltersChange }) => {
+  const runConfiguredLink = (value: string | undefined, fallback: () => void) => {
+    const target = (value || '').trim();
+    if (!target) { fallback(); return; }
+    if (/^https:\/\//i.test(target)) { window.open(target, '_blank', 'noopener,noreferrer'); return; }
+    if (target.startsWith('mailto:') && /^mailto:[^\\s@]+@[^\\s@]+$/i.test(target)) { window.location.href = target; return; }
+    if (target.startsWith('#')) {
+      const route = target.slice(1).toLowerCase();
+      if (route === 'cv') { onCv(); return; }
+      if (route === 'dashboard' || route === 'post-job') { onPostJob(); return; }
+      if (route === 'jobs' || route === 'jobs-section') { onExplore(); return; }
+      if (route === 'alerts') { window.location.hash = 'alerts'; return; }
+    }
+    if (target.startsWith('/') && !target.startsWith('//')) { window.location.assign(target); return; }
+    fallback();
+  };
   const seekerImage = safeImage(config.design5SeekerImageUrl, DEFAULT_SEEKER_IMAGE);
   const employerImage = safeImage(config.design5EmployerImageUrl, DEFAULT_EMPLOYER_IMAGE);
   if (designId === 'design-5') {
@@ -33,8 +48,8 @@ export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJo
               <span className="inline-flex rounded-full border border-white/30 bg-white/10 px-3 py-1 text-xs font-bold uppercase tracking-wider">{config.design5SeekerEyebrow || 'For Job Seekers'}</span>
               <h1 className="mt-5 text-4xl sm:text-5xl font-black leading-tight">{config.design5SeekerHeading || 'Find your next opportunity.'}</h1>
               <p className="mt-4 max-w-md text-sm sm:text-base text-white/85">{config.design5SeekerDescription || 'Discover verified jobs, explore career paths and build a professional CV with tools made for your next move.'}</p>
-              <button onClick={onExplore} className="mt-7 rounded-xl bg-emerald-400 px-6 py-3 font-extrabold text-slate-950 hover:bg-emerald-300">{config.design5SeekerPrimaryBtnText || 'Explore Jobs'} <span aria-hidden>→</span></button>
-              <button onClick={onCv} className="ml-3 mt-7 rounded-xl border border-white/50 bg-white/10 px-5 py-3 font-bold text-white hover:bg-white/20">{config.design5SeekerSecondaryBtnText || 'Build CV'}</button>
+              <button onClick={() => runConfiguredLink(config.primaryBtnUrl, onExplore)} className="mt-7 rounded-xl bg-emerald-400 px-6 py-3 font-extrabold text-slate-950 hover:bg-emerald-300">{config.design5SeekerPrimaryBtnText || 'Explore Jobs'} <span aria-hidden>→</span></button>
+              <button onClick={() => runConfiguredLink(config.secondaryBtnUrl, onCv)} className="ml-3 mt-7 rounded-xl border border-white/50 bg-white/10 px-5 py-3 font-bold text-white hover:bg-white/20">{config.design5SeekerSecondaryBtnText || 'Build CV'}</button>
             </div>
           </article>
           <article className="relative min-h-[430px] sm:min-h-[500px] flex items-end bg-slate-900">
@@ -44,7 +59,7 @@ export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJo
               <span className="inline-flex rounded-full border border-white/30 bg-white/10 px-3 py-1 text-xs font-bold uppercase tracking-wider">{config.design5EmployerEyebrow || 'For Employers'}</span>
               <h2 className="mt-5 text-4xl sm:text-5xl font-black leading-tight">{config.design5EmployerHeading || 'Build your team with confidence.'}</h2>
               <p className="mt-4 max-w-md text-sm sm:text-base text-white/85">{config.design5EmployerDescription || 'Reach skilled talent, publish vacancies and manage your hiring journey from one platform.'}</p>
-              <button onClick={onPostJob} className="mt-7 rounded-xl bg-white px-6 py-3 font-extrabold text-slate-950 hover:bg-slate-100">{config.design5EmployerBtnText || 'Post a Job'} <span aria-hidden>→</span></button>
+              <button onClick={() => runConfiguredLink(config.hiringBannerBtnUrl, onPostJob)} className="mt-7 rounded-xl bg-white px-6 py-3 font-extrabold text-slate-950 hover:bg-slate-100">{config.design5EmployerBtnText || 'Post a Job'} <span aria-hidden>→</span></button>
             </div>
           </article>
         </div>
@@ -77,9 +92,9 @@ export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJo
               <button onClick={onExplore} className="rounded-xl bg-emerald-400 px-5 py-3 text-sm font-black text-slate-950 hover:bg-emerald-300">Search Jobs</button>
             </div>
             <div className="mt-4 flex flex-wrap gap-3">
-              <button onClick={onExplore} style={{ backgroundColor: config.design45AccentColor || '#0f9f78' }} className="rounded-xl px-6 py-3.5 text-sm font-black text-slate-950 shadow-lg shadow-emerald-950/30 hover:brightness-110">{config.primaryBtnText || 'Explore Latest Jobs'} <span aria-hidden>→</span></button>
-              <button onClick={onCv} className="rounded-xl border border-white/45 bg-white/10 px-6 py-3.5 text-sm font-bold text-white backdrop-blur hover:bg-white/20">{config.secondaryBtnText || 'Build Your CV'}</button>
-              <button onClick={onPostJob} className="rounded-xl border border-amber-300/60 bg-amber-300/10 px-6 py-3.5 text-sm font-bold text-amber-100 hover:bg-amber-300/20">{config.design4PostJobBtnText || 'Post a Job'}</button>
+              <button onClick={() => runConfiguredLink(config.primaryBtnUrl, onExplore)} style={{ backgroundColor: config.design45AccentColor || '#0f9f78' }} className="rounded-xl px-6 py-3.5 text-sm font-black text-slate-950 shadow-lg shadow-emerald-950/30 hover:brightness-110">{config.primaryBtnText || 'Explore Latest Jobs'} <span aria-hidden>→</span></button>
+              <button onClick={() => runConfiguredLink(config.secondaryBtnUrl, onCv)} className="rounded-xl border border-white/45 bg-white/10 px-6 py-3.5 text-sm font-bold text-white backdrop-blur hover:bg-white/20">{config.secondaryBtnText || 'Build Your CV'}</button>
+              <button onClick={() => runConfiguredLink(config.hiringBannerBtnUrl, onPostJob)} className="rounded-xl border border-amber-300/60 bg-amber-300/10 px-6 py-3.5 text-sm font-bold text-amber-100 hover:bg-amber-300/20">{config.design4PostJobBtnText || 'Post a Job'}</button>
             </div>
             <div className="mt-10 flex flex-wrap gap-x-8 gap-y-3 text-sm text-slate-200">
               <span><strong className="text-white">{totalJobsCount.toLocaleString()}+</strong> live opportunities</span>

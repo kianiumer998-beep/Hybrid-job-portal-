@@ -550,6 +550,12 @@ transactionRouter.post('/', async (req, res) => {
           message: 'Wallet Deposit cannot be funded using Wallet Balance.'
         });
       }
+      if (effectiveType === 'Advertisement' && paymentMethod === 'Wallet Balance' && !safeAdIdRef) {
+        return res.status(400).json({
+          success: false,
+          message: 'A campaign reference is required before wallet funds can be placed into escrow.'
+        });
+      }
 
       let targetJob: any = null;
       if (effectiveType === 'Job Posting') {

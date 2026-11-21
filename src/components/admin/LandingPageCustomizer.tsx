@@ -1082,15 +1082,36 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
           <div className="overflow-x-auto rounded-2xl border border-slate-700 bg-slate-950 p-3 sm:p-5">
             <div className={`mx-auto min-h-[420px] overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 transition-all ${previewMode === 'mobile' ? 'w-[320px] max-w-full' : 'w-full max-w-5xl'}`}>
               {sections.find((section) => section.id === 'hero')?.isEnabled !== false && (
-                <section className="bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 px-4 py-8 text-center sm:px-8 sm:py-12">
-                  {heroForm.eyebrowBadgeText && <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-emerald-300">{heroForm.eyebrowBadgeText}</p>}
-                  <h1 className="mx-auto max-w-3xl text-2xl font-black leading-tight text-white sm:text-4xl">{heroForm.mainHeadingPrefix} <span className="text-emerald-400">{heroForm.gradientWord}</span> {heroForm.mainHeadingSuffix}</h1>
-                  <p className="mx-auto mt-3 max-w-2xl text-xs leading-relaxed text-slate-300 sm:text-sm">{heroForm.subHeading}</p>
-                  <div className="mt-5 flex flex-wrap justify-center gap-2">
-                    {heroForm.primaryBtnText && <span className="rounded-xl bg-emerald-400 px-4 py-2 text-xs font-black text-slate-950">{heroForm.primaryBtnText}</span>}
-                    {heroForm.secondaryBtnText && <span className="rounded-xl border border-slate-600 px-4 py-2 text-xs font-bold text-white">{heroForm.secondaryBtnText}</span>}
-                  </div>
-                </section>
+                {activeDesignId === 'design-5' ? (
+                  <section className={`grid ${previewMode === 'mobile' ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                    <article className="relative flex min-h-[260px] items-end overflow-hidden bg-slate-800 p-5 text-left text-white">
+                      {heroForm.design5SeekerImageUrl && /^https:\/\//i.test(heroForm.design5SeekerImageUrl) && <img src={heroForm.design5SeekerImageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+                      <div className="absolute inset-0 bg-slate-950/70" />
+                      <div className="relative z-10"><span className="text-[10px] font-bold uppercase text-emerald-300">{heroForm.design5SeekerEyebrow || 'For Job Seekers'}</span><h2 className="mt-2 text-xl font-black">{heroForm.design5SeekerHeading || 'Find your next opportunity.'}</h2><p className="mt-2 text-xs text-white/80">{heroForm.design5SeekerDescription || 'Discover verified jobs and build your career.'}</p><span className="mt-3 inline-block rounded-lg bg-emerald-400 px-3 py-2 text-[10px] font-black text-slate-950">{heroForm.design5SeekerPrimaryBtnText || 'Explore Jobs'}</span></div>
+                    </article>
+                    <article className="relative flex min-h-[260px] items-end overflow-hidden bg-slate-800 p-5 text-left text-white">
+                      {heroForm.design5EmployerImageUrl && /^https:\/\//i.test(heroForm.design5EmployerImageUrl) && <img src={heroForm.design5EmployerImageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+                      <div className="absolute inset-0 bg-slate-950/70" />
+                      <div className="relative z-10"><span className="text-[10px] font-bold uppercase text-amber-300">{heroForm.design5EmployerEyebrow || 'For Employers'}</span><h2 className="mt-2 text-xl font-black">{heroForm.design5EmployerHeading || 'Build your team with confidence.'}</h2><p className="mt-2 text-xs text-white/80">{heroForm.design5EmployerDescription || 'Reach skilled talent and publish vacancies.'}</p><span className="mt-3 inline-block rounded-lg bg-white px-3 py-2 text-[10px] font-black text-slate-950">{heroForm.design5EmployerBtnText || 'Post a Job'}</span></div>
+                    </article>
+                  </section>
+                ) : activeDesignId === 'design-4' ? (
+                  <section className="relative overflow-hidden bg-slate-950 px-4 py-8 text-left sm:px-8 sm:py-12">
+                    {heroForm.design4HeroImageUrl && /^https:\/\//i.test(heroForm.design4HeroImageUrl) && <img src={heroForm.design4HeroImageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+                    <div className="absolute inset-0 bg-slate-950/70" />
+                    <div className="relative z-10"><p className="text-[10px] font-bold uppercase tracking-widest text-emerald-300">{heroForm.eyebrowBadgeText}</p><h1 className="mt-3 text-2xl font-black leading-tight text-white sm:text-4xl">{heroForm.mainHeadingPrefix} <span style={{ color: /^#[0-9a-fA-F]{6}$/.test(heroForm.design45AccentColor || '') ? heroForm.design45AccentColor : '#0f9f78' }}>{heroForm.gradientWord}</span> {heroForm.mainHeadingSuffix}</h1><p className="mt-3 max-w-2xl text-xs leading-relaxed text-slate-200 sm:text-sm">{heroForm.subHeading}</p><div className="mt-5 grid gap-2 sm:grid-cols-[1fr_auto]"><span className="rounded-lg border border-white/20 bg-slate-900/80 px-3 py-3 text-xs text-slate-300">{heroForm.searchPlaceholder}</span><span className="rounded-lg bg-emerald-400 px-4 py-3 text-center text-xs font-black text-slate-950">Search Jobs</span></div><div className="mt-3 flex flex-wrap gap-2"><span className="rounded-lg bg-emerald-400 px-3 py-2 text-xs font-black text-slate-950">{heroForm.primaryBtnText}</span><span className="rounded-lg border border-white/40 px-3 py-2 text-xs text-white">{heroForm.secondaryBtnText}</span><span className="rounded-lg border border-amber-300/50 px-3 py-2 text-xs text-white">{heroForm.design4PostJobBtnText || 'Post a Job'}</span></div></div>
+                  </section>
+                ) : (
+                  <section className="bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 px-4 py-8 text-center sm:px-8 sm:py-12">
+                    {heroForm.eyebrowBadgeText && <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-emerald-300">{heroForm.eyebrowBadgeText}</p>}
+                    <h1 className="mx-auto max-w-3xl text-2xl font-black leading-tight text-white sm:text-4xl">{heroForm.mainHeadingPrefix} <span className="text-emerald-400">{heroForm.gradientWord}</span> {heroForm.mainHeadingSuffix}</h1>
+                    <p className="mx-auto mt-3 max-w-2xl text-xs leading-relaxed text-slate-300 sm:text-sm">{heroForm.subHeading}</p>
+                    <div className="mt-5 flex flex-wrap justify-center gap-2">
+                      {heroForm.primaryBtnText && <span className="rounded-xl bg-emerald-400 px-4 py-2 text-xs font-black text-slate-950">{heroForm.primaryBtnText}</span>}
+                      {heroForm.secondaryBtnText && <span className="rounded-xl border border-slate-600 px-4 py-2 text-xs font-bold text-white">{heroForm.secondaryBtnText}</span>}
+                    </div>
+                  </section>
+                )}
               )}
               {sections.find((section) => section.id === 'custom-announcements')?.isEnabled !== false && customCards.filter((card) => card.isEnabled).length > 0 && (
                 <section className={`grid gap-3 p-4 sm:p-6 ${previewMode === 'mobile' ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-3'}`}>

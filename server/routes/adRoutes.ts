@@ -618,7 +618,7 @@ adRouter.delete('/:id', requireAuth, async (req: any, res) => {
     ) {
       return res.status(409).json({
         success: false,
-        message: 'This campaign has wallet funds held in escrow. It must be approved or rejected with refund before it can be deleted.'
+        message: 'This wallet-backed campaign is awaiting review. It must be approved or rejected with refund before it can be deleted.'
       });
     }
 

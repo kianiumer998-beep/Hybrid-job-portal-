@@ -1154,6 +1154,8 @@ export class PaymentRepository {
     return {
       userId,
       balance,
+      availableBalance: balance,
+      escrowBalance: Number(user?.walletEscrowBalance || 0),
       transactions: txs
     };
   }

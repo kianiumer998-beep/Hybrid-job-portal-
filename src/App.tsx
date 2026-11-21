@@ -681,7 +681,11 @@ export default function App() {
           : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.durationPresets,
         placementOptions: Array.isArray(pricingData.campaignCustomizationConfig.placementOptions)
           ? pricingData.campaignCustomizationConfig.placementOptions
-          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions
+          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions,
+        feedInlineSettings: {
+          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings,
+          ...(pricingData.campaignCustomizationConfig.feedInlineSettings || {})
+        }
       });
     }
 
@@ -1368,6 +1372,18 @@ export default function App() {
   });
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [postsPerPage, setPostsPerPage] = useState<number>(10);
+  const hasAppliedAdminFeedPageSize = useRef(false);
+
+  // Apply the server-backed admin default once on initial pricing load.
+  // Existing visitor page-size changes remain in effect for the current session.
+  useEffect(() => {
+    if (!isPricingReady || hasAppliedAdminFeedPageSize.current) return;
+    const configuredSize = Number(campaignConfig.feedInlineSettings?.standardJobsPerPage ?? 10);
+    if (Number.isInteger(configuredSize) && configuredSize >= 1 && configuredSize <= 100) {
+      setPostsPerPage(configuredSize);
+    }
+    hasAppliedAdminFeedPageSize.current = true;
+  }, [isPricingReady, campaignConfig.feedInlineSettings?.standardJobsPerPage]);
 
   const loadBackendJobs = useCallback(async (targetPage?: number, targetLimit?: number): Promise<{ success: boolean; message?: string }> => {
     const pageToFetch = targetPage ?? pendingPage;

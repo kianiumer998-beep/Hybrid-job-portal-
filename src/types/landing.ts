@@ -23,6 +23,16 @@ export interface LandingHeroConfig {
   design5EmployerImageUrl?: string;
   design45HeroOverlay?: number;
   design45AccentColor?: string;
+  design4PostJobBtnText?: string;
+  design5SeekerEyebrow?: string;
+  design5SeekerHeading?: string;
+  design5SeekerDescription?: string;
+  design5SeekerPrimaryBtnText?: string;
+  design5SeekerSecondaryBtnText?: string;
+  design5EmployerEyebrow?: string;
+  design5EmployerHeading?: string;
+  design5EmployerDescription?: string;
+  design5EmployerBtnText?: string;
 }
 
 export interface CustomLandingCard {
@@ -186,7 +196,17 @@ export const DEFAULT_LANDING_PAGE_CONFIG: LandingPageConfig = {
     design5SeekerImageUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=1400&q=85',
     design5EmployerImageUrl: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=1400&q=85',
     design45HeroOverlay: 68,
-    design45AccentColor: '#0f9f78'
+    design45AccentColor: '#0f9f78',
+    design4PostJobBtnText: 'Post a Job',
+    design5SeekerEyebrow: 'For Job Seekers',
+    design5SeekerHeading: 'Find your next opportunity.',
+    design5SeekerDescription: 'Discover verified jobs, explore career paths and build a professional CV with tools made for your next move.',
+    design5SeekerPrimaryBtnText: 'Explore Jobs',
+    design5SeekerSecondaryBtnText: 'Build CV',
+    design5EmployerEyebrow: 'For Employers',
+    design5EmployerHeading: 'Build your team with confidence.',
+    design5EmployerDescription: 'Reach skilled talent, publish vacancies and manage your hiring journey from one platform.',
+    design5EmployerBtnText: 'Post a Job'
   },
   sections: [
     { id: 'hero', name: '1. Hero Section & Employer Quick Action', description: 'Main banner, employer register CTA, and quick explore buttons.', isEnabled: true, order: 1 },

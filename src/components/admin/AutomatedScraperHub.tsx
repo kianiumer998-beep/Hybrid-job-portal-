@@ -2297,7 +2297,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         throw new Error(`Scheduler settings read-back mismatch: ${schedulerMismatch.join(', ')}.`);
       }
 
-      const savedSourcesById = new Map(configsReadRes.configs.map((source: any) => [String(source.id), source]));
+      const savedSourcesById = new Map<string, any>(configsReadRes.configs.map((source: any) => [String(source.id), source] as [string, any]));
       const sourceMismatch = updatedSources.filter(source => {
         const saved = savedSourcesById.get(String(source.id)) as any;
         return !saved ||

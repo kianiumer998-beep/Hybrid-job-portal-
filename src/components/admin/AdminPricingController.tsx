@@ -785,6 +785,11 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
               </div>)}
             </div>
           </div>
+          <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/60 p-3">
+            <div className="text-xs font-bold text-slate-300">Future AI CV Optimizer price (PKR)</div>
+            <p className="mt-1 text-[10px] text-amber-300">Configuration is retained for compatibility. AI CV optimization is not currently enabled for candidates and this value does not trigger a payment.</p>
+            <input type="number" min="0" value={pricing.cvBuilder?.premiumAiOptimizerPkr ?? 500} onChange={(e) => updateNested('cvBuilder', 'premiumAiOptimizerPkr', Math.max(0, Number(e.target.value) || 0))} className="mt-2 w-full max-w-xs rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
+          </div>
         </div>
 
       </div>

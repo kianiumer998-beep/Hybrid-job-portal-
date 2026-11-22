@@ -746,14 +746,20 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
       if (!isAdmin) {
         const pricing = await PricingRepository.get();
         const freeLimit = Math.min(10, Math.max(0, Math.floor(Number(pricing?.cvBuilder?.freeCvLimit ?? 1))));
-        const expiry = cvOwner.expiryDate ? Date.parse(String(cvOwner.expiryDate).replace(' ', 'T')) : NaN;
-        const premiumActive = cvOwner.plan === 'Premium' && cvOwner.membershipStatus === 'Active' &&
-          cvOwner.paymentStatus !== 'Unpaid' && cvOwner.paymentStatus !== 'Overdue' &&
-          (!Number.isFinite(expiry) || expiry >= Date.now());
+        const premiumLimit = Math.min(10, Math.max(1, Math.floor(Number(pricing?.cvBuilder?.premiumCvLimit ?? 10))));
+        const membershipStatus = String(cvOwner.membershipStatus || '').trim();
+        const membershipTier = String(cvOwner.membershipTier || '').trim();
+        const inactiveStatuses = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled', 'Revoked', 'Unpaid']);
+        const premiumActive = !inactiveStatuses.has(membershipStatus) && (
+          (membershipStatus === 'Active' && Boolean(membershipTier) && membershipTier.toLowerCase() !== 'free') ||
+          cvOwner.plan === 'Premium' ||
+          (cvOwner.paymentStatus === 'Paid' && membershipStatus === 'Active')
+        );
+        const maxAllowed = premiumActive ? premiumLimit : freeLimit;
         const existingIds = new Set((Array.isArray(cvOwner.cvDocuments) ? cvOwner.cvDocuments : []).map((item: any) => String(item?.id || '')));
         const addsNewDocument = documents.some((document: any) => !existingIds.has(document.id));
-        if (!premiumActive && documents.length > freeLimit && addsNewDocument) {
-          return res.status(403).json({ success: false, message: `Your free CV limit is ${freeLimit}. Upgrade your plan to create more CVs.` });
+        if (documents.length > maxAllowed && addsNewDocument) {
+          return res.status(403).json({ success: false, message: `Your current CV limit is ${maxAllowed}. Upgrade your plan or contact the administrator to increase it.` });
         }
       }
       finalUpdates.cvDocuments = documents;

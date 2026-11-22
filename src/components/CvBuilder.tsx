@@ -261,6 +261,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
         <div className="mb-4 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-4 py-3 text-xs text-indigo-100">
           <strong>CV Review Status: {reviewStatus.status}</strong>
           {reviewStatus.reviewerNote && <p className="mt-1">Admin note: {reviewStatus.reviewerNote}</p>}
+          {reviewStatus.status === 'Verified' && <p className="mt-1 text-indigo-200/80">This confirms an administrator reviewed your CV content; it does not independently verify qualifications or employment records.</p>}
           {(reviewStatus.status === 'Needs Changes' || (reviewStatus.status === 'Draft' && reviewStatus.reviewerNote)) && <p className="mt-1">Please update your CV and submit it again for review.</p>}
         </div>
       )}

@@ -253,13 +253,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
       else onOpenPaywall();
       return;
     }
-    const atsExportOwned = cvDesignEntitlements.some((item) => item.templateId === 'export:ats');
-    const atsExportPrice = Math.max(0, Number(cvBuilderSettings.atsTextExportPkr || 0));
-    if (!isSubscribed && !atsExportOwned && (cvBuilderSettings.atsTextExportEnabled === false || atsExportPrice > 0)) {
-      if (atsExportPrice > 0) onPurchaseTemplate('export:ats', 'ATS Text Export', atsExportPrice);
-      else onOpenPaywall();
-      return;
-    }
+    if (!isSubscribed && cvBuilderSettings.atsTextExportEnabled === false) { onOpenPaywall(); return; }
     const lines: string[] = [];
     const p = cvData.personalInfo;
     const extra: NonNullable<CvData['additionalSections']> = cvData.additionalSections || {};
@@ -303,13 +297,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
       else onOpenPaywall();
       return;
     }
-    const pdfExportOwned = cvDesignEntitlements.some((item) => item.templateId === 'export:pdf');
-    const pdfExportPrice = Math.max(0, Number(cvBuilderSettings.pdfExportPkr ?? cvBuilderSettings.standardPdfExportPkr ?? 0));
-    if (!isSubscribed && !pdfExportOwned && (cvBuilderSettings.pdfExportEnabled === false || pdfExportPrice > 0)) {
-      if (pdfExportPrice > 0) onPurchaseTemplate('export:pdf', 'PDF Export', pdfExportPrice);
-      else onOpenPaywall();
-      return;
-    }
+    if (!isSubscribed && cvBuilderSettings.pdfExportEnabled === false) { onOpenPaywall(); return; }
     window.print();
   };
 
@@ -326,8 +314,6 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
   const isTemplateEnabled = (id: string) => enabledTemplates.some((template) => template.id === id);
   const isTemplateFree = (id: string) => isSubscribed || freeTemplates.some((template) => template.id === id) || cvDesignEntitlements.some((item) => item.templateId === id);
   const watermarkVisible = cvBuilderSettings.watermarkEnabled !== false && (!isSubscribed || cvBuilderSettings.watermarkFreeOnly === false);
-  const pdfExportOwned = isSubscribed || cvDesignEntitlements.some((item) => item.templateId === 'export:pdf');
-  const atsExportOwned = isSubscribed || cvDesignEntitlements.some((item) => item.templateId === 'export:ats');
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -362,14 +348,14 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
             <FileText className="w-4 h-4" />
             <span>{isSavingCv ? 'Saving...' : 'Save CV Draft'}</span>
           </button>
-          <button type="button" onClick={handleDownloadAtsText} className="px-3 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs">{!atsExportOwned && (cvBuilderSettings.atsTextExportEnabled === false || Number(cvBuilderSettings.atsTextExportPkr || 0) > 0) ? (Number(cvBuilderSettings.atsTextExportPkr || 0) > 0 ? `ATS Text · One-time PKR ${Number(cvBuilderSettings.atsTextExportPkr)}` : 'ATS Text · Premium') : 'Download ATS Text'}</button>
+          <button type="button" onClick={handleDownloadAtsText} className="px-3 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs">{!isSubscribed && cvBuilderSettings.atsTextExportEnabled === false ? 'ATS Text · Premium' : 'Download ATS Text'}</button>
 
           <button
             onClick={handleDownloadPdf}
             className="px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 flex items-center space-x-2 hover:scale-105 active:scale-95 transition-all"
           >
             <Printer className="w-4 h-4 text-slate-950" />
-            <span>{pdfExportOwned || (cvBuilderSettings.pdfExportEnabled !== false && Number(cvBuilderSettings.pdfExportPkr ?? cvBuilderSettings.standardPdfExportPkr ?? 0) === 0) ? 'Export PDF Resume' : (Number(cvBuilderSettings.pdfExportPkr ?? cvBuilderSettings.standardPdfExportPkr ?? 0) > 0 ? `PDF Export · One-time PKR ${Number(cvBuilderSettings.pdfExportPkr ?? cvBuilderSettings.standardPdfExportPkr ?? 0)}` : 'PDF Export · Premium')}</span>
+            <span>{!isSubscribed && cvBuilderSettings.pdfExportEnabled === false ? 'PDF Export · Premium' : 'Export PDF Resume'}</span>
           </button>
         </div>
       </div>

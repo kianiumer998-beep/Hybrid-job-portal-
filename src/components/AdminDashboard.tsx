@@ -1795,6 +1795,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [jobsScaleFilter, setJobsScaleFilter] = useState('all');
   const [jobsProvinceFilter, setJobsProvinceFilter] = useState('all');
   const [jobsStatusFilter, setJobsStatusFilter] = useState('all');
+  const [jobsPortalFilter, setJobsPortalFilter] = useState('');
+  const [jobsCityFilter, setJobsCityFilter] = useState('');
+  const [jobsScrapeDateFilter, setJobsScrapeDateFilter] = useState<'all' | 'today' | '24h' | '7days' | '30days' | 'older'>('all');
   const [jobsCompletenessFilter, setJobsCompletenessFilter] = useState<'all' | 'complete' | 'incomplete' | 'missing_apply' | 'missing_source'>('all');
   const [jobsLocationFilter, setJobsLocationFilter] = useState<'all' | 'confirmed' | 'unconfirmed'>('all');
   const [jobsExpiryFilter, setJobsExpiryFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
@@ -1811,6 +1814,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [pendingSearchQuery, setPendingSearchQuery] = useState('');
   const [pendingCategoryFilter, setPendingCategoryFilter] = useState('all');
   const [pendingSourceFilter, setPendingSourceFilter] = useState('all');
+  const [pendingPortalFilter, setPendingPortalFilter] = useState('');
+  const [pendingCityFilter, setPendingCityFilter] = useState('');
+  const [pendingProvinceFilter, setPendingProvinceFilter] = useState('all');
+  const [pendingScrapeDateFilter, setPendingScrapeDateFilter] = useState<'all' | 'today' | '24h' | '7days' | '30days' | 'older'>('all');
   const [pendingCompletenessFilter, setPendingCompletenessFilter] = useState<'all' | 'complete' | 'incomplete' | 'missing_apply' | 'missing_source'>('all');
   const [pendingLocationFilter, setPendingLocationFilter] = useState<'all' | 'confirmed' | 'unconfirmed'>('all');
   const [pendingExpiryFilter, setPendingExpiryFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
@@ -3979,6 +3986,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           if (pendingSourceFilter === 'pdf' && !pJob.isPdfScraped && !pJob.pdfCaseNumber) {
             return false;
           }
+          const pendingPortal = String((pJob as any).sourcePortal || pJob.scraperSourceName || pJob.scrapedSourceDomain || '').toLowerCase();
+          if (pendingPortalFilter.trim() && !pendingPortal.includes(pendingPortalFilter.trim().toLowerCase())) return false;
+          if (pendingCityFilter.trim() && !(pJob.city || '').toLowerCase().includes(pendingCityFilter.trim().toLowerCase())) return false;
+          if (pendingProvinceFilter !== 'all' && pJob.province !== pendingProvinceFilter) return false;
+          if (pendingScrapeDateFilter !== 'all') {
+            const rawScrapeDate = (pJob as any).scrapedAt || (pJob as any).lastScrapedAt || pJob.createdAt || pJob.postedAt;
+            const scrapeTime = rawScrapeDate ? new Date(rawScrapeDate).getTime() : NaN;
+            if (!Number.isFinite(scrapeTime)) return false;
+            const ageHours = (Date.now() - scrapeTime) / 3600000;
+            const todayKey = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+            const scrapeDayKey = new Date(scrapeTime).toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+            if (pendingScrapeDateFilter === 'today' && scrapeDayKey !== todayKey) return false;
+            if (pendingScrapeDateFilter === '24h' && (ageHours < 0 || ageHours > 24)) return false;
+            if (pendingScrapeDateFilter === '7days' && (ageHours < 0 || ageHours > 168)) return false;
+            if (pendingScrapeDateFilter === '30days' && (ageHours < 0 || ageHours > 720)) return false;
+            if (pendingScrapeDateFilter === 'older' && ageHours <= 720) return false;
+          }
           const pendingHasApplyUrl = Boolean((pJob as any).applicationUrl || (pJob as any).originalApplyUrl || (pJob as any).externalApplyUrl || (pJob as any).applyUrl);
           const pendingHasSourceUrl = Boolean((pJob as any).sourceUrl || (pJob as any).scraperSourceUrl);
           const pendingIsComplete = Boolean(pJob.title?.trim() && pJob.company?.trim() && pJob.description?.trim() && (pJob.city || pJob.province || pJob.region));
@@ -4203,6 +4227,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <select value={pendingCompletenessFilter} onChange={(e) => setPendingCompletenessFilter(e.target.value as typeof pendingCompletenessFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium">
                     <option value="all">All Job Details</option><option value="complete">Complete Jobs</option><option value="incomplete">Incomplete Jobs</option><option value="missing_apply">Missing Apply URL</option><option value="missing_source">Missing Scraper Source URL</option>
                   </select>
+                  <input value={pendingPortalFilter} onChange={(e) => setPendingPortalFilter(e.target.value)} placeholder="Source portal (e.g. FPSC)" className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white min-w-[150px]" />
+                  <input value={pendingCityFilter} onChange={(e) => setPendingCityFilter(e.target.value)} placeholder="City" className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white min-w-[110px]" />
+                  <select value={pendingProvinceFilter} onChange={(e) => setPendingProvinceFilter(e.target.value)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium"><option value="all">All Provinces</option><option>Punjab</option><option>Sindh</option><option>Khyber Pakhtunkhwa</option><option>Balochistan</option><option>Islamabad Capital Territory</option><option>Azad Kashmir</option><option>Gilgit-Baltistan</option></select>
+                  <select value={pendingScrapeDateFilter} onChange={(e) => setPendingScrapeDateFilter(e.target.value as typeof pendingScrapeDateFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium"><option value="all">Any Scrape Time</option><option value="today">Scraped Today</option><option value="24h">Last 24 Hours</option><option value="7days">Last 7 Days</option><option value="30days">Last 30 Days</option><option value="older">Older than 30 Days</option></select>
                   <select value={pendingLocationFilter} onChange={(e) => setPendingLocationFilter(e.target.value as typeof pendingLocationFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium">
                     <option value="all">All Location Status</option><option value="confirmed">Location Confirmed</option><option value="unconfirmed">Location Unconfirmed</option>
                   </select>
@@ -6091,6 +6119,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           if (jobsScaleFilter !== 'all' && job.govtScale !== jobsScaleFilter) return false;
           if (jobsProvinceFilter !== 'all' && job.province !== jobsProvinceFilter) return false;
           if (jobsStatusFilter !== 'all' && (job.status || 'Approved') !== jobsStatusFilter) return false;
+          const livePortal = String((job as any).sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || '').toLowerCase();
+          if (jobsPortalFilter.trim() && !livePortal.includes(jobsPortalFilter.trim().toLowerCase())) return false;
+          if (jobsCityFilter.trim() && !(job.city || '').toLowerCase().includes(jobsCityFilter.trim().toLowerCase())) return false;
+          if (jobsScrapeDateFilter !== 'all') {
+            const rawScrapeDate = (job as any).scrapedAt || (job as any).lastScrapedAt || job.createdAt || job.postedAt;
+            const scrapeTime = rawScrapeDate ? new Date(rawScrapeDate).getTime() : NaN;
+            if (!Number.isFinite(scrapeTime)) return false;
+            const ageHours = (Date.now() - scrapeTime) / 3600000;
+            const todayKey = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+            const scrapeDayKey = new Date(scrapeTime).toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+            if (jobsScrapeDateFilter === 'today' && scrapeDayKey !== todayKey) return false;
+            if (jobsScrapeDateFilter === '24h' && (ageHours < 0 || ageHours > 24)) return false;
+            if (jobsScrapeDateFilter === '7days' && (ageHours < 0 || ageHours > 168)) return false;
+            if (jobsScrapeDateFilter === '30days' && (ageHours < 0 || ageHours > 720)) return false;
+            if (jobsScrapeDateFilter === 'older' && ageHours <= 720) return false;
+          }
           const liveHasApplyUrl = Boolean((job as any).applicationUrl || (job as any).originalApplyUrl || (job as any).externalApplyUrl || (job as any).applyUrl);
           const liveHasSourceUrl = Boolean((job as any).sourceUrl || (job as any).scraperSourceUrl);
           const liveIsComplete = Boolean(job.title?.trim() && job.company?.trim() && job.description?.trim() && (job.city || job.province || job.region));
@@ -6280,6 +6324,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <option value="Global">Global / Remote</option>
                   </select>
 
+                  <input value={jobsPortalFilter} onChange={(e) => setJobsPortalFilter(e.target.value)} placeholder="Source portal (e.g. FPSC)" className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white min-w-[150px]" />
+                  <input value={jobsCityFilter} onChange={(e) => setJobsCityFilter(e.target.value)} placeholder="City" className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white min-w-[110px]" />
+                  <select value={jobsScrapeDateFilter} onChange={(e) => setJobsScrapeDateFilter(e.target.value as typeof jobsScrapeDateFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium"><option value="all">Any Scrape Time</option><option value="today">Scraped Today</option><option value="24h">Last 24 Hours</option><option value="7days">Last 7 Days</option><option value="30days">Last 30 Days</option><option value="older">Older than 30 Days</option></select>
                   <select
                     value={jobsScaleFilter}
                     onChange={(e) => setJobsScaleFilter(e.target.value)}

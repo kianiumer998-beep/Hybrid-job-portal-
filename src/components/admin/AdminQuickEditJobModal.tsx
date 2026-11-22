@@ -80,6 +80,48 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
   const isBulkMode = activeBulkJobs.length > 1 || (activeBulkJobs.length === 1 && !job);
   const selectedJobs = activeBulkJobs;
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Single job state
+  const [formData, setFormData] = useState<Job>(() => {
+    if (job) return { ...job };
+    return {
+      id: 'job-' + Date.now(),
+      title: '',
+      company: '',
+      jobType: 'On-site',
+      region: 'Pakistan',
+      province: 'Punjab',
+      city: 'Lahore',
+      salary: '',
+      currency: 'PKR',
+      experienceLevel: 'Mid',
+      department: 'General Operations',
+      tags: ['Urgent', 'Full-time'],
+      description: '',
+      requirements: ['Relevant Bachelor degree', '2+ years experience'],
+      benefits: ['Medical coverage', 'Paid leaves'],
+      postedAt: new Date().toISOString().split('T')[0],
+      applicationsCount: 0,
+      status: 'Approved',
+      featured: false,
+      urgent: false,
+      isPinnedTop: false,
+      isFutureJob: false,
+      futureIntakeDate: '',
+      priorityTier: 'standard',
+      jobCategory: 'Private Corporate',
+      govtScale: 'BPS-17',
+      isGovtJob: false,
+      deadlineDate: '2026-11-30'
+    };
+  });
+
+  useEffect(() => {
+    if (job) {
+      setFormData({ ...job });
+    }
+  }, [job]);
+
   const [bulkFields, setBulkFields] = useState(createDefaultBulkFields);
   const selectedJobKey = selectedJobs.map(selectedJob => selectedJob.id).join('|');
 

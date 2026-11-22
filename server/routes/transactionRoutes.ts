@@ -465,6 +465,7 @@ transactionRouter.post('/', async (req, res) => {
       adPricingOptions,
       plan,
       cvTemplateId,
+      expectedAmount,
       idempotencyKey
     } = req.body;
 
@@ -687,6 +688,10 @@ transactionRouter.post('/', async (req, res) => {
           return res.status(400).json({ success: false, message: 'The administrator has not configured a valid one-time price for this CV design.' });
         }
         const purchaseName = String(selectedTemplate.name || selectedTemplate.id).slice(0, 80);
+        const expectedCvPrice = Number(expectedAmount);
+        if (!Number.isFinite(expectedCvPrice) || Math.abs(expectedCvPrice - enforcedAmount) > 0.01) {
+          return res.status(409).json({ success: false, message: 'The CV design price has changed. Please review the updated price and try again.' });
+        }
         const cvOwner = await UserRepository.getByIdAsync(effectiveUserId);
         if (!cvOwner) return res.status(404).json({ success: false, message: 'Your account could not be found.' });
         const ownedDesigns = Array.isArray(cvOwner.cvDesignEntitlements) ? cvOwner.cvDesignEntitlements : [];

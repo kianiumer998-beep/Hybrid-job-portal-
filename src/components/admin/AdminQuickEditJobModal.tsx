@@ -300,7 +300,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
 
   const currentMissingFields = job ? calculateJobMissingFields(formData) : [];
 
-  const handleBulkSubmit = (e: React.FormEvent) => {
+  const handleBulkSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const saveFn = onBulkSaveJobs || onSaveJobs;
     if (!saveFn) {
@@ -308,6 +308,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
       return;
     }
 
+    setIsSubmitting(true);
     const now = new Date().toISOString();
     const updated = selectedJobs.map(j => {
       const updatedJob = { ...j };
@@ -316,7 +317,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
         updatedJob.govtScale = bulkFields.govtScale;
         updatedJob.isGovtJob = true;
       }
-      if (bulkFields.applyStatus) updatedJob.status = bulkFields.status;
+      if (allowBulkStatusChange && bulkFields.applyStatus) updatedJob.status = bulkFields.status;
       if (bulkFields.applyRegion || bulkFields.applyProvince || bulkFields.applyCity) {
         if (bulkFields.applyRegion) updatedJob.region = bulkFields.region;
         if (bulkFields.applyProvince) updatedJob.province = bulkFields.province;
@@ -357,8 +358,14 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
       return updatedJob;
     });
 
-    saveFn(updated);
-    onClose();
+    try {
+      await saveFn(updated);
+      onClose();
+    } catch (err: any) {
+      alert(`Bulk update failed: ${err?.message || 'Please retry.'}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -608,10 +615,11 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer flex items-center space-x-2"
+                disabled={isSubmitting}
+                className="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer flex items-center space-x-2 disabled:opacity-50"
               >
                 <Save className="w-4 h-4" />
-                <span>Save Changes to {selectedJobs.length} Jobs</span>
+                <span>{isSubmitting ? "Saving..." : `Save Changes to ${selectedJobs.length} Jobs`}</span>
               </button>
             </div>
           </form>

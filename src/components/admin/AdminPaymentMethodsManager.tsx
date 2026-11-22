@@ -73,6 +73,7 @@ export const AdminPaymentMethodsManager: React.FC = () => {
   const [saveError, setSaveError] = useState<string | null>(null);
   // Expanded card sections tracking (which method has its advanced proof fields visible)
   const [expandedProofSections, setExpandedProofSections] = useState<Record<string, boolean>>({});
+  const [depositAmountDrafts, setDepositAmountDrafts] = useState<Record<string, string>>({});
 
   const toggleProofSection = (methodId: string) => {
     setExpandedProofSections((prev) => ({
@@ -666,9 +667,10 @@ export const AdminPaymentMethodsManager: React.FC = () => {
                       <label className="block text-[10px] font-bold text-slate-400">Add / update fixed amounts (PKR, comma separated)</label>
                       <input
                         type="text"
-                        value={(method.walletDepositFixedAmounts || []).map((item) => item.amount).join(', ')}
-                        onChange={(e) => {
-                          const parsed = e.target.value.split(',').map((value) => value.trim()).filter(Boolean);
+                        value={depositAmountDrafts[key] ?? (method.walletDepositFixedAmounts || []).map((item) => item.amount).join(', ')}
+                        onChange={(e) => setDepositAmountDrafts((prev) => ({ ...prev, [key]: e.target.value }))}
+                        onBlur={() => {
+                          const parsed = (depositAmountDrafts[key] || '').split(',').map((value) => value.trim()).filter(Boolean);
                           const nextAmounts: Array<{ amount: number; enabled: boolean }> = [];
                           for (const value of parsed) {
                             const amount = Number(value);
@@ -677,6 +679,7 @@ export const AdminPaymentMethodsManager: React.FC = () => {
                             nextAmounts.push({ amount, enabled: existing?.enabled ?? true });
                           }
                           handleUpdateMethod(key, { walletDepositFixedAmounts: nextAmounts });
+                          setDepositAmountDrafts((prev) => ({ ...prev, [key]: nextAmounts.map((item) => item.amount).join(', ') }));
                         }}
                         placeholder="e.g. 500, 1000, 1500, 2000"
                         className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white font-mono"

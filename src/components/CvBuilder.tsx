@@ -309,7 +309,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
   const enabledTemplates = templateCatalog.filter((template) => configuredTemplates.find((item: any) => item.id === template.id)?.enabled !== false || cvDesignEntitlements.some((item) => item.templateId === template.id));
   const freeTemplates = enabledTemplates.filter((template) => {
     const config = configuredTemplates.find((item: any) => item.id === template.id);
-    return config ? config.free === true : ['modern', 'ats'].includes(template.id);
+    return config ? config.enabled !== false && config.free === true : ['modern', 'ats'].includes(template.id);
   }).slice(0, Math.max(0, Math.min(5, Number(cvBuilderSettings.freeDesignLimit ?? 2))));
   const isTemplateEnabled = (id: string) => enabledTemplates.some((template) => template.id === id);
   const isTemplateFree = (id: string) => isSubscribed || freeTemplates.some((template) => template.id === id) || cvDesignEntitlements.some((item) => item.templateId === id);

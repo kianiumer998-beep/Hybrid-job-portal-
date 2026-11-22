@@ -275,10 +275,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
             <span>{isSavingCv ? 'Saving...' : 'Save CV Draft'}</span>
           </button>
           <button type="button" onClick={handleDownloadAtsText} className="px-3 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs">Download ATS Text</button>
-          <button type="button" onClick={handleSubmitCv} disabled={isSubmittingCv || isSavingCv} className="px-4 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white font-black text-sm disabled:opacity-50">
-              {isSubmittingCv ? 'Submitting...' : 'Submit for Review'}
-            </button>
-          )}
+
           <button
             onClick={handleDownloadPdf}
             className="px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 flex items-center space-x-2 hover:scale-105 active:scale-95 transition-all"

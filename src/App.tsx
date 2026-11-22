@@ -1058,11 +1058,6 @@ export default function App() {
     }
   };
 
-  const handlePaidAdCta = async (ad: Advertisement) => {
-    await handleAdClick(ad);
-    handleAdDestination(ad.ctaUrl);
-  };
-
   const handleAddAd = async (newAd: Advertisement) => {
     try {
       const res = await api.ads.create(newAd);
@@ -4381,7 +4376,7 @@ export default function App() {
                                 <h4 className="text-sm sm:text-base font-black tracking-tight">{ad.headline}</h4>
                                 <p className="text-xs text-white/90 max-w-2xl">{ad.bodyText}</p>
                               </div>
-                              <button onClick={() => { void handlePaidAdCta(ad); }} className="px-5 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0">
+                              <button onClick={() => { void handleAdClick(ad); handleAdDestination(ad.ctaUrl); }} className="px-5 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0">
                                 {ad.ctaText || 'Claim Offer'} →
                               </button>
                             </div>
@@ -4448,7 +4443,7 @@ export default function App() {
                                   <h4 className="text-lg font-black">{ad.headline}</h4>
                                   <p className="text-xs text-slate-300 leading-relaxed">{ad.bodyText}</p>
                                 </div>
-                                <button onClick={() => { void handlePaidAdCta(ad); }} className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md">
+                                <button onClick={() => { void handleAdClick(ad); handleAdDestination(ad.ctaUrl); }} className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md">
                                   {ad.ctaText || 'Learn More'} →
                                 </button>
                               </div>

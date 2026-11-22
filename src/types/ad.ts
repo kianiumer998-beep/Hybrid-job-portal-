@@ -12,7 +12,7 @@ export type AdPlacement =
   | 'promo-discount-banner'  // Paid promotional discount banner in landing page promo section
   | 'dynamic-announcement-card'; // Paid announcement card in landing page announcements section
 
-export type AdStatus = 'active' | 'paused' | 'pending' | 'pending_approval' | 'rejected' | 'completed' | 'draft';
+export type AdStatus = 'active' | 'paused' | 'pending_approval' | 'rejected' | 'completed' | 'draft';
 
 export type AdDurationUnit = 'hours' | 'days' | 'weeks' | 'months';
 
@@ -502,8 +502,7 @@ export const DEFAULT_PLACEMENT_OPTIONS: CampaignPlacementOption[] = [
     iconName: 'Tag',
     badge: 'Landing Promotion',
     isEnabled: false,
-    maxConcurrentSlots: 1,
-    allowedPageIds: ['jobs']
+    maxConcurrentSlots: 1
   },
   {
     id: 'dynamic-announcement-card',
@@ -514,8 +513,7 @@ export const DEFAULT_PLACEMENT_OPTIONS: CampaignPlacementOption[] = [
     iconName: 'Layers',
     badge: 'Landing Announcement',
     isEnabled: false,
-    maxConcurrentSlots: 1,
-    allowedPageIds: ['jobs']
+    maxConcurrentSlots: 1
   }
 ];
 

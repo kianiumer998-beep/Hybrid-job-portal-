@@ -1193,6 +1193,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                     ✨ No reservations queued for this placement. Your campaign will launch <strong className="text-emerald-400">immediately</strong> upon submission!
                   </div>
                 )}
+                <p className="text-[10px] text-slate-500">Displayed slot counts are an estimate from visible campaigns. The server rechecks capacity before wallet payment is accepted.</p>
               </div>
 
               {/* 3. Target Pages (Multi-Select with Admin Schedule Enforced) */}

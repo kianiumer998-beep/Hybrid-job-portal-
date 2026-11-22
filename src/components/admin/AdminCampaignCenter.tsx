@@ -245,6 +245,8 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
             <option value="toast-float">Toast Notification</option>
             <option value="sidebar">Sidebar Widget</option>
             <option value="sms-broadcast">SMS Broadcast</option>
+            <option value="promo-discount-banner">Promotional Discount Banner</option>
+            <option value="dynamic-announcement-card">Dynamic Announcement Card</option>
           </select>
 
           <div className="relative">

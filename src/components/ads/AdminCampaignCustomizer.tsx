@@ -1315,7 +1315,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
                   <h3 className="text-lg font-black text-white">Promotional Discount Banners</h3>
                 </div>
                 <p className="text-xs text-slate-400 mt-1">
-                  Manage active promotional discount headers shown above checkout forms.
+                  Manage admin-owned promotional banners here. Paid user-bookable discount campaigns are controlled separately in the Placements tab.
                 </p>
               </div>
 

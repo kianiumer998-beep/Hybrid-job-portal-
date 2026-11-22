@@ -626,6 +626,7 @@ export class PricingRepository {
             throw new Error('Each CV design must use a unique supported design ID.');
           }
           seen.add(String(template.id));
+          if (template.name !== undefined && (typeof template.name !== 'string' || !template.name.trim() || template.name.length > 80)) throw new Error(`CV design ${template.id} name must contain 1 to 80 characters.`);
           if (template.enabled !== undefined && typeof template.enabled !== 'boolean') throw new Error(`CV design ${template.id} enabled must be a boolean.`);
           if (template.free !== undefined && typeof template.free !== 'boolean') throw new Error(`CV design ${template.id} free must be a boolean.`);
           if (template.pricePkr !== undefined) validateNonNegativeNumber(template.pricePkr, `cvBuilder.templates.${template.id}.pricePkr`, 10000000);

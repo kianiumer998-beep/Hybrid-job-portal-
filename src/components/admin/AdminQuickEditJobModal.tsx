@@ -16,7 +16,53 @@ interface AdminQuickEditJobModalProps {
   onBulkSaveJobs?: (updatedJobs: Job[]) => void | Promise<any>;
   onSaveJobs?: (updatedJobs: Job[]) => void | Promise<any>;
   onSaveAndApproveJob?: (updatedJob: Job) => Promise<{ success: boolean; message?: string } | void> | void;
+  allowBulkStatusChange?: boolean;
 }
+
+const createDefaultBulkFields = () => ({
+    applyCategory: false,
+    jobCategory: 'Government Sector',
+    applyGovtScale: false,
+    govtScale: 'BPS-17',
+    applyStatus: false,
+    status: 'Approved' as JobStatus,
+    applyRegion: false,
+    region: 'Pakistan' as Region,
+    applyProvince: false,
+    province: 'Punjab',
+    applyCity: false,
+    city: 'Islamabad',
+    applyJobType: false,
+    jobType: 'On-site' as JobType,
+    applyDeadline: false,
+    deadlineDate: '2026-12-31',
+    applyFeatured: false,
+    featured: true,
+    applyUrgent: false,
+    urgent: true,
+    applyTags: false,
+    tagsToAdd: 'Verified, Recommended',
+    applyCountry: false,
+    country: 'Pakistan',
+    applyDistrict: false,
+    district: '',
+    applyLocationConfirmed: false,
+    locationConfirmed: true,
+    applyExpiry: false,
+    expiryDate: '',
+    applyApplyUrl: false,
+    applicationUrl: '',
+    applySourceUrl: false,
+    sourceUrl: '',
+    applySourcePortal: false,
+    sourcePortal: '',
+    applyCompany: false,
+    company: '',
+    applyDescription: false,
+    description: '',
+    applyRequirements: false,
+    requirementsText: ''
+});
 
 export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
   job,
@@ -27,7 +73,8 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
   onSaveJob,
   onBulkSaveJobs,
   onSaveJobs,
-  onSaveAndApproveJob
+  onSaveAndApproveJob,
+  allowBulkStatusChange = true
 }) => {
   const activeBulkJobs = propSelectedJobs || propJobs || [];
   const isBulkMode = activeBulkJobs.length > 1 || (activeBulkJobs.length === 1 && !job);
@@ -75,31 +122,12 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
     }
   }, [job]);
 
-  // Bulk edit state
-  const [bulkFields, setBulkFields] = useState({
-    applyCategory: false,
-    jobCategory: 'Government Sector',
-    applyGovtScale: false,
-    govtScale: 'BPS-17',
-    applyStatus: false,
-    status: 'Approved' as JobStatus,
-    applyRegion: false,
-    region: 'Pakistan' as Region,
-    applyProvince: false,
-    province: 'Punjab',
-    applyCity: false,
-    city: 'Islamabad',
-    applyJobType: false,
-    jobType: 'On-site' as JobType,
-    applyDeadline: false,
-    deadlineDate: '2026-12-31',
-    applyFeatured: false,
-    featured: true,
-    applyUrgent: false,
-    urgent: true,
-    applyTags: false,
-    tagsToAdd: 'Verified, Recommended'
-  });
+  const [bulkFields, setBulkFields] = useState(createDefaultBulkFields);
+  const selectedJobKey = selectedJobs.map(selectedJob => selectedJob.id).join('|');
+
+  useEffect(() => {
+    if (isOpen && isBulkMode) setBulkFields(createDefaultBulkFields());
+  }, [isOpen, isBulkMode, selectedJobKey]);
 
   const [tagInput, setTagInput] = useState('');
 
@@ -272,7 +300,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
 
   const currentMissingFields = job ? calculateJobMissingFields(formData) : [];
 
-  const handleBulkSubmit = (e: React.FormEvent) => {
+  const handleBulkSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const saveFn = onBulkSaveJobs || onSaveJobs;
     if (!saveFn) {
@@ -280,6 +308,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
       return;
     }
 
+    setIsSubmitting(true);
     const now = new Date().toISOString();
     const updated = selectedJobs.map(j => {
       const updatedJob = { ...j };
@@ -288,7 +317,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
         updatedJob.govtScale = bulkFields.govtScale;
         updatedJob.isGovtJob = true;
       }
-      if (bulkFields.applyStatus) updatedJob.status = bulkFields.status;
+      if (allowBulkStatusChange && bulkFields.applyStatus) updatedJob.status = bulkFields.status;
       if (bulkFields.applyRegion || bulkFields.applyProvince || bulkFields.applyCity) {
         if (bulkFields.applyRegion) updatedJob.region = bulkFields.region;
         if (bulkFields.applyProvince) updatedJob.province = bulkFields.province;
@@ -307,6 +336,19 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
       }
       if (bulkFields.applyJobType) updatedJob.jobType = bulkFields.jobType;
       if (bulkFields.applyDeadline) updatedJob.deadlineDate = bulkFields.deadlineDate;
+      if (bulkFields.applyCountry) updatedJob.country = bulkFields.country;
+      if (bulkFields.applyDistrict) updatedJob.district = bulkFields.district;
+      if (bulkFields.applyLocationConfirmed) {
+        updatedJob.isLocationConfirmed = bulkFields.locationConfirmed;
+        updatedJob.metadata = { ...(updatedJob.metadata || {}), isLocationConfirmed: bulkFields.locationConfirmed };
+      }
+      if (bulkFields.applyExpiry) updatedJob.expiryDate = bulkFields.expiryDate;
+      if (bulkFields.applyApplyUrl) (updatedJob as any).applicationUrl = bulkFields.applicationUrl;
+      if (bulkFields.applySourceUrl) (updatedJob as any).sourceUrl = bulkFields.sourceUrl;
+      if (bulkFields.applySourcePortal) (updatedJob as any).sourcePortal = bulkFields.sourcePortal;
+      if (bulkFields.applyCompany) updatedJob.company = bulkFields.company;
+      if (bulkFields.applyDescription) updatedJob.description = bulkFields.description;
+      if (bulkFields.applyRequirements) updatedJob.requirements = bulkFields.requirementsText.split(/\r?\n|,/).map(value => value.trim()).filter(Boolean);
       if (bulkFields.applyFeatured) updatedJob.featured = bulkFields.featured;
       if (bulkFields.applyUrgent) updatedJob.urgent = bulkFields.urgent;
       if (bulkFields.applyTags && bulkFields.tagsToAdd.trim()) {
@@ -316,8 +358,14 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
       return updatedJob;
     });
 
-    saveFn(updated);
-    onClose();
+    try {
+      await saveFn(updated);
+      onClose();
+    } catch (err: any) {
+      alert(`Bulk update failed: ${err?.message || 'Please retry.'}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -391,30 +439,33 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 </select>
               </div>
 
-              {/* Status */}
-              <div className={`p-4 rounded-xl border transition-all ${bulkFields.applyStatus ? 'bg-slate-950 border-amber-500/60' : 'bg-slate-950/50 border-slate-800'}`}>
-                <label className="flex items-center space-x-2 cursor-pointer mb-2">
-                  <input
-                    type="checkbox"
-                    checked={bulkFields.applyStatus}
-                    onChange={(e) => setBulkFields(p => ({ ...p, applyStatus: e.target.checked }))}
-                    className="w-4 h-4 rounded text-amber-500"
-                  />
-                  <span className="font-bold text-slate-200">Update Visibility Status</span>
-                </label>
-                <select
-                  disabled={!bulkFields.applyStatus}
-                  value={bulkFields.status}
-                  onChange={(e) => setBulkFields(p => ({ ...p, status: e.target.value as JobStatus }))}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold disabled:opacity-40"
-                >
-                  <option value="Approved">Approved (Live on Site)</option>
-                  <option value="Pending">Pending (Moderation Queue)</option>
-                  <option value="Suspended">Suspended</option>
-                  <option value="Expired">Expired</option>
-                  <option value="Rejected">Rejected</option>
-                </select>
-              </div>
+              {/* Changing moderation status from scraper review could bypass approval workflow. */}
+              {allowBulkStatusChange && (
+                {/* Status */}
+                <div className={`p-4 rounded-xl border transition-all ${bulkFields.applyStatus ? 'bg-slate-950 border-amber-500/60' : 'bg-slate-950/50 border-slate-800'}`}>
+                  <label className="flex items-center space-x-2 cursor-pointer mb-2">
+                    <input
+                      type="checkbox"
+                      checked={bulkFields.applyStatus}
+                      onChange={(e) => setBulkFields(p => ({ ...p, applyStatus: e.target.checked }))}
+                      className="w-4 h-4 rounded text-amber-500"
+                    />
+                    <span className="font-bold text-slate-200">Update Visibility Status</span>
+                  </label>
+                  <select
+                    disabled={!bulkFields.applyStatus}
+                    value={bulkFields.status}
+                    onChange={(e) => setBulkFields(p => ({ ...p, status: e.target.value as JobStatus }))}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold disabled:opacity-40"
+                  >
+                    <option value="Approved">Approved (Live on Site)</option>
+                    <option value="Pending">Pending (Moderation Queue)</option>
+                    <option value="Suspended">Suspended</option>
+                    <option value="Expired">Expired</option>
+                    <option value="Rejected">Rejected</option>
+                  </select>
+                </div>
+              )}
 
               {/* Scale */}
               <div className={`p-4 rounded-xl border transition-all ${bulkFields.applyGovtScale ? 'bg-slate-950 border-amber-500/60' : 'bg-slate-950/50 border-slate-800'}`}>
@@ -508,6 +559,52 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               </div>
             </div>
 
+            <div className="space-y-2">
+              <div className="text-[11px] font-black uppercase tracking-wider text-slate-400">Additional Shared Fields — Only checked fields will change</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applyCountry} onChange={e => setBulkFields(p => ({ ...p, applyCountry: e.target.checked }))} /> Country</label>
+                  <input disabled={!bulkFields.applyCountry} value={bulkFields.country} onChange={e => setBulkFields(p => ({ ...p, country: e.target.value }))} className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
+                </div>
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applyDistrict} onChange={e => setBulkFields(p => ({ ...p, applyDistrict: e.target.checked }))} /> District</label>
+                  <input disabled={!bulkFields.applyDistrict} value={bulkFields.district} onChange={e => setBulkFields(p => ({ ...p, district: e.target.value }))} placeholder="District name" className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
+                </div>
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applyLocationConfirmed} onChange={e => setBulkFields(p => ({ ...p, applyLocationConfirmed: e.target.checked }))} /> Location Confirmation</label>
+                  <select disabled={!bulkFields.applyLocationConfirmed} value={String(bulkFields.locationConfirmed)} onChange={e => setBulkFields(p => ({ ...p, locationConfirmed: e.target.value === 'true' }))} className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40"><option value="true">Confirmed</option><option value="false">Unconfirmed</option></select>
+                </div>
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applyExpiry} onChange={e => setBulkFields(p => ({ ...p, applyExpiry: e.target.checked }))} /> Expiry Date (separate from deadline)</label>
+                  <input type="date" disabled={!bulkFields.applyExpiry} value={bulkFields.expiryDate} onChange={e => setBulkFields(p => ({ ...p, expiryDate: e.target.value }))} className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
+                </div>
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applyApplyUrl} onChange={e => setBulkFields(p => ({ ...p, applyApplyUrl: e.target.checked }))} /> Application / Apply URL</label>
+                  <input type="url" disabled={!bulkFields.applyApplyUrl} value={bulkFields.applicationUrl} onChange={e => setBulkFields(p => ({ ...p, applicationUrl: e.target.value }))} placeholder="https://..." className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
+                </div>
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applySourceUrl} onChange={e => setBulkFields(p => ({ ...p, applySourceUrl: e.target.checked }))} /> Scraper Source URL</label>
+                  <input type="url" disabled={!bulkFields.applySourceUrl} value={bulkFields.sourceUrl} onChange={e => setBulkFields(p => ({ ...p, sourceUrl: e.target.value }))} placeholder="https://original-source..." className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
+                </div>
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applySourcePortal} onChange={e => setBulkFields(p => ({ ...p, applySourcePortal: e.target.checked }))} /> Source Portal</label>
+                  <input disabled={!bulkFields.applySourcePortal} value={bulkFields.sourcePortal} onChange={e => setBulkFields(p => ({ ...p, sourcePortal: e.target.value }))} placeholder="e.g. FPSC / PPSC" className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
+                </div>
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applyCompany} onChange={e => setBulkFields(p => ({ ...p, applyCompany: e.target.checked }))} /> Company / Organization</label>
+                  <input disabled={!bulkFields.applyCompany} value={bulkFields.company} onChange={e => setBulkFields(p => ({ ...p, company: e.target.value }))} placeholder="Shared organization name" className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
+                </div>
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50 md:col-span-2">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applyDescription} onChange={e => setBulkFields(p => ({ ...p, applyDescription: e.target.checked }))} /> Description — replaces each selected job's description</label>
+                  <textarea disabled={!bulkFields.applyDescription} rows={3} value={bulkFields.description} onChange={e => setBulkFields(p => ({ ...p, description: e.target.value }))} className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
+                </div>
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50 md:col-span-2">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applyRequirements} onChange={e => setBulkFields(p => ({ ...p, applyRequirements: e.target.checked }))} /> Requirements — one item per line or comma-separated</label>
+                  <textarea disabled={!bulkFields.applyRequirements} rows={3} value={bulkFields.requirementsText} onChange={e => setBulkFields(p => ({ ...p, requirementsText: e.target.value }))} className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
+                </div>
+              </div>
+            </div>
+
             <div className="flex items-center justify-end space-x-3 pt-4 border-t border-slate-800">
               <button
                 type="button"
@@ -518,10 +615,11 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer flex items-center space-x-2"
+                disabled={isSubmitting}
+                className="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer flex items-center space-x-2 disabled:opacity-50"
               >
                 <Save className="w-4 h-4" />
-                <span>Save Changes to {selectedJobs.length} Jobs</span>
+                <span>{isSubmitting ? "Saving..." : `Save Changes to ${selectedJobs.length} Jobs`}</span>
               </button>
             </div>
           </form>

@@ -465,12 +465,26 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
     }
   };
 
+  const detailSectionLinks = [
+    { id: 'admin-job-source', label: 'Source', visible: Boolean(job.sourceUrl || job.scrapedSourceDomain || job.scrapedAt) },
+    { id: 'admin-job-poster', label: 'Poster', visible: true },
+    { id: 'admin-job-fee', label: 'Fee', visible: true },
+    { id: 'admin-job-location', label: 'Location', visible: true },
+    { id: 'admin-job-extraction', label: 'Extraction', visible: hasExtractionInspectorData },
+    { id: 'admin-job-description', label: 'Description', visible: true },
+    { id: 'admin-job-skills', label: 'Skills', visible: Boolean(job.tags?.length) },
+    { id: 'admin-job-requirements', label: 'Requirements', visible: Boolean(job.requirements?.length) },
+    { id: 'admin-job-visibility', label: 'Visibility', visible: true },
+    { id: 'admin-job-attachments', label: 'Attachments', visible: true },
+    { id: 'admin-job-extracted-text', label: 'Full Text', visible: true }
+  ].filter(link => link.visible);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md overflow-y-auto">
-      <div className="relative w-full max-w-3xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden my-8 text-white animate-in fade-in zoom-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/85 backdrop-blur-md overflow-hidden">
+      <div className="relative flex flex-col w-full max-w-3xl h-[calc(100dvh-1rem)] sm:h-[calc(100dvh-2rem)] max-h-[900px] bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden my-0 text-white animate-in fade-in zoom-in duration-200">
         
         {/* Modal Header */}
-        <div className="p-6 bg-slate-950 border-b border-slate-800 flex items-start justify-between gap-4">
+        <div className="sticky top-0 z-20 shrink-0 p-3 sm:p-6 bg-slate-950 border-b border-slate-800 flex items-start justify-between gap-3">
           <div>
             <div className="flex flex-wrap items-center gap-2 mb-2">
               <span className={`px-2.5 py-1 rounded border text-xs font-bold uppercase ${
@@ -507,19 +521,37 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
           </div>
 
           <button
+            type="button"
             onClick={onClose}
-            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            aria-label="Close job details"
+            className="shrink-0 p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {/* Section navigation: jumps within the independently scrolling detail body. */}
+        <nav aria-label="Job detail sections" className="shrink-0 border-b border-slate-800 bg-slate-900/95 px-3 py-2">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+            {detailSectionLinks.map(link => (
+              <button
+                key={link.id}
+                type="button"
+                onClick={() => document.getElementById(link.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                className="shrink-0 rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-[10px] font-bold text-slate-300 hover:border-indigo-500/60 hover:bg-indigo-950/50 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                {link.label}
+              </button>
+            ))}
+          </div>
+        </nav>
+
         {/* Modal Body */}
-        <div className="p-6 max-h-[70vh] overflow-y-auto space-y-6 text-sm text-slate-300">
+        <div className="flex-1 min-h-0 p-3 sm:p-6 overflow-y-auto overscroll-contain space-y-5 sm:space-y-6 text-sm text-slate-300">
           
           {/* SCRAPED SOURCE & HARVEST TIMESTAMP BANNER */}
           {(job.sourceUrl || job.scrapedSourceDomain || job.scrapedAt) && (
-            <div className="p-4 bg-indigo-950/40 border border-indigo-500/30 rounded-2xl space-y-2">
+            <div id="admin-job-source" className="scroll-mt-3 p-4 bg-indigo-950/40 border border-indigo-500/30 rounded-2xl space-y-2">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center space-x-2 text-xs font-bold text-indigo-300">
                   <Tag className="w-4 h-4 text-indigo-400" />
@@ -730,7 +762,7 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
           )}
 
           {/* POSTER & USER DETAIL LINK CARD WITH PAYMENT STATUS */}
-          <div className="p-4 bg-slate-950/90 border border-amber-500/30 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div id="admin-job-poster" className="scroll-mt-3 p-4 bg-slate-950/90 border border-amber-500/30 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center space-x-3">
               <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-amber-500 to-emerald-500 p-0.5 flex items-center justify-center">
                 <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center font-black text-amber-400">
@@ -776,7 +808,7 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
 
           {/* PER-JOB FEE STATUS */}
           {feeLog ? (
-            <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between text-xs">
+            <div id="admin-job-fee" className="scroll-mt-3 p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between text-xs">
               <div className="flex items-center space-x-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                 <span className="font-bold text-emerald-300">Per-Job Posting Fee Paid:</span>
@@ -785,14 +817,14 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
               <span className="text-slate-400 font-mono">{feeLog.dateTime}</span>
             </div>
           ) : (
-            <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-400 flex items-center justify-between">
+            <div id="admin-job-fee" className="scroll-mt-3 p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-400 flex items-center justify-between">
               <span>Posting Fee Requirement: Standard Subscription / Free Queue</span>
               <span className="font-mono font-semibold text-slate-300">No Extra Fee Logged</span>
             </div>
           )}
 
           {/* Exact Location Breakdown */}
-          <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-1.5 text-xs">
+          <div id="admin-job-location" className="scroll-mt-3 p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-1.5 text-xs">
             <h4 className="font-bold uppercase text-slate-400">Location Breakdown</h4>
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-bold text-emerald-400">Region: {job.region}</span>
@@ -804,7 +836,7 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
 
           {/* EXTRACTION INSPECTOR: READ-ONLY SOURCE VALUES */}
           {hasExtractionInspectorData && (
-            <div className="p-4 bg-slate-950 rounded-xl border border-cyan-500/30 space-y-3 text-xs">
+            <div id="admin-job-extraction" className="scroll-mt-3 p-4 bg-slate-950 rounded-xl border border-cyan-500/30 space-y-3 text-xs">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
                 <h4 className="font-bold uppercase text-cyan-300 flex items-center space-x-1.5">
                   <Search className="w-4 h-4 text-cyan-400" />
@@ -973,7 +1005,7 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
           )}
 
           {/* Job Description */}
-          <div>
+          <div id="admin-job-description" className="scroll-mt-3">
             <h3 className="text-base font-bold text-white mb-2">Job Description</h3>
             <p className="leading-relaxed text-slate-300 whitespace-pre-line bg-slate-950 p-4 rounded-xl border border-slate-800">
               {job.description}
@@ -982,7 +1014,7 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
 
           {/* Skills & Tags */}
           {job.tags && job.tags.length > 0 && (
-            <div>
+            <div id="admin-job-skills" className="scroll-mt-3">
               <h3 className="text-base font-bold text-white mb-2">Required Skills & Stack</h3>
               <div className="flex flex-wrap gap-2">
                 {job.tags.map((tag, idx) => (
@@ -999,7 +1031,7 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
 
           {/* Requirements */}
           {job.requirements && job.requirements.length > 0 && (
-            <div>
+            <div id="admin-job-requirements" className="scroll-mt-3">
               <h3 className="text-base font-bold text-white mb-2">Requirements</h3>
               <ul className="space-y-2 bg-slate-950 p-4 rounded-xl border border-slate-800">
                 {job.requirements.map((req, idx) => (
@@ -1036,7 +1068,7 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
           />
 
           {/* Section: Individual Field Visibility Controls */}
-          <div className="p-4 bg-slate-950 rounded-xl border border-indigo-500/30 space-y-4">
+          <div id="admin-job-visibility" className="scroll-mt-3 p-4 bg-slate-950 rounded-xl border border-indigo-500/30 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
               <div className="flex items-center space-x-2">
                 <ShieldCheck className="w-5 h-5 text-indigo-400 shrink-0" />
@@ -1205,7 +1237,7 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
           </div>
 
           {/* Section: Supporting Documents & Official Attachments */}
-          <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-4">
+          <div id="admin-job-attachments" className="scroll-mt-3 p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center space-x-2">
                 <Paperclip className="w-4 h-4 text-emerald-400" />
@@ -1387,7 +1419,7 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
           </div>
 
           {/* Section: Complete Document Extracted Text */}
-          <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
+          <div id="admin-job-extracted-text" className="scroll-mt-3 p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center space-x-2">
                 <FileText className="w-4 h-4 text-indigo-400" />
@@ -1448,17 +1480,22 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
               Factual content extracted from the original recruitment advertisement. Complete paragraphs, tables, eligibility, quotas, and deadlines are preserved without truncation.
             </p>
 
-            <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4 max-h-96 overflow-y-auto">
-              <pre className="font-mono text-xs text-slate-300 whitespace-pre-wrap leading-relaxed select-text">
-                {job.extractedText || job.description || 'No raw extracted text recorded for this listing.'}
-              </pre>
-            </div>
+            <details className="rounded-xl border border-slate-800 bg-slate-900/90">
+              <summary className="px-4 py-3 text-xs font-bold text-indigo-300 cursor-pointer select-none">
+                View Full Extracted Text ({(job.extractedText || job.description || '').length.toLocaleString()} characters)
+              </summary>
+              <div className="p-4 pt-0 max-h-96 overflow-y-auto">
+                <pre className="font-mono text-xs text-slate-300 whitespace-pre-wrap leading-relaxed select-text">
+                  {job.extractedText || job.description || 'No raw extracted text recorded for this listing.'}
+                </pre>
+              </div>
+            </details>
           </div>
 
         </div>
 
         {/* Modal Action Footer */}
-        <div className="p-4 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
+        <div className="sticky bottom-0 z-20 shrink-0 p-3 sm:p-4 bg-slate-950 border-t border-slate-800 flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-between gap-3">
           <button
             onClick={onClose}
             className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors cursor-pointer"
@@ -1466,7 +1503,7 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
             Close Detail
           </button>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {onEditJob && (
               <button
                 type="button"

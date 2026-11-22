@@ -37,6 +37,7 @@ import { Job, Region, ScrapedJobAuditEntry, JobStatus } from '../../types/job';
 import { api } from '../../services/api';
 import { AdminJobDetailModal } from '../AdminJobDetailModal';
 import { AdminQuickEditJobModal } from './AdminQuickEditJobModal';
+import { AdminJobFilterPresets } from './AdminJobFilterPresets';
 import { suggestJobMetadata } from '../../utils/jobSuggestionEngine';
 import { isScrapedJob, calculateJobMissingFields } from '../../utils/jobValidation';
 import {
@@ -659,10 +660,23 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'Completed' | 'Partial' | 'Failed' | 'Stopped'>('all');
   const [resultsTypeFilter, setResultsTypeFilter] = useState<'all' | 'Approved' | 'Pending' | 'Duplicate' | 'Error'>('all');
   const [reviewTypeFilter, setReviewTypeFilter] = useState<'all' | 'pending' | 'duplicate' | 'conflict'>('all');
+  const [reviewSortOrder, setReviewSortOrder] = useState<'latest' | 'oldest' | 'updated_latest' | 'updated_oldest' | 'expiry_earliest' | 'expiry_latest'>('latest');
+  const [reviewCompletenessFilter, setReviewCompletenessFilter] = useState<'all' | 'complete' | 'incomplete' | 'missing_location' | 'missing_apply' | 'missing_source'>('all');
+  const [reviewLocationFilter, setReviewLocationFilter] = useState<'all' | 'confirmed' | 'unconfirmed'>('all');
+  const [reviewExpiryFilter, setReviewExpiryFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
+  const [reviewDeadlineFilter, setReviewDeadlineFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
+  const [reviewScrapeDateFilter, setReviewScrapeDateFilter] = useState<'all' | 'today' | '24h' | '7days' | '30days' | 'older'>('all');
+  const [reviewProvinceFilter, setReviewProvinceFilter] = useState('all');
+  const [reviewCityFilter, setReviewCityFilter] = useState('');
+  const [reviewPortalFilter, setReviewPortalFilter] = useState('');
+  const [reviewBatchFilter, setReviewBatchFilter] = useState('');
+  const [reviewCategoryFilter, setReviewCategoryFilter] = useState('all');
 
   // Multi-Selection State for Sources
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [selectedReviewIds, setSelectedReviewIds] = useState<string[]>([]);
+  const [selectedReviewJobCache, setSelectedReviewJobCache] = useState<Job[]>([]);
+  const [isSelectingAllReview, setIsSelectingAllReview] = useState(false);
 
   // Execution State
   const [isScrapingActive, setIsScrapingActive] = useState(false);
@@ -707,6 +721,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [inspectingRun, setInspectingRun] = useState<ScraperRunRecord | null>(null);
   const [inspectingJob, setInspectingJob] = useState<Job | null>(null);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
+  const [editingSelectedJobs, setEditingSelectedJobs] = useState<Job[]>([]);
 
   // Global Settings State
   const [globalInterval, setGlobalInterval] = useState('24h');
@@ -1185,11 +1200,16 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   }, [effectivePendingList]);
 
   const selectedDuplicateCount = useMemo(() => {
-    return effectivePendingList.filter(j => selectedReviewIds.includes(j.id) && ((j as any).isDuplicate || (j as any).duplicateWarning || j.description?.toLowerCase().includes('duplicate'))).length;
-  }, [effectivePendingList, selectedReviewIds]);
+    const selectedJobs = new Map([...selectedReviewJobCache, ...effectivePendingList]
+      .filter(job => selectedReviewIds.includes(job.id))
+      .map(job => [job.id, job]));
+    return Array.from(selectedJobs.values()).filter(job =>
+      (job as any).isDuplicate || (job as any).duplicateWarning || job.description?.toLowerCase().includes('duplicate')
+    ).length;
+  }, [effectivePendingList, selectedReviewIds, selectedReviewJobCache]);
 
-  const reviewItems = useMemo(() => {
-    return effectivePendingList.filter(job => {
+  const filterReviewCollection = (pendingCollection: Job[]) => {
+    const filtered = pendingCollection.filter(job => {
       const isDuplicate = (job as any).isDuplicate || (job as any).duplicateWarning ||
         job.description?.toLowerCase().includes('duplicate') ||
         ((job as any).confidenceScore && (job as any).confidenceScore < 60);
@@ -1213,14 +1233,100 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         if (!matchTitle && !matchCompany && !matchPortal) return false;
       }
 
-      if (sourceFilter !== 'all') {
-        const portal = (job as any).sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || '';
-        if (!portal.toLowerCase().includes(sourceFilter.toLowerCase())) return false;
+      const portal = String((job as any).sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || '').toLowerCase();
+      if (sourceFilter !== 'all' && !portal.includes(sourceFilter.toLowerCase())) return false;
+      if (reviewPortalFilter.trim() && !portal.includes(reviewPortalFilter.trim().toLowerCase())) return false;
+      if (reviewBatchFilter.trim() && String((job as any).scraperBatchId || '').toLowerCase() !== reviewBatchFilter.trim().toLowerCase()) return false;
+      if (reviewCategoryFilter !== 'all' && job.jobCategory !== reviewCategoryFilter) return false;
+      const hasApplyUrl = Boolean((job as any).applicationUrl || (job as any).originalApplyUrl || (job as any).externalApplyUrl || (job as any).applyUrl);
+      const hasSourceUrl = Boolean((job as any).sourceUrl || (job as any).scraperSourceUrl);
+      const isComplete = Boolean(job.title?.trim() && job.company?.trim() && job.description?.trim() && (job.city || job.province || job.district || (job.country && job.country !== 'Pakistan')));
+      if (reviewCompletenessFilter === 'complete' && !isComplete) return false;
+      if (reviewCompletenessFilter === 'incomplete' && isComplete) return false;
+      if (reviewCompletenessFilter === 'missing_location' && (job.city || job.province || job.district || (job.country && job.country !== 'Pakistan'))) return false;
+      if (reviewCompletenessFilter === 'missing_apply' && hasApplyUrl) return false;
+      if (reviewCompletenessFilter === 'missing_source' && hasSourceUrl) return false;
+      const locationConfirmed = Boolean((job as any).isLocationConfirmed ?? job.metadata?.isLocationConfirmed ?? false);
+      if (reviewLocationFilter === 'confirmed' && !locationConfirmed) return false;
+      if (reviewLocationFilter === 'unconfirmed' && locationConfirmed) return false;
+      if (reviewProvinceFilter !== 'all' && job.province !== reviewProvinceFilter) return false;
+      if (reviewCityFilter.trim() && !(job.city || '').toLowerCase().includes(reviewCityFilter.trim().toLowerCase())) return false;
+      const matchesReviewDate = (rawDate: unknown, filter: string) => {
+        if (filter === 'all') return true;
+        if (!rawDate) return filter === 'none';
+        const parsedDate = new Date(String(rawDate));
+        if (/^\d{4}-\d{2}-\d{2}$/.test(String(rawDate))) parsedDate.setHours(23, 59, 59, 999);
+        const time = parsedDate.getTime();
+        if (!Number.isFinite(time)) return filter === 'none';
+        const days = (time - Date.now()) / 86400000;
+        if (filter === 'expired') return days < 0;
+        if (filter === '7days') return days >= 0 && days <= 7;
+        if (filter === '30days') return days >= 0 && days <= 30;
+        if (filter === 'future') return days > 30;
+        return true;
+      };
+      if (!matchesReviewDate((job as any).expiryDate, reviewExpiryFilter)) return false;
+      if (!matchesReviewDate((job as any).deadlineDate, reviewDeadlineFilter)) return false;
+      if (reviewScrapeDateFilter !== 'all') {
+        const raw = (job as any).lastScrapedAt || (job as any).scrapedAt || (job as any).createdAt || job.postedAt;
+        const time = raw ? new Date(raw).getTime() : NaN;
+        if (!Number.isFinite(time)) return false;
+        const ageHours = (Date.now() - time) / 3600000;
+        const todayKey = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+        const scrapeDayKey = new Date(time).toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+        if (reviewScrapeDateFilter === 'today' && scrapeDayKey !== todayKey) return false;
+        if (reviewScrapeDateFilter === '24h' && (ageHours < 0 || ageHours > 24)) return false;
+        if (reviewScrapeDateFilter === '7days' && (ageHours < 0 || ageHours > 168)) return false;
+        if (reviewScrapeDateFilter === '30days' && (ageHours < 0 || ageHours > 720)) return false;
+        if (reviewScrapeDateFilter === 'older' && ageHours <= 720) return false;
       }
-
       return true;
     });
-  }, [effectivePendingList, reviewTypeFilter, searchQuery, sourceFilter]);
+    const timestampFor = (job: Job, mode: 'scraped' | 'updated') => {
+      const value = mode === 'scraped'
+        ? ((job as any).lastScrapedAt || (job as any).scrapedAt || (job as any).createdAt || job.postedAt)
+        : ((job as any).updatedAt || (job as any).lastUpdatedAt || (job as any).createdAt || job.postedAt);
+      const parsed = value ? new Date(value).getTime() : NaN;
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    return [...filtered].sort((a, b) => {
+      if (reviewSortOrder.startsWith('expiry_')) {
+        const aExpiry = Date.parse(String((a as any).expiryDate || ''));
+        const bExpiry = Date.parse(String((b as any).expiryDate || ''));
+        const aValid = Number.isFinite(aExpiry); const bValid = Number.isFinite(bExpiry);
+        if (!aValid || !bValid) return aValid ? -1 : bValid ? 1 : 0;
+        return reviewSortOrder === 'expiry_earliest' ? aExpiry - bExpiry : bExpiry - aExpiry;
+      }
+      const useUpdated = reviewSortOrder.startsWith('updated_');
+      const delta = timestampFor(a, useUpdated ? 'updated' : 'scraped') - timestampFor(b, useUpdated ? 'updated' : 'scraped');
+      return reviewSortOrder.endsWith('oldest') ? delta : -delta;
+    });
+  };
+
+  const reviewItems = useMemo(() => filterReviewCollection(effectivePendingList), [effectivePendingList, reviewTypeFilter, searchQuery, sourceFilter, reviewSortOrder, reviewCompletenessFilter, reviewLocationFilter, reviewExpiryFilter, reviewDeadlineFilter, reviewScrapeDateFilter, reviewProvinceFilter, reviewCityFilter, reviewPortalFilter, reviewCategoryFilter, reviewBatchFilter]);
+
+  const handleSelectAllFilteredReviewAcrossPages = async () => {
+    if (isSelectingAllReview) return;
+    setIsSelectingAllReview(true);
+    try {
+      const firstPage: any = await api.jobs.getPendingQueue({ page: 1, limit: 200 });
+      if (!firstPage?.success || !Array.isArray(firstPage.pendingJobs)) throw new Error(firstPage?.message || 'Could not load the first pending page.');
+      const totalPages = Math.max(1, Number(firstPage.totalPages) || 1);
+      if (totalPages > 25) throw new Error('The pending queue is larger than the safe all-pages selection limit (5,000 records). Narrow filters or use page-by-page selection.');
+      const remainingPages = await Promise.all(Array.from({ length: totalPages - 1 }, (_, index) => api.jobs.getPendingQueue({ page: index + 2, limit: 200 })));
+      if (remainingPages.some((page: any) => !page?.success || !Array.isArray(page.pendingJobs))) throw new Error('One or more pending pages could not be loaded. No new selection was applied.');
+      const allPending = [...firstPage.pendingJobs, ...remainingPages.flatMap((page: any) => page.pendingJobs)];
+      const allFiltered = filterReviewCollection(allPending);
+      if (allFiltered.length > 500) throw new Error(`${allFiltered.length} jobs match. Existing bulk endpoints safely process up to 500 IDs per operation; narrow filters to 500 or fewer.`);
+      setSelectedReviewIds(allFiltered.map(job => job.id));
+      setSelectedReviewJobCache(allFiltered);
+      setStatusMessage({ text: `Selected ${allFiltered.length} filtered review jobs across ${totalPages} page(s).`, type: 'success' });
+    } catch (err: any) {
+      setStatusMessage({ text: err?.message || 'Could not select all filtered review jobs.', type: 'error' });
+    } finally {
+      setIsSelectingAllReview(false);
+    }
+  };
 
   // -------------------------------------------------------------
   // Results Feed Items (Discovered Jobs from recent runs & live db)
@@ -1970,6 +2076,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
   const handleDeselectAllReview = () => {
     setSelectedReviewIds([]);
+    setSelectedReviewJobCache([]);
   };
 
   const handleApproveSelected = async () => {
@@ -1991,6 +2098,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           });
         }
         setSelectedReviewIds([]);
+        setSelectedReviewJobCache([]);
         await fetchPendingQueue();
         if (onReloadJobs) await onReloadJobs();
       } else {
@@ -2022,6 +2130,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           });
         }
         setSelectedReviewIds([]);
+        setSelectedReviewJobCache([]);
         await fetchPendingQueue();
         if (onReloadJobs) await onReloadJobs();
       } else {
@@ -2053,6 +2162,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           });
         }
         setSelectedReviewIds([]);
+        setSelectedReviewJobCache([]);
         await fetchPendingQueue();
         if (onReloadJobs) await onReloadJobs();
       } else {
@@ -2084,7 +2194,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             type: 'success'
           });
         }
-        if (!singleId) setSelectedReviewIds([]);
+        if (!singleId) { setSelectedReviewIds([]); setSelectedReviewJobCache([]); }
         await fetchPendingQueue();
         if (onReloadJobs) await onReloadJobs();
       } else {
@@ -2116,7 +2226,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             type: 'success'
           });
         }
-        if (!singleId) setSelectedReviewIds([]);
+        if (!singleId) { setSelectedReviewIds([]); setSelectedReviewJobCache([]); }
         await fetchPendingQueue();
         if (onReloadJobs) await onReloadJobs();
       } else {
@@ -4315,6 +4425,33 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Multi-Select:</span>
                 <button
                   type="button"
+                  onClick={() => { setSelectedReviewIds(Array.from(new Set(effectivePendingList.map(job => job.id)))); setSelectedReviewJobCache(effectivePendingList); }}
+                  disabled={effectivePendingList.length === 0}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40"
+                  title="Select every row loaded on the current server page, regardless of the active review filter"
+                >
+                  Select Current Page ({effectivePendingList.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setSelectedReviewIds(Array.from(new Set(reviewItems.map(job => job.id)))); setSelectedReviewJobCache(reviewItems); }}
+                  disabled={reviewItems.length === 0}
+                  className="px-3 py-1.5 bg-cyan-950/50 hover:bg-cyan-900/60 text-cyan-200 border border-cyan-800/50 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40"
+                  title="Select all results matching active filters on the currently loaded page only"
+                >
+                  Select Filtered (Current Page: {reviewItems.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSelectAllFilteredReviewAcrossPages}
+                  disabled={isSelectingAllReview || effectivePendingList.length === 0}
+                  className="px-3 py-1.5 bg-cyan-950/50 hover:bg-cyan-900/60 text-cyan-200 border border-cyan-800/50 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40"
+                  title="Fetch all pending pages, apply the active filters, and select matching jobs (up to 500 for safe bulk operations)"
+                >
+                  {isSelectingAllReview ? 'Loading all pages…' : 'Select Filtered (All Pages)'}
+                </button>
+                <button
+                  type="button"
                   onClick={handleSelectAllPending}
                   className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5"
                 >
@@ -4347,8 +4484,24 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               </div>
             </div>
 
-            {/* Execution Buttons (MongoDB Operations) */}
+            {/* Explicit-field bulk editor: unchecked fields remain untouched. */}
             <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                disabled={selectedReviewIds.length === 0 || isProcessingReview}
+                onClick={() => {
+                  const selected = Array.from(new Map([...selectedReviewJobCache, ...effectivePendingList].filter(job => selectedReviewIds.includes(job.id)).map(job => [job.id, job])).values());
+                  if (selected.length > 0) {
+                    setEditingJob(null);
+                    setEditingSelectedJobs(selected);
+                  }
+                }}
+                className="px-3.5 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-200 border border-amber-500/30 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40"
+                title="Bulk edit only the attributes explicitly checked in the editor"
+              >
+                <Edit3 className="w-3.5 h-3.5 inline mr-1.5" />
+                Bulk Edit Selected ({selectedReviewIds.length})
+              </button>
               <button
                 type="button"
                 disabled={selectedReviewIds.length === 0 || isProcessingReview}
@@ -4371,6 +4524,37 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 <span>Reject Selected</span>
               </button>
 
+              {canDeleteScrapedJobs === true && (
+                <button
+                  type="button"
+                  disabled={selectedReviewIds.length === 0 || isProcessingReview}
+                  onClick={async () => {
+                    if (!confirm(`Permanently delete ${selectedReviewIds.length} selected review jobs? This cannot be undone.`)) return;
+                    setIsProcessingReview(true);
+                    try {
+                      const res = await api.jobs.bulkDelete(selectedReviewIds);
+                      if (res?.success) {
+                        setStatusMessage({ text: `Deleted ${res.deletedCount ?? selectedReviewIds.length} selected jobs.`, type: 'success' });
+                        setSelectedReviewIds([]);
+                        setSelectedReviewJobCache([]);
+                        await fetchPendingQueue();
+                        if (onReloadJobs) await onReloadJobs();
+                      } else {
+                        setStatusMessage({ text: res?.message || 'Bulk delete could not be confirmed.', type: 'error' });
+                      }
+                    } catch (err: any) {
+                      setStatusMessage({ text: `Bulk delete error: ${err.message}`, type: 'error' });
+                    } finally {
+                      setIsProcessingReview(false);
+                    }
+                  }}
+                  className="px-3.5 py-2 bg-rose-700 hover:bg-rose-600 text-white border border-rose-500/50 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1.5"
+                  title="Delete all selected review jobs using the existing permission-checked admin delete route"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Bulk Delete Selected ({selectedReviewIds.length})</span>
+                </button>
+              )}
               <button
                 type="button"
                 disabled={selectedDuplicateCount === 0 || isProcessingReview}
@@ -4421,7 +4605,57 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center space-x-2 flex-wrap gap-1">
+            <div className="w-full">
+              <AdminJobFilterPresets
+                storageKey="hybrid-admin-scraper-review-filter-presets-v1"
+                filters={{ search: searchQuery, sort: reviewSortOrder, batch: reviewBatchFilter, portal: reviewPortalFilter, category: reviewCategoryFilter, city: reviewCityFilter, province: reviewProvinceFilter, scrapeDate: reviewScrapeDateFilter, completeness: reviewCompletenessFilter, location: reviewLocationFilter, expiry: reviewExpiryFilter, deadline: reviewDeadlineFilter, type: reviewTypeFilter }}
+                onApply={(values) => {
+                  setSearchQuery(String(values.search ?? ''));
+                  setReviewSortOrder(String(values.sort ?? 'latest') as typeof reviewSortOrder);
+                  setReviewBatchFilter(String(values.batch ?? ''));
+                  setReviewPortalFilter(String(values.portal ?? ''));
+                  setReviewCategoryFilter(String(values.category ?? 'all'));
+                  setReviewCityFilter(String(values.city ?? ''));
+                  setReviewProvinceFilter(String(values.province ?? 'all'));
+                  setReviewScrapeDateFilter(String(values.scrapeDate ?? 'all') as typeof reviewScrapeDateFilter);
+                  setReviewCompletenessFilter(String(values.completeness ?? 'all') as typeof reviewCompletenessFilter);
+                  setReviewLocationFilter(String(values.location ?? 'all') as typeof reviewLocationFilter);
+                  setReviewExpiryFilter(String(values.expiry ?? 'all') as typeof reviewExpiryFilter);
+                  setReviewDeadlineFilter(String(values.deadline ?? 'all') as typeof reviewDeadlineFilter);
+                  setReviewTypeFilter(String(values.type ?? 'all') as typeof reviewTypeFilter);
+                  setSelectedReviewIds([]);
+                  setSelectedReviewJobCache([]);
+                }}
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 text-[11px] font-semibold text-slate-400">
+                Sort:
+                <select
+                  value={reviewSortOrder}
+                  onChange={(e) => setReviewSortOrder(e.target.value as typeof reviewSortOrder)}
+                  className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none focus:border-indigo-500"
+                  aria-label="Sort review jobs by scrape or update date"
+                >
+                  <option value="latest">Latest scraped first</option>
+                  <option value="oldest">Oldest scraped first</option>
+                  <option value="updated_latest">Recently updated first</option>
+                  <option value="updated_oldest">Oldest updated first</option>
+                  <option value="expiry_earliest">Earliest expiry first</option>
+                  <option value="expiry_latest">Latest expiry first</option>
+                </select>
+              </label>
+              <input value={reviewBatchFilter} onChange={(e) => setReviewBatchFilter(e.target.value)} placeholder="Scrape batch ID" className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white w-32" />
+              <input value={reviewPortalFilter} onChange={(e) => setReviewPortalFilter(e.target.value)} placeholder="Source portal (e.g. FPSC)" className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white w-36" />
+              <select value={reviewCategoryFilter} onChange={(e) => setReviewCategoryFilter(e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"><option value="all">All Job Categories</option><option value="Government Sector">Government</option><option value="Private Corporate">Private</option><option value="Newspaper Classified">Newspaper</option><option value="International Remote">International</option></select>
+              <input value={reviewCityFilter} onChange={(e) => setReviewCityFilter(e.target.value)} placeholder="City" className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white w-24" />
+              <select value={reviewProvinceFilter} onChange={(e) => setReviewProvinceFilter(e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"><option value="all">All Provinces</option><option>Punjab</option><option>Sindh</option><option>Khyber Pakhtunkhwa</option><option>Balochistan</option><option>Islamabad Capital Territory</option><option>Azad Kashmir</option><option>Gilgit-Baltistan</option></select>
+              <select value={reviewScrapeDateFilter} onChange={(e) => setReviewScrapeDateFilter(e.target.value as typeof reviewScrapeDateFilter)} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"><option value="all">Any Scrape Time</option><option value="today">Today</option><option value="24h">Last 24 Hours</option><option value="7days">Last 7 Days</option><option value="30days">Last 30 Days</option><option value="older">Older than 30 Days</option></select>
+              <select value={reviewCompletenessFilter} onChange={(e) => setReviewCompletenessFilter(e.target.value as typeof reviewCompletenessFilter)} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"><option value="all">All Job Details</option><option value="complete">Complete Jobs</option><option value="incomplete">Incomplete Jobs</option><option value="missing_location">Missing Location</option><option value="missing_apply">Missing Apply URL</option><option value="missing_source">Missing Scraper Source URL</option></select>
+              <select value={reviewLocationFilter} onChange={(e) => setReviewLocationFilter(e.target.value as typeof reviewLocationFilter)} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"><option value="all">All Location Status</option><option value="confirmed">Location Confirmed</option><option value="unconfirmed">Location Unconfirmed</option></select>
+              <select value={reviewExpiryFilter} onChange={(e) => setReviewExpiryFilter(e.target.value as typeof reviewExpiryFilter)} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"><option value="all">Any Expiry</option><option value="expired">Expired</option><option value="7days">Expires in 7 Days</option><option value="30days">Expires in 30 Days</option><option value="future">Later Expiry</option><option value="none">No Expiry</option></select>
+              <select value={reviewDeadlineFilter} onChange={(e) => setReviewDeadlineFilter(e.target.value as typeof reviewDeadlineFilter)} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"><option value="all">Any Application Deadline</option><option value="expired">Deadline Passed</option><option value="7days">Deadline in 7 Days</option><option value="30days">Deadline in 30 Days</option><option value="future">Later Deadline</option><option value="none">No Deadline</option></select>
+              <div className="flex items-center space-x-2 flex-wrap gap-1">
               {(['all', 'pending', 'duplicate', 'conflict'] as const).map(type => (
                 <button
                   key={type}
@@ -4442,6 +4676,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     : `⚠️ Conflicts (${locationConflictCount})`}
                 </button>
               ))}
+              </div>
             </div>
           </div>
 
@@ -4462,6 +4697,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     type="button"
                     onClick={() => {
                       setSelectedReviewIds([]);
+                      setSelectedReviewJobCache([]);
                       if (onPendingPageChange) onPendingPageChange(1, size);
                     }}
                     className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
@@ -4486,6 +4722,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   disabled={(pendingPage ?? 1) <= 1}
                   onClick={() => {
                     setSelectedReviewIds([]);
+                    setSelectedReviewJobCache([]);
                     if (onPendingPageChange) onPendingPageChange((pendingPage ?? 1) - 1, pendingLimit);
                   }}
                   className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 font-bold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
@@ -4497,6 +4734,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   disabled={(pendingPage ?? 1) >= (pendingTotalPages ?? 1)}
                   onClick={() => {
                     setSelectedReviewIds([]);
+                    setSelectedReviewJobCache([]);
                     if (onPendingPageChange) onPendingPageChange((pendingPage ?? 1) + 1, pendingLimit);
                   }}
                   className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 font-bold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
@@ -4583,6 +4821,18 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                       >
                         <Eye className="w-3.5 h-3.5" />
                         <span>Details</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingSelectedJobs([]);
+                          setEditingJob(job);
+                        }}
+                        className="px-3 py-1.5 bg-amber-950/50 hover:bg-amber-900/70 text-amber-200 border border-amber-700/50 rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer"
+                        title="Edit this job directly"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>Edit</span>
                       </button>
 
                       {isDup ? (
@@ -5864,11 +6114,13 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       {/* ============================================================= */}
       {/* MODAL: QUICK EDIT SCRAPED / LIVE JOB                         */}
       {/* ============================================================= */}
-      {editingJob && (
+      {(editingJob || editingSelectedJobs.length > 0) && (
         <AdminQuickEditJobModal
-          isOpen={!!editingJob}
+          isOpen={!!editingJob || editingSelectedJobs.length > 0}
           job={editingJob}
-          onClose={() => setEditingJob(null)}
+          selectedJobs={editingSelectedJobs}
+          allowBulkStatusChange={false}
+          onClose={() => { setEditingJob(null); setEditingSelectedJobs([]); }}
           onSaveJob={async (updatedJob) => {
             try {
               const res = await api.jobs.update(updatedJob.id, updatedJob);
@@ -5883,6 +6135,24 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               setStatusMessage({ text: `Update error: ${err.message}`, type: 'error' });
             } finally {
               setEditingJob(null);
+            }
+          }}
+          onBulkSaveJobs={async (updatedJobs) => {
+            try {
+              const res = await api.jobs.bulkUpdate(updatedJobs);
+              if (res && (res as any).success === false) {
+                setStatusMessage({ text: `Bulk update error: ${(res as any).message || 'Failed to update selected jobs'}`, type: 'error' });
+              } else {
+                setStatusMessage({ text: `Bulk update completed for ${updatedJobs.length} selected jobs.`, type: 'success' });
+                setSelectedReviewIds([]);
+                setSelectedReviewJobCache([]);
+                await fetchPendingQueue();
+                if (onReloadJobs) await onReloadJobs();
+              }
+            } catch (err: any) {
+              setStatusMessage({ text: `Bulk update error: ${err.message}`, type: 'error' });
+            } finally {
+              // The modal closes itself after this async save callback resolves.
             }
           }}
           onSaveAndApproveJob={async (updatedJob) => {

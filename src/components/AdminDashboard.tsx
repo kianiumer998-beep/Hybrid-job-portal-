@@ -84,6 +84,7 @@ import { safeLocalStorageSet, safeLocalStorageGet, safeAlert, clearBulkyStorageC
 import { AdminAdHub } from './ads/AdminAdHub';
 import { PdfConsolidatedScraperModal } from './PdfConsolidatedScraperModal';
 import { AdminQuickEditJobModal } from './admin/AdminQuickEditJobModal';
+import { AdminJobFilterPresets } from './admin/AdminJobFilterPresets';
 import { AdminDuplicateCheckerModal, DuplicateCluster } from './admin/AdminDuplicateCheckerModal';
 import { AdminSubscriberModal } from './admin/AdminSubscriberModal';
 import { JobVisibilityDefaultsManager } from './admin/JobVisibilityDefaultsManager';
@@ -1795,7 +1796,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [jobsScaleFilter, setJobsScaleFilter] = useState('all');
   const [jobsProvinceFilter, setJobsProvinceFilter] = useState('all');
   const [jobsStatusFilter, setJobsStatusFilter] = useState('all');
-  const [jobsSortBy, setJobsSortBy] = useState<'newest' | 'oldest' | 'title' | 'salary'>('newest');
+  const [jobsPortalFilter, setJobsPortalFilter] = useState('');
+  const [jobsBatchFilter, setJobsBatchFilter] = useState('');
+  const [jobsCityFilter, setJobsCityFilter] = useState('');
+  const [jobsScrapeDateFilter, setJobsScrapeDateFilter] = useState<'all' | 'today' | '24h' | '7days' | '30days' | 'older'>('all');
+  const [jobsCompletenessFilter, setJobsCompletenessFilter] = useState<'all' | 'complete' | 'incomplete' | 'missing_location' | 'missing_apply' | 'missing_source'>('all');
+  const [jobsLocationFilter, setJobsLocationFilter] = useState<'all' | 'confirmed' | 'unconfirmed'>('all');
+  const [jobsExpiryFilter, setJobsExpiryFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
+  const [jobsDeadlineFilter, setJobsDeadlineFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
+  const [jobsSortBy, setJobsSortBy] = useState<'newest' | 'oldest' | 'title' | 'salary' | 'scraped_latest' | 'scraped_oldest' | 'updated_latest' | 'updated_oldest' | 'expiry_earliest' | 'expiry_latest'>('newest');
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
   const [showJobsDuplicatesOnly, setShowJobsDuplicatesOnly] = useState(false);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
@@ -1807,8 +1816,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [pendingSearchQuery, setPendingSearchQuery] = useState('');
   const [pendingCategoryFilter, setPendingCategoryFilter] = useState('all');
   const [pendingSourceFilter, setPendingSourceFilter] = useState('all');
-  const [pendingSortBy, setPendingSortBy] = useState<'newest' | 'oldest' | 'title'>('newest');
+  const [pendingPortalFilter, setPendingPortalFilter] = useState('');
+  const [pendingBatchFilter, setPendingBatchFilter] = useState('');
+  const [pendingCityFilter, setPendingCityFilter] = useState('');
+  const [pendingProvinceFilter, setPendingProvinceFilter] = useState('all');
+  const [pendingScrapeDateFilter, setPendingScrapeDateFilter] = useState<'all' | 'today' | '24h' | '7days' | '30days' | 'older'>('all');
+  const [pendingCompletenessFilter, setPendingCompletenessFilter] = useState<'all' | 'complete' | 'incomplete' | 'missing_location' | 'missing_apply' | 'missing_source'>('all');
+  const [pendingLocationFilter, setPendingLocationFilter] = useState<'all' | 'confirmed' | 'unconfirmed'>('all');
+  const [pendingExpiryFilter, setPendingExpiryFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
+  const [pendingDeadlineFilter, setPendingDeadlineFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
+  const [pendingSortBy, setPendingSortBy] = useState<'newest' | 'oldest' | 'title' | 'scraped_latest' | 'scraped_oldest' | 'updated_latest' | 'updated_oldest' | 'expiry_earliest' | 'expiry_latest'>('newest');
   const [selectedPendingIds, setSelectedPendingIds] = useState<string[]>([]);
+  const [selectedPendingJobCache, setSelectedPendingJobCache] = useState<Job[]>([]);
+  const [isSelectingAllPending, setIsSelectingAllPending] = useState(false);
   const [showPendingDuplicatesOnly, setShowPendingDuplicatesOnly] = useState(false);
   const [isPendingDuplicateModalOpen, setIsPendingDuplicateModalOpen] = useState(false);
 
@@ -3950,7 +3970,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const liveCaseSet = new Set(jobs.filter(j => j.pdfCaseNumber).map(j => j.pdfCaseNumber!.trim().toLowerCase()));
 
         // Filter and Search
-        const filteredPending = pendingJobs.filter(pJob => {
+        const filterPendingCollection = (pendingCollection: Job[]) => {
+          const pendingClustersForCollection = computeJobDuplicateClusters([...jobs, ...pendingCollection]);
+          return pendingCollection.filter(pJob => {
           if (pendingSearchQuery.trim()) {
             const q = pendingSearchQuery.toLowerCase();
             const matchesTitle = (pJob.title || '').toLowerCase().includes(q);
@@ -3971,17 +3993,106 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           if (pendingSourceFilter === 'pdf' && !pJob.isPdfScraped && !pJob.pdfCaseNumber) {
             return false;
           }
+          const pendingPortal = String((pJob as any).sourcePortal || pJob.scraperSourceName || pJob.scrapedSourceDomain || '').toLowerCase();
+          if (pendingPortalFilter.trim() && !pendingPortal.includes(pendingPortalFilter.trim().toLowerCase())) return false;
+          if (pendingBatchFilter.trim() && String((pJob as any).scraperBatchId || '').toLowerCase() !== pendingBatchFilter.trim().toLowerCase()) return false;
+          if (pendingCityFilter.trim() && !(pJob.city || '').toLowerCase().includes(pendingCityFilter.trim().toLowerCase())) return false;
+          if (pendingProvinceFilter !== 'all' && pJob.province !== pendingProvinceFilter) return false;
+          if (pendingScrapeDateFilter !== 'all') {
+            const rawScrapeDate = (pJob as any).lastScrapedAt || (pJob as any).scrapedAt || pJob.createdAt || pJob.postedAt;
+            const scrapeTime = rawScrapeDate ? new Date(rawScrapeDate).getTime() : NaN;
+            if (!Number.isFinite(scrapeTime)) return false;
+            const ageHours = (Date.now() - scrapeTime) / 3600000;
+            const todayKey = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+            const scrapeDayKey = new Date(scrapeTime).toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+            if (pendingScrapeDateFilter === 'today' && scrapeDayKey !== todayKey) return false;
+            if (pendingScrapeDateFilter === '24h' && (ageHours < 0 || ageHours > 24)) return false;
+            if (pendingScrapeDateFilter === '7days' && (ageHours < 0 || ageHours > 168)) return false;
+            if (pendingScrapeDateFilter === '30days' && (ageHours < 0 || ageHours > 720)) return false;
+            if (pendingScrapeDateFilter === 'older' && ageHours <= 720) return false;
+          }
+          const pendingHasApplyUrl = Boolean((pJob as any).applicationUrl || (pJob as any).originalApplyUrl || (pJob as any).externalApplyUrl || (pJob as any).applyUrl);
+          const pendingHasSourceUrl = Boolean((pJob as any).sourceUrl || (pJob as any).scraperSourceUrl);
+          const pendingIsComplete = Boolean(pJob.title?.trim() && pJob.company?.trim() && pJob.description?.trim() && (pJob.city || pJob.province || pJob.district || (pJob.country && pJob.country !== 'Pakistan')));
+          if (pendingCompletenessFilter === 'complete' && !pendingIsComplete) return false;
+          if (pendingCompletenessFilter === 'incomplete' && pendingIsComplete) return false;
+          if (pendingCompletenessFilter === 'missing_location' && (pJob.city || pJob.province || pJob.district || (pJob.country && pJob.country !== 'Pakistan'))) return false;
+          if (pendingCompletenessFilter === 'missing_apply' && pendingHasApplyUrl) return false;
+          if (pendingCompletenessFilter === 'missing_source' && pendingHasSourceUrl) return false;
+          const pendingLocationConfirmed = Boolean((pJob as any).isLocationConfirmed ?? pJob.metadata?.isLocationConfirmed ?? false);
+          if (pendingLocationFilter === 'confirmed' && !pendingLocationConfirmed) return false;
+          if (pendingLocationFilter === 'unconfirmed' && pendingLocationConfirmed) return false;
+          const matchesAdminDateFilter = (rawDate: unknown, filter: string) => {
+            if (filter === 'all') return true;
+            if (!rawDate) return filter === 'none';
+            const date = new Date(String(rawDate));
+            if (/^\d{4}-\d{2}-\d{2}$/.test(String(rawDate))) date.setHours(23, 59, 59, 999);
+            const time = date.getTime();
+            if (!Number.isFinite(time)) return filter === 'none';
+            const now = Date.now();
+            const days = (time - now) / 86400000;
+            if (filter === 'expired') return days < 0;
+            if (filter === '7days') return days >= 0 && days <= 7;
+            if (filter === '30days') return days >= 0 && days <= 30;
+            if (filter === 'future') return days > 30;
+            return true;
+          };
+          if (!matchesAdminDateFilter((pJob as any).expiryDate, pendingExpiryFilter)) return false;
+          if (!matchesAdminDateFilter((pJob as any).deadlineDate, pendingDeadlineFilter)) return false;
           if (showPendingDuplicatesOnly) {
             const isDupOfLive = liveTitleSet.has(`${(pJob.title || '').trim().toLowerCase()}|${(pJob.company || '').trim().toLowerCase()}`) || (pJob.pdfCaseNumber && liveCaseSet.has(pJob.pdfCaseNumber.trim().toLowerCase()));
-            const isDupInPending = pendingClusters.some(c => c.items.some(it => it.id === pJob.id));
+            const isDupInPending = pendingClustersForCollection.some(c => c.items.some(it => it.id === pJob.id));
             if (!isDupOfLive && !isDupInPending) return false;
           }
           return true;
-        }).sort((a, b) => {
-          if (pendingSortBy === 'title') return a.title.localeCompare(b.title);
-          if (pendingSortBy === 'oldest') return (a.postedAt || '').localeCompare(b.postedAt || '');
-          return (b.postedAt || '').localeCompare(a.postedAt || '');
+          });
+        };
+
+        const sortPendingCollection = (pendingList: Job[]) => [...pendingList].sort((a, b) => {
+          if (pendingSortBy === 'title') return (a.title || '').localeCompare(b.title || '');
+          if (pendingSortBy.startsWith('expiry_')) {
+            const aExpiry = Date.parse(String((a as any).expiryDate || ''));
+            const bExpiry = Date.parse(String((b as any).expiryDate || ''));
+            const aValid = Number.isFinite(aExpiry); const bValid = Number.isFinite(bExpiry);
+            if (!aValid || !bValid) return aValid ? -1 : bValid ? 1 : 0;
+            return pendingSortBy === 'expiry_earliest' ? aExpiry - bExpiry : bExpiry - aExpiry;
+          }
+          const dateValue = (job: Job, mode: 'scraped' | 'updated' | 'posted') => {
+            const value = mode === 'scraped' ? ((job as any).lastScrapedAt || (job as any).scrapedAt || job.createdAt || job.postedAt)
+              : mode === 'updated' ? ((job as any).updatedAt || (job as any).lastUpdatedAt || job.createdAt || job.postedAt)
+              : (job.createdAt || job.postedAt);
+            const parsed = value ? new Date(value).getTime() : NaN;
+            return Number.isFinite(parsed) ? parsed : 0;
+          };
+          const mode = pendingSortBy.startsWith('scraped_') ? 'scraped' : pendingSortBy.startsWith('updated_') ? 'updated' : 'posted';
+          const delta = dateValue(a, mode) - dateValue(b, mode);
+          return pendingSortBy === 'oldest' || pendingSortBy.endsWith('_oldest') ? delta : -delta;
         });
+        const filteredPending = sortPendingCollection(filterPendingCollection(pendingJobs));
+
+        const handleSelectAllFilteredAcrossPages = async () => {
+          if (isSelectingAllPending) return;
+          setIsSelectingAllPending(true);
+          try {
+            const firstPage: any = await api.jobs.getPendingQueue({ page: 1, limit: 200 });
+            if (!firstPage?.success || !Array.isArray(firstPage.pendingJobs)) throw new Error(firstPage?.message || 'Could not load the first pending page.');
+            const totalPages = Math.max(1, Number(firstPage.totalPages) || 1);
+            if (totalPages > 25) throw new Error('The pending queue is larger than the safe all-pages selection limit (5,000 records). Please narrow the filters or use page-by-page selection.');
+            const remainingPages = await Promise.all(Array.from({ length: totalPages - 1 }, (_, index) => api.jobs.getPendingQueue({ page: index + 2, limit: 200 })));
+            const failedPage = remainingPages.find((page: any) => !page?.success || !Array.isArray(page.pendingJobs));
+            if (failedPage) throw new Error('One or more pending pages could not be loaded. No new selection was applied.');
+            const allPending = [...firstPage.pendingJobs, ...remainingPages.flatMap((page: any) => page.pendingJobs)];
+            const allFiltered = sortPendingCollection(filterPendingCollection(allPending));
+            if (allFiltered.length > 500) throw new Error(`${allFiltered.length} jobs match these filters. Existing bulk endpoints safely process up to 500 IDs per operation; narrow the filters to 500 or fewer before selecting all pages.`);
+            setSelectedPendingIds(allFiltered.map(job => job.id));
+            setSelectedPendingJobCache(allFiltered);
+            alert(`Selected ${allFiltered.length} filtered pending jobs across ${totalPages} page(s).`);
+          } catch (err: any) {
+            alert(err?.message || 'Could not select all filtered pending jobs.');
+          } finally {
+            setIsSelectingAllPending(false);
+          }
+        };
 
         const allSelected = filteredPending.length > 0 && filteredPending.every(j => selectedPendingIds.includes(j.id));
 
@@ -4008,6 +4119,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             selectedPendingIds.forEach(id => handleAdminApproveJob(id));
           }
           setSelectedPendingIds([]);
+          setSelectedPendingJobCache([]);
         };
 
         const handleBulkReject = () => {
@@ -4020,6 +4132,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               selectedPendingIds.forEach(id => handleAdminRejectJob(id, reason));
             }
             setSelectedPendingIds([]);
+            setSelectedPendingJobCache([]);
           }
         };
 
@@ -4036,6 +4149,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               });
             }
             setSelectedPendingIds([]);
+            setSelectedPendingJobCache([]);
           }
         };
 
@@ -4116,6 +4230,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
 
                 {/* Filters */}
+                <div className="w-full">
+                  <AdminJobFilterPresets
+                    storageKey="hybrid-admin-pending-job-filter-presets-v1"
+                    filters={{ search: pendingSearchQuery, category: pendingCategoryFilter, source: pendingSourceFilter, sort: pendingSortBy, completeness: pendingCompletenessFilter, portal: pendingPortalFilter, batch: pendingBatchFilter, city: pendingCityFilter, province: pendingProvinceFilter, scrapeDate: pendingScrapeDateFilter, location: pendingLocationFilter, expiry: pendingExpiryFilter, deadline: pendingDeadlineFilter, duplicatesOnly: showPendingDuplicatesOnly }}
+                    onApply={(values) => {
+                      setPendingSearchQuery(String(values.search ?? ''));
+                      setPendingCategoryFilter(String(values.category ?? 'all'));
+                      setPendingSourceFilter(String(values.source ?? 'all'));
+                      setPendingSortBy(String(values.sort ?? 'newest') as typeof pendingSortBy);
+                      setPendingCompletenessFilter(String(values.completeness ?? 'all') as typeof pendingCompletenessFilter);
+                      setPendingPortalFilter(String(values.portal ?? ''));
+                      setPendingBatchFilter(String(values.batch ?? ''));
+                      setPendingCityFilter(String(values.city ?? ''));
+                      setPendingProvinceFilter(String(values.province ?? 'all'));
+                      setPendingScrapeDateFilter(String(values.scrapeDate ?? 'all') as typeof pendingScrapeDateFilter);
+                      setPendingLocationFilter(String(values.location ?? 'all') as typeof pendingLocationFilter);
+                      setPendingExpiryFilter(String(values.expiry ?? 'all') as typeof pendingExpiryFilter);
+                      setPendingDeadlineFilter(String(values.deadline ?? 'all') as typeof pendingDeadlineFilter);
+                      setShowPendingDuplicatesOnly(values.duplicatesOnly === true);
+                      setSelectedPendingIds([]);
+                      setSelectedPendingJobCache([]);
+                    }}
+                  />
+                </div>
                 <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
                   <select
                     value={pendingCategoryFilter}
@@ -4152,7 +4290,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <option value="newest">Sort: Newest First</option>
                     <option value="oldest">Sort: Oldest First</option>
                     <option value="title">Sort: Job Title (A-Z)</option>
+                    <option value="scraped_latest">Latest Scraped First</option>
+                    <option value="scraped_oldest">Oldest Scraped First</option>
+                    <option value="updated_latest">Recently Updated First</option>
+                    <option value="updated_oldest">Oldest Updated First</option><option value="expiry_earliest">Earliest Expiry First</option><option value="expiry_latest">Latest Expiry First</option>
                   </select>
+
+                  <select value={pendingCompletenessFilter} onChange={(e) => setPendingCompletenessFilter(e.target.value as typeof pendingCompletenessFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium">
+                    <option value="all">All Job Details</option><option value="complete">Complete Jobs</option><option value="incomplete">Incomplete Jobs</option><option value="missing_location">Missing Location</option><option value="missing_apply">Missing Apply URL</option><option value="missing_source">Missing Scraper Source URL</option>
+                  </select>
+                  <input value={pendingPortalFilter} onChange={(e) => setPendingPortalFilter(e.target.value)} placeholder="Source portal (e.g. FPSC)" className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white min-w-[150px]" />
+                  <input value={pendingBatchFilter} onChange={(e) => setPendingBatchFilter(e.target.value)} placeholder="Scrape batch ID" className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white min-w-[130px]" />
+                  <input value={pendingCityFilter} onChange={(e) => setPendingCityFilter(e.target.value)} placeholder="City" className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white min-w-[110px]" />
+                  <select value={pendingProvinceFilter} onChange={(e) => setPendingProvinceFilter(e.target.value)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium"><option value="all">All Provinces</option><option>Punjab</option><option>Sindh</option><option>Khyber Pakhtunkhwa</option><option>Balochistan</option><option>Islamabad Capital Territory</option><option>Azad Kashmir</option><option>Gilgit-Baltistan</option></select>
+                  <select value={pendingScrapeDateFilter} onChange={(e) => setPendingScrapeDateFilter(e.target.value as typeof pendingScrapeDateFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium"><option value="all">Any Scrape Time</option><option value="today">Scraped Today</option><option value="24h">Last 24 Hours</option><option value="7days">Last 7 Days</option><option value="30days">Last 30 Days</option><option value="older">Older than 30 Days</option></select>
+                  <select value={pendingLocationFilter} onChange={(e) => setPendingLocationFilter(e.target.value as typeof pendingLocationFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium">
+                    <option value="all">All Location Status</option><option value="confirmed">Location Confirmed</option><option value="unconfirmed">Location Unconfirmed</option>
+                  </select>
+                  <select value={pendingExpiryFilter} onChange={(e) => setPendingExpiryFilter(e.target.value as typeof pendingExpiryFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium"><option value="all">Any Expiry Date</option><option value="expired">Expired</option><option value="7days">Expires in 7 Days</option><option value="30days">Expires in 30 Days</option><option value="future">Later Expiry</option><option value="none">No Expiry Date</option></select>
+                  <select value={pendingDeadlineFilter} onChange={(e) => setPendingDeadlineFilter(e.target.value as typeof pendingDeadlineFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium"><option value="all">Any Application Deadline</option><option value="expired">Deadline Passed</option><option value="7days">Deadline in 7 Days</option><option value="30days">Deadline in 30 Days</option><option value="future">Later Deadline</option><option value="none">No Application Deadline</option></select>
 
                   <button
                     type="button"
@@ -4170,7 +4326,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               {/* Selection Summary and Quick Controls */}
               <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs text-slate-400">
-                <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-3 flex-wrap">
+                  <button type="button" onClick={() => { setSelectedPendingIds(Array.from(new Set(pendingJobs.map(j => j.id)))); setSelectedPendingJobCache(pendingJobs); }} disabled={pendingJobs.length === 0} className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:text-white text-[11px] font-bold disabled:opacity-40">Select Current Page ({pendingJobs.length})</button>
+                  <button type="button" onClick={handleSelectAllFilteredAcrossPages} disabled={isSelectingAllPending || pendingJobs.length === 0} className="px-2.5 py-1.5 rounded-lg bg-cyan-950/60 border border-cyan-700/50 text-cyan-200 hover:bg-cyan-900 text-[11px] font-bold disabled:opacity-40">{isSelectingAllPending ? 'Loading all pages…' : 'Select Filtered (All Pages)'}</button>
                   <label className="flex items-center space-x-2 cursor-pointer font-bold text-slate-200">
                     <input
                       type="checkbox"
@@ -4210,6 +4368,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       type="button"
                       onClick={() => {
                         setSelectedPendingIds([]);
+                        setSelectedPendingJobCache([]);
                         if (onPendingPageChange) onPendingPageChange(1, size);
                       }}
                       className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
@@ -4234,6 +4393,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     disabled={(pendingPage ?? 1) <= 1}
                     onClick={() => {
                       setSelectedPendingIds([]);
+                      setSelectedPendingJobCache([]);
                       if (onPendingPageChange) onPendingPageChange((pendingPage ?? 1) - 1, pendingLimit);
                     }}
                     className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 font-bold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
@@ -4245,6 +4405,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     disabled={(pendingPage ?? 1) >= (pendingTotalPages ?? 1)}
                     onClick={() => {
                       setSelectedPendingIds([]);
+                      setSelectedPendingJobCache([]);
                       if (onPendingPageChange) onPendingPageChange((pendingPage ?? 1) + 1, pendingLimit);
                     }}
                     className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 font-bold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
@@ -4264,6 +4425,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={() => setIsBulkJobEditOpen(true)} className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl cursor-pointer flex items-center space-x-1">
+                    <Edit3 className="w-3.5 h-3.5" /><span>Bulk Edit Attributes ({selectedPendingIds.length})</span>
+                  </button>
                   <button
                     type="button"
                     onClick={handleBulkApprove}
@@ -4293,7 +4457,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => setSelectedPendingIds([])}
+                    onClick={() => { setSelectedPendingIds([]); setSelectedPendingJobCache([]); }}
                     className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-bold cursor-pointer"
                   >
                     Deselect
@@ -4464,6 +4628,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       type="button"
                       onClick={() => {
                         setSelectedPendingIds([]);
+                        setSelectedPendingJobCache([]);
                         if (onPendingPageChange) onPendingPageChange(1, size);
                       }}
                       className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
@@ -4488,6 +4653,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     disabled={(pendingPage ?? 1) <= 1}
                     onClick={() => {
                       setSelectedPendingIds([]);
+                      setSelectedPendingJobCache([]);
                       if (onPendingPageChange) onPendingPageChange((pendingPage ?? 1) - 1, pendingLimit);
                     }}
                     className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 font-bold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
@@ -4499,6 +4665,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     disabled={(pendingPage ?? 1) >= (pendingTotalPages ?? 1)}
                     onClick={() => {
                       setSelectedPendingIds([]);
+                      setSelectedPendingJobCache([]);
                       if (onPendingPageChange) onPendingPageChange((pendingPage ?? 1) + 1, pendingLimit);
                     }}
                     className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 font-bold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
@@ -6032,6 +6199,49 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           if (jobsScaleFilter !== 'all' && job.govtScale !== jobsScaleFilter) return false;
           if (jobsProvinceFilter !== 'all' && job.province !== jobsProvinceFilter) return false;
           if (jobsStatusFilter !== 'all' && (job.status || 'Approved') !== jobsStatusFilter) return false;
+          const livePortal = String((job as any).sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || '').toLowerCase();
+          if (jobsPortalFilter.trim() && !livePortal.includes(jobsPortalFilter.trim().toLowerCase())) return false;
+          if (jobsBatchFilter.trim() && String((job as any).scraperBatchId || '').toLowerCase() !== jobsBatchFilter.trim().toLowerCase()) return false;
+          if (jobsCityFilter.trim() && !(job.city || '').toLowerCase().includes(jobsCityFilter.trim().toLowerCase())) return false;
+          if (jobsScrapeDateFilter !== 'all') {
+            const rawScrapeDate = (job as any).lastScrapedAt || (job as any).scrapedAt || job.createdAt || job.postedAt;
+            const scrapeTime = rawScrapeDate ? new Date(rawScrapeDate).getTime() : NaN;
+            if (!Number.isFinite(scrapeTime)) return false;
+            const ageHours = (Date.now() - scrapeTime) / 3600000;
+            const todayKey = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+            const scrapeDayKey = new Date(scrapeTime).toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+            if (jobsScrapeDateFilter === 'today' && scrapeDayKey !== todayKey) return false;
+            if (jobsScrapeDateFilter === '24h' && (ageHours < 0 || ageHours > 24)) return false;
+            if (jobsScrapeDateFilter === '7days' && (ageHours < 0 || ageHours > 168)) return false;
+            if (jobsScrapeDateFilter === '30days' && (ageHours < 0 || ageHours > 720)) return false;
+            if (jobsScrapeDateFilter === 'older' && ageHours <= 720) return false;
+          }
+          const liveHasApplyUrl = Boolean((job as any).applicationUrl || (job as any).originalApplyUrl || (job as any).externalApplyUrl || (job as any).applyUrl);
+          const liveHasSourceUrl = Boolean((job as any).sourceUrl || (job as any).scraperSourceUrl);
+          const liveIsComplete = Boolean(job.title?.trim() && job.company?.trim() && job.description?.trim() && (job.city || job.province || job.district || (job.country && job.country !== 'Pakistan')));
+          if (jobsCompletenessFilter === 'complete' && !liveIsComplete) return false;
+          if (jobsCompletenessFilter === 'incomplete' && liveIsComplete) return false;
+          if (jobsCompletenessFilter === 'missing_location' && (job.city || job.province || job.district || (job.country && job.country !== 'Pakistan'))) return false;
+          if (jobsCompletenessFilter === 'missing_apply' && liveHasApplyUrl) return false;
+          if (jobsCompletenessFilter === 'missing_source' && liveHasSourceUrl) return false;
+          const liveLocationConfirmed = Boolean((job as any).isLocationConfirmed ?? job.metadata?.isLocationConfirmed ?? false);
+          if (jobsLocationFilter === 'confirmed' && !liveLocationConfirmed) return false;
+          if (jobsLocationFilter === 'unconfirmed' && liveLocationConfirmed) return false;
+          const matchesAdminDateFilter = (rawDate: unknown, filter: string) => {
+            if (filter === 'all') return true;
+            if (!rawDate) return filter === 'none';
+            const date = new Date(String(rawDate));
+            const time = date.getTime();
+            if (!Number.isFinite(time)) return filter === 'none';
+            const days = (time - Date.now()) / 86400000;
+            if (filter === 'expired') return days < 0;
+            if (filter === '7days') return days >= 0 && days <= 7;
+            if (filter === '30days') return days >= 0 && days <= 30;
+            if (filter === 'future') return days > 30;
+            return true;
+          };
+          if (!matchesAdminDateFilter((job as any).expiryDate, jobsExpiryFilter)) return false;
+          if (!matchesAdminDateFilter((job as any).deadlineDate, jobsDeadlineFilter)) return false;
 
           if (showJobsDuplicatesOnly) {
             const isDup = liveJobClusters.some(c => c.items.some(it => it.id === job.id));
@@ -6050,10 +6260,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             const aTime = new Date(a.createdAt || 0).getTime() || (a.postedAt === 'Just now' ? Date.now() : new Date(a.postedAt || 0).getTime()) || 0;
             return aTime - bTime;
           }
-          if (jobsSortBy === 'title') {
-            return (a.title || '').localeCompare(b.title || '');
+          if (jobsSortBy === 'title') return (a.title || '').localeCompare(b.title || '');
+          if (jobsSortBy.startsWith('expiry_')) {
+            const aExpiry = Date.parse(String((a as any).expiryDate || ''));
+            const bExpiry = Date.parse(String((b as any).expiryDate || ''));
+            const aValid = Number.isFinite(aExpiry); const bValid = Number.isFinite(bExpiry);
+            if (!aValid || !bValid) return aValid ? -1 : bValid ? 1 : 0;
+            return jobsSortBy === 'expiry_earliest' ? aExpiry - bExpiry : bExpiry - aExpiry;
           }
-          return 0;
+          if (jobsSortBy === 'salary') return Number(a.salaryNumericMin || 0) - Number(b.salaryNumericMin || 0);
+          const dateValue = (job: Job, mode: 'scraped' | 'updated' | 'posted') => {
+            const value = mode === 'scraped' ? ((job as any).lastScrapedAt || (job as any).scrapedAt || job.createdAt || job.postedAt)
+              : mode === 'updated' ? ((job as any).updatedAt || (job as any).lastUpdatedAt || job.createdAt || job.postedAt)
+              : (job.createdAt || job.postedAt);
+            const parsed = value ? new Date(value).getTime() : NaN;
+            return Number.isFinite(parsed) ? parsed : 0;
+          };
+          const mode = jobsSortBy.startsWith('scraped_') ? 'scraped' : jobsSortBy.startsWith('updated_') ? 'updated' : 'posted';
+          const delta = dateValue(a, mode) - dateValue(b, mode);
+          return jobsSortBy === 'oldest' || jobsSortBy.endsWith('_oldest') ? delta : -delta;
         });
 
         const allSelected = filteredLiveJobs.length > 0 && filteredLiveJobs.every(j => selectedJobIds.includes(j.id));
@@ -6063,14 +6288,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             setSelectedJobIds(prev => prev.filter(id => !filteredLiveJobs.some(j => j.id === id)));
           } else {
             const toAdd = filteredLiveJobs.map(j => j.id);
-            setSelectedJobIds(prev => Array.from(new Set([...prev, ...toAdd])));
+            const combined = Array.from(new Set([...selectedJobIds, ...toAdd]));
+            if (combined.length > 500) {
+              alert(`Bulk actions support up to 500 selected jobs at a time. ${combined.length} match; please narrow the filters or select a smaller batch.`);
+              return;
+            }
+            setSelectedJobIds(combined);
           }
         };
 
         const toggleLiveJobSelection = (id: string) => {
-          setSelectedJobIds(prev =>
-            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-          );
+          setSelectedJobIds(prev => {
+            if (prev.includes(id)) return prev.filter(i => i !== id);
+            if (prev.length >= 500) {
+              alert('Bulk actions support up to 500 selected jobs at a time. Please remove a selection or narrow the filters.');
+              return prev;
+            }
+            return [...prev, id];
+          });
         };
 
         const handleBulkDeleteSelectedLiveJobs = () => {
@@ -6155,6 +6390,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   )}
                 </div>
 
+                <div className="w-full">
+                  <AdminJobFilterPresets
+                    storageKey="hybrid-admin-live-job-filter-presets-v1"
+                    filters={{ search: jobsSearchQuery, category: jobsCategoryFilter, scale: jobsScaleFilter, province: jobsProvinceFilter, status: jobsStatusFilter, portal: jobsPortalFilter, batch: jobsBatchFilter, city: jobsCityFilter, scrapeDate: jobsScrapeDateFilter, completeness: jobsCompletenessFilter, location: jobsLocationFilter, expiry: jobsExpiryFilter, deadline: jobsDeadlineFilter, sort: jobsSortBy, duplicatesOnly: showJobsDuplicatesOnly }}
+                    onApply={(values) => {
+                      setJobsSearchQuery(String(values.search ?? ''));
+                      setJobsCategoryFilter(String(values.category ?? 'all'));
+                      setJobsScaleFilter(String(values.scale ?? 'all'));
+                      setJobsProvinceFilter(String(values.province ?? 'all'));
+                      setJobsStatusFilter(String(values.status ?? 'all'));
+                      setJobsPortalFilter(String(values.portal ?? ''));
+                      setJobsBatchFilter(String(values.batch ?? ''));
+                      setJobsCityFilter(String(values.city ?? ''));
+                      setJobsScrapeDateFilter(String(values.scrapeDate ?? 'all') as typeof jobsScrapeDateFilter);
+                      setJobsCompletenessFilter(String(values.completeness ?? 'all') as typeof jobsCompletenessFilter);
+                      setJobsLocationFilter(String(values.location ?? 'all') as typeof jobsLocationFilter);
+                      setJobsExpiryFilter(String(values.expiry ?? 'all') as typeof jobsExpiryFilter);
+                      setJobsDeadlineFilter(String(values.deadline ?? 'all') as typeof jobsDeadlineFilter);
+                      setJobsSortBy(String(values.sort ?? 'newest') as typeof jobsSortBy);
+                      setShowJobsDuplicatesOnly(values.duplicatesOnly === true);
+                      setSelectedJobIds([]);
+                    }}
+                  />
+                </div>
                 <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
                   <select
                     value={jobsCategoryFilter}
@@ -6188,6 +6447,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <option value="Global">Global / Remote</option>
                   </select>
 
+                  <input value={jobsPortalFilter} onChange={(e) => setJobsPortalFilter(e.target.value)} placeholder="Source portal (e.g. FPSC)" className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white min-w-[150px]" />
+                  <input value={jobsBatchFilter} onChange={(e) => setJobsBatchFilter(e.target.value)} placeholder="Scrape batch ID" className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white min-w-[130px]" />
+                  <input value={jobsCityFilter} onChange={(e) => setJobsCityFilter(e.target.value)} placeholder="City" className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white min-w-[110px]" />
+                  <select value={jobsScrapeDateFilter} onChange={(e) => setJobsScrapeDateFilter(e.target.value as typeof jobsScrapeDateFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium"><option value="all">Any Scrape Time</option><option value="today">Scraped Today</option><option value="24h">Last 24 Hours</option><option value="7days">Last 7 Days</option><option value="30days">Last 30 Days</option><option value="older">Older than 30 Days</option></select>
                   <select
                     value={jobsScaleFilter}
                     onChange={(e) => setJobsScaleFilter(e.target.value)}
@@ -6207,7 +6470,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <option value="newest">📅 Newest First</option>
                     <option value="oldest">📅 Oldest First</option>
                     <option value="title">🔤 Title (A-Z)</option>
+                    <option value="scraped_latest">Latest Scraped First</option>
+                    <option value="scraped_oldest">Oldest Scraped First</option>
+                    <option value="updated_latest">Recently Updated First</option>
+                    <option value="updated_oldest">Oldest Updated First</option><option value="expiry_earliest">Earliest Expiry First</option><option value="expiry_latest">Latest Expiry First</option>
                   </select>
+                  <select value={jobsCompletenessFilter} onChange={(e) => setJobsCompletenessFilter(e.target.value as typeof jobsCompletenessFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium">
+                    <option value="all">All Job Details</option><option value="complete">Complete Jobs</option><option value="incomplete">Incomplete Jobs</option><option value="missing_location">Missing Location</option><option value="missing_apply">Missing Apply URL</option><option value="missing_source">Missing Scraper Source URL</option>
+                  </select>
+                  <select value={jobsLocationFilter} onChange={(e) => setJobsLocationFilter(e.target.value as typeof jobsLocationFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium">
+                    <option value="all">All Location Status</option><option value="confirmed">Location Confirmed</option><option value="unconfirmed">Location Unconfirmed</option>
+                  </select>
+                  <select value={jobsExpiryFilter} onChange={(e) => setJobsExpiryFilter(e.target.value as typeof jobsExpiryFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium"><option value="all">Any Expiry Date</option><option value="expired">Expired</option><option value="7days">Expires in 7 Days</option><option value="30days">Expires in 30 Days</option><option value="future">Later Expiry</option><option value="none">No Expiry Date</option></select>
+                  <select value={jobsDeadlineFilter} onChange={(e) => setJobsDeadlineFilter(e.target.value as typeof jobsDeadlineFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium"><option value="all">Any Application Deadline</option><option value="expired">Deadline Passed</option><option value="7days">Deadline in 7 Days</option><option value="30days">Deadline in 30 Days</option><option value="future">Later Deadline</option><option value="none">No Application Deadline</option></select>
 
                   <button
                     type="button"
@@ -6225,7 +6500,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               {/* Selection Summary */}
               <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs text-slate-400">
-                <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-3 flex-wrap">
+                  <button type="button" onClick={() => {
+                    if (jobs.length > 500) {
+                      alert(`There are ${jobs.length} live jobs. Existing bulk operations safely process up to 500 at a time; use filters to select a smaller batch.`);
+                      return;
+                    }
+                    setSelectedJobIds(Array.from(new Set(jobs.map(j => j.id))));
+                  }} disabled={jobs.length === 0} className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:text-white text-[11px] font-bold disabled:opacity-40">Select All Live Jobs ({jobs.length})</button>
                   <label className="flex items-center space-x-2 cursor-pointer font-bold text-slate-200">
                     <input
                       type="checkbox"
@@ -7167,7 +7449,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       <AdminQuickEditJobModal
         isOpen={isJobQuickEditOpen || isBulkJobEditOpen}
         job={isBulkJobEditOpen ? null : editingJob}
-        selectedJobs={isBulkJobEditOpen ? jobs.concat(pendingJobs).filter(j => selectedJobIds.includes(j.id) || selectedPendingIds.includes(j.id)) : []}
+        selectedJobs={isBulkJobEditOpen ? Array.from(new Map([...selectedPendingJobCache, ...jobs, ...pendingJobs].filter(j => selectedJobIds.includes(j.id) || selectedPendingIds.includes(j.id)).map(j => [j.id, j])).values()) : []}
+        allowBulkStatusChange={selectedPendingIds.length === 0}
         onClose={() => {
           setIsJobQuickEditOpen(false);
           setIsBulkJobEditOpen(false);
@@ -7194,6 +7477,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }
           setSelectedJobIds([]);
           setSelectedPendingIds([]);
+          setSelectedPendingJobCache([]);
           setIsBulkJobEditOpen(false);
         }}
         onSaveAndApproveJob={async (updatedJob) => {

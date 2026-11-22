@@ -496,6 +496,12 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       return;
     }
 
+    const activeFixedDepositAmounts = (selectedMethod.walletDepositFixedAmounts || []).filter((item) => item.enabled);
+    if (selectedMethod.walletDepositAllowCustomAmount === false && !activeFixedDepositAmounts.some((item) => item.amount === depositAmountInput)) {
+      setDepositError('Please choose one of the enabled fixed deposit amounts for this payment method.');
+      return;
+    }
+
     if (selectedMethod.senderNameRequired && !depositSenderName.trim()) {
       setDepositError(`Please enter the ${selectedMethod.senderNameLabel || 'Sender Name / Account Holder'}.`);
       return;
@@ -1777,6 +1783,8 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
             : enabledMethods.length > 0
             ? enabledMethods[0][1]
             : null;
+        const activeFixedDepositAmounts = (selectedMethod?.walletDepositFixedAmounts || []).filter((item) => item.enabled);
+        const customDepositAmountAllowed = selectedMethod?.walletDepositAllowCustomAmount !== false;
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in overflow-y-auto">
@@ -1889,39 +1897,40 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                     </div>
                   ) : (
                     <form onSubmit={handleConfirmDeposit} className="space-y-4">
-                      {/* Quick Amount Buttons */}
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-slate-300">Select Amount (PKR)</label>
-                        <div className="grid grid-cols-3 gap-2">
-                          {[1000, 2500, 5000, 10000, 25000, 50000].map((amt) => (
-                            <button
-                              key={amt}
-                              type="button"
-                              onClick={() => setDepositAmountInput(amt)}
-                              className={`py-2 rounded-xl border text-xs font-black transition-all cursor-pointer ${
-                                depositAmountInput === amt
-                                  ? 'bg-emerald-500 border-emerald-400 text-slate-950 shadow-md shadow-emerald-500/20'
-                                  : 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800'
-                              }`}
-                            >
-                              PKR {amt.toLocaleString()}
-                            </button>
-                          ))}
-                        </div>
+                      {/* Payment-method-specific fixed wallet deposit amounts */}
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-slate-300">Select Deposit Amount (PKR)</label>
+                        {activeFixedDepositAmounts.length > 0 ? (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {activeFixedDepositAmounts.map((item) => (
+                              <button
+                                key={item.amount}
+                                type="button"
+                                onClick={() => setDepositAmountInput(item.amount)}
+                                className={`py-2.5 rounded-xl border text-xs font-black transition-all cursor-pointer ${depositAmountInput === item.amount ? 'bg-emerald-500 border-emerald-400 text-slate-950' : 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800'}`}
+                              >
+                                PKR {item.amount.toLocaleString()}
+                              </button>
+                            ))}
+                          </div>
+                        ) : !customDepositAmountAllowed ? (
+                          <p className="text-xs text-rose-300">No fixed deposit amounts are currently enabled for this method.</p>
+                        ) : null}
                       </div>
 
-                      {/* Custom Amount Input */}
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-slate-300">Deposit Amount (PKR) *</label>
-                        <input
-                          type="number"
-                          min={pricingConfig.minDepositAmountPkr || 500}
-                          step="100"
-                          value={depositAmountInput}
-                          onChange={(e) => setDepositAmountInput(parseInt(e.target.value) || 0)}
-                          className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm font-bold text-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
-                        />
-                      </div>
+                      {customDepositAmountAllowed && (
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-bold text-slate-300">{activeFixedDepositAmounts.length ? 'Or enter another amount (PKR)' : 'Deposit Amount (PKR) *'}</label>
+                          <input
+                            type="number"
+                            min={pricingConfig.minDepositAmountPkr || 500}
+                            step="1"
+                            value={depositAmountInput}
+                            onChange={(e) => setDepositAmountInput(parseInt(e.target.value, 10) || 0)}
+                            className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm font-bold text-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                          />
+                        </div>
+                      )}
 
                       {/* Channel Selector */}
                       <div className="space-y-1.5">
@@ -1931,7 +1940,14 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                             <button
                               key={key}
                               type="button"
-                              onClick={() => setDepositSelectedMethodKey(key)}
+                              onClick={() => {
+                                setDepositSelectedMethodKey(key);
+                                const methodFixedAmounts = (method.walletDepositFixedAmounts || []).filter((item) => item.enabled);
+                                if (method.walletDepositAllowCustomAmount === false && methodFixedAmounts.length > 0) {
+                                  setDepositAmountInput(methodFixedAmounts[0].amount);
+                                }
+                                setDepositError(null);
+                              }}
                               className={`py-2 px-1 text-xs font-bold rounded-xl border text-center transition-all cursor-pointer ${
                                 (depositSelectedMethodKey === key || (!depositSelectedMethodKey && enabledMethods[0][0] === key))
                                   ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-md shadow-emerald-500/20'

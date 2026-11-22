@@ -717,12 +717,27 @@ transactionRouter.post('/', async (req, res) => {
           ['Pending', 'Verifying', 'VerificationUncertain', 'Success'].includes(String(item.status))
         );
         if (activePurchase) {
+          const confirmedEntitlement = ownedDesigns.find((item: any) =>
+            item?.templateId === purchaseId && String(item?.transactionId || '') === String(activePurchase.id)
+          );
+          if (activePurchase.status === 'Pending' && activePurchase.paymentMethod === 'Wallet Balance' && confirmedEntitlement) {
+            const reconciled = await PaymentRepository.updateAsync(activePurchase.id, {
+              status: 'Success',
+              walletMutationState: 'DEDUCTED',
+              cvEntitlementGranted: true,
+              verifiedAt: activePurchase.verifiedAt || new Date().toISOString(),
+              adminNote: activePurchase.adminNote || 'Wallet purchase reconciled from the confirmed account entitlement.'
+            });
+            if (reconciled) {
+              return res.json({ success: true, transaction: reconciled, message: 'Your previous wallet purchase has been reconciled and the CV item is unlocked.' });
+            }
+          }
           return res.status(409).json({
             success: false,
             transaction: activePurchase,
             message: activePurchase.status === 'Success'
-              ? 'This CV design has already been purchased.'
-              : 'A payment for this CV design is already awaiting verification.'
+              ? 'This CV design or export has already been purchased.'
+              : 'A payment for this CV item is already awaiting verification.'
           });
         }
         (req as any).cvPurchaseSnapshot = {

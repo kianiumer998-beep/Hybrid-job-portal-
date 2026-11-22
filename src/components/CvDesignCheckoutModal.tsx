@@ -18,6 +18,8 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
   isOpen, templateId, templateName, pricePkr, walletBalance, currentUser, onClose, onComplete
 }) => {
   const [settings, setSettings] = useState<PublicPaymentSettings | null>(null);
+  const [checkoutPrice, setCheckoutPrice] = useState(Number(pricePkr) || 0);
+  const [priceReady, setPriceReady] = useState(false);
   const [selectedMethod, setSelectedMethod] = useState('Wallet Balance');
   const [senderName, setSenderName] = useState(currentUser?.name || '');
   const [senderPhone, setSenderPhone] = useState(currentUser?.phone || '');
@@ -35,6 +37,8 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
     let active = true;
     setError('');
     setSuccessMessage('');
+    setCheckoutPrice(Number(pricePkr) || 0);
+    setPriceReady(false);
     setTransactionId('');
     setProofNote('');
     setScreenshot('');
@@ -42,6 +46,24 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
     setSenderName(currentUser?.name || '');
     setSenderPhone(currentUser?.phone || '');
     setLoadingSettings(true);
+    api.pricing.get().then((res) => {
+      if (!active) return;
+      const cv = res?.success ? res?.pricing?.cvBuilder : null;
+      if (!cv) { setError('Current CV pricing could not be confirmed. Please try again.'); return; }
+      let latestPrice = 0;
+      if (templateId === 'export:pdf') latestPrice = Number(cv.pdfExportPkr ?? cv.standardPdfExportPkr ?? 0);
+      else if (templateId === 'export:ats') latestPrice = Number(cv.atsTextExportPkr || 0);
+      else {
+        const selected = Array.isArray(cv.templates) ? cv.templates.find((item: any) => item?.id === templateId) : null;
+        if (!selected || selected.enabled === false || selected.free === true) { setError('This CV design is no longer available for one-time purchase.'); return; }
+        latestPrice = Number(selected.pricePkr || 0);
+      }
+      if (!Number.isFinite(latestPrice) || latestPrice <= 0) { setError('The administrator has not configured a valid one-time price for this item.'); return; }
+      setCheckoutPrice(latestPrice);
+      setPriceReady(true);
+    }).catch(() => {
+      if (active) setError('Current CV pricing could not be confirmed. Please try again.');
+    });
     api.paymentSettings.get().then((res) => {
       if (!active) return;
       const next = res?.success && res?.configured && res?.settings?.methods ? res.settings as PublicPaymentSettings : null;
@@ -50,7 +72,7 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
       const defaultMethod = next?.defaultMethod && enabled.some((method: any) => method.id === next.defaultMethod)
         ? next.defaultMethod
         : (enabled[0] as any)?.id;
-      setSelectedMethod(Number(walletBalance) >= Number(pricePkr) ? 'Wallet Balance' : (defaultMethod || 'Wallet Balance'));
+      setSelectedMethod(Number(walletBalance) >= Number(checkoutPrice || pricePkr) ? 'Wallet Balance' : (defaultMethod || 'Wallet Balance'));
     }).catch(() => {
       if (active) setSettings(null);
     }).finally(() => {
@@ -63,7 +85,7 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
     ? Object.values(settings.methods || {}).filter((method: any) => method?.enabled && method.accountTitle && method.accountNumber) as PublicPaymentMethodConfig[]
     : [], [settings]);
   const activeMethod = manualMethods.find((method) => method.id === selectedMethod) || null;
-  const hasWallet = Number.isFinite(Number(walletBalance)) && Number(walletBalance) >= Number(pricePkr);
+  const hasWallet = Number.isFinite(Number(walletBalance)) && Number(walletBalance) >= Number(checkoutPrice);
 
   const handleScreenshot = (file?: File) => {
     if (!file) return;
@@ -94,7 +116,7 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
       setError('Please sign in before purchasing a CV design.');
       return;
     }
-    if (!templateId || !Number.isFinite(Number(pricePkr)) || Number(pricePkr) <= 0) {
+    if (!templateId || !priceReady || !Number.isFinite(Number(checkoutPrice)) || Number(checkoutPrice) <= 0) {
       setError('This design does not have a valid one-time price.');
       return;
     }
@@ -160,6 +182,16 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
         idempotencyKey: `cv-design-${currentUser.id}-${templateId}-${Date.now()}`
       });
       if (!result?.success || !result?.transaction) {
+        if (result?.transaction?.status === 'Success' || /already own|already been purchased/i.test(String(result?.message || ''))) {
+          onComplete({ status: 'Success', message: 'This CV item is already unlocked on your account.' });
+          onClose();
+          return;
+        }
+        if (result?.transaction?.status === 'Pending' || /awaiting verification/i.test(String(result?.message || ''))) {
+          onComplete({ status: 'Pending', message: 'A payment for this CV item is already awaiting administrator verification.' });
+          onClose();
+          return;
+        }
         setError(result?.message || 'Payment could not be submitted. Please try again.');
         return;
       }
@@ -192,7 +224,7 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
         </div>
         <form onSubmit={handleSubmit} className="space-y-5 p-5">
           <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-            <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold text-white">{templateName}</p><p className="mt-1 text-[11px] text-slate-400">Permanent access to this item on your account</p></div><p className="whitespace-nowrap text-lg font-black text-emerald-300">PKR {Number(pricePkr).toLocaleString('en-PK')}</p></div>
+            <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold text-white">{templateName}</p><p className="mt-1 text-[11px] text-slate-400">Permanent access to this item on your account</p></div><p className="whitespace-nowrap text-lg font-black text-emerald-300">PKR {Number(checkoutPrice).toLocaleString('en-PK')}</p></div>
             <p className="mt-3 text-xs text-slate-400">Wallet balance: <strong className="text-white">PKR {Number(walletBalance || 0).toLocaleString('en-PK')}</strong></p>
           </div>
 
@@ -228,7 +260,7 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
           {successMessage && <div role="status" className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-200">{successMessage}</div>}
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button type="button" onClick={onClose} disabled={submitting} className="rounded-xl border border-slate-700 px-4 py-3 text-xs font-bold text-slate-300 hover:bg-slate-900">Cancel</button>
-            <button type="submit" disabled={submitting || loadingSettings || (selectedMethod === 'Wallet Balance' && !hasWallet)} className="flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 py-3 text-xs font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="submit" disabled={submitting || loadingSettings || !priceReady || (selectedMethod === 'Wallet Balance' && !hasWallet)} className="flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 py-3 text-xs font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-50">
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : selectedMethod === 'Wallet Balance' ? <Wallet className="h-4 w-4" /> : <CreditCard className="h-4 w-4" />}
               {submitting ? 'Processing…' : selectedMethod === 'Wallet Balance' ? `Pay PKR ${Number(pricePkr).toLocaleString('en-PK')}` : 'Submit Payment Proof'}
             </button>

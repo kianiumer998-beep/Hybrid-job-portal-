@@ -913,7 +913,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                       return jobs.length > 0;
                     }
                     if (field.key === 'relativePostedTime' || field.key === 'exactPostedDate') {
-                      const postedAt = hasUsableDate(job.postedAt) ? job.postedAt : job.createdAt;
+                      const postedAt = [job.postedAt, job.datePosted, job.createdAt].find(hasUsableDate);
                       return hasUsableDate(postedAt);
                     }
                     if (field.key === 'deadlineDate' || field.key === 'deadlineRemaining') {

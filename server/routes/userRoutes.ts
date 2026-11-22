@@ -768,7 +768,7 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
         for (const cvPayload of candidateCvPayloads) {
           const templateId = String(cvPayload?.templateStyle || '');
           const template = cvTemplates.find((item: any) => String(item?.id || '') === templateId);
-          if (!template || template.enabled === false) {
+          if (!template || (template.enabled === false && !purchasedTemplateIds.has(templateId))) {
             return res.status(403).json({ success: false, message: 'This CV design is not currently available.' });
           }
           if (!premiumAccess && !freeTemplateIds.has(templateId) && !purchasedTemplateIds.has(templateId)) {

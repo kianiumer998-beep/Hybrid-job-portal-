@@ -626,6 +626,9 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
             message: `Unsupported field '${key}' in admin user update payload.`
           });
         }
+        if (id !== currentUserId && (key === 'cvData' || key === 'cvDocuments')) {
+          return res.status(403).json({ success: false, message: 'CV content is private and can only be changed by its owner.' });
+        }
 
         if (key === 'plan') {
           if (typeof value !== 'string' || !VALID_USER_PLANS.has(value)) {

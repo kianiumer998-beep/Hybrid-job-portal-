@@ -52,15 +52,10 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
       if (!active) return;
       const cv = res?.success ? res?.pricing?.cvBuilder : null;
       if (!cv) { setError('Current CV pricing could not be confirmed. Please try again.'); return; }
-      let latestPrice = 0;
-      if (templateId === 'export:pdf') latestPrice = Number(cv.pdfExportPkr ?? cv.standardPdfExportPkr ?? 0);
-      else if (templateId === 'export:ats') latestPrice = Number(cv.atsTextExportPkr || 0);
-      else {
-        const selected = Array.isArray(cv.templates) ? cv.templates.find((item: any) => item?.id === templateId) : null;
-        if (!selected || selected.enabled === false || selected.free === true) { setError('This CV design is no longer available for one-time purchase.'); return; }
-        latestPrice = Number(selected.pricePkr || 0);
-        setDisplayName(String(selected.name || templateName));
-      }
+      const selected = Array.isArray(cv.templates) ? cv.templates.find((item: any) => item?.id === templateId) : null;
+      if (!selected || selected.enabled === false || selected.free === true) { setError('This CV design is no longer available for one-time purchase.'); return; }
+      const latestPrice = Number(selected.pricePkr || 0);
+      setDisplayName(String(selected.name || templateName));
       if (!Number.isFinite(latestPrice) || latestPrice <= 0) { setError('The administrator has not configured a valid one-time price for this item.'); return; }
       setCheckoutPrice(latestPrice);
       setPriceReady(true);

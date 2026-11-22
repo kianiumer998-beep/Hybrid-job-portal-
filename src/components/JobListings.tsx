@@ -241,11 +241,15 @@ export const JobListings: React.FC<JobListingsProps> = ({
     const cleanCompany = sanitizeJobCompanyName(job.company);
     const cleanTags = sanitizeJobTags(job.tags);
 
-    const postedTimeSource = (job.postedAt && parseJobCardDate(job.postedAt) ? job.postedAt : job.createdAt) || '';
+    const postedDateCandidates = [job.postedAt, job.datePosted, job.createdAt];
+    const postedTimeSource = postedDateCandidates.find((value) => !!value && !!parseJobCardDate(value)) || '';
     // Prefer a timestamp with a time component for accurate 'X minutes ago' labels.
-    // Scraper/admin records sometimes store postedAt as a date-only string; in that
-    // case createdAt is the more precise publication timestamp when available.
-    const relativeTimeSource = (job.postedAt && /T|\d{1,2}:\d{2}/.test(job.postedAt) && parseJobCardDate(job.postedAt) ? job.postedAt : job.createdAt && parseJobCardDate(job.createdAt) ? job.createdAt : postedTimeSource) || '';
+    // Scraper records may expose the source date as datePosted, while some records
+    // store postedAt as date-only; createdAt is the precise fallback when available.
+    const relativeTimeSource =
+      postedDateCandidates.find((value) => !!value && /T|\d{1,2}:\d{2}/.test(value) && !!parseJobCardDate(value)) ||
+      [job.createdAt, job.postedAt, job.datePosted].find((value) => !!value && !!parseJobCardDate(value)) ||
+      postedTimeSource;
     const relativePostedTime = getRelativeJobTime(relativeTimeSource, clockNow);
     const exactPostedDate = formatJobCardDate(postedTimeSource);
     const deadlineDisplayDate = formatJobCardDate(job.deadlineDate);

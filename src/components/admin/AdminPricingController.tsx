@@ -785,7 +785,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
               </div>)}
             </div>
           </div>
-        </div>/div>
+        </div>
 
       </div>
     </div>

@@ -560,7 +560,7 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
                   <Sparkles className="w-4 h-4 text-purple-400" />
                   <span>Auto-Detection Intelligence (Read-Only)</span>
                 </div>
-                <div className="flex flex-wrap items-center justify-end gap-2">
+                <div className="flex items-center space-x-2">
                   <span className="text-xs text-slate-400 font-semibold">Confidence:</span>
                   <span className={`px-2.5 py-0.5 rounded text-xs font-bold border ${
                     suggestion.confidence === 'HIGH'
@@ -1466,7 +1466,7 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
             Close Detail
           </button>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {onEditJob && (
               <button
                 type="button"

@@ -1824,6 +1824,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [pendingDeadlineFilter, setPendingDeadlineFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
   const [pendingSortBy, setPendingSortBy] = useState<'newest' | 'oldest' | 'title' | 'scraped_latest' | 'scraped_oldest' | 'updated_latest' | 'updated_oldest'>('newest');
   const [selectedPendingIds, setSelectedPendingIds] = useState<string[]>([]);
+  const [selectedPendingJobCache, setSelectedPendingJobCache] = useState<Job[]>([]);
   const [isSelectingAllPending, setIsSelectingAllPending] = useState(false);
   const [showPendingDuplicatesOnly, setShowPendingDuplicatesOnly] = useState(false);
   const [isPendingDuplicateModalOpen, setIsPendingDuplicateModalOpen] = useState(false);
@@ -4072,6 +4073,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             const allFiltered = sortPendingCollection(filterPendingCollection(allPending));
             if (allFiltered.length > 500) throw new Error(`${allFiltered.length} jobs match these filters. Existing bulk endpoints safely process up to 500 IDs per operation; narrow the filters to 500 or fewer before selecting all pages.`);
             setSelectedPendingIds(allFiltered.map(job => job.id));
+            setSelectedPendingJobCache(allFiltered);
             alert(`Selected ${allFiltered.length} filtered pending jobs across ${totalPages} page(s).`);
           } catch (err: any) {
             alert(err?.message || 'Could not select all filtered pending jobs.');
@@ -4285,7 +4287,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {/* Selection Summary and Quick Controls */}
               <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs text-slate-400">
                 <div className="flex items-center space-x-3 flex-wrap">
-                  <button type="button" onClick={() => setSelectedPendingIds(Array.from(new Set(pendingJobs.map(j => j.id))))} disabled={pendingJobs.length === 0} className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:text-white text-[11px] font-bold disabled:opacity-40">Select Current Page ({pendingJobs.length})</button>
+                  <button type="button" onClick={() => { setSelectedPendingIds(Array.from(new Set(pendingJobs.map(j => j.id)))); setSelectedPendingJobCache(pendingJobs); }} disabled={pendingJobs.length === 0} className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:text-white text-[11px] font-bold disabled:opacity-40">Select Current Page ({pendingJobs.length})</button>
                   <button type="button" onClick={handleSelectAllFilteredAcrossPages} disabled={isSelectingAllPending || pendingJobs.length === 0} className="px-2.5 py-1.5 rounded-lg bg-cyan-950/60 border border-cyan-700/50 text-cyan-200 hover:bg-cyan-900 text-[11px] font-bold disabled:opacity-40">{isSelectingAllPending ? 'Loading all pages…' : 'Select Filtered (All Pages)'}</button>
                   <label className="flex items-center space-x-2 cursor-pointer font-bold text-slate-200">
                     <input
@@ -7351,12 +7353,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       <AdminQuickEditJobModal
         isOpen={isJobQuickEditOpen || isBulkJobEditOpen}
         job={isBulkJobEditOpen ? null : editingJob}
-        selectedJobs={isBulkJobEditOpen ? jobs.concat(pendingJobs).filter(j => selectedJobIds.includes(j.id) || selectedPendingIds.includes(j.id)) : []}
+        selectedJobs={isBulkJobEditOpen ? Array.from(new Map([...jobs, ...pendingJobs, ...selectedPendingJobCache].filter(j => selectedJobIds.includes(j.id) || selectedPendingIds.includes(j.id)).map(j => [j.id, j])).values()) : []}
         allowBulkStatusChange={selectedPendingIds.length === 0}
         onClose={() => {
           setIsJobQuickEditOpen(false);
           setIsBulkJobEditOpen(false);
           setEditingJob(null);
+          setSelectedPendingJobCache([]);
         }}
         onSaveJob={async (updatedJob) => {
           if (onUpdateJob) {

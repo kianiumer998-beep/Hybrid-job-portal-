@@ -4474,6 +4474,7 @@ export default function App() {
                             userSelectedCountry={userSelectedCountry}
                             onOpenCountryModal={() => setShowCountryModal(true)}
                             mobileColumns={landingConfig.mobileFilterColumns || 2}
+                            showPostsPerPageSelector={landingConfig.showPostsPerPageSelector !== false}
                           />
 
                           {/* Design 4 editorial two-column job feed; all existing filters, cards and ad rules stay intact. */}

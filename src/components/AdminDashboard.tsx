@@ -1797,6 +1797,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [jobsStatusFilter, setJobsStatusFilter] = useState('all');
   const [jobsCompletenessFilter, setJobsCompletenessFilter] = useState<'all' | 'complete' | 'incomplete' | 'missing_apply' | 'missing_source'>('all');
   const [jobsLocationFilter, setJobsLocationFilter] = useState<'all' | 'confirmed' | 'unconfirmed'>('all');
+  const [jobsExpiryFilter, setJobsExpiryFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
+  const [jobsDeadlineFilter, setJobsDeadlineFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
   const [jobsSortBy, setJobsSortBy] = useState<'newest' | 'oldest' | 'title' | 'salary' | 'scraped_latest' | 'scraped_oldest' | 'updated_latest' | 'updated_oldest'>('newest');
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
   const [showJobsDuplicatesOnly, setShowJobsDuplicatesOnly] = useState(false);
@@ -1811,6 +1813,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [pendingSourceFilter, setPendingSourceFilter] = useState('all');
   const [pendingCompletenessFilter, setPendingCompletenessFilter] = useState<'all' | 'complete' | 'incomplete' | 'missing_apply' | 'missing_source'>('all');
   const [pendingLocationFilter, setPendingLocationFilter] = useState<'all' | 'confirmed' | 'unconfirmed'>('all');
+  const [pendingExpiryFilter, setPendingExpiryFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
+  const [pendingDeadlineFilter, setPendingDeadlineFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
   const [pendingSortBy, setPendingSortBy] = useState<'newest' | 'oldest' | 'title' | 'scraped_latest' | 'scraped_oldest' | 'updated_latest' | 'updated_oldest'>('newest');
   const [selectedPendingIds, setSelectedPendingIds] = useState<string[]>([]);
   const [showPendingDuplicatesOnly, setShowPendingDuplicatesOnly] = useState(false);
@@ -3985,6 +3989,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           const pendingLocationConfirmed = Boolean((pJob as any).isLocationConfirmed || pJob.metadata?.isLocationConfirmed || (pJob as any).isManuallyCorrected || pJob.metadata?.isManuallyCorrected);
           if (pendingLocationFilter === 'confirmed' && !pendingLocationConfirmed) return false;
           if (pendingLocationFilter === 'unconfirmed' && pendingLocationConfirmed) return false;
+          const matchesAdminDateFilter = (rawDate: unknown, filter: string) => {
+            if (filter === 'all') return true;
+            if (!rawDate) return filter === 'none';
+            const date = new Date(String(rawDate));
+            const time = date.getTime();
+            if (!Number.isFinite(time)) return filter === 'none';
+            const now = Date.now();
+            const days = (time - now) / 86400000;
+            if (filter === 'expired') return days < 0;
+            if (filter === '7days') return days >= 0 && days <= 7;
+            if (filter === '30days') return days >= 0 && days <= 30;
+            if (filter === 'future') return days > 30;
+            return true;
+          };
+          if (!matchesAdminDateFilter((pJob as any).expiryDate, pendingExpiryFilter)) return false;
+          if (!matchesAdminDateFilter((pJob as any).deadlineDate, pendingDeadlineFilter)) return false;
           if (showPendingDuplicatesOnly) {
             const isDupOfLive = liveTitleSet.has(`${(pJob.title || '').trim().toLowerCase()}|${(pJob.company || '').trim().toLowerCase()}`) || (pJob.pdfCaseNumber && liveCaseSet.has(pJob.pdfCaseNumber.trim().toLowerCase()));
             const isDupInPending = pendingClusters.some(c => c.items.some(it => it.id === pJob.id));
@@ -4186,6 +4206,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <select value={pendingLocationFilter} onChange={(e) => setPendingLocationFilter(e.target.value as typeof pendingLocationFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium">
                     <option value="all">All Location Status</option><option value="confirmed">Location Confirmed</option><option value="unconfirmed">Location Unconfirmed</option>
                   </select>
+                  <select value={pendingExpiryFilter} onChange={(e) => setPendingExpiryFilter(e.target.value as typeof pendingExpiryFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium"><option value="all">Any Expiry Date</option><option value="expired">Expired</option><option value="7days">Expires in 7 Days</option><option value="30days">Expires in 30 Days</option><option value="future">Later Expiry</option><option value="none">No Expiry Date</option></select>
+                  <select value={pendingDeadlineFilter} onChange={(e) => setPendingDeadlineFilter(e.target.value as typeof pendingDeadlineFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium"><option value="all">Any Application Deadline</option><option value="expired">Deadline Passed</option><option value="7days">Deadline in 7 Days</option><option value="30days">Deadline in 30 Days</option><option value="future">Later Deadline</option><option value="none">No Application Deadline</option></select>
 
                   <button
                     type="button"
@@ -6079,6 +6101,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           const liveLocationConfirmed = Boolean((job as any).isLocationConfirmed || job.metadata?.isLocationConfirmed || (job as any).isManuallyCorrected || job.metadata?.isManuallyCorrected);
           if (jobsLocationFilter === 'confirmed' && !liveLocationConfirmed) return false;
           if (jobsLocationFilter === 'unconfirmed' && liveLocationConfirmed) return false;
+          const matchesAdminDateFilter = (rawDate: unknown, filter: string) => {
+            if (filter === 'all') return true;
+            if (!rawDate) return filter === 'none';
+            const date = new Date(String(rawDate));
+            const time = date.getTime();
+            if (!Number.isFinite(time)) return filter === 'none';
+            const days = (time - Date.now()) / 86400000;
+            if (filter === 'expired') return days < 0;
+            if (filter === '7days') return days >= 0 && days <= 7;
+            if (filter === '30days') return days >= 0 && days <= 30;
+            if (filter === 'future') return days > 30;
+            return true;
+          };
+          if (!matchesAdminDateFilter((job as any).expiryDate, jobsExpiryFilter)) return false;
+          if (!matchesAdminDateFilter((job as any).deadlineDate, jobsDeadlineFilter)) return false;
 
           if (showJobsDuplicatesOnly) {
             const isDup = liveJobClusters.some(c => c.items.some(it => it.id === job.id));
@@ -6273,6 +6310,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <select value={jobsLocationFilter} onChange={(e) => setJobsLocationFilter(e.target.value as typeof jobsLocationFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium">
                     <option value="all">All Location Status</option><option value="confirmed">Location Confirmed</option><option value="unconfirmed">Location Unconfirmed</option>
                   </select>
+                  <select value={jobsExpiryFilter} onChange={(e) => setJobsExpiryFilter(e.target.value as typeof jobsExpiryFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium"><option value="all">Any Expiry Date</option><option value="expired">Expired</option><option value="7days">Expires in 7 Days</option><option value="30days">Expires in 30 Days</option><option value="future">Later Expiry</option><option value="none">No Expiry Date</option></select>
+                  <select value={jobsDeadlineFilter} onChange={(e) => setJobsDeadlineFilter(e.target.value as typeof jobsDeadlineFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium"><option value="all">Any Application Deadline</option><option value="expired">Deadline Passed</option><option value="7days">Deadline in 7 Days</option><option value="30days">Deadline in 30 Days</option><option value="future">Later Deadline</option><option value="none">No Application Deadline</option></select>
 
                   <button
                     type="button"

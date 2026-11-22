@@ -805,22 +805,26 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       // 3. Load authoritative scheduler settings independently from runtime diagnostics.
       const schedulerSettingsRes = await api.scraper.getSchedulerSettings();
       if (!schedulerSettingsRes?.success || !schedulerSettingsRes.settings) {
-        throw new Error(schedulerSettingsRes?.message || 'Could not load authoritative scheduler settings.');
+        setStatusMessage({
+          text: schedulerSettingsRes?.message || 'Could not load authoritative scheduler settings. Existing form values were left unchanged.',
+          type: 'error'
+        });
+      } else {
+        const schedSettings = schedulerSettingsRes.settings;
+        if (schedSettings.enabled !== undefined) setGlobalSchedulerEnabled(Boolean(schedSettings.enabled));
+        if (typeof schedSettings.interval === 'string') setGlobalInterval(schedSettings.interval);
+        if (typeof schedSettings.depth === 'string') setGlobalDepth(schedSettings.depth);
+        if (typeof schedSettings.keywords === 'string') setGlobalKeywords(schedSettings.keywords);
+        if (schedSettings.autoApprove !== undefined) setGlobalAutoApprove(Boolean(schedSettings.autoApprove));
+        if (schedSettings.scope) setScheduledScope(schedSettings.scope);
+        setScheduledGroupId(typeof schedSettings.selectedGroupId === 'string' ? schedSettings.selectedGroupId : '');
+        setScheduledSingleSourceId(typeof schedSettings.singleSourceId === 'string' ? schedSettings.singleSourceId : '');
+        setScheduledSelectedSourceIds(Array.isArray(schedSettings.selectedSourceIds) ? schedSettings.selectedSourceIds : []);
+        setScheduledScanMode(schedSettings.scanMode || 'since_last');
+        setScheduledStartPage(Number.isSafeInteger(schedSettings.startPage) && schedSettings.startPage > 0 ? schedSettings.startPage : 1);
+        setScheduledEndPage(Number.isSafeInteger(schedSettings.endPage) && schedSettings.endPage > 0 ? schedSettings.endPage : 1);
+        setScheduledDuplicateMode(schedSettings.duplicateMode === 'without' ? 'without' : 'with');
       }
-      const schedSettings = schedulerSettingsRes.settings;
-      if (schedSettings.enabled !== undefined) setGlobalSchedulerEnabled(Boolean(schedSettings.enabled));
-      if (typeof schedSettings.interval === 'string') setGlobalInterval(schedSettings.interval);
-      if (typeof schedSettings.depth === 'string') setGlobalDepth(schedSettings.depth);
-      if (typeof schedSettings.keywords === 'string') setGlobalKeywords(schedSettings.keywords);
-      if (schedSettings.autoApprove !== undefined) setGlobalAutoApprove(Boolean(schedSettings.autoApprove));
-      if (schedSettings.scope) setScheduledScope(schedSettings.scope);
-      setScheduledGroupId(typeof schedSettings.selectedGroupId === 'string' ? schedSettings.selectedGroupId : '');
-      setScheduledSingleSourceId(typeof schedSettings.singleSourceId === 'string' ? schedSettings.singleSourceId : '');
-      setScheduledSelectedSourceIds(Array.isArray(schedSettings.selectedSourceIds) ? schedSettings.selectedSourceIds : []);
-      setScheduledScanMode(schedSettings.scanMode || 'since_last');
-      setScheduledStartPage(Number.isSafeInteger(schedSettings.startPage) && schedSettings.startPage > 0 ? schedSettings.startPage : 1);
-      setScheduledEndPage(Number.isSafeInteger(schedSettings.endPage) && schedSettings.endPage > 0 ? schedSettings.endPage : 1);
-      setScheduledDuplicateMode(schedSettings.duplicateMode === 'without' ? 'without' : 'with');
 
       // Runtime status is diagnostic only; it must not be the source of form values.
       const statusRes = await api.scraper.getSchedulerStatus();

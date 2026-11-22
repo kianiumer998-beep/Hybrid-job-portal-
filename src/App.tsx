@@ -40,7 +40,8 @@ import {
   AdPricingConfig, 
   DEFAULT_AD_PRICING_CONFIG,
   CampaignCustomizationConfig,
-  DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG
+  DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+  isAdCurrentlyRunning
 } from './types/ad';
 
 import { 
@@ -1025,6 +1026,21 @@ export default function App() {
   }, [isSeoConfigReady]);
 
   const [isAdDrawerOpen, setIsAdDrawerOpen] = useState<boolean>(false);
+
+  const handleAdDestination = (url?: string) => {
+    if (!url) return;
+    if (url.startsWith('#')) {
+      const tab = url.replace('#', '') as any;
+      if (['jobs', 'cv', 'alerts', 'dashboard'].includes(tab)) setActiveTab(tab);
+      else document.getElementById(tab)?.scrollIntoView({ behavior: 'smooth' });
+    } else if (url.startsWith('https://')) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } else if (url.startsWith('/') && !url.startsWith('//')) {
+      window.location.assign(url);
+    } else if (url.startsWith('mailto:')) {
+      window.location.href = url;
+    }
+  };
 
   const handleAdClick = async (ad: Advertisement) => {
     if (!ad?.id || ad.id === 'demo-your-ad-here') return;
@@ -4325,43 +4341,43 @@ export default function App() {
                         Number(banner.discountPercent) <= 100 &&
                         (!banner.validUntil || (/^\d{4}-\d{2}-\d{2}$/.test(banner.validUntil) && banner.validUntil >= todayKey))
                       );
-                      if (activeBanners.length === 0) return null;
+                      const promoPlacementEnabled = campaignConfig.placementOptions.some((option) => option.id === 'promo-discount-banner' && option.isEnabled);
+                      const paidPromoAds = promoPlacementEnabled
+                        ? advertisements.filter((ad) => ad.placement === 'promo-discount-banner' && isAdCurrentlyRunning(ad))
+                        : [];
+                      if (activeBanners.length === 0 && paidPromoAds.length === 0) return null;
                       return (
                         <div key="section-promo" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3">
                           {activeBanners.map((banner) => (
-                            <div
-                              key={banner.id}
-                              className={`relative overflow-hidden rounded-2xl p-4 sm:p-5 bg-gradient-to-r ${banner.bgGradient || 'from-amber-600 via-rose-600 to-indigo-700'} text-white shadow-xl shadow-amber-500/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-white/20`}
-                            >
+                            <div key={banner.id} className={`relative overflow-hidden rounded-2xl p-4 sm:p-5 bg-gradient-to-r ${banner.bgGradient || 'from-amber-600 via-rose-600 to-indigo-700'} text-white shadow-xl shadow-amber-500/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-white/20`}>
                               <div className="space-y-1">
                                 <div className="flex items-center space-x-2">
-                                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-black/30 backdrop-blur-sm border border-white/30 text-white">
-                                    {banner.badgeText || '🔥 SPECIAL OFFER'}
-                                  </span>
-                                  <span className="text-xs font-black font-mono bg-white/20 px-2 py-0.5 rounded text-white">
-                                    {banner.discountPercent}% OFF
-                                  </span>
-                                  {banner.promoCode && (
-                                    <span className="text-xs font-mono font-bold bg-black/40 px-2 py-0.5 rounded border border-white/20">
-                                      Use Code: {banner.promoCode}
-                                    </span>
-                                  )}
+                                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-black/30 backdrop-blur-sm border border-white/30 text-white">{banner.badgeText || '🔥 SPECIAL OFFER'}</span>
+                                  <span className="text-xs font-black font-mono bg-white/20 px-2 py-0.5 rounded text-white">{banner.discountPercent}% OFF</span>
+                                  {banner.promoCode && <span className="text-xs font-mono font-bold bg-black/40 px-2 py-0.5 rounded border border-white/20">Use Code: {banner.promoCode}</span>}
                                 </div>
                                 <h4 className="text-sm sm:text-base font-black tracking-tight">{banner.title}</h4>
                                 <p className="text-xs text-white/90 max-w-2xl">{banner.description}</p>
                               </div>
-
-                              <button
-                                onClick={() => {
-                                  if (currentUser) {
-                                    setActiveTab('dashboard');
-                                  } else {
-                                    setAuthModalOpen(true);
-                                  }
-                                }}
-                                className="px-5 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0"
-                              >
+                              <button onClick={() => { if (currentUser) setActiveTab('dashboard'); else setAuthModalOpen(true); }} className="px-5 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0">
                                 {banner.ctaText || 'Book Discount Ad'} →
+                              </button>
+                            </div>
+                          ))}
+                          {paidPromoAds.map((ad) => (
+                            <div key={ad.id} className="relative overflow-hidden rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-rose-700 via-amber-600 to-indigo-700 text-white shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-white/20">
+                              <div className="space-y-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-black/30 border border-white/30">{ad.badgeText || 'SPECIAL OFFER'}</span>
+                                  <span className="text-xs font-black font-mono bg-white/20 px-2 py-0.5 rounded">{ad.discountPercent}% OFF</span>
+                                  {ad.promoCode && <span className="text-xs font-mono font-bold bg-black/40 px-2 py-0.5 rounded">Use Code: {ad.promoCode}</span>}
+                                </div>
+                                {ad.imageUrl && <img src={ad.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="max-h-24 max-w-full rounded-lg object-contain" />}
+                                <h4 className="text-sm sm:text-base font-black tracking-tight">{ad.headline}</h4>
+                                <p className="text-xs text-white/90 max-w-2xl">{ad.bodyText}</p>
+                              </div>
+                              <button onClick={() => { void handleAdClick(ad); handleAdDestination(ad.ctaUrl); }} className="px-5 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0">
+                                {ad.ctaText || 'Claim Offer'} →
                               </button>
                             </div>
                           ))}
@@ -4400,44 +4416,35 @@ export default function App() {
 
                     if (section.id === 'custom-announcements') {
                       const activeCards = (landingConfig.customCards || []).filter(c => c.isEnabled);
-                      if (activeCards.length === 0) return null;
+                      const announcementPlacementEnabled = campaignConfig.placementOptions.some((option) => option.id === 'dynamic-announcement-card' && option.isEnabled);
+                      const paidAnnouncementAds = announcementPlacementEnabled
+                        ? advertisements.filter((ad) => ad.placement === 'dynamic-announcement-card' && isAdCurrentlyRunning(ad))
+                        : [];
+                      if (activeCards.length === 0 && paidAnnouncementAds.length === 0) return null;
                       return (
                         <div key="section-cards" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {activeCards.sort((a, b) => a.order - b.order).map((card) => (
-                              <div
-                                key={card.id}
-                                className={`p-6 rounded-2xl bg-gradient-to-r ${card.bgGradient || 'from-slate-900 to-indigo-950'} border border-white/10 text-white flex flex-col justify-between space-y-4 shadow-xl`}
-                              >
+                              <div key={card.id} className={`p-6 rounded-2xl bg-gradient-to-r ${card.bgGradient || 'from-slate-900 to-indigo-950'} border border-white/10 text-white flex flex-col justify-between space-y-4 shadow-xl`}>
                                 <div className="space-y-2">
                                   {card.imageUrl && <img src={card.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="w-full max-h-48 rounded-xl object-cover border border-white/10" />}
-                                  <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">
-                                    {card.badge}
-                                  </span>
+                                  <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">{card.badge}</span>
                                   <h4 className="text-lg font-black">{card.title}</h4>
                                   <p className="text-xs text-slate-300 leading-relaxed">{card.description}</p>
                                 </div>
-                                <button
-                                  onClick={() => {
-                                    if (card.buttonUrl?.startsWith('#')) {
-                                      const tab = card.buttonUrl.replace('#', '') as any;
-                                      if (['jobs', 'cv', 'alerts', 'dashboard'].includes(tab)) {
-                                        setActiveTab(tab);
-                                      } else {
-                                        const el = document.getElementById(tab);
-                                        el?.scrollIntoView({ behavior: 'smooth' });
-                                      }
-                                    } else if (card.buttonUrl?.startsWith('https://')) {
-                                      window.open(card.buttonUrl, '_blank', 'noopener,noreferrer');
-                                    } else if (card.buttonUrl?.startsWith('/') && !card.buttonUrl.startsWith('//')) {
-                                      window.location.assign(card.buttonUrl);
-                                    } else if (card.buttonUrl?.startsWith('mailto:')) {
-                                      window.location.href = card.buttonUrl;
-                                    }
-                                  }}
-                                  className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md"
-                                >
-                                  {card.buttonText} →
+                                <button onClick={() => handleAdDestination(card.buttonUrl)} className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md">{card.buttonText} →</button>
+                              </div>
+                            ))}
+                            {paidAnnouncementAds.map((ad) => (
+                              <div key={ad.id} className="p-6 rounded-2xl bg-gradient-to-r from-slate-900 to-indigo-950 border border-white/10 text-white flex flex-col justify-between space-y-4 shadow-xl">
+                                <div className="space-y-2">
+                                  {ad.imageUrl && <img src={ad.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="w-full max-h-48 rounded-xl object-cover border border-white/10" />}
+                                  <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">{ad.badgeText || 'SPONSORED ANNOUNCEMENT'}</span>
+                                  <h4 className="text-lg font-black">{ad.headline}</h4>
+                                  <p className="text-xs text-slate-300 leading-relaxed">{ad.bodyText}</p>
+                                </div>
+                                <button onClick={() => { void handleAdClick(ad); handleAdDestination(ad.ctaUrl); }} className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md">
+                                  {ad.ctaText || 'Learn More'} →
                                 </button>
                               </div>
                             ))}

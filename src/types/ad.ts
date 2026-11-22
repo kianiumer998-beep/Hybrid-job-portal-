@@ -8,7 +8,9 @@ export type AdPlacement =
   | 'sidebar'         // Sidebar / Filter widget
   | 'popup-modal'     // Centered Modal popup overlay
   | 'toast-float'     // Bottom-right toast notification
-  | 'sms-broadcast';  // Direct SMS text message broadcast
+  | 'sms-broadcast'          // Direct SMS text message broadcast
+  | 'promo-discount-banner'  // Paid promotional discount banner in landing page promo section
+  | 'dynamic-announcement-card'; // Paid announcement card in landing page announcements section
 
 export type AdStatus = 'active' | 'paused' | 'pending_approval' | 'rejected' | 'completed' | 'draft';
 
@@ -490,6 +492,28 @@ export const DEFAULT_PLACEMENT_OPTIONS: CampaignPlacementOption[] = [
     iconName: 'Send',
     badge: 'Direct Phone',
     isEnabled: true
+  },
+  {
+    id: 'promo-discount-banner',
+    name: 'Promotional Discount Banner',
+    description: 'Paid discount promotion shown in the landing page promotional banner section.',
+    type: 'banner',
+    multiplier: 1.15,
+    iconName: 'Tag',
+    badge: 'Landing Promotion',
+    isEnabled: false,
+    maxConcurrentSlots: 1
+  },
+  {
+    id: 'dynamic-announcement-card',
+    name: 'Dynamic Announcement Card',
+    description: 'Paid image or text announcement card shown with the landing page announcements.',
+    type: 'banner',
+    multiplier: 1.0,
+    iconName: 'Layers',
+    badge: 'Landing Announcement',
+    isEnabled: false,
+    maxConcurrentSlots: 1
   }
 ];
 
@@ -618,7 +642,9 @@ export const DEFAULT_AD_PRICING_CONFIG: AdPricingConfig = {
     'popup-modal': 1.5,
     'toast-float': 0.9,
     'sidebar': 0.75,
-    'sms-broadcast': 1.1
+    'sms-broadcast': 1.1,
+    'promo-discount-banner': 1.15,
+    'dynamic-announcement-card': 1.0
   },
   pageMultipliers: {
     'all': 1.4,
@@ -674,6 +700,8 @@ export interface Advertisement {
   ctaText?: string; // e.g. "Apply Now", "Claim 50% Discount", "Join Live Masterclass"
   ctaUrl?: string; // External URL or internal tab link (e.g. '#cv', '#alerts', 'https://...')
   badgeText?: string; // e.g. "Sponsored", "Featured Partner", "Urgent Notice", "Special Offer"
+  discountPercent?: number; // Advertiser-supplied discount for promotional discount banner campaigns
+  promoCode?: string; // Optional advertiser-supplied promotional code
   
   // Style / Colors
   theme: AdTheme;
@@ -1167,6 +1195,10 @@ export function getPlacementDisplayName(placement: AdPlacement): string {
       return 'Sidebar / Filter Widget Card';
     case 'sms-broadcast':
       return 'Direct SMS Text Message Broadcast';
+    case 'promo-discount-banner':
+      return 'Promotional Discount Banner';
+    case 'dynamic-announcement-card':
+      return 'Dynamic Announcement Card';
     default:
       return placement;
   }
@@ -1328,7 +1360,7 @@ export function getOccupiedSlotRangesForPlacement(
     .filter(
       (a) =>
         a.placement === placement &&
-        (a.status === 'active' || a.status === 'pending_approval') &&
+        (a.status === 'active' || a.status === 'pending_approval' || a.status === 'pending') &&
         a.scheduledStartAt &&
         a.scheduledEndAt
     )

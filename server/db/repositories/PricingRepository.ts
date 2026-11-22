@@ -315,7 +315,15 @@ function deepMergePricing(base: any, incoming: any): any {
         ? src.campaignCustomizationConfig.durationPresets
         : (base.campaignCustomizationConfig?.durationPresets || []),
       placementOptions: Array.isArray(src.campaignCustomizationConfig?.placementOptions)
-        ? src.campaignCustomizationConfig.placementOptions
+        ? [
+            ...(base.campaignCustomizationConfig?.placementOptions || []).map((defaultOption: any) => {
+              const savedOption = src.campaignCustomizationConfig.placementOptions.find((option: any) => option?.id === defaultOption.id);
+              return savedOption ? { ...defaultOption, ...savedOption } : defaultOption;
+            }),
+            ...src.campaignCustomizationConfig.placementOptions.filter((savedOption: any) =>
+              !(base.campaignCustomizationConfig?.placementOptions || []).some((defaultOption: any) => defaultOption.id === savedOption?.id)
+            )
+          ]
         : (base.campaignCustomizationConfig?.placementOptions || []),
       feedInlineSettings: {
         ...(base.campaignCustomizationConfig?.feedInlineSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings),
@@ -450,6 +458,19 @@ export class PricingRepository {
       }
       if (feed.rotateMultipleAds !== undefined && typeof feed.rotateMultipleAds !== 'boolean') {
         throw new Error('feedInlineSettings.rotateMultipleAds must be a boolean');
+      }
+    }
+
+    if (Array.isArray(updates.campaignCustomizationConfig?.placementOptions)) {
+      for (const option of updates.campaignCustomizationConfig.placementOptions) {
+        if (!option || typeof option.id !== 'string' || !option.id.trim()) throw new Error('Every campaign placement option must have a valid id.');
+        if (option.maxConcurrentSlots !== undefined) {
+          const slots = Number(option.maxConcurrentSlots);
+          if (!Number.isInteger(slots) || slots < 1 || slots > 50) throw new Error(`Placement ${option.id} maxConcurrentSlots must be an integer between 1 and 50.`);
+        }
+        if (option.fixedPriceOverridePkr !== undefined) validateNonNegativeNumber(option.fixedPriceOverridePkr, `campaignPlacement.${option.id}.fixedPriceOverridePkr`);
+        if (option.multiplier !== undefined) validateNonNegativeNumber(option.multiplier, `campaignPlacement.${option.id}.multiplier`, 100);
+        if (option.isEnabled !== undefined && typeof option.isEnabled !== 'boolean') throw new Error(`Placement ${option.id} isEnabled must be a boolean.`);
       }
     }
 
@@ -943,7 +964,9 @@ export class PricingRepository {
       'sidebar',
       'popup-modal',
       'toast-float',
-      'sms-broadcast'
+      'sms-broadcast',
+      'promo-discount-banner',
+      'dynamic-announcement-card'
     ];
 
     let resolvedPlacement: AdPlacement = 'top-header';
@@ -966,6 +989,38 @@ export class PricingRepository {
       resolvedPlacement = 'toast-float';
     } else if (req?.type === 'text') {
       resolvedPlacement = 'sidebar';
+    }
+
+    const placementOption = campaignConfig.placementOptions?.find((option) => option.id === resolvedPlacement);
+    const isLandingCommercialPlacement = resolvedPlacement === 'promo-discount-banner' || resolvedPlacement === 'dynamic-announcement-card';
+    if (placementOption?.isEnabled === false || (isLandingCommercialPlacement && !placementOption)) {
+      const placementError: any = new Error('This campaign placement is currently disabled or unavailable. Please select another placement.');
+      placementError.statusCode = 409;
+      throw placementError;
+    }
+    if (isLandingCommercialPlacement) {
+      const maxSlots = Number(placementOption?.maxConcurrentSlots || 0);
+      if (!Number.isInteger(maxSlots) || maxSlots < 1 || maxSlots > 50) {
+        const slotConfigError: any = new Error('This campaign placement does not have a valid slot limit configured by the administrator.');
+        slotConfigError.statusCode = 409;
+        throw slotConfigError;
+      }
+      const now = Date.now();
+      const occupiedCount = (Database.getAds() || []).filter((ad: any) => {
+        if (ad?.placement !== resolvedPlacement || !['active', 'pending', 'pending_approval'].includes(String(ad.status))) return false;
+        if (ad.approvalStatus === 'Rejected') return false;
+        const endValue = ad.scheduledEndAt || ad.endDate;
+        if (endValue) {
+          const endMs = new Date(String(endValue).replace(' ', 'T')).getTime();
+          if (Number.isFinite(endMs) && endMs < now) return false;
+        }
+        return true;
+      }).length;
+      if (occupiedCount >= maxSlots) {
+        const slotError: any = new Error('All campaign slots for this placement are currently reserved. Please try again when a slot becomes available.');
+        slotError.statusCode = 409;
+        throw slotError;
+      }
     }
 
     const presetId =

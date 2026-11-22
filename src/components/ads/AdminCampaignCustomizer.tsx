@@ -419,7 +419,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
           { id: 'feed-positioning', label: 'Job Feed & Ad Frequency', icon: Layers, badge: localConfig.feedInlineSettings.insertionMode === 'cadence' ? `Every ${localConfig.feedInlineSettings.repeatEveryNJobs || 3}` : `${(localConfig.feedInlineSettings.customIndices || []).length} slots` },
           { id: 'banner-dimensions', label: 'Banner Dimensions', icon: Sliders, badge: 'Custom Sizes' },
           { id: 'banner-appearance', label: 'Banner Styling & Rotation', icon: Eye, badge: 'Appearance' },
-          { id: 'placements', label: 'All 6 Placement Models', icon: Layout, badge: 'Full Control' },
+          { id: 'placements', label: 'All 8 Placement Models', icon: Layout, badge: 'Full Control' },
           { id: 'promo-banners', label: 'Promotional Discount Banners', icon: Percent, badge: `${localConfig.promoBanners.filter(b => b.isEnabled).length} active` },
           { id: 'job-fees', label: 'Job Posting Fee Override', icon: DollarSign, badge: localConfig.jobPostingFeeSettings?.isFreeAll ? '100% FREE' : 'Custom' },
           { id: 'rules', label: 'Policy Rules', icon: ShieldCheck }
@@ -1202,7 +1202,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
       )}
 
       {/* ========================================================= */}
-      {/* 5. ALL 6 PLACEMENT MODELS TAB                             */}
+      {/* 5. ALL 8 PLACEMENT MODELS TAB                             */}
       {/* ========================================================= */}
       {activeTab === 'placements' && (
         <div className="space-y-6">
@@ -1210,7 +1210,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
             <div>
               <div className="flex items-center space-x-2">
                 <Layout className="w-5 h-5 text-teal-400" />
-                <h3 className="text-lg font-black text-white">All 6 Placement Models & Pricing Multipliers</h3>
+                <h3 className="text-lg font-black text-white">All 8 Placement Models, Slot Limits & Pricing</h3>
               </div>
               <p className="text-xs text-slate-400 mt-1">
                 Configure rate multipliers, 100% Free overrides, or flat fees across all placement options.
@@ -1269,6 +1269,29 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
                       >
                         {placement.isFreeOverride ? 'FREE PLACEMENT' : 'STANDARD FEE'}
                       </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
+                    <div>
+                      <label className="text-[10px] text-slate-400 block mb-1 font-bold">Maximum Concurrent Slots</label>
+                      <input type="number" min="1" max="50" step="1" value={placement.maxConcurrentSlots ?? ''} placeholder="No limit"
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const parsed = raw === '' ? undefined : Number(raw);
+                          handleUpdatePlacement(placement.id, { maxConcurrentSlots: parsed === undefined ? undefined : Math.min(50, Math.max(1, Math.floor(parsed))) });
+                        }}
+                        className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-1.5 font-mono focus:outline-none focus:border-teal-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-400 block mb-1 font-bold">Fixed Campaign Price (PKR)</label>
+                      <input type="number" min="0" step="1" value={placement.fixedPriceOverridePkr ?? ''} placeholder="Use rate card"
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          handleUpdatePlacement(placement.id, { fixedPriceOverridePkr: raw === '' ? undefined : Math.max(0, Number(raw) || 0) });
+                        }}
+                        className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-1.5 font-mono focus:outline-none focus:border-teal-500"
+                      />
                     </div>
                   </div>
                 </div>

@@ -5,6 +5,7 @@ import { requireAdminPermission, requireAuth, authMiddleware, hasAdminPermission
 export const adRouter = Router();
 
 const activeAdCreationLocks = new Set<string>();
+const activePlacementCreationLocks = new Set<string>();
 
 // 1. Get Ads (Public active ads, plus authenticated user's own campaigns, or all for admin)
 adRouter.get('/', async (req, res) => {
@@ -250,7 +251,18 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
         // If campaign creation fails at any point below, safely compensate the user's wallet exactly once.
         let newAd: any = null;
         let calc: any = null;
+        let placementLockKey: string | undefined;
         try {
+          const requestedPlacement = String(adPricingInput.placement || adData.placement || '');
+          if (requestedPlacement === 'promo-discount-banner' || requestedPlacement === 'dynamic-announcement-card') {
+            placementLockKey = requestedPlacement;
+            if (activePlacementCreationLocks.has(placementLockKey)) {
+              const slotLockError: any = new Error('A campaign for this placement is currently being booked. Please retry in a moment.');
+              slotLockError.statusCode = 409;
+              throw slotLockError;
+            }
+            activePlacementCreationLocks.add(placementLockKey);
+          }
           calc = await PricingRepository.calculateAdPrice(adPricingInput);
 
           if (Number(verifiedTx.amount) !== Number(calc.finalPrice)) {
@@ -269,6 +281,23 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
             const titleErr: any = new Error('A valid campaign title is required to create an advertisement.');
             titleErr.statusCode = 400;
             throw titleErr;
+          }
+          if (calc.placement === 'promo-discount-banner' || calc.placement === 'dynamic-announcement-card') {
+            if (typeof adData.headline !== 'string' || !adData.headline.trim()) {
+              const creativeErr: any = new Error('A campaign headline is required for this landing page placement.');
+              creativeErr.statusCode = 400;
+              throw creativeErr;
+            }
+          }
+          if (calc.placement === 'promo-discount-banner') {
+            const discountPercent = Number(adData.discountPercent);
+            if (!Number.isInteger(discountPercent) || discountPercent < 1 || discountPercent > 100) {
+              const discountErr: any = new Error('Promotional discount must be a whole number between 1 and 100.');
+              discountErr.statusCode = 400;
+              throw discountErr;
+            }
+            adData.discountPercent = discountPercent;
+            if (typeof adData.promoCode === 'string') adData.promoCode = adData.promoCode.trim().slice(0, 40) || undefined;
           }
 
           if (!isAdmin) {
@@ -343,6 +372,8 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
               ? { auditPersisted: false, auditWarning: compensation.auditWarning }
               : {})
           });
+        } finally {
+          if (placementLockKey) activePlacementCreationLocks.delete(placementLockKey);
         }
 
         try {

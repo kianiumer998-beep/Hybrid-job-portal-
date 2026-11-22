@@ -4464,6 +4464,36 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 <span>Reject Selected</span>
               </button>
 
+              {canDeleteScrapedJobs === true && (
+                <button
+                  type="button"
+                  disabled={selectedReviewIds.length === 0 || isProcessingReview}
+                  onClick={async () => {
+                    if (!confirm(`Permanently delete ${selectedReviewIds.length} selected review jobs? This cannot be undone.`)) return;
+                    setIsProcessingReview(true);
+                    try {
+                      const res = await api.jobs.bulkDelete(selectedReviewIds);
+                      if (res?.success) {
+                        setStatusMessage({ text: `Deleted ${res.deletedCount ?? selectedReviewIds.length} selected jobs.`, type: 'success' });
+                        setSelectedReviewIds([]);
+                        await fetchPendingQueue();
+                        if (onReloadJobs) await onReloadJobs();
+                      } else {
+                        setStatusMessage({ text: res?.message || 'Bulk delete could not be confirmed.', type: 'error' });
+                      }
+                    } catch (err: any) {
+                      setStatusMessage({ text: `Bulk delete error: ${err.message}`, type: 'error' });
+                    } finally {
+                      setIsProcessingReview(false);
+                    }
+                  }}
+                  className="px-3.5 py-2 bg-rose-700 hover:bg-rose-600 text-white border border-rose-500/50 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1.5"
+                  title="Delete all selected review jobs using the existing permission-checked admin delete route"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Bulk Delete Selected ({selectedReviewIds.length})</span>
+                </button>
+              )}
               <button
                 type="button"
                 disabled={selectedDuplicateCount === 0 || isProcessingReview}

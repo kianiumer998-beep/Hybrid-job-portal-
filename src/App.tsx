@@ -647,6 +647,7 @@ export default function App() {
   // Per-Job Posting Fee & Priority Placement Pricing Configuration State (Authoritative Backend /api/pricing)
   const [jobPostingFeePkr, setJobPostingFeePkr] = useState<number>(DEFAULT_JOB_POSTING_PRICING_CONFIG.standardFeePkr);
   const [jobPostingPricing, setJobPostingPricing] = useState<JobPostingPricingConfig>(DEFAULT_JOB_POSTING_PRICING_CONFIG);
+  const [cvBuilderSettings, setCvBuilderSettings] = useState<any>({});
 
   const [isPricingLoading, setIsPricingLoading] = useState<boolean>(true);
   const [pricingLoadError, setPricingLoadError] = useState<string | null>(null);
@@ -654,6 +655,7 @@ export default function App() {
 
   const applyAuthoritativePricing = useCallback((pricingData: any) => {
     if (!pricingData || typeof pricingData !== 'object') return;
+    if (pricingData.cvBuilder && typeof pricingData.cvBuilder === 'object') setCvBuilderSettings(pricingData.cvBuilder);
 
     if (pricingData.adPricingConfig) {
       setPricingConfig({
@@ -4606,14 +4608,7 @@ export default function App() {
                 isSubscribed={isSubscribed}
                 initialCvData={currentUser?.cvData}
                 onSaveCv={async (cvData) => handleUpdateProfile({ cvData })}
-                onSubmitCv={async (cvData) => {
-                  const result = await api.users.submitCv(cvData);
-                  if (result?.success && result?.cvReview) {
-                    setCurrentUser((prev) => prev ? { ...prev, cvData, cvReview: result.cvReview } : prev);
-                  }
-                  return result;
-                }}
-                reviewStatus={currentUser?.cvReview}
+                cvBuilderSettings={cvBuilderSettings}
                 onOpenPaywall={() => setCvPaywallOpen(true)}
               />
             )}

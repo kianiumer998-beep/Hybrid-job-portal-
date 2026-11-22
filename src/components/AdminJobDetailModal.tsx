@@ -1450,11 +1450,16 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
               Factual content extracted from the original recruitment advertisement. Complete paragraphs, tables, eligibility, quotas, and deadlines are preserved without truncation.
             </p>
 
-            <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4 max-h-96 overflow-y-auto">
-              <pre className="font-mono text-xs text-slate-300 whitespace-pre-wrap leading-relaxed select-text">
-                {job.extractedText || job.description || 'No raw extracted text recorded for this listing.'}
-              </pre>
-            </div>
+            <details className="rounded-xl border border-slate-800 bg-slate-900/90">
+              <summary className="px-4 py-3 text-xs font-bold text-indigo-300 cursor-pointer select-none">
+                View Full Extracted Text ({(job.extractedText || job.description || '').length.toLocaleString()} characters)
+              </summary>
+              <div className="p-4 pt-0 max-h-96 overflow-y-auto">
+                <pre className="font-mono text-xs text-slate-300 whitespace-pre-wrap leading-relaxed select-text">
+                  {job.extractedText || job.description || 'No raw extracted text recorded for this listing.'}
+                </pre>
+              </div>
+            </details>
           </div>
 
         </div>

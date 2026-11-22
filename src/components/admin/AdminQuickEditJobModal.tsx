@@ -100,7 +100,27 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
     applyUrgent: false,
     urgent: true,
     applyTags: false,
-    tagsToAdd: 'Verified, Recommended'
+    tagsToAdd: 'Verified, Recommended',
+    applyCountry: false,
+    country: 'Pakistan',
+    applyDistrict: false,
+    district: '',
+    applyLocationConfirmed: false,
+    locationConfirmed: true,
+    applyExpiry: false,
+    expiryDate: '',
+    applyApplyUrl: false,
+    applicationUrl: '',
+    applySourceUrl: false,
+    sourceUrl: '',
+    applySourcePortal: false,
+    sourcePortal: '',
+    applyCompany: false,
+    company: '',
+    applyDescription: false,
+    description: '',
+    applyRequirements: false,
+    requirementsText: ''
   });
 
   const [tagInput, setTagInput] = useState('');
@@ -309,6 +329,19 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
       }
       if (bulkFields.applyJobType) updatedJob.jobType = bulkFields.jobType;
       if (bulkFields.applyDeadline) updatedJob.deadlineDate = bulkFields.deadlineDate;
+      if (bulkFields.applyCountry) updatedJob.country = bulkFields.country;
+      if (bulkFields.applyDistrict) updatedJob.district = bulkFields.district;
+      if (bulkFields.applyLocationConfirmed) {
+        updatedJob.isLocationConfirmed = bulkFields.locationConfirmed;
+        updatedJob.metadata = { ...(updatedJob.metadata || {}), isLocationConfirmed: bulkFields.locationConfirmed };
+      }
+      if (bulkFields.applyExpiry) updatedJob.expiryDate = bulkFields.expiryDate;
+      if (bulkFields.applyApplyUrl) (updatedJob as any).applicationUrl = bulkFields.applicationUrl;
+      if (bulkFields.applySourceUrl) (updatedJob as any).sourceUrl = bulkFields.sourceUrl;
+      if (bulkFields.applySourcePortal) (updatedJob as any).sourcePortal = bulkFields.sourcePortal;
+      if (bulkFields.applyCompany) updatedJob.company = bulkFields.company;
+      if (bulkFields.applyDescription) updatedJob.description = bulkFields.description;
+      if (bulkFields.applyRequirements) updatedJob.requirements = bulkFields.requirementsText.split(/\\r?\\n|,/).map(value => value.trim()).filter(Boolean);
       if (bulkFields.applyFeatured) updatedJob.featured = bulkFields.featured;
       if (bulkFields.applyUrgent) updatedJob.urgent = bulkFields.urgent;
       if (bulkFields.applyTags && bulkFields.tagsToAdd.trim()) {
@@ -510,6 +543,52 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                   />
                   <span className="font-bold text-rose-400">🔥 Mark all as Urgent Hiring</span>
                 </label>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-[11px] font-black uppercase tracking-wider text-slate-400">Additional Shared Fields — Only checked fields will change</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applyCountry} onChange={e => setBulkFields(p => ({ ...p, applyCountry: e.target.checked }))} /> Country</label>
+                  <input disabled={!bulkFields.applyCountry} value={bulkFields.country} onChange={e => setBulkFields(p => ({ ...p, country: e.target.value }))} className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
+                </div>
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applyDistrict} onChange={e => setBulkFields(p => ({ ...p, applyDistrict: e.target.checked }))} /> District</label>
+                  <input disabled={!bulkFields.applyDistrict} value={bulkFields.district} onChange={e => setBulkFields(p => ({ ...p, district: e.target.value }))} placeholder="District name" className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
+                </div>
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applyLocationConfirmed} onChange={e => setBulkFields(p => ({ ...p, applyLocationConfirmed: e.target.checked }))} /> Location Confirmation</label>
+                  <select disabled={!bulkFields.applyLocationConfirmed} value={String(bulkFields.locationConfirmed)} onChange={e => setBulkFields(p => ({ ...p, locationConfirmed: e.target.value === 'true' }))} className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40"><option value="true">Confirmed</option><option value="false">Unconfirmed</option></select>
+                </div>
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applyExpiry} onChange={e => setBulkFields(p => ({ ...p, applyExpiry: e.target.checked }))} /> Expiry Date (separate from deadline)</label>
+                  <input type="date" disabled={!bulkFields.applyExpiry} value={bulkFields.expiryDate} onChange={e => setBulkFields(p => ({ ...p, expiryDate: e.target.value }))} className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
+                </div>
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applyApplyUrl} onChange={e => setBulkFields(p => ({ ...p, applyApplyUrl: e.target.checked }))} /> Application / Apply URL</label>
+                  <input type="url" disabled={!bulkFields.applyApplyUrl} value={bulkFields.applicationUrl} onChange={e => setBulkFields(p => ({ ...p, applicationUrl: e.target.value }))} placeholder="https://..." className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
+                </div>
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applySourceUrl} onChange={e => setBulkFields(p => ({ ...p, applySourceUrl: e.target.checked }))} /> Scraper Source URL</label>
+                  <input type="url" disabled={!bulkFields.applySourceUrl} value={bulkFields.sourceUrl} onChange={e => setBulkFields(p => ({ ...p, sourceUrl: e.target.value }))} placeholder="https://original-source..." className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
+                </div>
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applySourcePortal} onChange={e => setBulkFields(p => ({ ...p, applySourcePortal: e.target.checked }))} /> Source Portal</label>
+                  <input disabled={!bulkFields.applySourcePortal} value={bulkFields.sourcePortal} onChange={e => setBulkFields(p => ({ ...p, sourcePortal: e.target.value }))} placeholder="e.g. FPSC / PPSC" className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
+                </div>
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applyCompany} onChange={e => setBulkFields(p => ({ ...p, applyCompany: e.target.checked }))} /> Company / Organization</label>
+                  <input disabled={!bulkFields.applyCompany} value={bulkFields.company} onChange={e => setBulkFields(p => ({ ...p, company: e.target.value }))} placeholder="Shared organization name" className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
+                </div>
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50 md:col-span-2">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applyDescription} onChange={e => setBulkFields(p => ({ ...p, applyDescription: e.target.checked }))} /> Description — replaces each selected job's description</label>
+                  <textarea disabled={!bulkFields.applyDescription} rows={3} value={bulkFields.description} onChange={e => setBulkFields(p => ({ ...p, description: e.target.value }))} className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
+                </div>
+                <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50 md:col-span-2">
+                  <label className="flex items-center gap-2 text-slate-200 font-bold mb-2"><input type="checkbox" checked={bulkFields.applyRequirements} onChange={e => setBulkFields(p => ({ ...p, applyRequirements: e.target.checked }))} /> Requirements — one item per line or comma-separated</label>
+                  <textarea disabled={!bulkFields.applyRequirements} rows={3} value={bulkFields.requirementsText} onChange={e => setBulkFields(p => ({ ...p, requirementsText: e.target.value }))} className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
+                </div>
               </div>
             </div>
 

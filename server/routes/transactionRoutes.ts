@@ -708,12 +708,12 @@ transactionRouter.post('/', async (req, res) => {
         const cvOwner = await UserRepository.getByIdAsync(effectiveUserId);
         if (!cvOwner) return res.status(404).json({ success: false, message: 'Your account could not be found.' });
         const ownedDesigns = Array.isArray(cvOwner.cvDesignEntitlements) ? cvOwner.cvDesignEntitlements : [];
-        if (ownedDesigns.some((item: any) => item?.templateId === selectedTemplate.id)) {
+        if (ownedDesigns.some((item: any) => item?.templateId === purchaseId)) {
           return res.status(409).json({ success: false, message: 'You already own this CV design.' });
         }
         const existingCvTransactions = await PaymentRepository.getAllAsync(effectiveUserId);
         const activePurchase = existingCvTransactions.find((item: any) =>
-          item && item.type === 'CV Design Purchase' && item.cvTemplateId === selectedTemplate.id &&
+          item && item.type === 'CV Design Purchase' && item.cvTemplateId === purchaseId &&
           ['Pending', 'Verifying', 'VerificationUncertain', 'Success'].includes(String(item.status))
         );
         if (activePurchase) {

@@ -40,7 +40,8 @@ import {
   AdPricingConfig, 
   DEFAULT_AD_PRICING_CONFIG,
   CampaignCustomizationConfig,
-  DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG
+  DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+  isAdCurrentlyRunning
 } from './types/ad';
 
 import { 
@@ -1026,6 +1027,21 @@ export default function App() {
 
   const [isAdDrawerOpen, setIsAdDrawerOpen] = useState<boolean>(false);
 
+  const handleAdDestination = (url?: string) => {
+    if (!url) return;
+    if (url.startsWith('#')) {
+      const tab = url.replace('#', '') as any;
+      if (['jobs', 'cv', 'alerts', 'dashboard'].includes(tab)) setActiveTab(tab);
+      else document.getElementById(tab)?.scrollIntoView({ behavior: 'smooth' });
+    } else if (url.startsWith('https://')) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } else if (url.startsWith('/') && !url.startsWith('//')) {
+      window.location.assign(url);
+    } else if (url.startsWith('mailto:')) {
+      window.location.href = url;
+    }
+  };
+
   const handleAdClick = async (ad: Advertisement) => {
     if (!ad?.id || ad.id === 'demo-your-ad-here') return;
     try {
@@ -1040,6 +1056,12 @@ export default function App() {
     } catch (err) {
       console.error('[App] Failed to record ad click:', err);
     }
+  };
+
+  const handlePaidAdCta = (ad: Advertisement) => {
+    // Open/navigate synchronously within the click gesture so external links are not blocked.
+    void handleAdClick(ad);
+    handleAdDestination(ad.ctaUrl);
   };
 
   const handleAddAd = async (newAd: Advertisement) => {
@@ -1377,13 +1399,18 @@ export default function App() {
   // Apply the server-backed admin default once on initial pricing load.
   // Existing visitor page-size changes remain in effect for the current session.
   useEffect(() => {
-    if (!isPricingReady || hasAppliedAdminFeedPageSize.current) return;
+    if (!isPricingReady) return;
     const configuredSize = Number(campaignConfig.feedInlineSettings?.standardJobsPerPage ?? 10);
-    if (Number.isInteger(configuredSize) && configuredSize >= 1 && configuredSize <= 100) {
+    if (!Number.isInteger(configuredSize) || configuredSize < 1 || configuredSize > 100) return;
+
+    // Apply the admin default once for normal visitor sessions. If Admin hides
+    // the selector, enforce the configured page size even if a visitor had
+    // previously selected a different value in this session.
+    if (!hasAppliedAdminFeedPageSize.current || landingConfig.showPostsPerPageSelector === false) {
       setPostsPerPage(configuredSize);
     }
     hasAppliedAdminFeedPageSize.current = true;
-  }, [isPricingReady, campaignConfig.feedInlineSettings?.standardJobsPerPage]);
+  }, [isPricingReady, campaignConfig.feedInlineSettings?.standardJobsPerPage, landingConfig.showPostsPerPageSelector]);
 
   const loadBackendJobs = useCallback(async (targetPage?: number, targetLimit?: number): Promise<{ success: boolean; message?: string }> => {
     const pageToFetch = targetPage ?? pendingPage;
@@ -4325,43 +4352,43 @@ export default function App() {
                         Number(banner.discountPercent) <= 100 &&
                         (!banner.validUntil || (/^\d{4}-\d{2}-\d{2}$/.test(banner.validUntil) && banner.validUntil >= todayKey))
                       );
-                      if (activeBanners.length === 0) return null;
+                      const promoPlacementEnabled = campaignConfig.placementOptions.some((option) => option.id === 'promo-discount-banner' && option.isEnabled);
+                      const paidPromoAds = promoPlacementEnabled
+                        ? advertisements.filter((ad) => ad.placement === 'promo-discount-banner' && isAdCurrentlyRunning(ad))
+                        : [];
+                      if (activeBanners.length === 0 && paidPromoAds.length === 0) return null;
                       return (
                         <div key="section-promo" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3">
                           {activeBanners.map((banner) => (
-                            <div
-                              key={banner.id}
-                              className={`relative overflow-hidden rounded-2xl p-4 sm:p-5 bg-gradient-to-r ${banner.bgGradient || 'from-amber-600 via-rose-600 to-indigo-700'} text-white shadow-xl shadow-amber-500/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-white/20`}
-                            >
+                            <div key={banner.id} className={`relative overflow-hidden rounded-2xl p-4 sm:p-5 bg-gradient-to-r ${banner.bgGradient || 'from-amber-600 via-rose-600 to-indigo-700'} text-white shadow-xl shadow-amber-500/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-white/20`}>
                               <div className="space-y-1">
                                 <div className="flex items-center space-x-2">
-                                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-black/30 backdrop-blur-sm border border-white/30 text-white">
-                                    {banner.badgeText || '🔥 SPECIAL OFFER'}
-                                  </span>
-                                  <span className="text-xs font-black font-mono bg-white/20 px-2 py-0.5 rounded text-white">
-                                    {banner.discountPercent}% OFF
-                                  </span>
-                                  {banner.promoCode && (
-                                    <span className="text-xs font-mono font-bold bg-black/40 px-2 py-0.5 rounded border border-white/20">
-                                      Use Code: {banner.promoCode}
-                                    </span>
-                                  )}
+                                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-black/30 backdrop-blur-sm border border-white/30 text-white">{banner.badgeText || '🔥 SPECIAL OFFER'}</span>
+                                  <span className="text-xs font-black font-mono bg-white/20 px-2 py-0.5 rounded text-white">{banner.discountPercent}% OFF</span>
+                                  {banner.promoCode && <span className="text-xs font-mono font-bold bg-black/40 px-2 py-0.5 rounded border border-white/20">Use Code: {banner.promoCode}</span>}
                                 </div>
                                 <h4 className="text-sm sm:text-base font-black tracking-tight">{banner.title}</h4>
                                 <p className="text-xs text-white/90 max-w-2xl">{banner.description}</p>
                               </div>
-
-                              <button
-                                onClick={() => {
-                                  if (currentUser) {
-                                    setActiveTab('dashboard');
-                                  } else {
-                                    setAuthModalOpen(true);
-                                  }
-                                }}
-                                className="px-5 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0"
-                              >
+                              <button onClick={() => { if (currentUser) setActiveTab('dashboard'); else setAuthModalOpen(true); }} className="px-5 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0">
                                 {banner.ctaText || 'Book Discount Ad'} →
+                              </button>
+                            </div>
+                          ))}
+                          {paidPromoAds.map((ad) => (
+                            <div key={ad.id} className="relative overflow-hidden rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-rose-700 via-amber-600 to-indigo-700 text-white shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-white/20">
+                              <div className="space-y-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-black/30 border border-white/30">{ad.badgeText || 'SPECIAL OFFER'}</span>
+                                  <span className="text-xs font-black font-mono bg-white/20 px-2 py-0.5 rounded">{ad.discountPercent}% OFF</span>
+                                  {ad.promoCode && <span className="text-xs font-mono font-bold bg-black/40 px-2 py-0.5 rounded">Use Code: {ad.promoCode}</span>}
+                                </div>
+                                {ad.imageUrl && <img src={ad.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="max-h-24 max-w-full rounded-lg object-contain" />}
+                                <h4 className="text-sm sm:text-base font-black tracking-tight">{ad.headline}</h4>
+                                <p className="text-xs text-white/90 max-w-2xl">{ad.bodyText}</p>
+                              </div>
+                              <button onClick={() => { void handlePaidAdCta(ad); }} className="px-5 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0">
+                                {ad.ctaText || 'Claim Offer'} →
                               </button>
                             </div>
                           ))}
@@ -4375,23 +4402,23 @@ export default function App() {
 
                     if (section.id === 'quick-stats') {
                       return (
-                        <div key="section-stats" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-900/60 border border-slate-800 rounded-2xl">
-                            <div className="p-3 text-center">
-                              <div className="text-xl sm:text-2xl font-black text-amber-400">{jobs.length === 0 ? '0 Jobs' : `${jobs.length}+`}</div>
-                              <div className="text-[11px] text-slate-400 font-semibold">{landingConfig.hero.statBadge1Text || 'Active Verified Vacancies'}</div>
+                        <div key="section-stats" className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-3 p-2 sm:p-4 bg-slate-900/60 border border-slate-800 rounded-xl sm:rounded-2xl">
+                            <div className="p-1 sm:p-3 text-center min-w-0">
+                              <div className="text-sm sm:text-2xl font-black text-amber-400">{jobs.length === 0 ? '0 Jobs' : `${jobs.length}+`}</div>
+                              <div className="text-[9px] sm:text-[11px] text-slate-400 font-semibold leading-tight">{landingConfig.hero.statBadge1Text || 'Active Verified Vacancies'}</div>
                             </div>
-                            <div className="p-3 text-center">
-                              <div className="text-xl sm:text-2xl font-black text-emerald-400">100% Free</div>
-                              <div className="text-[11px] text-slate-400 font-semibold">{landingConfig.hero.statBadge2Text || 'Automated ATS Resume'}</div>
+                            <div className="p-1 sm:p-3 text-center min-w-0">
+                              <div className="text-sm sm:text-2xl font-black text-emerald-400">100% Free</div>
+                              <div className="text-[9px] sm:text-[11px] text-slate-400 font-semibold leading-tight">{landingConfig.hero.statBadge2Text || 'Automated ATS Resume'}</div>
                             </div>
-                            <div className="p-3 text-center">
-                              <div className="text-xl sm:text-2xl font-black text-indigo-400">36+ Districts</div>
-                              <div className="text-[11px] text-slate-400 font-semibold">{landingConfig.hero.statBadge3Text || 'Punjab, Sindh, KPK & Global'}</div>
+                            <div className="p-1 sm:p-3 text-center min-w-0">
+                              <div className="text-sm sm:text-2xl font-black text-indigo-400">36+ Districts</div>
+                              <div className="text-[9px] sm:text-[11px] text-slate-400 font-semibold leading-tight">{landingConfig.hero.statBadge3Text || 'Punjab, Sindh, KPK & Global'}</div>
                             </div>
-                            <div className="p-3 text-center">
-                              <div className="text-xl sm:text-2xl font-black text-teal-400">Instant</div>
-                              <div className="text-[11px] text-slate-400 font-semibold">{landingConfig.hero.statBadge4Text || 'WhatsApp & Email Alerts'}</div>
+                            <div className="p-1 sm:p-3 text-center min-w-0">
+                              <div className="text-sm sm:text-2xl font-black text-teal-400">Instant</div>
+                              <div className="text-[9px] sm:text-[11px] text-slate-400 font-semibold leading-tight">{landingConfig.hero.statBadge4Text || 'WhatsApp & Email Alerts'}</div>
                             </div>
                           </div>
                         </div>
@@ -4400,44 +4427,35 @@ export default function App() {
 
                     if (section.id === 'custom-announcements') {
                       const activeCards = (landingConfig.customCards || []).filter(c => c.isEnabled);
-                      if (activeCards.length === 0) return null;
+                      const announcementPlacementEnabled = campaignConfig.placementOptions.some((option) => option.id === 'dynamic-announcement-card' && option.isEnabled);
+                      const paidAnnouncementAds = announcementPlacementEnabled
+                        ? advertisements.filter((ad) => ad.placement === 'dynamic-announcement-card' && isAdCurrentlyRunning(ad))
+                        : [];
+                      if (activeCards.length === 0 && paidAnnouncementAds.length === 0) return null;
                       return (
                         <div key="section-cards" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {activeCards.sort((a, b) => a.order - b.order).map((card) => (
-                              <div
-                                key={card.id}
-                                className={`p-6 rounded-2xl bg-gradient-to-r ${card.bgGradient || 'from-slate-900 to-indigo-950'} border border-white/10 text-white flex flex-col justify-between space-y-4 shadow-xl`}
-                              >
+                              <div key={card.id} className={`p-6 rounded-2xl bg-gradient-to-r ${card.bgGradient || 'from-slate-900 to-indigo-950'} border border-white/10 text-white flex flex-col justify-between space-y-4 shadow-xl`}>
                                 <div className="space-y-2">
                                   {card.imageUrl && <img src={card.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="w-full max-h-48 rounded-xl object-cover border border-white/10" />}
-                                  <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">
-                                    {card.badge}
-                                  </span>
+                                  <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">{card.badge}</span>
                                   <h4 className="text-lg font-black">{card.title}</h4>
                                   <p className="text-xs text-slate-300 leading-relaxed">{card.description}</p>
                                 </div>
-                                <button
-                                  onClick={() => {
-                                    if (card.buttonUrl?.startsWith('#')) {
-                                      const tab = card.buttonUrl.replace('#', '') as any;
-                                      if (['jobs', 'cv', 'alerts', 'dashboard'].includes(tab)) {
-                                        setActiveTab(tab);
-                                      } else {
-                                        const el = document.getElementById(tab);
-                                        el?.scrollIntoView({ behavior: 'smooth' });
-                                      }
-                                    } else if (card.buttonUrl?.startsWith('https://')) {
-                                      window.open(card.buttonUrl, '_blank', 'noopener,noreferrer');
-                                    } else if (card.buttonUrl?.startsWith('/') && !card.buttonUrl.startsWith('//')) {
-                                      window.location.assign(card.buttonUrl);
-                                    } else if (card.buttonUrl?.startsWith('mailto:')) {
-                                      window.location.href = card.buttonUrl;
-                                    }
-                                  }}
-                                  className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md"
-                                >
-                                  {card.buttonText} →
+                                <button onClick={() => handleAdDestination(card.buttonUrl)} className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md">{card.buttonText} →</button>
+                              </div>
+                            ))}
+                            {paidAnnouncementAds.map((ad) => (
+                              <div key={ad.id} className="p-6 rounded-2xl bg-gradient-to-r from-slate-900 to-indigo-950 border border-white/10 text-white flex flex-col justify-between space-y-4 shadow-xl">
+                                <div className="space-y-2">
+                                  {ad.imageUrl && <img src={ad.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="w-full max-h-48 rounded-xl object-cover border border-white/10" />}
+                                  <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">{ad.badgeText || 'SPONSORED ANNOUNCEMENT'}</span>
+                                  <h4 className="text-lg font-black">{ad.headline}</h4>
+                                  <p className="text-xs text-slate-300 leading-relaxed">{ad.bodyText}</p>
+                                </div>
+                                <button onClick={() => { void handlePaidAdCta(ad); }} className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md">
+                                  {ad.ctaText || 'Learn More'} →
                                 </button>
                               </div>
                             ))}
@@ -4460,6 +4478,8 @@ export default function App() {
                             onPostsPerPageChange={handlePostsPerPageChange}
                             userSelectedCountry={userSelectedCountry}
                             onOpenCountryModal={() => setShowCountryModal(true)}
+                            mobileColumns={landingConfig.mobileFilterColumns || 2}
+                            showPostsPerPageSelector={landingConfig.showPostsPerPageSelector !== false}
                           />
 
                           {/* Design 4 editorial two-column job feed; all existing filters, cards and ad rules stay intact. */}

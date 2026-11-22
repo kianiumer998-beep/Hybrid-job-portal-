@@ -241,8 +241,16 @@ export const JobListings: React.FC<JobListingsProps> = ({
     const cleanCompany = sanitizeJobCompanyName(job.company);
     const cleanTags = sanitizeJobTags(job.tags);
 
-    const postedTimeSource = (job.postedAt && parseJobCardDate(job.postedAt) ? job.postedAt : job.createdAt) || '';
-    const relativePostedTime = getRelativeJobTime(postedTimeSource, clockNow);
+    const postedDateCandidates = [job.postedAt, job.datePosted, job.createdAt];
+    const postedTimeSource = postedDateCandidates.find((value) => !!value && !!parseJobCardDate(value)) || '';
+    // Prefer a timestamp with a time component for accurate 'X minutes ago' labels.
+    // Scraper records may expose the source date as datePosted, while some records
+    // store postedAt as date-only; createdAt is the precise fallback when available.
+    const relativeTimeSource =
+      postedDateCandidates.find((value) => !!value && /T|\d{1,2}:\d{2}/.test(value) && !!parseJobCardDate(value)) ||
+      [job.createdAt, job.postedAt, job.datePosted].find((value) => !!value && !!parseJobCardDate(value)) ||
+      postedTimeSource;
+    const relativePostedTime = getRelativeJobTime(relativeTimeSource, clockNow);
     const exactPostedDate = formatJobCardDate(postedTimeSource);
     const deadlineDisplayDate = formatJobCardDate(job.deadlineDate);
     const deadlineRemaining = getDeadlineRemaining(job.deadlineDate, clockNow);
@@ -348,15 +356,15 @@ export const JobListings: React.FC<JobListingsProps> = ({
                         {design.visibility.postedDate && (
                              <span className="text-[10px] font-medium text-slate-500 flex items-center gap-1">
                                  <Clock className="w-2.5 h-2.5" />
-                                 {job.postedAt}
+                                 {design.visibility.relativePostedTime !== false && relativePostedTime ? relativePostedTime : design.visibility.exactPostedDate !== false ? exactPostedDate : ''}
                              </span>
                         )}
                     </div>
                     {(design.visibility.poster !== false || design.visibility.relativePostedTime !== false || design.visibility.exactPostedDate !== false || design.visibility.deadlineDate !== false || design.visibility.deadlineRemaining !== false) && (
                       <div className="flex flex-wrap gap-x-2 gap-y-1 text-[9px] sm:text-[10px] text-slate-500">
                         {design.visibility.poster !== false && <span>Posted by: {posterLabel}</span>}
-                        {design.visibility.relativePostedTime !== false && relativePostedTime && <span>{relativePostedTime}</span>}
-                        {design.visibility.exactPostedDate !== false && design.visibility.postedDate === false && exactPostedDate && <span>{exactPostedDate}</span>}
+                        {design.visibility.postedDate === false && design.visibility.relativePostedTime !== false && relativePostedTime && <span>{relativePostedTime}</span>}
+                        {design.visibility.postedDate === false && design.visibility.exactPostedDate !== false && exactPostedDate && <span>{exactPostedDate}</span>}
                         {design.visibility.deadlineDate !== false && deadlineDisplayDate && <span>Deadline: {deadlineDisplayDate}</span>}
                         {design.visibility.deadlineRemaining !== false && deadlineRemaining && <span className={deadlineRemaining === 'Deadline passed' ? 'text-rose-400' : 'text-amber-400'}>{deadlineRemaining}</span>}
                       </div>
@@ -549,7 +557,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                 <span>•</span>
                 <div className="flex items-center space-x-1">
                 <Clock className="w-3.5 h-3.5 text-slate-500" />
-                <span>{job.postedAt}</span>
+                <span>{design.visibility.relativePostedTime !== false && relativePostedTime ? relativePostedTime : design.visibility.exactPostedDate !== false ? exactPostedDate : ''}</span>
                 </div>
                 </>
             )}
@@ -557,8 +565,8 @@ export const JobListings: React.FC<JobListingsProps> = ({
           {(design.visibility.poster !== false || design.visibility.relativePostedTime !== false || design.visibility.exactPostedDate !== false || design.visibility.deadlineDate !== false || design.visibility.deadlineRemaining !== false) && (
             <div className="flex flex-wrap gap-x-2 gap-y-1 text-[10px] text-slate-500 mb-2">
               {design.visibility.poster !== false && <span>Posted by: {posterLabel}</span>}
-              {design.visibility.relativePostedTime !== false && relativePostedTime && <span>{relativePostedTime}</span>}
-              {design.visibility.exactPostedDate !== false && design.visibility.postedDate === false && exactPostedDate && <span>{exactPostedDate}</span>}
+              {design.visibility.postedDate === false && design.visibility.relativePostedTime !== false && relativePostedTime && <span>{relativePostedTime}</span>}
+              {design.visibility.postedDate === false && design.visibility.exactPostedDate !== false && exactPostedDate && <span>{exactPostedDate}</span>}
               {design.visibility.deadlineDate !== false && deadlineDisplayDate && <span>Deadline: {deadlineDisplayDate}</span>}
               {design.visibility.deadlineRemaining !== false && deadlineRemaining && <span className={deadlineRemaining === 'Deadline passed' ? 'text-rose-400' : 'text-amber-400'}>{deadlineRemaining}</span>}
             </div>

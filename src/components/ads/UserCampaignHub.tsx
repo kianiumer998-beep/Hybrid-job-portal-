@@ -214,6 +214,8 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   const [formBadgeText, setFormBadgeText] = useState<string>('Featured Partner');
   const [formTheme, setFormTheme] = useState<AdTheme>('indigo');
   const [formDismissable, setFormDismissable] = useState<boolean>(true);
+  const [formDiscountPercent, setFormDiscountPercent] = useState<number>(10);
+  const [formPromoCode, setFormPromoCode] = useState<string>('');
   
   // SMS specific
   const [formSmsSenderId, setFormSmsSenderId] = useState<string>('HybridJobs');
@@ -300,6 +302,18 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       alert('Please enter a headline or message for your campaign.');
       return;
     }
+    if (!selectedPlacementOpt?.isEnabled) {
+      alert('This campaign placement is currently disabled by the administrator. Please select an available placement.');
+      return;
+    }
+    if (isAtCapacity) {
+      alert('All slots for this placement are currently reserved. Please try again after a slot becomes available.');
+      return;
+    }
+    if (formPlacement === 'promo-discount-banner' && (!Number.isInteger(formDiscountPercent) || formDiscountPercent < 1 || formDiscountPercent > 100)) {
+      alert('Please enter a discount between 1% and 100% for this promotional banner.');
+      return;
+    }
 
     // 1. Mandatory image rule check
     if (campaignConfig.formRules.requireImage && !formImageUrl.trim()) {
@@ -376,6 +390,8 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       ctaText: formCtaText.trim() || undefined,
       ctaUrl: formCtaUrl.trim() || undefined,
       badgeText: formBadgeText.trim() || undefined,
+      discountPercent: formPlacement === 'promo-discount-banner' ? formDiscountPercent : undefined,
+      promoCode: formPlacement === 'promo-discount-banner' ? formPromoCode.trim().slice(0, 40) || undefined : undefined,
       theme: formTheme,
       dismissable: formDismissable,
       smsSenderId: formType === 'sms' ? formSmsSenderId : undefined,
@@ -421,6 +437,8 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       setFormTitle('');
       setFormHeadline('');
       setFormBodyText('');
+      setFormDiscountPercent(10);
+      setFormPromoCode('');
       changeActiveSubTab('my-campaigns');
       alert(
         `Campaign "${newAd.title}" submitted successfully! ${chargedAmount > 0
@@ -597,6 +615,17 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   const isRunningNow = adsPool.some(a => a.placement === formPlacement && isAdCurrentlyRunning(a));
   const selectedPlacementOpt = campaignConfig.placementOptions.find(p => p.id === formPlacement);
   const isPlacementFree = !!selectedPlacementOpt?.isFreeOverride;
+  const placementSlotLimit = Number(selectedPlacementOpt?.maxConcurrentSlots || 0);
+  const hasPlacementSlotLimit = Number.isInteger(placementSlotLimit) && placementSlotLimit > 0;
+  const placementOccupiedCount = adsPool.filter((ad) =>
+    ad.placement === formPlacement &&
+    ['active', 'pending', 'pending_approval'].includes(String(ad.status)) &&
+    ad.approvalStatus !== 'Rejected' &&
+    ad.paymentStatus !== 'Refunded' &&
+    (!ad.scheduledEndAt || !Number.isFinite(new Date(ad.scheduledEndAt.replace(' ', 'T')).getTime()) || new Date(ad.scheduledEndAt.replace(' ', 'T')).getTime() >= Date.now())
+  ).length;
+  const placementSlotsRemaining = hasPlacementSlotLimit ? Math.max(0, placementSlotLimit - placementOccupiedCount) : undefined;
+  const isAtCapacity = hasPlacementSlotLimit && placementOccupiedCount >= placementSlotLimit;
   const userCtr = totalUserImpressions > 0 ? ((totalUserClicks / totalUserImpressions) * 100).toFixed(2) : '0.00';
 
   return (
@@ -1082,7 +1111,14 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                   <label className="text-xs font-bold text-slate-300">Portal Placement Slot</label>
                   <select
                     value={formPlacement}
-                    onChange={(e) => setFormPlacement(e.target.value as AdPlacement)}
+                    onChange={(e) => {
+                      const nextPlacement = e.target.value as AdPlacement;
+                      setFormPlacement(nextPlacement);
+                      if (nextPlacement === 'promo-discount-banner' || nextPlacement === 'dynamic-announcement-card') {
+                        setFormType('banner');
+                        setFormTargetPages(['jobs']);
+                      }
+                    }}
                     className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   >
                     {campaignConfig.placementOptions.filter(p => p.isEnabled).map((opt) => (
@@ -1091,14 +1127,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                       </option>
                     ))}
                     {campaignConfig.placementOptions.filter(p => p.isEnabled).length === 0 && (
-                      <>
-                        <option value="top-header">Top Sticky Header Announcement (1.25x)</option>
-                        <option value="feed-inline">Job Listings Feed Inline Card (1.00x)</option>
-                        <option value="popup-modal">Centered Pop-up Lightbox Modal (1.50x)</option>
-                        <option value="toast-float">Floating Toast Notification (0.90x)</option>
-                        <option value="sidebar">Sidebar / Filter Widget Box (0.75x)</option>
-                        <option value="sms-broadcast">Direct SMS Text Broadcast</option>
-                      </>
+                      <option value={formPlacement} disabled>No campaign placements are currently available</option>
                     )}
                   </select>
                 </div>
@@ -1113,12 +1142,19 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                   </div>
 
                   <div className="flex items-center space-x-2">
+                    {hasPlacementSlotLimit && (
+                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${isAtCapacity ? 'bg-rose-500/15 text-rose-300 border-rose-500/30' : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'}`}>
+                        {placementSlotsRemaining} / {placementSlotLimit} slots available
+                      </span>
+                    )}
                     {isPlacementFree && (
                       <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 uppercase">
                         🎉 100% Free Placement!
                       </span>
                     )}
-                    {isRunningNow ? (
+                    {isAtCapacity ? (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">All slots reserved</span>
+                    ) : isRunningNow ? (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center space-x-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping mr-1"></span>
                         <span>Currently Active Campaign</span>
@@ -1158,6 +1194,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                     ✨ No reservations queued for this placement. Your campaign will launch <strong className="text-emerald-400">immediately</strong> upon submission!
                   </div>
                 )}
+                <p className="text-[10px] text-slate-500">Displayed slot counts are an estimate from visible campaigns. The server rechecks capacity before wallet payment is accepted.</p>
               </div>
 
               {/* 3. Target Pages (Multi-Select with Admin Schedule Enforced) */}
@@ -1171,7 +1208,9 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                 </label>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                  {campaignConfig.portalPages.map((page) => {
+                  {campaignConfig.portalPages.filter((page) =>
+                    !selectedPlacementOpt?.allowedPageIds?.length || selectedPlacementOpt.allowedPageIds.includes(page.id)
+                  ).map((page) => {
                     const isSelected = formTargetPages.includes(page.id as AdTargetPage);
                     const scheduleStatus = isPageScheduledActive(page);
                     const isAvailable = scheduleStatus.isActive;
@@ -1368,6 +1407,24 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                   ></textarea>
                 </div>
 
+                {formPlacement === 'promo-discount-banner' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-xl border border-rose-500/25 bg-rose-500/5 p-3">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-300">Customer Discount (%) *</label>
+                      <input type="number" required min="1" max="100" step="1" value={formDiscountPercent}
+                        onChange={(e) => setFormDiscountPercent(Math.min(100, Math.max(1, Number(e.target.value) || 1)))}
+                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-300">Promo Code (Optional)</label>
+                      <input type="text" maxLength={40} value={formPromoCode} onChange={(e) => setFormPromoCode(e.target.value.slice(0, 40))}
+                        placeholder="e.g. SAVE20" className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 {/* Banner Graphic URL + Upload */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-300">Banner Graphic or Logo Image URL</label>
@@ -1475,7 +1532,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
 
                 <button
                   type="submit"
-                  disabled={isSubmittingCampaign}
+                  disabled={isSubmittingCampaign || isAtCapacity || !selectedPlacementOpt?.isEnabled}
                   className={`w-full py-3.5 rounded-2xl font-black text-sm shadow-xl flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${
                     isWalletSufficient
                       ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/20'

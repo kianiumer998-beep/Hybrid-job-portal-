@@ -6120,8 +6120,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             } catch (err: any) {
               setStatusMessage({ text: `Bulk update error: ${err.message}`, type: 'error' });
             } finally {
-              setEditingJob(null);
-              setEditingSelectedJobs([]);
+              // The modal closes itself after this async save callback resolves.
             }
           }}
           onSaveAndApproveJob={async (updatedJob) => {

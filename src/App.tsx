@@ -4397,23 +4397,23 @@ export default function App() {
 
                     if (section.id === 'quick-stats') {
                       return (
-                        <div key="section-stats" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-900/60 border border-slate-800 rounded-2xl">
-                            <div className="p-3 text-center">
-                              <div className="text-xl sm:text-2xl font-black text-amber-400">{jobs.length === 0 ? '0 Jobs' : `${jobs.length}+`}</div>
-                              <div className="text-[11px] text-slate-400 font-semibold">{landingConfig.hero.statBadge1Text || 'Active Verified Vacancies'}</div>
+                        <div key="section-stats" className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-3 p-2 sm:p-4 bg-slate-900/60 border border-slate-800 rounded-xl sm:rounded-2xl">
+                            <div className="p-1 sm:p-3 text-center min-w-0">
+                              <div className="text-sm sm:text-2xl font-black text-amber-400">{jobs.length === 0 ? '0 Jobs' : `${jobs.length}+`}</div>
+                              <div className="text-[9px] sm:text-[11px] text-slate-400 font-semibold leading-tight">{landingConfig.hero.statBadge1Text || 'Active Verified Vacancies'}</div>
                             </div>
-                            <div className="p-3 text-center">
-                              <div className="text-xl sm:text-2xl font-black text-emerald-400">100% Free</div>
-                              <div className="text-[11px] text-slate-400 font-semibold">{landingConfig.hero.statBadge2Text || 'Automated ATS Resume'}</div>
+                            <div className="p-1 sm:p-3 text-center min-w-0">
+                              <div className="text-sm sm:text-2xl font-black text-emerald-400">100% Free</div>
+                              <div className="text-[9px] sm:text-[11px] text-slate-400 font-semibold leading-tight">{landingConfig.hero.statBadge2Text || 'Automated ATS Resume'}</div>
                             </div>
-                            <div className="p-3 text-center">
-                              <div className="text-xl sm:text-2xl font-black text-indigo-400">36+ Districts</div>
-                              <div className="text-[11px] text-slate-400 font-semibold">{landingConfig.hero.statBadge3Text || 'Punjab, Sindh, KPK & Global'}</div>
+                            <div className="p-1 sm:p-3 text-center min-w-0">
+                              <div className="text-sm sm:text-2xl font-black text-indigo-400">36+ Districts</div>
+                              <div className="text-[9px] sm:text-[11px] text-slate-400 font-semibold leading-tight">{landingConfig.hero.statBadge3Text || 'Punjab, Sindh, KPK & Global'}</div>
                             </div>
-                            <div className="p-3 text-center">
-                              <div className="text-xl sm:text-2xl font-black text-teal-400">Instant</div>
-                              <div className="text-[11px] text-slate-400 font-semibold">{landingConfig.hero.statBadge4Text || 'WhatsApp & Email Alerts'}</div>
+                            <div className="p-1 sm:p-3 text-center min-w-0">
+                              <div className="text-sm sm:text-2xl font-black text-teal-400">Instant</div>
+                              <div className="text-[9px] sm:text-[11px] text-slate-400 font-semibold leading-tight">{landingConfig.hero.statBadge4Text || 'WhatsApp & Email Alerts'}</div>
                             </div>
                           </div>
                         </div>
@@ -4473,6 +4473,7 @@ export default function App() {
                             onPostsPerPageChange={handlePostsPerPageChange}
                             userSelectedCountry={userSelectedCountry}
                             onOpenCountryModal={() => setShowCountryModal(true)}
+                            mobileColumns={landingConfig.mobileFilterColumns || 2}
                           />
 
                           {/* Design 4 editorial two-column job feed; all existing filters, cards and ad rules stay intact. */}

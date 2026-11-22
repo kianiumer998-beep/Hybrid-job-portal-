@@ -1051,6 +1051,14 @@ export class PricingRepository {
     if (resolvedTargetPages.length === 0) {
       resolvedTargetPages.push('all');
     }
+    if (placementOption?.allowedPageIds?.length) {
+      const allowedPages = placementOption.allowedPageIds;
+      if (resolvedTargetPages.includes('all') || resolvedTargetPages.some((page) => !allowedPages.includes(page))) {
+        const pageError: any = new Error('This placement is only available on the landing page jobs section. Please select the permitted page.');
+        pageError.statusCode = 400;
+        throw pageError;
+      }
+    }
 
     const resolvedSmsRecipientsCount =
       resolvedPlacement === 'sms-broadcast' || req?.type === 'sms'

@@ -725,11 +725,11 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
       }
     }
 
-    if (Object.prototype.hasOwnProperty.call(finalUpdates, 'cvDocuments')) {
+    if (Object.prototype.hasOwnProperty.call(finalUpdates, 'cvDocuments') || Object.prototype.hasOwnProperty.call(finalUpdates, 'cvData')) {
       const cvOwner = await UserRepository.getByIdAsync(id);
       if (!cvOwner) return res.status(404).json({ success: false, message: 'User not found.' });
-      const documents = finalUpdates.cvDocuments;
-      if (!Array.isArray(documents) || documents.length > 10) return res.status(400).json({ success: false, message: 'CV documents must be an array with no more than 10 entries.' });
+      const documents = Object.prototype.hasOwnProperty.call(finalUpdates, 'cvDocuments') ? finalUpdates.cvDocuments : [];
+      if (Object.prototype.hasOwnProperty.call(finalUpdates, 'cvDocuments') && (!Array.isArray(documents) || documents.length > 10)) return res.status(400).json({ success: false, message: 'CV documents must be an array with no more than 10 entries.' });
       const seenIds = new Set<string>();
       for (const document of documents) {
         if (!document || typeof document !== 'object' || Array.isArray(document) ||
@@ -745,6 +745,36 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
       }
       if (!isAdmin) {
         const pricing = await PricingRepository.get();
+        const cvTemplates = Array.isArray(pricing?.cvBuilder?.templates) ? pricing.cvBuilder.templates : [];
+        const freeDesignLimit = Math.min(5, Math.max(0, Math.floor(Number(pricing?.cvBuilder?.freeDesignLimit ?? 2))));
+        const freeTemplateIds = new Set(cvTemplates
+          .filter((item: any) => item && item.enabled !== false && item.free === true)
+          .slice(0, freeDesignLimit)
+          .map((item: any) => String(item.id)));
+        const purchasedTemplateIds = new Set((Array.isArray(cvOwner.cvDesignEntitlements) ? cvOwner.cvDesignEntitlements : [])
+          .map((item: any) => String(item?.templateId || '')));
+        const membershipStatusForAccess = String(cvOwner.membershipStatus || '').trim();
+        const membershipTierForAccess = String(cvOwner.membershipTier || '').trim();
+        const inactiveStatusesForAccess = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled']);
+        const premiumAccess = !inactiveStatusesForAccess.has(membershipStatusForAccess) && (
+          (membershipStatusForAccess === 'Active' && Boolean(membershipTierForAccess) && membershipTierForAccess.toLowerCase() !== 'free') ||
+          cvOwner.plan === 'Premium' ||
+          (cvOwner.paymentStatus === 'Paid' && membershipStatusForAccess === 'Active')
+        );
+        const candidateCvPayloads = [
+          ...(Object.prototype.hasOwnProperty.call(finalUpdates, 'cvData') ? [finalUpdates.cvData] : []),
+          ...(Array.isArray(documents) ? documents.map((document: any) => document.data) : [])
+        ];
+        for (const cvPayload of candidateCvPayloads) {
+          const templateId = String(cvPayload?.templateStyle || '');
+          const template = cvTemplates.find((item: any) => String(item?.id || '') === templateId);
+          if (!template || template.enabled === false) {
+            return res.status(403).json({ success: false, message: 'This CV design is not currently available.' });
+          }
+          if (!premiumAccess && !freeTemplateIds.has(templateId) && !purchasedTemplateIds.has(templateId)) {
+            return res.status(403).json({ success: false, message: 'Purchase this Premium CV design or activate a Premium membership before saving it.' });
+          }
+        }
         const freeLimit = Math.min(10, Math.max(0, Math.floor(Number(pricing?.cvBuilder?.freeCvLimit ?? 1))));
         const premiumLimit = Math.min(10, Math.max(1, Math.floor(Number(pricing?.cvBuilder?.premiumCvLimit ?? 10))));
         const membershipStatus = String(cvOwner.membershipStatus || '').trim();
@@ -757,12 +787,12 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
         );
         const maxAllowed = premiumActive ? premiumLimit : freeLimit;
         const existingIds = new Set((Array.isArray(cvOwner.cvDocuments) ? cvOwner.cvDocuments : []).map((item: any) => String(item?.id || '')));
-        const addsNewDocument = documents.some((document: any) => !existingIds.has(document.id));
-        if (documents.length > maxAllowed && addsNewDocument) {
+        const addsNewDocument = Array.isArray(documents) && documents.some((document: any) => !existingIds.has(document.id));
+        if (Array.isArray(documents) && documents.length > maxAllowed && addsNewDocument) {
           return res.status(403).json({ success: false, message: `Your current CV limit is ${maxAllowed}. Upgrade your plan or contact the administrator to increase it.` });
         }
       }
-      finalUpdates.cvDocuments = documents;
+      if (Object.prototype.hasOwnProperty.call(finalUpdates, 'cvDocuments')) finalUpdates.cvDocuments = documents;
     }
 
     // Defensive safeguard: never allow updating passwordHash, salt, password, role, permissions, walletBalance, or primary ID

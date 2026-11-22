@@ -159,6 +159,8 @@ export interface LandingPageConfig {
   jobCardDesign: JobCardDesignConfig;
   /** Admin-configurable mobile filter columns (1–4). */
   mobileFilterColumns?: 1 | 2 | 3 | 4;
+  /** Whether visitors can change the number of jobs shown per page. */
+  showPostsPerPageSelector?: boolean;
 }
 
 export const DEFAULT_CATEGORY_POSTING_FEES: CategoryPostingFee[] = [
@@ -246,6 +248,7 @@ export const DEFAULT_LANDING_PAGE_CONFIG: LandingPageConfig = {
   exemptUserIds: [],
   exemptUserEmails: [],
   mobileFilterColumns: 2,
+  showPostsPerPageSelector: true,
   jobCardDesign: {
     layout: 'default',
     theme: {

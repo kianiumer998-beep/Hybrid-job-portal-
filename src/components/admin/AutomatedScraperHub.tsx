@@ -668,6 +668,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [reviewProvinceFilter, setReviewProvinceFilter] = useState('all');
   const [reviewCityFilter, setReviewCityFilter] = useState('');
   const [reviewPortalFilter, setReviewPortalFilter] = useState('');
+  const [reviewBatchFilter, setReviewBatchFilter] = useState('');
   const [reviewCategoryFilter, setReviewCategoryFilter] = useState('all');
 
   // Multi-Selection State for Sources
@@ -1234,6 +1235,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       const portal = String((job as any).sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || '').toLowerCase();
       if (sourceFilter !== 'all' && !portal.includes(sourceFilter.toLowerCase())) return false;
       if (reviewPortalFilter.trim() && !portal.includes(reviewPortalFilter.trim().toLowerCase())) return false;
+      if (reviewBatchFilter.trim() && String((job as any).scraperBatchId || '').toLowerCase() !== reviewBatchFilter.trim().toLowerCase()) return false;
       if (reviewCategoryFilter !== 'all' && job.jobCategory !== reviewCategoryFilter) return false;
       const hasApplyUrl = Boolean((job as any).applicationUrl || (job as any).originalApplyUrl || (job as any).externalApplyUrl || (job as any).applyUrl);
       const hasSourceUrl = Boolean((job as any).sourceUrl || (job as any).scraperSourceUrl);
@@ -1265,7 +1267,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       if (!matchesReviewDate((job as any).expiryDate, reviewExpiryFilter)) return false;
       if (!matchesReviewDate((job as any).deadlineDate, reviewDeadlineFilter)) return false;
       if (reviewScrapeDateFilter !== 'all') {
-        const raw = (job as any).scrapedAt || (job as any).lastScrapedAt || (job as any).createdAt || job.postedAt;
+        const raw = (job as any).lastScrapedAt || (job as any).scrapedAt || (job as any).createdAt || job.postedAt;
         const time = raw ? new Date(raw).getTime() : NaN;
         if (!Number.isFinite(time)) return false;
         const ageHours = (Date.now() - time) / 3600000;
@@ -1281,7 +1283,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     });
     const timestampFor = (job: Job, mode: 'scraped' | 'updated') => {
       const value = mode === 'scraped'
-        ? ((job as any).scrapedAt || (job as any).lastScrapedAt || (job as any).createdAt || job.postedAt)
+        ? ((job as any).lastScrapedAt || (job as any).scrapedAt || (job as any).createdAt || job.postedAt)
         : ((job as any).updatedAt || (job as any).lastUpdatedAt || (job as any).createdAt || job.postedAt);
       const parsed = value ? new Date(value).getTime() : NaN;
       return Number.isFinite(parsed) ? parsed : 0;
@@ -1293,7 +1295,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     });
   };
 
-  const reviewItems = useMemo(() => filterReviewCollection(effectivePendingList), [effectivePendingList, reviewTypeFilter, searchQuery, sourceFilter, reviewSortOrder, reviewCompletenessFilter, reviewLocationFilter, reviewExpiryFilter, reviewDeadlineFilter, reviewScrapeDateFilter, reviewProvinceFilter, reviewCityFilter, reviewPortalFilter, reviewCategoryFilter]);
+  const reviewItems = useMemo(() => filterReviewCollection(effectivePendingList), [effectivePendingList, reviewTypeFilter, searchQuery, sourceFilter, reviewSortOrder, reviewCompletenessFilter, reviewLocationFilter, reviewExpiryFilter, reviewDeadlineFilter, reviewScrapeDateFilter, reviewProvinceFilter, reviewCityFilter, reviewPortalFilter, reviewCategoryFilter, reviewBatchFilter]);
 
   const handleSelectAllFilteredReviewAcrossPages = async () => {
     if (isSelectingAllReview) return;
@@ -4612,6 +4614,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   <option value="updated_oldest">Oldest updated first</option>
                 </select>
               </label>
+              <input value={reviewBatchFilter} onChange={(e) => setReviewBatchFilter(e.target.value)} placeholder="Scrape batch ID" className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white w-32" />
               <input value={reviewPortalFilter} onChange={(e) => setReviewPortalFilter(e.target.value)} placeholder="Source portal (e.g. FPSC)" className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white w-36" />
               <select value={reviewCategoryFilter} onChange={(e) => setReviewCategoryFilter(e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"><option value="all">All Job Categories</option><option value="Government Sector">Government</option><option value="Private Corporate">Private</option><option value="Newspaper Classified">Newspaper</option><option value="International Remote">International</option></select>
               <input value={reviewCityFilter} onChange={(e) => setReviewCityFilter(e.target.value)} placeholder="City" className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white w-24" />

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import path from 'path';
 import { Database } from '../db/database';
-import { AuditRepository, PaymentRepository, UserRepository } from '../db/repositories';
+import { AuditRepository, PaymentRepository, PricingRepository, UserRepository } from '../db/repositories';
 import { requireAdminPermission, requireAuth, hasAdminPermission, getPermissionsForRole } from '../auth/authManager';
 
 export const userRouter = Router();
@@ -29,6 +29,7 @@ const ALLOWED_NORMAL_USER_FIELDS = new Set([
   'cvUrl',
   'resumeUrl',
   'cvData',
+  'cvDocuments',
   'socialLinks',
   'notificationsEnabled',
   'whatsappAlertsEnabled'
@@ -225,6 +226,7 @@ userRouter.get('/', requireAdminPermission('users.manage'), async (req, res) => 
       delete safe.salt;
       delete safe.password;
       delete safe.cvData;
+      delete safe.cvDocuments;
       delete safe.walletEscrowOperations;
       safe.permissions = getPermissionsForRole(u.role);
       return safe;
@@ -685,6 +687,9 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
             return res.status(400).json({ success: false, message: cvDataError });
           }
           finalUpdates[key] = value;
+        } else if (key === 'cvDocuments') {
+          if (!Array.isArray(value) || value.length > 10) return res.status(400).json({ success: false, message: 'CV documents must be an array with no more than 10 entries.' });
+          finalUpdates[key] = value;
         } else if (key === 'skills') {
           if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) {
             return res.status(400).json({ success: false, message: "Field 'skills' must be an array of strings." });
@@ -718,6 +723,40 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
           message: 'Access denied: Only a Super Admin can modify a Super Admin account.'
         });
       }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(finalUpdates, 'cvDocuments')) {
+      const cvOwner = await UserRepository.getByIdAsync(id);
+      if (!cvOwner) return res.status(404).json({ success: false, message: 'User not found.' });
+      const documents = finalUpdates.cvDocuments;
+      if (!Array.isArray(documents) || documents.length > 10) return res.status(400).json({ success: false, message: 'CV documents must be an array with no more than 10 entries.' });
+      const seenIds = new Set<string>();
+      for (const document of documents) {
+        if (!document || typeof document !== 'object' || Array.isArray(document) ||
+          typeof document.id !== 'string' || !document.id.trim() || document.id.length > 100 ||
+          typeof document.title !== 'string' || document.title.length > 120 ||
+          typeof document.updatedAt !== 'string' || document.updatedAt.length > 50 ||
+          seenIds.has(document.id)) {
+          return res.status(400).json({ success: false, message: 'One or more saved CV document records are invalid.' });
+        }
+        seenIds.add(document.id);
+        const documentError = validateCvDataPayload(document.data);
+        if (documentError) return res.status(400).json({ success: false, message: documentError });
+      }
+      if (!isAdmin) {
+        const pricing = await PricingRepository.get();
+        const freeLimit = Math.min(10, Math.max(0, Math.floor(Number(pricing?.cvBuilder?.freeCvLimit ?? 1))));
+        const expiry = cvOwner.expiryDate ? Date.parse(String(cvOwner.expiryDate).replace(' ', 'T')) : NaN;
+        const premiumActive = cvOwner.plan === 'Premium' && cvOwner.membershipStatus === 'Active' &&
+          cvOwner.paymentStatus !== 'Unpaid' && cvOwner.paymentStatus !== 'Overdue' &&
+          (!Number.isFinite(expiry) || expiry >= Date.now());
+        const existingIds = new Set((Array.isArray(cvOwner.cvDocuments) ? cvOwner.cvDocuments : []).map((item: any) => String(item?.id || '')));
+        const addsNewDocument = documents.some((document: any) => !existingIds.has(document.id));
+        if (!premiumActive && documents.length > freeLimit && addsNewDocument) {
+          return res.status(403).json({ success: false, message: `Your free CV limit is ${freeLimit}. Upgrade your plan to create more CVs.` });
+        }
+      }
+      finalUpdates.cvDocuments = documents;
     }
 
     // Defensive safeguard: never allow updating passwordHash, salt, password, role, permissions, walletBalance, or primary ID

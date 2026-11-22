@@ -1798,7 +1798,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [jobsPortalFilter, setJobsPortalFilter] = useState('');
   const [jobsCityFilter, setJobsCityFilter] = useState('');
   const [jobsScrapeDateFilter, setJobsScrapeDateFilter] = useState<'all' | 'today' | '24h' | '7days' | '30days' | 'older'>('all');
-  const [jobsCompletenessFilter, setJobsCompletenessFilter] = useState<'all' | 'complete' | 'incomplete' | 'missing_apply' | 'missing_source'>('all');
+  const [jobsCompletenessFilter, setJobsCompletenessFilter] = useState<'all' | 'complete' | 'incomplete' | 'missing_location' | 'missing_apply' | 'missing_source'>('all');
   const [jobsLocationFilter, setJobsLocationFilter] = useState<'all' | 'confirmed' | 'unconfirmed'>('all');
   const [jobsExpiryFilter, setJobsExpiryFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
   const [jobsDeadlineFilter, setJobsDeadlineFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
@@ -1818,7 +1818,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [pendingCityFilter, setPendingCityFilter] = useState('');
   const [pendingProvinceFilter, setPendingProvinceFilter] = useState('all');
   const [pendingScrapeDateFilter, setPendingScrapeDateFilter] = useState<'all' | 'today' | '24h' | '7days' | '30days' | 'older'>('all');
-  const [pendingCompletenessFilter, setPendingCompletenessFilter] = useState<'all' | 'complete' | 'incomplete' | 'missing_apply' | 'missing_source'>('all');
+  const [pendingCompletenessFilter, setPendingCompletenessFilter] = useState<'all' | 'complete' | 'incomplete' | 'missing_location' | 'missing_apply' | 'missing_source'>('all');
   const [pendingLocationFilter, setPendingLocationFilter] = useState<'all' | 'confirmed' | 'unconfirmed'>('all');
   const [pendingExpiryFilter, setPendingExpiryFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
   const [pendingDeadlineFilter, setPendingDeadlineFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
@@ -4012,6 +4012,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           const pendingIsComplete = Boolean(pJob.title?.trim() && pJob.company?.trim() && pJob.description?.trim() && (pJob.city || pJob.province || pJob.region));
           if (pendingCompletenessFilter === 'complete' && !pendingIsComplete) return false;
           if (pendingCompletenessFilter === 'incomplete' && pendingIsComplete) return false;
+          if (pendingCompletenessFilter === 'missing_location' && (pJob.city || pJob.province || pJob.region)) return false;
           if (pendingCompletenessFilter === 'missing_apply' && pendingHasApplyUrl) return false;
           if (pendingCompletenessFilter === 'missing_source' && pendingHasSourceUrl) return false;
           const pendingLocationConfirmed = Boolean((pJob as any).isLocationConfirmed || pJob.metadata?.isLocationConfirmed || (pJob as any).isManuallyCorrected || pJob.metadata?.isManuallyCorrected);
@@ -4258,7 +4259,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </select>
 
                   <select value={pendingCompletenessFilter} onChange={(e) => setPendingCompletenessFilter(e.target.value as typeof pendingCompletenessFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium">
-                    <option value="all">All Job Details</option><option value="complete">Complete Jobs</option><option value="incomplete">Incomplete Jobs</option><option value="missing_apply">Missing Apply URL</option><option value="missing_source">Missing Scraper Source URL</option>
+                    <option value="all">All Job Details</option><option value="complete">Complete Jobs</option><option value="incomplete">Incomplete Jobs</option><option value="missing_location">Missing Location</option><option value="missing_apply">Missing Apply URL</option><option value="missing_source">Missing Scraper Source URL</option>
                   </select>
                   <input value={pendingPortalFilter} onChange={(e) => setPendingPortalFilter(e.target.value)} placeholder="Source portal (e.g. FPSC)" className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white min-w-[150px]" />
                   <input value={pendingCityFilter} onChange={(e) => setPendingCityFilter(e.target.value)} placeholder="City" className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white min-w-[110px]" />
@@ -6180,6 +6181,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           const liveIsComplete = Boolean(job.title?.trim() && job.company?.trim() && job.description?.trim() && (job.city || job.province || job.region));
           if (jobsCompletenessFilter === 'complete' && !liveIsComplete) return false;
           if (jobsCompletenessFilter === 'incomplete' && liveIsComplete) return false;
+          if (jobsCompletenessFilter === 'missing_location' && (job.city || job.province || job.region)) return false;
           if (jobsCompletenessFilter === 'missing_apply' && liveHasApplyUrl) return false;
           if (jobsCompletenessFilter === 'missing_source' && liveHasSourceUrl) return false;
           const liveLocationConfirmed = Boolean((job as any).isLocationConfirmed || job.metadata?.isLocationConfirmed || (job as any).isManuallyCorrected || job.metadata?.isManuallyCorrected);
@@ -6392,7 +6394,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <option value="updated_oldest">Oldest Updated First</option>
                   </select>
                   <select value={jobsCompletenessFilter} onChange={(e) => setJobsCompletenessFilter(e.target.value as typeof jobsCompletenessFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium">
-                    <option value="all">All Job Details</option><option value="complete">Complete Jobs</option><option value="incomplete">Incomplete Jobs</option><option value="missing_apply">Missing Apply URL</option><option value="missing_source">Missing Scraper Source URL</option>
+                    <option value="all">All Job Details</option><option value="complete">Complete Jobs</option><option value="incomplete">Incomplete Jobs</option><option value="missing_location">Missing Location</option><option value="missing_apply">Missing Apply URL</option><option value="missing_source">Missing Scraper Source URL</option>
                   </select>
                   <select value={jobsLocationFilter} onChange={(e) => setJobsLocationFilter(e.target.value as typeof jobsLocationFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium">
                     <option value="all">All Location Status</option><option value="confirmed">Location Confirmed</option><option value="unconfirmed">Location Unconfirmed</option>

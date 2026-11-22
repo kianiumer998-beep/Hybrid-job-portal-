@@ -1196,8 +1196,13 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   }, [effectivePendingList]);
 
   const selectedDuplicateCount = useMemo(() => {
-    return effectivePendingList.filter(j => selectedReviewIds.includes(j.id) && ((j as any).isDuplicate || (j as any).duplicateWarning || j.description?.toLowerCase().includes('duplicate'))).length;
-  }, [effectivePendingList, selectedReviewIds]);
+    const selectedJobs = new Map([...selectedReviewJobCache, ...effectivePendingList]
+      .filter(job => selectedReviewIds.includes(job.id))
+      .map(job => [job.id, job]));
+    return Array.from(selectedJobs.values()).filter(job =>
+      (job as any).isDuplicate || (job as any).duplicateWarning || job.description?.toLowerCase().includes('duplicate')
+    ).length;
+  }, [effectivePendingList, selectedReviewIds, selectedReviewJobCache]);
 
   const filterReviewCollection = (pendingCollection: Job[]) => {
     const filtered = pendingCollection.filter(job => {

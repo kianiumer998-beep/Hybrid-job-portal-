@@ -14,6 +14,7 @@ interface FiltersProps {
   onPostsPerPageChange?: (postsPerPage: number) => void;
   userSelectedCountry?: CountryOption | null;
   onOpenCountryModal?: () => void;
+  mobileColumns?: 1 | 2 | 3 | 4;
 }
 
 export const Filters: React.FC<FiltersProps> = ({
@@ -25,7 +26,8 @@ export const Filters: React.FC<FiltersProps> = ({
   defaultPostsPerPage = 10,
   onPostsPerPageChange,
   userSelectedCountry,
-  onOpenCountryModal
+  onOpenCountryModal,
+  mobileColumns = 2
 }) => {
   // Compute available Cities based on selected Province
   const availableCities = useMemo(() => {
@@ -143,8 +145,8 @@ export const Filters: React.FC<FiltersProps> = ({
         </div>
       </div>
 
-      {/* Main Filter Grid - 2x2 on Mobile, 4 columns on Desktop */}
-      <div className="mt-2.5 sm:mt-4 pt-2.5 sm:pt-4 border-t border-slate-800/80 grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+      {/* Main filter grid uses the admin-selected mobile column count. */}
+      <div className={`mt-2.5 sm:mt-4 pt-2.5 sm:pt-4 border-t border-slate-800/80 grid ${({ 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4' } as const)[mobileColumns]} lg:grid-cols-4 gap-2 sm:gap-3`}>
         
         {/* Job Type */}
         <div>

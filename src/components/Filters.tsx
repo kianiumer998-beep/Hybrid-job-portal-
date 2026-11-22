@@ -15,6 +15,7 @@ interface FiltersProps {
   userSelectedCountry?: CountryOption | null;
   onOpenCountryModal?: () => void;
   mobileColumns?: 1 | 2 | 3 | 4;
+  showPostsPerPageSelector?: boolean;
 }
 
 export const Filters: React.FC<FiltersProps> = ({
@@ -27,7 +28,8 @@ export const Filters: React.FC<FiltersProps> = ({
   onPostsPerPageChange,
   userSelectedCountry,
   onOpenCountryModal,
-  mobileColumns = 2
+  mobileColumns = 2,
+  showPostsPerPageSelector = true
 }) => {
   // Compute available Cities based on selected Province
   const availableCities = useMemo(() => {
@@ -125,7 +127,7 @@ export const Filters: React.FC<FiltersProps> = ({
           </div>
 
           {/* Posts Per Page Filter Select */}
-          {onPostsPerPageChange && (
+          {onPostsPerPageChange && showPostsPerPageSelector && (
             <div className="w-full sm:w-36">
               <select
                 value={postsPerPage}

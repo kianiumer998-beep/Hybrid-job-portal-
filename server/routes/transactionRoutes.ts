@@ -681,8 +681,13 @@ transactionRouter.post('/', async (req, res) => {
         if (!selectedTemplate || selectedTemplate.enabled === false) {
           return res.status(400).json({ success: false, message: 'This CV design is no longer available.' });
         }
-        if (selectedTemplate.free === true) {
-          return res.status(400).json({ success: false, message: 'This CV design is free and does not require a purchase.' });
+        const freeDesignLimit = Math.min(5, Math.max(0, Math.floor(Number(cvSettings.freeDesignLimit ?? 2))));
+        const freeTemplateIds = new Set(templates
+          .filter((item: any) => item && item.enabled !== false && item.free === true)
+          .slice(0, freeDesignLimit)
+          .map((item: any) => String(item.id)));
+        if (freeTemplateIds.has(purchaseId)) {
+          return res.status(400).json({ success: false, message: 'This CV design is free under the current Admin policy and does not require a purchase.' });
         }
         enforcedAmount = Number(selectedTemplate.pricePkr);
         if (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0 || enforcedAmount > 10000000) {

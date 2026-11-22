@@ -801,6 +801,15 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
       if (!existingUser) {
         return res.status(404).json({ success: false, message: 'User not found.' });
       }
+      if (Object.prototype.hasOwnProperty.call(finalUpdates, 'cvData')) {
+        const priorHistory = Array.isArray(existingUser.cvReview?.history) ? existingUser.cvReview.history : [];
+        finalUpdates.cvReview = {
+          ...(existingUser.cvReview || {}),
+          status: 'Draft',
+          updatedAt: new Date().toISOString(),
+          history: priorHistory.slice(-50)
+        };
+      }
       if (existingUser.role === 'Super Admin' && req.user?.role !== 'Super Admin') {
         return res.status(403).json({
           success: false,

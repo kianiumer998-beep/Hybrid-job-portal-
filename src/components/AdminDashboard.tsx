@@ -7403,7 +7403,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           setIsJobQuickEditOpen(false);
           setIsBulkJobEditOpen(false);
           setEditingJob(null);
-          setSelectedPendingJobCache([]);
         }}
         onSaveJob={async (updatedJob) => {
           if (onUpdateJob) {

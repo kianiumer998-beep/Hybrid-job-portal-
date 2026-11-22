@@ -174,7 +174,7 @@ function buildAuthoritativeDefaults(): any {
       standardPdfExportPkr: 0, pdfExportEnabled: true, pdfExportPkr: 0,
       atsTextExportEnabled: true, atsTextExportPkr: 0,
       premiumAiOptimizerPkr: 500, unlimitedTemplatesPkr: 1000,
-      freeDesignLimit: 2, watermarkEnabled: true, watermarkFreeOnly: true,
+      freeDesignLimit: 2, freeCvLimit: 1, watermarkEnabled: true, watermarkFreeOnly: true,
       watermarkText: 'Hybrid Job Portal', watermarkOpacity: 0.16,
       templates: [
         { id: 'modern', name: 'Modern Clean', enabled: true, free: true, pricePkr: 0 },
@@ -243,6 +243,7 @@ function deepMergePricing(base: any, incoming: any): any {
   const cvBuilder = {
     ...baseCvBuilder,
     ...srcCvBuilder,
+    freeCvLimit: Number.isFinite(Number(srcCvBuilder.freeCvLimit)) ? Math.min(10, Math.max(0, Math.floor(Number(srcCvBuilder.freeCvLimit)))) : Math.min(10, Math.max(0, Math.floor(Number(baseCvBuilder.freeCvLimit ?? 1)))),
     freeDesignLimit: Number.isFinite(Number(srcCvBuilder.freeDesignLimit))
       ? Math.min(5, Math.max(0, Math.floor(Number(srcCvBuilder.freeDesignLimit))))
       : Math.min(5, Math.max(0, Math.floor(Number(baseCvBuilder.freeDesignLimit ?? 2)))),

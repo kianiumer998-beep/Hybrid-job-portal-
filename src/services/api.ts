@@ -1018,19 +1018,6 @@ export const api = {
         body: JSON.stringify(updates)
       });
     },
-    async submitCv(cvData: any) {
-      return safeFetchJson(`${API_BASE}/users/cv/submit`, { method: 'POST', headers: getAuthHeader(), body: JSON.stringify({ cvData }) });
-    },
-    async getCvReviewQueue(status?: string) {
-      const qs = status ? `?status=${encodeURIComponent(status)}` : '';
-      return safeFetchJson(`${API_BASE}/users/cv/review-queue${qs}`, { headers: getAuthHeader() });
-    },
-    async getCvForReview(userId: string) {
-      return safeFetchJson(`${API_BASE}/users/cv/review/${encodeURIComponent(userId)}`, { headers: getAuthHeader() });
-    },
-    async updateCvReview(userId: string, status: string, reviewerNote: string) {
-      return safeFetchJson(`${API_BASE}/users/cv/review/${encodeURIComponent(userId)}`, { method: 'PATCH', headers: getAuthHeader(), body: JSON.stringify({ status, reviewerNote }) });
-    },
     async updateRole(userId: string, role: string) {
       return safeFetchJson(`${getResolvedApiBase()}/auth/users/${encodeURIComponent(userId)}/role`, {
         method: 'PATCH',

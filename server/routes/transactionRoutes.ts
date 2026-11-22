@@ -675,36 +675,18 @@ transactionRouter.post('/', async (req, res) => {
         const cvSettings = pricingConfig.cvBuilder || {};
         const templates = Array.isArray(cvSettings.templates) ? cvSettings.templates : [];
         const purchaseId = cvTemplateId.trim();
-        const isPdfExport = purchaseId === 'export:pdf';
-        const isAtsExport = purchaseId === 'export:ats';
         const selectedTemplate = templates.find((item: any) => item && item.id === purchaseId);
-        let purchaseName = '';
-        if (isPdfExport || isAtsExport) {
-          const exportEnabled = isPdfExport ? cvSettings.pdfExportEnabled !== false : cvSettings.atsTextExportEnabled !== false;
-          const exportPrice = isPdfExport
-            ? Number(cvSettings.pdfExportPkr ?? cvSettings.standardPdfExportPkr ?? 0)
-            : Number(cvSettings.atsTextExportPkr || 0);
-          if (!Number.isFinite(exportPrice) || exportPrice <= 0 || exportPrice > 10000000) {
-            return res.status(400).json({ success: false, message: 'The administrator has not configured a valid one-time price for this export.' });
-          }
-          if (!exportEnabled && exportPrice <= 0) {
-            return res.status(400).json({ success: false, message: 'This export is currently reserved for Premium members.' });
-          }
-          enforcedAmount = exportPrice;
-          purchaseName = isPdfExport ? 'PDF Export' : 'ATS Text Export';
-        } else {
-          if (!selectedTemplate || selectedTemplate.enabled === false) {
-            return res.status(400).json({ success: false, message: 'This CV design is no longer available.' });
-          }
-          if (selectedTemplate.free === true) {
-            return res.status(400).json({ success: false, message: 'This CV design is free and does not require a purchase.' });
-          }
-          enforcedAmount = Number(selectedTemplate.pricePkr);
-          if (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0 || enforcedAmount > 10000000) {
-            return res.status(400).json({ success: false, message: 'The administrator has not configured a valid one-time price for this CV design.' });
-          }
-          purchaseName = String(selectedTemplate.name || selectedTemplate.id).slice(0, 80);
+        if (!selectedTemplate || selectedTemplate.enabled === false) {
+          return res.status(400).json({ success: false, message: 'This CV design is no longer available.' });
         }
+        if (selectedTemplate.free === true) {
+          return res.status(400).json({ success: false, message: 'This CV design is free and does not require a purchase.' });
+        }
+        enforcedAmount = Number(selectedTemplate.pricePkr);
+        if (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0 || enforcedAmount > 10000000) {
+          return res.status(400).json({ success: false, message: 'The administrator has not configured a valid one-time price for this CV design.' });
+        }
+        const purchaseName = String(selectedTemplate.name || selectedTemplate.id).slice(0, 80);
         const cvOwner = await UserRepository.getByIdAsync(effectiveUserId);
         if (!cvOwner) return res.status(404).json({ success: false, message: 'Your account could not be found.' });
         const ownedDesigns = Array.isArray(cvOwner.cvDesignEntitlements) ? cvOwner.cvDesignEntitlements : [];

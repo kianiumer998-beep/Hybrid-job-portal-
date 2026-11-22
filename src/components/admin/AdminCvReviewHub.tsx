@@ -65,7 +65,7 @@ export const AdminCvReviewHub: React.FC = () => {
     }[char] || char));
     const cv = selected.cvData;
     const p = cv.personalInfo;
-    const extra = cv.additionalSections || {};
+    const extra: NonNullable<CvData['additionalSections']> = cv.additionalSections || {};
     const section = (title: string, body: string) => body ? `<section><h2>${escapeHtml(title)}</h2>${body}</section>` : '';
     const list = (title: string, values?: string[]) => values?.length ? section(title, `<ul>${values.map((v) => `<li>${escapeHtml(v)}</li>`).join('')}</ul>`) : '';
     const experience = cv.experience.map((e) => section('Work Experience', `<h3>${escapeHtml(e.position)} — ${escapeHtml(e.company)}</h3><p>${escapeHtml(e.location)} · ${escapeHtml(e.startDate)} – ${escapeHtml(e.current ? 'Present' : e.endDate)}</p><ul>${e.bullets.filter(Boolean).map((b) => `<li>${escapeHtml(b)}</li>`).join('')}</ul>`)).join('');
@@ -74,6 +74,7 @@ export const AdminCvReviewHub: React.FC = () => {
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>CV - ${escapeHtml(p.fullName)}</title><style>body{font:11pt Arial,sans-serif;color:#172033;max-width:800px;margin:36px auto;line-height:1.45}h1{font-size:22pt;margin:0}h2{font-size:12pt;border-bottom:1px solid #9ca3af;padding-bottom:4px;margin:20px 0 8px;text-transform:uppercase}h3{font-size:11pt;margin:8px 0 2px}p{margin:4px 0;color:#374151}ul{margin:5px 0;padding-left:20px}li{margin:2px 0}@media print{body{margin:15mm;max-width:none}}</style></head><body><h1>${escapeHtml(p.fullName)}</h1><p><strong>${escapeHtml(p.jobTitle)}</strong></p><p>${[p.email,p.phone,p.location,p.website,p.linkedin,p.github].filter(Boolean).map(escapeHtml).join(' · ')}</p>${section('Professional Summary', `<p>${escapeHtml(p.summary)}</p>`)}${section('Career Objective', `<p>${escapeHtml(extra.objective)}</p>`)}${experience}${section('Education', education)}${section('Skills & Languages', `<p>${skills}</p>`)}${list('Certifications',cv.certifications.map((c)=>[c.name,c.issuer,c.year].filter(Boolean).join(' · ')))}${list('Projects',extra.projects)}${list('Internships',extra.internships)}${list('Volunteer Work',extra.volunteerWork)}${list('Achievements & Awards',extra.achievements)}${list('Professional Training',extra.professionalTraining)}${list('Relevant Coursework',extra.relevantCoursework)}${list('Research & Publications',extra.publications)}${list('References',extra.references)}${section('Additional Information',[extra.careerGapExplanation,extra.preferredEmploymentType,extra.noticePeriod,extra.domicile,extra.professionalRegistration].filter(Boolean).map(escapeHtml).join('<br>'))}</body></html>`;
     const printWindow = window.open('', '_blank');
     if (!printWindow) { setError('Please allow pop-ups to print or save the CV as PDF.'); return; }
+    printWindow.opener = null;
     printWindow.document.open();
     printWindow.document.write(html);
     printWindow.document.close();

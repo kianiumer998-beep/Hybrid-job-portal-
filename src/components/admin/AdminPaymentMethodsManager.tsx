@@ -647,7 +647,62 @@ export const AdminPaymentMethodsManager: React.FC = () => {
                       />
                     </div>
 
-                    {/* Proof Requirements & Custom Fields Collapsible */}
+                    {/* Wallet Deposit Amount Controls — specific to this payment method */}
+                  <div className="p-3 bg-slate-950 rounded-xl border border-emerald-500/20 space-y-3">
+                    <div>
+                      <div className="text-[11px] font-black text-emerald-300">Wallet Deposit Amounts</div>
+                      <p className="text-[10px] text-slate-500 mt-1">These settings affect wallet deposits only. Other payment types are unchanged.</p>
+                    </div>
+                    <label className="flex items-center gap-2 text-[11px] text-slate-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={method.walletDepositAllowCustomAmount !== false}
+                        onChange={(e) => handleUpdateMethod(key, { walletDepositAllowCustomAmount: e.target.checked })}
+                        className="rounded border-slate-700 text-emerald-500 focus:ring-0"
+                      />
+                      <span>Allow users to enter a custom amount for {method.name}</span>
+                    </label>
+                    <div className="space-y-1.5">
+                      <label className="block text-[10px] font-bold text-slate-400">Add / update fixed amounts (PKR, comma separated)</label>
+                      <input
+                        type="text"
+                        value={(method.walletDepositFixedAmounts || []).map((item) => item.amount).join(', ')}
+                        onChange={(e) => {
+                          const parsed = e.target.value.split(',').map((value) => value.trim()).filter(Boolean);
+                          const nextAmounts: Array<{ amount: number; enabled: boolean }> = [];
+                          for (const value of parsed) {
+                            const amount = Number(value);
+                            if (!Number.isSafeInteger(amount) || amount <= 0 || nextAmounts.some((item) => item.amount === amount)) continue;
+                            const existing = (method.walletDepositFixedAmounts || []).find((item) => item.amount === amount);
+                            nextAmounts.push({ amount, enabled: existing?.enabled ?? true });
+                          }
+                          handleUpdateMethod(key, { walletDepositFixedAmounts: nextAmounts });
+                        }}
+                        placeholder="e.g. 500, 1000, 1500, 2000"
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white font-mono"
+                      />
+                      {(method.walletDepositFixedAmounts || []).length > 0 && (
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {(method.walletDepositFixedAmounts || []).map((item) => (
+                            <label key={item.amount} className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] cursor-pointer ${item.enabled ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : 'border-slate-700 bg-slate-900 text-slate-500'}`}>
+                              <input
+                                type="checkbox"
+                                checked={item.enabled}
+                                onChange={(e) => handleUpdateMethod(key, { walletDepositFixedAmounts: (method.walletDepositFixedAmounts || []).map((current) => current.amount === item.amount ? { ...current, enabled: e.target.checked } : current) })}
+                                className="rounded border-slate-700 text-emerald-500 focus:ring-0"
+                              />
+                              PKR {item.amount.toLocaleString()}
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {!method.walletDepositAllowCustomAmount && !(method.walletDepositFixedAmounts || []).some((item) => item.enabled) && (
+                      <p className="text-[10px] text-rose-300">Strict mode needs at least one enabled fixed amount before saving.</p>
+                    )}
+                  </div>
+
+                  {/* Proof Requirements & Custom Fields Collapsible */}
                     <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">

@@ -330,6 +330,7 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
               <option value="Job Posting Fee">Job Posting Fee</option>
               <option value="Ad Campaign Fee">Ad Campaign Fee</option>
               <option value="Subscription">VIP Alert Subscription</option>
+              <option value="CV Design Purchase">CV Design Purchase</option>
               <option value="Refund">Refund</option>
             </select>
           </div>
@@ -425,6 +426,8 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                             ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                             : (tx.type as any) === 'Subscription'
                             ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                            : (tx.type as any) === 'CV Design Purchase'
+                            ? 'bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30'
                             : 'bg-slate-500/20 text-slate-300 border border-slate-500/30'
                         }`}>
                           {tx.type}

@@ -670,7 +670,9 @@ export const AdminPaymentMethodsManager: React.FC = () => {
                         value={depositAmountDrafts[key] ?? (method.walletDepositFixedAmounts || []).map((item) => item.amount).join(', ')}
                         onChange={(e) => setDepositAmountDrafts((prev) => ({ ...prev, [key]: e.target.value }))}
                         onBlur={() => {
-                          const parsed = (depositAmountDrafts[key] || '').split(',').map((value) => value.trim()).filter(Boolean);
+                          const currentAmountsText = (method.walletDepositFixedAmounts || []).map((item) => item.amount).join(', ');
+                          const draftText = depositAmountDrafts[key] ?? currentAmountsText;
+                          const parsed = draftText.split(',').map((value) => value.trim()).filter(Boolean);
                           const nextAmounts: Array<{ amount: number; enabled: boolean }> = [];
                           for (const value of parsed) {
                             const amount = Number(value);

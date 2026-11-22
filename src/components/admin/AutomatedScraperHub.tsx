@@ -1245,7 +1245,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       if (reviewCompletenessFilter === 'missing_location' && (job.city || job.province || job.region)) return false;
       if (reviewCompletenessFilter === 'missing_apply' && hasApplyUrl) return false;
       if (reviewCompletenessFilter === 'missing_source' && hasSourceUrl) return false;
-      const locationConfirmed = Boolean((job as any).isLocationConfirmed || job.metadata?.isLocationConfirmed);
+      const locationConfirmed = Boolean((job as any).isLocationConfirmed ?? job.metadata?.isLocationConfirmed ?? false);
       if (reviewLocationFilter === 'confirmed' && !locationConfirmed) return false;
       if (reviewLocationFilter === 'unconfirmed' && locationConfirmed) return false;
       if (reviewProvinceFilter !== 'all' && job.province !== reviewProvinceFilter) return false;

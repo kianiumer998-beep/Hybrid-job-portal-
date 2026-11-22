@@ -671,6 +671,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   // Multi-Selection State for Sources
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [selectedReviewIds, setSelectedReviewIds] = useState<string[]>([]);
+  const [isSelectingAllReview, setIsSelectingAllReview] = useState(false);
 
   // Execution State
   const [isScrapingActive, setIsScrapingActive] = useState(false);
@@ -1197,8 +1198,8 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     return effectivePendingList.filter(j => selectedReviewIds.includes(j.id) && ((j as any).isDuplicate || (j as any).duplicateWarning || j.description?.toLowerCase().includes('duplicate'))).length;
   }, [effectivePendingList, selectedReviewIds]);
 
-  const reviewItems = useMemo(() => {
-    const filtered = effectivePendingList.filter(job => {
+  const filterReviewCollection = (pendingCollection: Job[]) => {
+    const filtered = pendingCollection.filter(job => {
       const isDuplicate = (job as any).isDuplicate || (job as any).duplicateWarning ||
         job.description?.toLowerCase().includes('duplicate') ||
         ((job as any).confidenceScore && (job as any).confidenceScore < 60);
@@ -1281,7 +1282,31 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       const delta = timestampFor(a, useUpdated ? 'updated' : 'scraped') - timestampFor(b, useUpdated ? 'updated' : 'scraped');
       return reviewSortOrder.endsWith('oldest') ? delta : -delta;
     });
-  }, [effectivePendingList, reviewTypeFilter, searchQuery, sourceFilter, reviewSortOrder, reviewCompletenessFilter, reviewLocationFilter, reviewExpiryFilter, reviewDeadlineFilter, reviewScrapeDateFilter, reviewProvinceFilter, reviewCityFilter]);
+  };
+
+  const reviewItems = useMemo(() => filterReviewCollection(effectivePendingList), [effectivePendingList, reviewTypeFilter, searchQuery, sourceFilter, reviewSortOrder, reviewCompletenessFilter, reviewLocationFilter, reviewExpiryFilter, reviewDeadlineFilter, reviewScrapeDateFilter, reviewProvinceFilter, reviewCityFilter]);
+
+  const handleSelectAllFilteredReviewAcrossPages = async () => {
+    if (isSelectingAllReview) return;
+    setIsSelectingAllReview(true);
+    try {
+      const firstPage: any = await api.jobs.getPendingQueue({ page: 1, limit: 200 });
+      if (!firstPage?.success || !Array.isArray(firstPage.pendingJobs)) throw new Error(firstPage?.message || 'Could not load the first pending page.');
+      const totalPages = Math.max(1, Number(firstPage.totalPages) || 1);
+      if (totalPages > 25) throw new Error('The pending queue is larger than the safe all-pages selection limit (5,000 records). Narrow filters or use page-by-page selection.');
+      const remainingPages = await Promise.all(Array.from({ length: totalPages - 1 }, (_, index) => api.jobs.getPendingQueue({ page: index + 2, limit: 200 })));
+      if (remainingPages.some((page: any) => !page?.success || !Array.isArray(page.pendingJobs))) throw new Error('One or more pending pages could not be loaded. No new selection was applied.');
+      const allPending = [...firstPage.pendingJobs, ...remainingPages.flatMap((page: any) => page.pendingJobs)];
+      const allFiltered = filterReviewCollection(allPending);
+      if (allFiltered.length > 500) throw new Error(`${allFiltered.length} jobs match. Existing bulk endpoints safely process up to 500 IDs per operation; narrow filters to 500 or fewer.`);
+      setSelectedReviewIds(allFiltered.map(job => job.id));
+      setStatusMessage({ text: `Selected ${allFiltered.length} filtered review jobs across ${totalPages} page(s).`, type: 'success' });
+    } catch (err: any) {
+      setStatusMessage({ text: err?.message || 'Could not select all filtered review jobs.', type: 'error' });
+    } finally {
+      setIsSelectingAllReview(false);
+    }
+  };
 
   // -------------------------------------------------------------
   // Results Feed Items (Discovered Jobs from recent runs & live db)
@@ -4390,7 +4415,16 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   className="px-3 py-1.5 bg-cyan-950/50 hover:bg-cyan-900/60 text-cyan-200 border border-cyan-800/50 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40"
                   title="Select all results matching active filters on the currently loaded page only"
                 >
-                  Select Filtered ({reviewItems.length})
+                  Select Filtered (Current Page: {reviewItems.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSelectAllFilteredReviewAcrossPages}
+                  disabled={isSelectingAllReview || effectivePendingList.length === 0}
+                  className="px-3 py-1.5 bg-cyan-950/50 hover:bg-cyan-900/60 text-cyan-200 border border-cyan-800/50 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40"
+                  title="Fetch all pending pages, apply the active filters, and select matching jobs (up to 500 for safe bulk operations)"
+                >
+                  {isSelectingAllReview ? 'Loading all pages…' : 'Select Filtered (All Pages)'}
                 </button>
                 <button
                   type="button"

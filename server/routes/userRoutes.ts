@@ -225,6 +225,13 @@ userRouter.get('/', requireAdminPermission('users.manage'), async (req, res) => 
       delete safe.salt;
       delete safe.password;
       delete safe.cvData;
+      if (u.cvReview) {
+        safe.cvReview = {
+          status: u.cvReview.status,
+          submittedAt: u.cvReview.submittedAt,
+          reviewedAt: u.cvReview.reviewedAt
+        };
+      }
       delete safe.walletEscrowOperations;
       safe.permissions = getPermissionsForRole(u.role);
       return safe;

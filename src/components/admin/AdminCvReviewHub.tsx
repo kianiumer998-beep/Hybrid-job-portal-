@@ -67,7 +67,7 @@ export const AdminCvReviewHub: React.FC = () => {
     document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
   };
 
-  const extra = selected?.cvData.additionalSections || {};
+  const extra: NonNullable<CvData['additionalSections']> = selected?.cvData.additionalSections || {};
   const lists: Array<[string, string[] | undefined]> = [
     ['Projects', extra.projects], ['Internships', extra.internships], ['Volunteer Work', extra.volunteerWork],
     ['Achievements & Awards', extra.achievements], ['Professional Training', extra.professionalTraining],

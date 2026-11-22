@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { CvData } from '../types/job';
+import { CvData, CvDocument } from '../types/job';
 import { Sparkles, Printer, Download, Plus, Trash2, CheckCircle2, FileText, ChevronRight, ChevronLeft, Palette, User, Briefcase, GraduationCap, Award, Eye } from 'lucide-react';
 
 interface CvBuilderProps {
   isSubscribed: boolean;
   initialCvData?: CvData;
+  initialCvDocuments?: CvDocument[];
+  onSaveCvDocuments?: (documents: CvDocument[], activeData: CvData) => Promise<boolean> | boolean;
   onSaveCv: (data: CvData) => Promise<boolean> | boolean;
   onOpenPaywall: () => void;
   cvBuilderSettings?: any;
@@ -89,17 +91,61 @@ const normalizeCvData = (value?: CvData): CvData => {
   };
 };
 
-export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, onSaveCv, onOpenPaywall, cvBuilderSettings = {} }) => {
+export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, initialCvDocuments, onSaveCvDocuments, onSaveCv, onOpenPaywall, cvBuilderSettings = {} }) => {
   const [step, setStep] = useState<number>(1);
   const [isSavingCv, setIsSavingCv] = useState(false);
   const [cvSaveMessage, setCvSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [cvData, setCvData] = useState<CvData>(() => normalizeCvData(initialCvData));
+  const makeDocument = (data: CvData, title = ''): CvDocument => ({
+    id: `cv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    title: title || data.personalInfo.fullName || 'My CV',
+    data: normalizeCvData(data),
+    updatedAt: new Date().toISOString()
+  });
+  const [documents, setDocuments] = useState<CvDocument[]>(() => Array.isArray(initialCvDocuments) && initialCvDocuments.length
+    ? initialCvDocuments.map((doc) => ({ ...doc, data: normalizeCvData(doc.data) }))
+    : [makeDocument(normalizeCvData(initialCvData), 'My CV')]);
+  const [activeCvId, setActiveCvId] = useState<string>(() => documents[0]?.id || 'cv-main');
+  const [cvData, setCvData] = useState<CvData>(() => normalizeCvData(documents[0]?.data || initialCvData));
 
-  // Always reset to the current account's saved CV (or a blank draft) when the account data changes.
+  // Hydrate account documents while preserving the currently selected document after saves.
   useEffect(() => {
-    setCvData(normalizeCvData(initialCvData));
+    const next = Array.isArray(initialCvDocuments) && initialCvDocuments.length
+      ? initialCvDocuments.map((doc) => ({ ...doc, data: normalizeCvData(doc.data) }))
+      : [makeDocument(normalizeCvData(initialCvData), 'My CV')];
+    setDocuments(next);
+    const selected = next.find((doc) => doc.id === activeCvId) || next[0];
+    setActiveCvId(selected.id);
+    setCvData(normalizeCvData(selected.data));
     setCvSaveMessage(null);
-  }, [initialCvData]);
+  }, [initialCvData, initialCvDocuments]);
+
+  useEffect(() => {
+    setDocuments((previous) => previous.map((document) => document.id === activeCvId ? { ...document, data: cvData } : document));
+  }, [cvData, activeCvId]);
+
+  const handleCreateCv = () => {
+    const maxAllowed = isSubscribed ? 10 : Math.max(0, Math.min(10, Math.floor(Number(cvBuilderSettings.freeCvLimit ?? 1))));
+    if (documents.length >= maxAllowed) {
+      setCvSaveMessage({ type: 'error', text: `Your current plan allows ${maxAllowed} CV(s). Upgrade to create more.` });
+      onOpenPaywall();
+      return;
+    }
+    const blank = createBlankCvData();
+    const next = makeDocument(blank, `CV ${documents.length + 1}`);
+    setDocuments((previous) => [...previous, next]);
+    setActiveCvId(next.id);
+    setCvData(blank);
+    setStep(1);
+    setCvSaveMessage({ type: 'success', text: 'A new CV draft is ready. Save it when you finish.' });
+  };
+
+  const handleSelectCv = (id: string) => {
+    const selected = documents.find((document) => document.id === id);
+    if (!selected) return;
+    setActiveCvId(id);
+    setCvData(normalizeCvData(selected.data));
+    setCvSaveMessage(null);
+  };
 
   // Add an empty achievement line for the user to complete; no simulated AI output is presented as generated content.
   const handleGenerateAiBullets = (expIndex: number) => {
@@ -180,9 +226,15 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     setIsSavingCv(true);
     setCvSaveMessage(null);
     try {
-      const saved = await onSaveCv(cvData);
+      const updatedDocuments = documents.map((document) => document.id === activeCvId
+        ? { ...document, title: cvData.personalInfo.fullName.trim() || document.title || 'My CV', data: cvData, updatedAt: new Date().toISOString() }
+        : document);
+      const saved = onSaveCvDocuments
+        ? await onSaveCvDocuments(updatedDocuments, cvData)
+        : await onSaveCv(cvData);
+      if (saved) setDocuments(updatedDocuments);
       setCvSaveMessage(saved
-        ? { type: 'success', text: 'Your CV draft has been saved to your account.' }
+        ? { type: 'success', text: 'Your CV has been saved to your account.' }
         : { type: 'error', text: 'The CV could not be saved. Please try again.' });
     } catch (error: any) {
       setCvSaveMessage({ type: 'error', text: error?.message || 'Unable to save your CV right now.' });
@@ -192,7 +244,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
   };
 
   const handleDownloadAtsText = () => {
-    if (!isSubscribed && (cvBuilderSettings.atsTextExportEnabled === false || Number(cvBuilderSettings.atsTextExportPkr || 0) > 0)) { onOpenPaywall(); return; }
+    if (!isTemplateEnabled(cvData.templateStyle) || (!isSubscribed && (!isTemplateFree(cvData.templateStyle) || cvBuilderSettings.atsTextExportEnabled === false || Number(cvBuilderSettings.atsTextExportPkr || 0) > 0))) { onOpenPaywall(); return; }
     const lines: string[] = [];
     const p = cvData.personalInfo;
     const extra: NonNullable<CvData['additionalSections']> = cvData.additionalSections || {};
@@ -229,7 +281,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
 
   // Trigger Print Engine
   const handleDownloadPdf = () => {
-    if (!isSubscribed && (cvBuilderSettings.pdfExportEnabled === false || Number(cvBuilderSettings.pdfExportPkr ?? cvBuilderSettings.standardPdfExportPkr ?? 0) > 0)) { onOpenPaywall(); return; }
+    if (!isTemplateEnabled(cvData.templateStyle) || (!isSubscribed && (!isTemplateFree(cvData.templateStyle) || cvBuilderSettings.pdfExportEnabled === false || Number(cvBuilderSettings.pdfExportPkr ?? cvBuilderSettings.standardPdfExportPkr ?? 0) > 0))) { onOpenPaywall(); return; }
     window.print();
   };
 
@@ -243,7 +295,8 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     const config = configuredTemplates.find((item: any) => item.id === template.id);
     return config ? config.free === true : ['modern', 'ats'].includes(template.id);
   }).slice(0, Math.max(0, Math.min(5, Number(cvBuilderSettings.freeDesignLimit ?? 2))));
-  const isTemplateFree = (id: string) => isSubscribed || freeTemplates.some((template) => template.id === id);
+  const isTemplateEnabled = (id: string) => enabledTemplates.some((template) => template.id === id);
+  const isTemplateFree = (id: string) => freeTemplates.some((template) => template.id === id);
   const watermarkVisible = cvBuilderSettings.watermarkEnabled !== false && (!isSubscribed || cvBuilderSettings.watermarkFreeOnly === false);
 
   return (
@@ -264,9 +317,15 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <select aria-label="Select saved CV" value={activeCvId} onChange={(e) => handleSelectCv(e.target.value)} className="max-w-[170px] px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white">
+              {documents.map((document, index) => <option key={document.id} value={document.id}>{document.title || `CV ${index + 1}`}</option>)}
+            </select>
+            <button type="button" onClick={handleCreateCv} className="px-3 py-2.5 rounded-xl bg-indigo-500/20 border border-indigo-400/30 text-indigo-200 text-xs font-bold">+ New CV ({documents.length}/{isSubscribed ? 10 : Math.max(0, Number(cvBuilderSettings.freeCvLimit ?? 1))})</button>
+          </div>
           <button
             type="button"
-            onClick={handleSaveCv}
+            onClick={handleSaveCv
             disabled={isSavingCv}
             className="px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-300 font-black text-sm flex items-center space-x-2 disabled:opacity-50"
           >

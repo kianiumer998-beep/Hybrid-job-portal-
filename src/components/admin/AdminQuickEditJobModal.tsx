@@ -19,6 +19,51 @@ interface AdminQuickEditJobModalProps {
   allowBulkStatusChange?: boolean;
 }
 
+const createDefaultBulkFields = () => ({
+    applyCategory: false,
+    jobCategory: 'Government Sector',
+    applyGovtScale: false,
+    govtScale: 'BPS-17',
+    applyStatus: false,
+    status: 'Approved' as JobStatus,
+    applyRegion: false,
+    region: 'Pakistan' as Region,
+    applyProvince: false,
+    province: 'Punjab',
+    applyCity: false,
+    city: 'Islamabad',
+    applyJobType: false,
+    jobType: 'On-site' as JobType,
+    applyDeadline: false,
+    deadlineDate: '2026-12-31',
+    applyFeatured: false,
+    featured: true,
+    applyUrgent: false,
+    urgent: true,
+    applyTags: false,
+    tagsToAdd: 'Verified, Recommended',
+    applyCountry: false,
+    country: 'Pakistan',
+    applyDistrict: false,
+    district: '',
+    applyLocationConfirmed: false,
+    locationConfirmed: true,
+    applyExpiry: false,
+    expiryDate: '',
+    applyApplyUrl: false,
+    applicationUrl: '',
+    applySourceUrl: false,
+    sourceUrl: '',
+    applySourcePortal: false,
+    sourcePortal: '',
+    applyCompany: false,
+    company: '',
+    applyDescription: false,
+    description: '',
+    applyRequirements: false,
+    requirementsText: ''
+});
+
 export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
   job,
   selectedJobs: propSelectedJobs,
@@ -34,51 +79,12 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
   const activeBulkJobs = propSelectedJobs || propJobs || [];
   const isBulkMode = activeBulkJobs.length > 1 || (activeBulkJobs.length === 1 && !job);
   const selectedJobs = activeBulkJobs;
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Single job state
-  const [formData, setFormData] = useState<Job>(() => {
-    if (job) return { ...job };
-    return {
-      id: 'job-' + Date.now(),
-      title: '',
-      company: '',
-      jobType: 'On-site',
-      region: 'Pakistan',
-      province: 'Punjab',
-      city: 'Lahore',
-      salary: '',
-      currency: 'PKR',
-      experienceLevel: 'Mid',
-      department: 'General Operations',
-      tags: ['Urgent', 'Full-time'],
-      description: '',
-      requirements: ['Relevant Bachelor degree', '2+ years experience'],
-      benefits: ['Medical coverage', 'Paid leaves'],
-      postedAt: new Date().toISOString().split('T')[0],
-      applicationsCount: 0,
-      status: 'Approved',
-      featured: false,
-      urgent: false,
-      isPinnedTop: false,
-      isFutureJob: false,
-      futureIntakeDate: '',
-      priorityTier: 'standard',
-      jobCategory: 'Private Corporate',
-      govtScale: 'BPS-17',
-      isGovtJob: false,
-      deadlineDate: '2026-11-30'
-    };
-  });
+  const [isSubmit  const [bulkFields, setBulkFields] = useState(createDefaultBulkFields);
+  const selectedJobKey = selectedJobs.map(selectedJob => selectedJob.id).join('|');
 
   useEffect(() => {
-    if (job) {
-      setFormData({ ...job });
-    }
-  }, [job]);
-
-  // Bulk edit state
-  const [bulkFields, setBulkFields] = useState({
+    if (isOpen && isBulkMode) setBulkFields(createDefaultBulkFields());
+  }, [isOpen, isBulkMode, selectedJobKey]);[bulkFields, setBulkFields] = useState({
     applyCategory: false,
     jobCategory: 'Government Sector',
     applyGovtScale: false,

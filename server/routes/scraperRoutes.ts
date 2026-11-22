@@ -17,7 +17,7 @@ import { parsePdfFromUrl } from '../services/pdfParserEngine';
 import { scrapeTargetPortal } from '../../src/services/scraperService';
 import { enrichScrapedJobsBatch } from '../services/detailPageEnricher';
 import { validateSafeScrapeUrl } from '../utils/ssrfProtection';
-import { getSchedulerStatus, runSchedulerTick, setGlobalSchedulerState } from '../services/scraperScheduler';
+import { getSchedulerStatus, runSchedulerTick, setGlobalSchedulerState, initScraperScheduler, stopScraperScheduler } from '../services/scraperScheduler';
 import { Job } from '../../src/types/job';
 
 export const scraperRouter = Router();
@@ -35,7 +35,7 @@ scraperRouter.get('/configs', requireAdminPermission('scraper.manage'), async (r
 // 2. Update Scraper Sources (Admin Only)
 scraperRouter.put('/configs', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
-    await ScraperRepository.saveConfigs(req.body);
+    const saveResult = await ScraperRepository.saveConfigs(req.body);
     AuditRepository.add({
       user: 'Administrator',
       role: 'Scraper Manager',
@@ -43,7 +43,16 @@ scraperRouter.put('/configs', requireAdminPermission('scraper.manage'), async (r
       target: `${req.body.length || 0} Target Configurations`,
       status: 'Success'
     });
-    res.json({ success: true, configs: req.body, message: 'Scraper target portals saved successfully!' });
+    res.json({
+      success: true,
+      configs: req.body,
+      isPersistedToMongo: saveResult.isPersistedToMongo,
+      persistedCount: saveResult.persistedCount,
+      totalCount: saveResult.totalCount,
+      message: saveResult.isPersistedToMongo
+        ? 'Scraper target portals saved successfully to MongoDB.'
+        : 'Scraper target portals updated in server memory only; MongoDB is not configured.'
+    });
   } catch (err: any) {
     AuditRepository.add({
       user: 'Administrator',
@@ -192,9 +201,56 @@ scraperRouter.put('/scheduler-settings', requireAdminPermission('scraper.manage'
       });
     }
 
+    const VALID_INTERVALS = ['15m', '30m', '1h', '6h', '12h', '24h', '7d'];
+    if (req.body.interval !== undefined && !VALID_INTERVALS.includes(req.body.interval)) {
+      return res.status(400).json({ success: false, message: 'Invalid scheduler frequency. Choose one of the supported intervals.' });
+    }
+
+    const VALID_DEPTHS = ['Light (10 Jobs)', 'Standard (25 Jobs)', 'Deep Crawl (50+ Jobs)'];
+    if (req.body.depth !== undefined && !VALID_DEPTHS.includes(req.body.depth)) {
+      return res.status(400).json({ success: false, message: 'Invalid scan depth. Choose Light, Standard, or Deep Crawl.' });
+    }
+
+    if (req.body.scanMode === 'page_range') {
+      const startPage = req.body.startPage ?? 1;
+      const endPage = req.body.endPage ?? startPage;
+      if (!Number.isSafeInteger(startPage) || !Number.isSafeInteger(endPage) || startPage < 1 || endPage < startPage) {
+        return res.status(400).json({ success: false, message: 'Page Range requires whole page numbers and End Page must be greater than or equal to Start Page.' });
+      }
+    }
+
+    // Validate chosen scope targets against authoritative saved sources/groups.
+    if (scope === 'selected' || scope === 'single') {
+      const sources = await ScraperRepository.getConfigs();
+      const sourceIds = new Set(sources.map((source: any) => String(source.id)));
+      if (scope === 'selected' && selectedSourceIds.some((id: string) => !sourceIds.has(id))) {
+        return res.status(400).json({ success: false, message: 'One or more selected scheduler sources no longer exist. Refresh sources and select again.' });
+      }
+      if (scope === 'single' && !sourceIds.has(singleSourceId)) {
+        return res.status(400).json({ success: false, message: 'The selected single scheduler source does not exist. Please choose an existing source.' });
+      }
+    }
+
+    if (scope === 'group') {
+      const groups = await ScraperRepository.getGroups();
+      const selectedGroup = groups.find((group: any) => group.id === selectedGroupId);
+      if (!selectedGroup) {
+        return res.status(400).json({ success: false, message: 'The selected scheduler group does not exist. Please choose an existing group.' });
+      }
+      if (!Array.isArray(selectedGroup.sourceIds) || selectedGroup.sourceIds.length === 0) {
+        return res.status(400).json({ success: false, message: 'The selected scheduler group has no sources. Add sources to the group before scheduling it.' });
+      }
+    }
+
     const updated = await ScraperRepository.saveSchedulerSettings(req.body);
+    let schedulerRunning: boolean | undefined;
     if (req.body.enabled !== undefined) {
-      await setGlobalSchedulerState(Boolean(req.body.enabled));
+      if (Boolean(req.body.enabled)) {
+        schedulerRunning = await initScraperScheduler();
+      } else {
+        stopScraperScheduler();
+        schedulerRunning = false;
+      }
     }
 
     AuditRepository.add({
@@ -206,14 +262,19 @@ scraperRouter.put('/scheduler-settings', requireAdminPermission('scraper.manage'
     });
 
     const isPersistedToMongo = Boolean((updated as any).isPersistedToMongo);
-    const saveMessage = isPersistedToMongo
-      ? 'Scheduler settings saved successfully to MongoDB.'
-      : 'Scheduler settings saved to memory cache (MongoDB not configured).';
+    const saveMessage = !isPersistedToMongo
+      ? 'Scheduler settings updated in server memory only; MongoDB is not configured. These changes will not survive a server restart.'
+      : schedulerRunning === false && updated.enabled
+        ? 'Scheduler settings were saved to MongoDB, but the background scheduler could not start. Check server logs and scheduler diagnostics.'
+        : isPersistedToMongo
+          ? 'Scheduler settings saved and verified in MongoDB.'
+          : 'Scheduler settings saved.';
 
     res.json({
       success: true,
       settings: updated,
       isPersistedToMongo,
+      schedulerRunning,
       message: saveMessage
     });
   } catch (err: any) {

@@ -222,6 +222,44 @@ function deepMergePricing(base: any, incoming: any): any {
 
   const srcSlot = src.jobPosting?.homepagePrioritySlotConfig || {};
   const baseSlot = base.jobPosting?.homepagePrioritySlotConfig || DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG;
+  const baseCvBuilder = base.cvBuilder || {};
+  const srcCvBuilder = src.cvBuilder && typeof src.cvBuilder === 'object' ? src.cvBuilder : {};
+  const templateDefaults = Array.isArray(baseCvBuilder.templates) ? baseCvBuilder.templates : [];
+  const requestedTemplates = Array.isArray(srcCvBuilder.templates) ? srcCvBuilder.templates : templateDefaults;
+  const allowedCvTemplateIds = new Set(['modern', 'executive', 'tech', 'classic', 'ats']);
+  const cvTemplates = requestedTemplates
+    .filter((item: any) => item && allowedCvTemplateIds.has(String(item.id)))
+    .map((item: any) => {
+      const fallback = templateDefaults.find((entry: any) => entry.id === item.id) || {};
+      const price = Number(item.pricePkr ?? fallback.pricePkr ?? 0);
+      return {
+        id: String(item.id),
+        name: String(fallback.name || item.name || item.id).slice(0, 80),
+        enabled: item.enabled !== false,
+        free: item.free === true,
+        pricePkr: Number.isFinite(price) ? Math.min(10000000, Math.max(0, price)) : 0
+      };
+    });
+  const cvBuilder = {
+    ...baseCvBuilder,
+    ...srcCvBuilder,
+    freeDesignLimit: Number.isFinite(Number(srcCvBuilder.freeDesignLimit))
+      ? Math.min(5, Math.max(0, Math.floor(Number(srcCvBuilder.freeDesignLimit))))
+      : Math.min(5, Math.max(0, Math.floor(Number(baseCvBuilder.freeDesignLimit ?? 2)))),
+    pdfExportEnabled: srcCvBuilder.pdfExportEnabled === undefined ? baseCvBuilder.pdfExportEnabled !== false : srcCvBuilder.pdfExportEnabled === true,
+    pdfExportPkr: Math.min(10000000, Math.max(0, Number(srcCvBuilder.pdfExportPkr ?? srcCvBuilder.standardPdfExportPkr ?? baseCvBuilder.pdfExportPkr ?? 0) || 0)),
+    atsTextExportEnabled: srcCvBuilder.atsTextExportEnabled === undefined ? baseCvBuilder.atsTextExportEnabled !== false : srcCvBuilder.atsTextExportEnabled === true,
+    atsTextExportPkr: Math.min(10000000, Math.max(0, Number(srcCvBuilder.atsTextExportPkr ?? baseCvBuilder.atsTextExportPkr ?? 0) || 0)),
+    watermarkEnabled: srcCvBuilder.watermarkEnabled === undefined ? baseCvBuilder.watermarkEnabled !== false : srcCvBuilder.watermarkEnabled === true,
+    watermarkFreeOnly: srcCvBuilder.watermarkFreeOnly === undefined ? baseCvBuilder.watermarkFreeOnly !== false : srcCvBuilder.watermarkFreeOnly === true,
+    watermarkText: typeof srcCvBuilder.watermarkText === 'string'
+      ? srcCvBuilder.watermarkText.trim().slice(0, 80)
+      : String(baseCvBuilder.watermarkText || 'Hybrid Job Portal').slice(0, 80),
+    watermarkOpacity: Number.isFinite(Number(srcCvBuilder.watermarkOpacity))
+      ? Math.min(0.35, Math.max(0.05, Number(srcCvBuilder.watermarkOpacity)))
+      : Math.min(0.35, Math.max(0.05, Number(baseCvBuilder.watermarkOpacity ?? 0.16))),
+    templates: cvTemplates.length ? cvTemplates : templateDefaults
+  };
 
   const srcLanding = src.landingPageConfig || {};
   const baseLanding = base.landingPageConfig || DEFAULT_LANDING_PAGE_CONFIG;
@@ -343,10 +381,7 @@ function deepMergePricing(base: any, incoming: any): any {
       ...(base.addons || {}),
       ...(src.addons || {})
     },
-    cvBuilder: {
-      ...(base.cvBuilder || {}),
-      ...(src.cvBuilder || {})
-    },
+    cvBuilder,
     advertisements: {
       ...(base.advertisements || {}),
       ...(src.advertisements || {})

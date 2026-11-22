@@ -1241,7 +1241,9 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       const matchesReviewDate = (rawDate: unknown, filter: string) => {
         if (filter === 'all') return true;
         if (!rawDate) return filter === 'none';
-        const time = new Date(String(rawDate)).getTime();
+        const parsedDate = new Date(String(rawDate));
+        if (/^\d{4}-\d{2}-\d{2}$/.test(String(rawDate))) parsedDate.setHours(23, 59, 59, 999);
+        const time = parsedDate.getTime();
         if (!Number.isFinite(time)) return filter === 'none';
         const days = (time - Date.now()) / 86400000;
         if (filter === 'expired') return days < 0;

@@ -108,6 +108,7 @@ import { AdminBroadcastCenter } from './admin/AdminBroadcastCenter';
 import { AdminDataBackupHub, BulkJobImportResult } from './admin/AdminDataBackupHub';
 import { AdminAiQualityEnhancer, JobUpdateOutcome } from './admin/AdminAiQualityEnhancer';
 import { AdminEmployerKycHub } from './admin/AdminEmployerKycHub';
+import { AdminCvReviewHub } from './admin/AdminCvReviewHub';
 import { LandingPageCustomizer } from './admin/LandingPageCustomizer';
 import { AdminCampaignCenter } from './admin/AdminCampaignCenter';
 import { AdminFeeManager, CompleteFeeConfigSavePayload } from './admin/AdminFeeManager';
@@ -304,7 +305,7 @@ export function checkAdminTabPermission(
   if (['pricing-controller', 'fee-management', 'currency-forex'].includes(tabId)) {
     return hasPerm('finance.manage');
   }
-  if (['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'].includes(tabId)) {
+  if (['user-audit', 'cv-review', 'employer-kyc', 'subscribers', 'chat-hub'].includes(tabId)) {
     return hasPerm('users.manage');
   }
   if (['seo-config'].includes(tabId)) {
@@ -976,6 +977,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'ai-enhancer'
     | 'employer-kyc'
     | 'user-audit'
+    | 'cv-review'
     | 'fee-logs'
     | 'scraper'
     | 'url-scraper'
@@ -3917,6 +3919,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onUpdateJob={onUpdateJob}
         />
       )}
+
+      {/* TAB: CANDIDATE CV & CAREER PROFILE REVIEW */}
+      {effectiveAdminTab === 'cv-review' && canAccessAdminTab('cv-review') && <AdminCvReviewHub />}
 
       {/* TAB: EMPLOYER KYC & SECP IDENTITY VERIFICATION */}
       {effectiveAdminTab === 'employer-kyc' && canAccessAdminTab('employer-kyc') && (

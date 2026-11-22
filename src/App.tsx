@@ -4606,6 +4606,14 @@ export default function App() {
                 isSubscribed={isSubscribed}
                 initialCvData={currentUser?.cvData}
                 onSaveCv={async (cvData) => handleUpdateProfile({ cvData })}
+                onSubmitCv={async (cvData) => {
+                  const result = await api.users.submitCv(cvData);
+                  if (result?.success && result?.cvReview) {
+                    setCurrentUser((prev) => prev ? { ...prev, cvData, cvReview: result.cvReview } : prev);
+                  }
+                  return result;
+                }}
+                reviewStatus={currentUser?.cvReview}
                 onOpenPaywall={() => setCvPaywallOpen(true)}
               />
             )}

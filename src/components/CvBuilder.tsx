@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CvData } from '../types/job';
+import { CvData, CvReviewMetadata } from '../types/job';
 import { Sparkles, Printer, Download, Plus, Trash2, CheckCircle2, FileText, ChevronRight, ChevronLeft, Palette, User, Briefcase, GraduationCap, Award, Eye } from 'lucide-react';
 
 interface CvBuilderProps {
@@ -7,6 +7,8 @@ interface CvBuilderProps {
   initialCvData?: CvData;
   onSaveCv: (data: CvData) => Promise<boolean> | boolean;
   onOpenPaywall: () => void;
+  onSubmitCv?: (data: CvData) => Promise<any>;
+  reviewStatus?: CvReviewMetadata;
 }
 
 const createBlankCvData = (): CvData => ({
@@ -25,6 +27,7 @@ const createBlankCvData = (): CvData => ({
   education: [],
   skills: { technical: [], soft: [], languages: [] },
   certifications: [],
+  additionalSections: { objective: '', projects: [], internships: [], volunteerWork: [], achievements: [], professionalTraining: [], relevantCoursework: [], publications: [], references: [], careerGapExplanation: '', preferredEmploymentType: '', noticePeriod: '', domicile: '', professionalRegistration: '' },
   templateStyle: 'modern',
   themeColor: '#10b981'
 });
@@ -32,7 +35,7 @@ const createBlankCvData = (): CvData => ({
 const normalizeCvData = (value?: CvData): CvData => {
   const blank = createBlankCvData();
   const raw = value && typeof value === 'object' ? value : blank;
-  const validStyles = ['modern', 'executive', 'tech', 'classic'];
+  const validStyles = ['modern', 'executive', 'tech', 'classic', 'ats'];
   return {
     ...(typeof raw.photoBase64 === 'string' ? { photoBase64: raw.photoBase64 } : {}),
     personalInfo: { ...blank.personalInfo, ...(raw.personalInfo || {}) },
@@ -66,14 +69,31 @@ const normalizeCvData = (value?: CvData): CvData => {
       issuer: String(item?.issuer || ''),
       year: String(item?.year || '')
     })) : [],
+    additionalSections: {
+      objective: String(raw.additionalSections?.objective || ''),
+      projects: Array.isArray(raw.additionalSections?.projects) ? raw.additionalSections.projects.filter((v) => typeof v === 'string') : [],
+      internships: Array.isArray(raw.additionalSections?.internships) ? raw.additionalSections.internships.filter((v) => typeof v === 'string') : [],
+      volunteerWork: Array.isArray(raw.additionalSections?.volunteerWork) ? raw.additionalSections.volunteerWork.filter((v) => typeof v === 'string') : [],
+      achievements: Array.isArray(raw.additionalSections?.achievements) ? raw.additionalSections.achievements.filter((v) => typeof v === 'string') : [],
+      professionalTraining: Array.isArray(raw.additionalSections?.professionalTraining) ? raw.additionalSections.professionalTraining.filter((v) => typeof v === 'string') : [],
+      relevantCoursework: Array.isArray(raw.additionalSections?.relevantCoursework) ? raw.additionalSections.relevantCoursework.filter((v) => typeof v === 'string') : [],
+      publications: Array.isArray(raw.additionalSections?.publications) ? raw.additionalSections.publications.filter((v) => typeof v === 'string') : [],
+      references: Array.isArray(raw.additionalSections?.references) ? raw.additionalSections.references.filter((v) => typeof v === 'string') : [],
+      careerGapExplanation: String(raw.additionalSections?.careerGapExplanation || ''),
+      preferredEmploymentType: String(raw.additionalSections?.preferredEmploymentType || ''),
+      noticePeriod: String(raw.additionalSections?.noticePeriod || ''),
+      domicile: String(raw.additionalSections?.domicile || ''),
+      professionalRegistration: String(raw.additionalSections?.professionalRegistration || '')
+    },
     templateStyle: validStyles.includes(raw.templateStyle) ? raw.templateStyle : blank.templateStyle,
     themeColor: typeof raw.themeColor === 'string' && /^#[0-9a-f]{6}$/i.test(raw.themeColor) ? raw.themeColor : blank.themeColor
   };
 };
 
-export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, onSaveCv, onOpenPaywall }) => {
+export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, onSaveCv, onOpenPaywall, onSubmitCv, reviewStatus }) => {
   const [step, setStep] = useState<number>(1);
   const [isSavingCv, setIsSavingCv] = useState(false);
+  const [isSubmittingCv, setIsSubmittingCv] = useState(false);
   const [cvSaveMessage, setCvSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [cvData, setCvData] = useState<CvData>(() => normalizeCvData(initialCvData));
 
@@ -173,6 +193,57 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     }
   };
 
+  const handleSubmitCv = async () => {
+    if (!onSubmitCv || isSubmittingCv || isSavingCv) return;
+    if (!window.confirm('Submit your current CV for administrator review? You can edit and resubmit it later.')) return;
+    setIsSubmittingCv(true);
+    setCvSaveMessage(null);
+    try {
+      const result = await onSubmitCv(cvData);
+      setCvSaveMessage(result?.success
+        ? { type: 'success', text: result.message || 'CV submitted for review.' }
+        : { type: 'error', text: result?.message || 'CV submission failed. Please try again.' });
+    } catch (error: any) {
+      setCvSaveMessage({ type: 'error', text: error?.message || 'Unable to submit CV for review.' });
+    } finally {
+      setIsSubmittingCv(false);
+    }
+  };
+
+  const handleDownloadAtsText = () => {
+    const lines: string[] = [];
+    const p = cvData.personalInfo;
+    const extra = cvData.additionalSections || {};
+    const add = (heading: string, values: string[]) => {
+      const clean = values.map((v) => String(v || '').trim()).filter(Boolean);
+      if (clean.length) lines.push('', heading.toUpperCase(), ...clean);
+    };
+    lines.push(p.fullName, p.jobTitle, [p.email, p.phone, p.location, p.website, p.linkedin, p.github].filter(Boolean).join(' | '), '', 'PROFESSIONAL SUMMARY', p.summary || '');
+    add('Career Objective', [extra.objective || '']);
+    add('Work Experience', cvData.experience.flatMap((entry) => [`${entry.position} - ${entry.company} (${entry.startDate} - ${entry.current ? 'Present' : entry.endDate})`, ...entry.bullets]));
+    add('Education', cvData.education.map((entry) => `${entry.degree} ${entry.fieldOfStudy} - ${entry.institution} (${entry.startDate} - ${entry.endDate}) ${entry.gpa || ''}`));
+    add('Skills', [...cvData.skills.technical, ...cvData.skills.soft, ...cvData.skills.languages]);
+    add('Certifications', cvData.certifications.map((entry) => `${entry.name} - ${entry.issuer} - ${entry.year}`));
+    add('Projects', extra.projects || []);
+    add('Internships', extra.internships || []);
+    add('Volunteer Work', extra.volunteerWork || []);
+    add('Achievements & Awards', extra.achievements || []);
+    add('Professional Training', extra.professionalTraining || []);
+    add('Relevant Coursework', extra.relevantCoursework || []);
+    add('Research & Publications', extra.publications || []);
+    add('References', extra.references || []);
+    add('Additional Information', [extra.careerGapExplanation, extra.preferredEmploymentType, extra.noticePeriod, extra.domicile, extra.professionalRegistration].filter(Boolean) as string[]);
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${(p.fullName || 'candidate-cv').replace(/[^a-z0-9-_]+/gi, '-').replace(/^-+|-+$/g, '') || 'candidate-cv'}-ats.txt`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
   // Trigger Print Engine
   const handleDownloadPdf = () => {
     if (!isSubscribed) {
@@ -186,6 +257,13 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       
       {cvSaveMessage && <div className={`mb-4 rounded-xl border px-4 py-3 text-xs ${cvSaveMessage.type === 'success' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-rose-500/30 bg-rose-500/10 text-rose-200'}`} role="status">{cvSaveMessage.text}</div>}
+      {reviewStatus && reviewStatus.status !== 'Draft' && (
+        <div className="mb-4 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-4 py-3 text-xs text-indigo-100">
+          <strong>CV Review Status: {reviewStatus.status}</strong>
+          {reviewStatus.reviewerNote && <p className="mt-1">Admin note: {reviewStatus.reviewerNote}</p>}
+          {reviewStatus.status === 'Needs Changes' && <p className="mt-1">Please update your CV and submit it again for review.</p>}
+        </div>
+      )}
       {/* Top Banner */}
       <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-slate-950 border border-indigo-500/30 rounded-2xl p-6 mb-8 text-white flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
         <div>
@@ -209,6 +287,12 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
             <FileText className="w-4 h-4" />
             <span>{isSavingCv ? 'Saving...' : 'Save CV Draft'}</span>
           </button>
+          <button type="button" onClick={handleDownloadAtsText} className="px-3 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs">Download ATS Text</button>
+          {onSubmitCv && (
+            <button type="button" onClick={handleSubmitCv} disabled={isSubmittingCv || isSavingCv} className="px-4 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white font-black text-sm disabled:opacity-50">
+              {isSubmittingCv ? 'Submitting...' : 'Submit for Review'}
+            </button>
+          )}
           <button
             onClick={handleDownloadPdf}
             className="px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 flex items-center space-x-2 hover:scale-105 active:scale-95 transition-all"
@@ -231,7 +315,8 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
               { id: 1, label: 'Personal Info', icon: User },
               { id: 2, label: 'Experience', icon: Briefcase },
               { id: 3, label: 'Education', icon: GraduationCap },
-              { id: 4, label: 'Skills & Style', icon: Palette }
+              { id: 4, label: 'Skills & Style', icon: Palette },
+              { id: 5, label: 'Additional Sections', icon: FileText }
             ].map((s) => {
               const Icon = s.icon;
               return (
@@ -640,7 +725,8 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                     { id: 'modern', name: 'Modern Clean' },
                     { id: 'executive', name: 'Executive Dark Sidebar' },
                     { id: 'tech', name: 'Tech Minimalist' },
-                    { id: 'classic', name: 'Classic Corporate' }
+                    { id: 'classic', name: 'Classic Corporate' },
+                    { id: 'ats', name: 'ATS Plain Text' }
                   ].map((t) => (
                     <button type="button" key={t.id} onClick={() => setCvData({ ...cvData, templateStyle: t.id as CvData['templateStyle'] })} className={`py-2 px-3 rounded-lg border text-xs font-bold transition-all ${cvData.templateStyle === t.id ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500' : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'}`}>
                       {t.name}
@@ -652,6 +738,36 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                 Accent Color
                 <input type="color" value={cvData.themeColor} onChange={(e) => setCvData({ ...cvData, themeColor: e.target.value })} className="h-9 w-14 rounded border border-slate-700 bg-slate-900 cursor-pointer" aria-label="CV accent color" />
               </label>
+            </div>
+          )}
+
+          {/* STEP 5: OPTIONAL CAREER SECTIONS */}
+          {step === 5 && (
+            <div className="space-y-4">
+              <h3 className="text-base font-bold text-white">Additional Career Information (Optional)</h3>
+              <p className="text-xs text-slate-400">Only add information that is accurate and relevant. Leave any section blank if it does not apply.</p>
+              <label className="block text-xs font-semibold text-slate-400">Career Objective
+                <textarea rows={3} maxLength={5000} value={cvData.additionalSections?.objective || ''} onChange={(e) => setCvData({ ...cvData, additionalSections: { ...cvData.additionalSections, objective: e.target.value } })} className="mt-1 w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-sm" />
+              </label>
+              {([
+                ['projects', 'Projects'], ['internships', 'Internships'], ['volunteerWork', 'Volunteer Work'],
+                ['achievements', 'Achievements & Awards'], ['professionalTraining', 'Professional Training'],
+                ['relevantCoursework', 'Relevant Coursework'], ['publications', 'Research & Publications'], ['references', 'References (Optional)']
+              ] as const).map(([field, label]) => (
+                <label key={field} className="block text-xs font-semibold text-slate-400">{label} (one item per line)
+                  <textarea rows={3} value={(cvData.additionalSections?.[field] || []).join('\n')} onChange={(e) => setCvData({ ...cvData, additionalSections: { ...cvData.additionalSections, [field]: e.target.value.split('\n').map((v) => v.trim()).filter(Boolean) } })} className="mt-1 w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-sm" />
+                </label>
+              ))}
+              {([
+                ['careerGapExplanation', 'Career Gap Explanation (Optional)'], ['preferredEmploymentType', 'Preferred Employment Type'],
+                ['noticePeriod', 'Notice Period / Availability'], ['domicile', 'Domicile / Province (only where relevant)'],
+                ['professionalRegistration', 'Professional Registration / Licence (if applicable)']
+              ] as const).map(([field, label]) => (
+                <label key={field} className="block text-xs font-semibold text-slate-400">{label}
+                  <input type="text" maxLength={5000} value={cvData.additionalSections?.[field] || ''} onChange={(e) => setCvData({ ...cvData, additionalSections: { ...cvData.additionalSections, [field]: e.target.value } })} className="mt-1 w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-sm" />
+                </label>
+              ))}
+              <p className="text-[11px] text-amber-300">CNIC, religion, marital status, age and gender are not required in a standard CV. Do not add sensitive details unless a specific application requires them.</p>
             </div>
           )}
 
@@ -667,7 +783,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
               </button>
             ) : <div />}
 
-            {step < 4 ? (
+            {step < 5 ? (
               <button
                 onClick={() => setStep(step + 1)}
                 className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center space-x-1"
@@ -706,7 +822,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
               id="cv-print-area"
               className="bg-white text-slate-900 p-6 rounded-lg shadow-inner min-h-[580px] text-xs space-y-4"
               style={{
-                borderTop: `5px solid ${cvData.themeColor}`,
+                borderTop: cvData.templateStyle === 'ats' ? 'none' : `5px solid ${cvData.themeColor}`,
                 borderLeft: cvData.templateStyle === 'executive' ? '14px solid #0f172a' : undefined,
                 fontFamily: cvData.templateStyle === 'tech' ? 'ui-monospace, SFMono-Regular, monospace' : cvData.templateStyle === 'classic' ? 'Georgia, serif' : 'Arial, sans-serif'
               }}
@@ -732,7 +848,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                   </div>
                 </div>
 
-                {cvData.photoBase64 && (
+                {cvData.photoBase64 && cvData.templateStyle !== 'ats' && (
                   <div className="w-16 h-16 rounded-lg overflow-hidden border border-slate-300 shadow-sm flex-shrink-0">
                     <img src={cvData.photoBase64} alt="Candidate Profile" className="w-full h-full object-cover" />
                   </div>
@@ -816,6 +932,23 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                   </div>
                 </div>
               )}
+
+              {cvData.additionalSections?.objective && <div><h3 className="text-xs font-black uppercase mb-1" style={{ color: cvData.themeColor }}>Career Objective</h3><p className="text-[11px] whitespace-pre-wrap">{cvData.additionalSections.objective}</p></div>}
+              {([
+                ['projects', 'Projects'], ['internships', 'Internships'], ['volunteerWork', 'Volunteer Work'],
+                ['achievements', 'Achievements & Awards'], ['professionalTraining', 'Professional Training'],
+                ['relevantCoursework', 'Relevant Coursework'], ['publications', 'Research & Publications'], ['references', 'References']
+              ] as const).map(([field, label]) => {
+                const items = cvData.additionalSections?.[field] || [];
+                return items.length ? <div key={field}><h3 className="text-xs font-black uppercase mb-1" style={{ color: cvData.themeColor }}>{label}</h3><ul className="list-disc pl-4 space-y-0.5">{items.map((item, index) => <li key={index} className="text-[11px]">{item}</li>)}</ul></div> : null;
+              })}
+              {([
+                ['careerGapExplanation', 'Career Gap'], ['preferredEmploymentType', 'Preferred Employment'],
+                ['noticePeriod', 'Notice Period'], ['domicile', 'Domicile'], ['professionalRegistration', 'Professional Registration']
+              ] as const).map(([field, label]) => {
+                const value = cvData.additionalSections?.[field];
+                return value ? <div key={field}><h3 className="text-xs font-black uppercase mb-1" style={{ color: cvData.themeColor }}>{label}</h3><p className="text-[11px]">{value}</p></div> : null;
+              })}
 
             </div>
 

@@ -976,7 +976,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'ai-enhancer'
     | 'employer-kyc'
     | 'user-audit'
-    | 'cv-review'
     | 'fee-logs'
     | 'scraper'
     | 'url-scraper'

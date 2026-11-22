@@ -681,7 +681,12 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
         }
         const priorUser = await UserRepository.getByIdAsync(id);
         const priorHistory = Array.isArray(priorUser?.cvReview?.history) ? priorUser.cvReview.history : [];
-        finalUpdates.cvReview = { status: 'Draft', updatedAt: new Date().toISOString(), history: priorHistory.slice(-50) };
+        finalUpdates.cvReview = {
+          ...(priorUser?.cvReview || {}),
+          status: 'Draft',
+          updatedAt: new Date().toISOString(),
+          history: priorHistory.slice(-50)
+        };
       }
     } else {
       const updateEntries = Object.entries(updates);

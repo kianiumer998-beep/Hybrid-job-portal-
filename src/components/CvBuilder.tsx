@@ -257,11 +257,11 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       
       {cvSaveMessage && <div className={`mb-4 rounded-xl border px-4 py-3 text-xs ${cvSaveMessage.type === 'success' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-rose-500/30 bg-rose-500/10 text-rose-200'}`} role="status">{cvSaveMessage.text}</div>}
-      {reviewStatus && reviewStatus.status !== 'Draft' && (
+      {reviewStatus && (reviewStatus.status !== 'Draft' || reviewStatus.reviewerNote) && (
         <div className="mb-4 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-4 py-3 text-xs text-indigo-100">
           <strong>CV Review Status: {reviewStatus.status}</strong>
           {reviewStatus.reviewerNote && <p className="mt-1">Admin note: {reviewStatus.reviewerNote}</p>}
-          {reviewStatus.status === 'Needs Changes' && <p className="mt-1">Please update your CV and submit it again for review.</p>}
+          {(reviewStatus.status === 'Needs Changes' || (reviewStatus.status === 'Draft' && reviewStatus.reviewerNote)) && <p className="mt-1">Please update your CV and submit it again for review.</p>}
         </div>
       )}
       {/* Top Banner */}

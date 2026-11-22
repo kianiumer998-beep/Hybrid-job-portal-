@@ -659,7 +659,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'Completed' | 'Partial' | 'Failed' | 'Stopped'>('all');
   const [resultsTypeFilter, setResultsTypeFilter] = useState<'all' | 'Approved' | 'Pending' | 'Duplicate' | 'Error'>('all');
   const [reviewTypeFilter, setReviewTypeFilter] = useState<'all' | 'pending' | 'duplicate' | 'conflict'>('all');
-  const [reviewSortOrder, setReviewSortOrder] = useState<'latest' | 'oldest' | 'updated_latest' | 'updated_oldest'>('latest');
+  const [reviewSortOrder, setReviewSortOrder] = useState<'latest' | 'oldest' | 'updated_latest' | 'updated_oldest' | 'expiry_earliest' | 'expiry_latest'>('latest');
   const [reviewCompletenessFilter, setReviewCompletenessFilter] = useState<'all' | 'complete' | 'incomplete' | 'missing_location' | 'missing_apply' | 'missing_source'>('all');
   const [reviewLocationFilter, setReviewLocationFilter] = useState<'all' | 'confirmed' | 'unconfirmed'>('all');
   const [reviewExpiryFilter, setReviewExpiryFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
@@ -1289,6 +1289,13 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       return Number.isFinite(parsed) ? parsed : 0;
     };
     return [...filtered].sort((a, b) => {
+      if (reviewSortOrder.startsWith('expiry_')) {
+        const aExpiry = Date.parse(String((a as any).expiryDate || ''));
+        const bExpiry = Date.parse(String((b as any).expiryDate || ''));
+        const aValid = Number.isFinite(aExpiry); const bValid = Number.isFinite(bExpiry);
+        if (!aValid || !bValid) return aValid ? -1 : bValid ? 1 : 0;
+        return reviewSortOrder === 'expiry_earliest' ? aExpiry - bExpiry : bExpiry - aExpiry;
+      }
       const useUpdated = reviewSortOrder.startsWith('updated_');
       const delta = timestampFor(a, useUpdated ? 'updated' : 'scraped') - timestampFor(b, useUpdated ? 'updated' : 'scraped');
       return reviewSortOrder.endsWith('oldest') ? delta : -delta;
@@ -4612,6 +4619,8 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   <option value="oldest">Oldest scraped first</option>
                   <option value="updated_latest">Recently updated first</option>
                   <option value="updated_oldest">Oldest updated first</option>
+                  <option value="expiry_earliest">Earliest expiry first</option>
+                  <option value="expiry_latest">Latest expiry first</option>
                 </select>
               </label>
               <input value={reviewBatchFilter} onChange={(e) => setReviewBatchFilter(e.target.value)} placeholder="Scrape batch ID" className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white w-32" />

@@ -45,6 +45,16 @@ function parseIntervalToMs(intervalStr?: string): number {
   return INTERVAL_MS_MAP[intervalStr] || INTERVAL_MS_MAP['24h'];
 }
 
+/** Maps the admin Scan Depth choice to a per-source job cap. */
+export function getSchedulerMaxJobs(depth?: string): number {
+  switch (depth) {
+    case 'Light (10 Jobs)': return 10;
+    case 'Deep Crawl (50+ Jobs)': return 50;
+    case 'Standard (25 Jobs)':
+    default: return 25;
+  }
+}
+
 const VALID_SCOPES: ScraperSchedulerSettings['scope'][] = ['all', 'selected', 'group', 'working', 'failed', 'single'];
 
 export function isValidSchedulerScope(scope: any): scope is ScraperSchedulerSettings['scope'] {
@@ -274,6 +284,8 @@ export async function runSchedulerTick(
               sourceId: src.id,
               startPage: scheduledMode === 'page_range' ? validStartPage : undefined,
               endPage: scheduledMode === 'page_range' ? validEndPage : undefined,
+              keywords: settings.keywords || undefined,
+              maxJobsPerSource: getSchedulerMaxJobs(settings.depth),
               autoPublishTrusted: (settings.autoApprove ?? src.autoApprove) && isAutoApproveEnabled,
               duplicateMode: settings.duplicateMode === 'without' ? 'without' : 'with',
               batchId: schedulerBatchId

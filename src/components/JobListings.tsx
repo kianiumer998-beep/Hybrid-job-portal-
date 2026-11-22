@@ -245,7 +245,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
     // Prefer a timestamp with a time component for accurate 'X minutes ago' labels.
     // Scraper/admin records sometimes store postedAt as a date-only string; in that
     // case createdAt is the more precise publication timestamp when available.
-    const relativeTimeSource = (job.postedAt && /T|\\d{1,2}:\\d{2}/.test(job.postedAt) && parseJobCardDate(job.postedAt) ? job.postedAt : job.createdAt && parseJobCardDate(job.createdAt) ? job.createdAt : postedTimeSource) || '';
+    const relativeTimeSource = (job.postedAt && /T|\d{1,2}:\d{2}/.test(job.postedAt) && parseJobCardDate(job.postedAt) ? job.postedAt : job.createdAt && parseJobCardDate(job.createdAt) ? job.createdAt : postedTimeSource) || '';
     const relativePostedTime = getRelativeJobTime(relativeTimeSource, clockNow);
     const exactPostedDate = formatJobCardDate(postedTimeSource);
     const deadlineDisplayDate = formatJobCardDate(job.deadlineDate);

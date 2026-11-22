@@ -904,7 +904,7 @@ transactionRouter.post('/', async (req, res) => {
                 : `Wallet deposits are not currently configured for ${methodConfig.name}. Please contact support.`
             });
           }
-          if (customAmountAllowed && (!Number.isSafeInteger(enforcedAmount) || enforcedAmount <= 0)) {
+          if (customAmountAllowed && (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0)) {
             return res.status(400).json({ success: false, message: 'Wallet deposit amount must be a positive whole PKR amount.' });
           }
         }

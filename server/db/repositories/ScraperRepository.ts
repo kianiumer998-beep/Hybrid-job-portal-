@@ -274,6 +274,20 @@ export class ScraperRepository {
     const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
     const getCollFn = _deps?.getCollectionFn || getScraperSourcesCollection;
 
+    const validConfigs = configs.filter(cfg => cfg && typeof cfg.id === 'string' && cfg.id.trim());
+    if (validConfigs.length !== configs.length) {
+      throw new Error('Every scraper source configuration must have a valid source ID.');
+    }
+    const sourceIds = validConfigs.map(cfg => cfg.id.trim());
+    if (new Set(sourceIds).size !== sourceIds.length) {
+      throw new Error('Duplicate scraper source IDs are not allowed in one save operation.');
+    }
+
+    if (!isMongoCfgFn()) {
+      this.cachedSources = configs;
+      return { isPersistedToMongo: false, persistedCount: validConfigs.length, totalCount: validConfigs.length };
+    }
+
     let coll: any;
     try {
       coll = await getCollFn();
@@ -283,20 +297,7 @@ export class ScraperRepository {
       throw new Error(msg);
     }
 
-    const validConfigs = configs.filter(cfg => cfg && typeof cfg.id === 'string' && cfg.id.trim());
-    if (validConfigs.length !== configs.length) {
-      throw new Error('Every scraper source configuration must have a valid source ID.');
-    }
-    const sourceIds = validConfigs.map(cfg => cfg.id.trim());
-    if (new Set(sourceIds).size !== sourceIds.length) {
-      throw new Error('Duplicate scraper source IDs are not allowed in one save operation.');
-    }
     let persistedCount = 0;
-
-    if (!isMongoCfgFn()) {
-      this.cachedSources = configs;
-      return { isPersistedToMongo: false, persistedCount: validConfigs.length, totalCount: validConfigs.length };
-    }
 
     for (const cfg of validConfigs) {
       const { _id, ...clean } = cfg;

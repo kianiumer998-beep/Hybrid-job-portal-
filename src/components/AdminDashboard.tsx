@@ -1803,7 +1803,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [jobsLocationFilter, setJobsLocationFilter] = useState<'all' | 'confirmed' | 'unconfirmed'>('all');
   const [jobsExpiryFilter, setJobsExpiryFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
   const [jobsDeadlineFilter, setJobsDeadlineFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
-  const [jobsSortBy, setJobsSortBy] = useState<'newest' | 'oldest' | 'title' | 'salary' | 'scraped_latest' | 'scraped_oldest' | 'updated_latest' | 'updated_oldest'>('newest');
+  const [jobsSortBy, setJobsSortBy] = useState<'newest' | 'oldest' | 'title' | 'salary' | 'scraped_latest' | 'scraped_oldest' | 'updated_latest' | 'updated_oldest' | 'expiry_earliest' | 'expiry_latest'>('newest');
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
   const [showJobsDuplicatesOnly, setShowJobsDuplicatesOnly] = useState(false);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
@@ -1824,7 +1824,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [pendingLocationFilter, setPendingLocationFilter] = useState<'all' | 'confirmed' | 'unconfirmed'>('all');
   const [pendingExpiryFilter, setPendingExpiryFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
   const [pendingDeadlineFilter, setPendingDeadlineFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
-  const [pendingSortBy, setPendingSortBy] = useState<'newest' | 'oldest' | 'title' | 'scraped_latest' | 'scraped_oldest' | 'updated_latest' | 'updated_oldest'>('newest');
+  const [pendingSortBy, setPendingSortBy] = useState<'newest' | 'oldest' | 'title' | 'scraped_latest' | 'scraped_oldest' | 'updated_latest' | 'updated_oldest' | 'expiry_earliest' | 'expiry_latest'>('newest');
   const [selectedPendingIds, setSelectedPendingIds] = useState<string[]>([]);
   const [selectedPendingJobCache, setSelectedPendingJobCache] = useState<Job[]>([]);
   const [isSelectingAllPending, setIsSelectingAllPending] = useState(false);
@@ -4049,6 +4049,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         const sortPendingCollection = (pendingList: Job[]) => [...pendingList].sort((a, b) => {
           if (pendingSortBy === 'title') return (a.title || '').localeCompare(b.title || '');
+          if (pendingSortBy.startsWith('expiry_')) {
+            const aExpiry = Date.parse(String((a as any).expiryDate || ''));
+            const bExpiry = Date.parse(String((b as any).expiryDate || ''));
+            const aValid = Number.isFinite(aExpiry); const bValid = Number.isFinite(bExpiry);
+            if (!aValid || !bValid) return aValid ? -1 : bValid ? 1 : 0;
+            return pendingSortBy === 'expiry_earliest' ? aExpiry - bExpiry : bExpiry - aExpiry;
+          }
           const dateValue = (job: Job, mode: 'scraped' | 'updated' | 'posted') => {
             const value = mode === 'scraped' ? ((job as any).lastScrapedAt || (job as any).scrapedAt || job.createdAt || job.postedAt)
               : mode === 'updated' ? ((job as any).updatedAt || (job as any).lastUpdatedAt || job.createdAt || job.postedAt)
@@ -4258,7 +4265,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <option value="scraped_latest">Latest Scraped First</option>
                     <option value="scraped_oldest">Oldest Scraped First</option>
                     <option value="updated_latest">Recently Updated First</option>
-                    <option value="updated_oldest">Oldest Updated First</option>
+                    <option value="updated_oldest">Oldest Updated First</option><option value="expiry_earliest">Earliest Expiry First</option><option value="expiry_latest">Latest Expiry First</option>
                   </select>
 
                   <select value={pendingCompletenessFilter} onChange={(e) => setPendingCompletenessFilter(e.target.value as typeof pendingCompletenessFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium">
@@ -6226,6 +6233,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             return aTime - bTime;
           }
           if (jobsSortBy === 'title') return (a.title || '').localeCompare(b.title || '');
+          if (jobsSortBy.startsWith('expiry_')) {
+            const aExpiry = Date.parse(String((a as any).expiryDate || ''));
+            const bExpiry = Date.parse(String((b as any).expiryDate || ''));
+            const aValid = Number.isFinite(aExpiry); const bValid = Number.isFinite(bExpiry);
+            if (!aValid || !bValid) return aValid ? -1 : bValid ? 1 : 0;
+            return jobsSortBy === 'expiry_earliest' ? aExpiry - bExpiry : bExpiry - aExpiry;
+          }
           if (jobsSortBy === 'salary') return Number(a.salaryNumericMin || 0) - Number(b.salaryNumericMin || 0);
           const dateValue = (job: Job, mode: 'scraped' | 'updated' | 'posted') => {
             const value = mode === 'scraped' ? ((job as any).lastScrapedAt || (job as any).scrapedAt || job.createdAt || job.postedAt)
@@ -6407,7 +6421,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <option value="scraped_latest">Latest Scraped First</option>
                     <option value="scraped_oldest">Oldest Scraped First</option>
                     <option value="updated_latest">Recently Updated First</option>
-                    <option value="updated_oldest">Oldest Updated First</option>
+                    <option value="updated_oldest">Oldest Updated First</option><option value="expiry_earliest">Earliest Expiry First</option><option value="expiry_latest">Latest Expiry First</option>
                   </select>
                   <select value={jobsCompletenessFilter} onChange={(e) => setJobsCompletenessFilter(e.target.value as typeof jobsCompletenessFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium">
                     <option value="all">All Job Details</option><option value="complete">Complete Jobs</option><option value="incomplete">Incomplete Jobs</option><option value="missing_location">Missing Location</option><option value="missing_apply">Missing Apply URL</option><option value="missing_source">Missing Scraper Source URL</option>

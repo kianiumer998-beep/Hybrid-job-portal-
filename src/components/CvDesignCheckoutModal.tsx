@@ -19,6 +19,7 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
 }) => {
   const [settings, setSettings] = useState<PublicPaymentSettings | null>(null);
   const [checkoutPrice, setCheckoutPrice] = useState(Number(pricePkr) || 0);
+  const [displayName, setDisplayName] = useState(templateName);
   const [priceReady, setPriceReady] = useState(false);
   const [selectedMethod, setSelectedMethod] = useState('Wallet Balance');
   const [senderName, setSenderName] = useState(currentUser?.name || '');
@@ -38,6 +39,7 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
     setError('');
     setSuccessMessage('');
     setCheckoutPrice(Number(pricePkr) || 0);
+    setDisplayName(templateName);
     setPriceReady(false);
     setTransactionId('');
     setProofNote('');
@@ -57,6 +59,7 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
         const selected = Array.isArray(cv.templates) ? cv.templates.find((item: any) => item?.id === templateId) : null;
         if (!selected || selected.enabled === false || selected.free === true) { setError('This CV design is no longer available for one-time purchase.'); return; }
         latestPrice = Number(selected.pricePkr || 0);
+        setDisplayName(String(selected.name || templateName));
       }
       if (!Number.isFinite(latestPrice) || latestPrice <= 0) { setError('The administrator has not configured a valid one-time price for this item.'); return; }
       setCheckoutPrice(latestPrice);
@@ -79,7 +82,7 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
       if (active) setLoadingSettings(false);
     });
     return () => { active = false; };
-  }, [isOpen, templateId, walletBalance, pricePkr, currentUser?.id]);
+  }, [isOpen, templateId, templateName, walletBalance, pricePkr, currentUser?.id]);
 
   const manualMethods = useMemo(() => settings
     ? Object.values(settings.methods || {}).filter((method: any) => method?.enabled && method.accountTitle && method.accountNumber) as PublicPaymentMethodConfig[]
@@ -225,7 +228,7 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
         </div>
         <form onSubmit={handleSubmit} className="space-y-5 p-5">
           <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-            <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold text-white">{templateName}</p><p className="mt-1 text-[11px] text-slate-400">Permanent access to this design on your account</p></div><p className="whitespace-nowrap text-lg font-black text-emerald-300">PKR {Number(checkoutPrice).toLocaleString('en-PK')}</p></div>
+            <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold text-white">{displayName}</p><p className="mt-1 text-[11px] text-slate-400">Permanent access to this design on your account</p></div><p className="whitespace-nowrap text-lg font-black text-emerald-300">PKR {Number(checkoutPrice).toLocaleString('en-PK')}</p></div>
             <p className="mt-3 text-xs text-slate-400">Wallet balance: <strong className="text-white">PKR {Number(walletBalance || 0).toLocaleString('en-PK')}</strong></p>
           </div>
 

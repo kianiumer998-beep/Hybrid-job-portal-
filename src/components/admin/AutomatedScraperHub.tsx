@@ -660,6 +660,13 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [resultsTypeFilter, setResultsTypeFilter] = useState<'all' | 'Approved' | 'Pending' | 'Duplicate' | 'Error'>('all');
   const [reviewTypeFilter, setReviewTypeFilter] = useState<'all' | 'pending' | 'duplicate' | 'conflict'>('all');
   const [reviewSortOrder, setReviewSortOrder] = useState<'latest' | 'oldest' | 'updated_latest' | 'updated_oldest'>('latest');
+  const [reviewCompletenessFilter, setReviewCompletenessFilter] = useState<'all' | 'complete' | 'incomplete' | 'missing_apply' | 'missing_source'>('all');
+  const [reviewLocationFilter, setReviewLocationFilter] = useState<'all' | 'confirmed' | 'unconfirmed'>('all');
+  const [reviewExpiryFilter, setReviewExpiryFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
+  const [reviewDeadlineFilter, setReviewDeadlineFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
+  const [reviewScrapeDateFilter, setReviewScrapeDateFilter] = useState<'all' | 'today' | '24h' | '7days' | '30days' | 'older'>('all');
+  const [reviewProvinceFilter, setReviewProvinceFilter] = useState('all');
+  const [reviewCityFilter, setReviewCityFilter] = useState('');
 
   // Multi-Selection State for Sources
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
@@ -1219,7 +1226,45 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         const portal = (job as any).sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || '';
         if (!portal.toLowerCase().includes(sourceFilter.toLowerCase())) return false;
       }
-
+      const hasApplyUrl = Boolean((job as any).applicationUrl || (job as any).originalApplyUrl || (job as any).externalApplyUrl || (job as any).applyUrl);
+      const hasSourceUrl = Boolean((job as any).sourceUrl || (job as any).scraperSourceUrl);
+      const isComplete = Boolean(job.title?.trim() && job.company?.trim() && job.description?.trim() && (job.city || job.province || job.region));
+      if (reviewCompletenessFilter === 'complete' && !isComplete) return false;
+      if (reviewCompletenessFilter === 'incomplete' && isComplete) return false;
+      if (reviewCompletenessFilter === 'missing_apply' && hasApplyUrl) return false;
+      if (reviewCompletenessFilter === 'missing_source' && hasSourceUrl) return false;
+      const locationConfirmed = Boolean((job as any).isLocationConfirmed || job.metadata?.isLocationConfirmed || (job as any).isManuallyCorrected || job.metadata?.isManuallyCorrected);
+      if (reviewLocationFilter === 'confirmed' && !locationConfirmed) return false;
+      if (reviewLocationFilter === 'unconfirmed' && locationConfirmed) return false;
+      if (reviewProvinceFilter !== 'all' && job.province !== reviewProvinceFilter) return false;
+      if (reviewCityFilter.trim() && !(job.city || '').toLowerCase().includes(reviewCityFilter.trim().toLowerCase())) return false;
+      const matchesReviewDate = (rawDate: unknown, filter: string) => {
+        if (filter === 'all') return true;
+        if (!rawDate) return filter === 'none';
+        const time = new Date(String(rawDate)).getTime();
+        if (!Number.isFinite(time)) return filter === 'none';
+        const days = (time - Date.now()) / 86400000;
+        if (filter === 'expired') return days < 0;
+        if (filter === '7days') return days >= 0 && days <= 7;
+        if (filter === '30days') return days >= 0 && days <= 30;
+        if (filter === 'future') return days > 30;
+        return true;
+      };
+      if (!matchesReviewDate((job as any).expiryDate, reviewExpiryFilter)) return false;
+      if (!matchesReviewDate((job as any).deadlineDate, reviewDeadlineFilter)) return false;
+      if (reviewScrapeDateFilter !== 'all') {
+        const raw = (job as any).scrapedAt || (job as any).lastScrapedAt || (job as any).createdAt || job.postedAt;
+        const time = raw ? new Date(raw).getTime() : NaN;
+        if (!Number.isFinite(time)) return false;
+        const ageHours = (Date.now() - time) / 3600000;
+        const todayKey = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+        const scrapeDayKey = new Date(time).toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+        if (reviewScrapeDateFilter === 'today' && scrapeDayKey !== todayKey) return false;
+        if (reviewScrapeDateFilter === '24h' && (ageHours < 0 || ageHours > 24)) return false;
+        if (reviewScrapeDateFilter === '7days' && (ageHours < 0 || ageHours > 168)) return false;
+        if (reviewScrapeDateFilter === '30days' && (ageHours < 0 || ageHours > 720)) return false;
+        if (reviewScrapeDateFilter === 'older' && ageHours <= 720) return false;
+      }
       return true;
     });
     const timestampFor = (job: Job, mode: 'scraped' | 'updated') => {
@@ -1234,7 +1279,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       const delta = timestampFor(a, useUpdated ? 'updated' : 'scraped') - timestampFor(b, useUpdated ? 'updated' : 'scraped');
       return reviewSortOrder.endsWith('oldest') ? delta : -delta;
     });
-  }, [effectivePendingList, reviewTypeFilter, searchQuery, sourceFilter, reviewSortOrder]);
+  }, [effectivePendingList, reviewTypeFilter, searchQuery, sourceFilter, reviewSortOrder, reviewCompletenessFilter, reviewLocationFilter, reviewExpiryFilter, reviewDeadlineFilter, reviewScrapeDateFilter, reviewProvinceFilter, reviewCityFilter]);
 
   // -------------------------------------------------------------
   // Results Feed Items (Discovered Jobs from recent runs & live db)
@@ -4484,6 +4529,13 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   <option value="updated_oldest">Oldest updated first</option>
                 </select>
               </label>
+              <input value={reviewCityFilter} onChange={(e) => setReviewCityFilter(e.target.value)} placeholder="City" className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white w-24" />
+              <select value={reviewProvinceFilter} onChange={(e) => setReviewProvinceFilter(e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"><option value="all">All Provinces</option><option>Punjab</option><option>Sindh</option><option>Khyber Pakhtunkhwa</option><option>Balochistan</option><option>Islamabad Capital Territory</option><option>Azad Kashmir</option><option>Gilgit-Baltistan</option></select>
+              <select value={reviewScrapeDateFilter} onChange={(e) => setReviewScrapeDateFilter(e.target.value as typeof reviewScrapeDateFilter)} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"><option value="all">Any Scrape Time</option><option value="today">Today</option><option value="24h">Last 24 Hours</option><option value="7days">Last 7 Days</option><option value="30days">Last 30 Days</option><option value="older">Older than 30 Days</option></select>
+              <select value={reviewCompletenessFilter} onChange={(e) => setReviewCompletenessFilter(e.target.value as typeof reviewCompletenessFilter)} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"><option value="all">All Job Details</option><option value="complete">Complete Jobs</option><option value="incomplete">Incomplete Jobs</option><option value="missing_apply">Missing Apply URL</option><option value="missing_source">Missing Scraper Source URL</option></select>
+              <select value={reviewLocationFilter} onChange={(e) => setReviewLocationFilter(e.target.value as typeof reviewLocationFilter)} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"><option value="all">All Location Status</option><option value="confirmed">Location Confirmed</option><option value="unconfirmed">Location Unconfirmed</option></select>
+              <select value={reviewExpiryFilter} onChange={(e) => setReviewExpiryFilter(e.target.value as typeof reviewExpiryFilter)} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"><option value="all">Any Expiry</option><option value="expired">Expired</option><option value="7days">Expires in 7 Days</option><option value="30days">Expires in 30 Days</option><option value="future">Later Expiry</option><option value="none">No Expiry</option></select>
+              <select value={reviewDeadlineFilter} onChange={(e) => setReviewDeadlineFilter(e.target.value as typeof reviewDeadlineFilter)} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"><option value="all">Any Application Deadline</option><option value="expired">Deadline Passed</option><option value="7days">Deadline in 7 Days</option><option value="30days">Deadline in 30 Days</option><option value="future">Later Deadline</option><option value="none">No Deadline</option></select>
               <div className="flex items-center space-x-2 flex-wrap gap-1">
               {(['all', 'pending', 'duplicate', 'conflict'] as const).map(type => (
                 <button

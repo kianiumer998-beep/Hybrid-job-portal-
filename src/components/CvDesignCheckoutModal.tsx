@@ -187,12 +187,12 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-3 sm:p-5" role="dialog" aria-modal="true" aria-labelledby="cv-design-checkout-title">
       <div className="w-full max-w-xl max-h-[92vh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-800 bg-slate-950 px-5 py-4">
-          <div><h2 id="cv-design-checkout-title" className="text-lg font-black text-white">Unlock CV Design</h2><p className="mt-1 text-xs text-slate-400">One-time payment · No recurring subscription</p></div>
+          <div><h2 id="cv-design-checkout-title" className="text-lg font-black text-white">Unlock CV Builder Item</h2><p className="mt-1 text-xs text-slate-400">One-time payment · No recurring subscription</p></div>
           <button type="button" onClick={onClose} aria-label="Close checkout" className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="h-5 w-5" /></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-5 p-5">
           <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-            <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold text-white">{templateName}</p><p className="mt-1 text-[11px] text-slate-400">Permanent access to this design on your account</p></div><p className="whitespace-nowrap text-lg font-black text-emerald-300">PKR {Number(pricePkr).toLocaleString('en-PK')}</p></div>
+            <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold text-white">{templateName}</p><p className="mt-1 text-[11px] text-slate-400">Permanent access to this item on your account</p></div><p className="whitespace-nowrap text-lg font-black text-emerald-300">PKR {Number(pricePkr).toLocaleString('en-PK')}</p></div>
             <p className="mt-3 text-xs text-slate-400">Wallet balance: <strong className="text-white">PKR {Number(walletBalance || 0).toLocaleString('en-PK')}</strong></p>
           </div>
 

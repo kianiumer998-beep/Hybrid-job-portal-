@@ -749,7 +749,7 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
         const premiumLimit = Math.min(10, Math.max(1, Math.floor(Number(pricing?.cvBuilder?.premiumCvLimit ?? 10))));
         const membershipStatus = String(cvOwner.membershipStatus || '').trim();
         const membershipTier = String(cvOwner.membershipTier || '').trim();
-        const inactiveStatuses = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled', 'Revoked', 'Unpaid']);
+        const inactiveStatuses = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled']);
         const premiumActive = !inactiveStatuses.has(membershipStatus) && (
           (membershipStatus === 'Active' && Boolean(membershipTier) && membershipTier.toLowerCase() !== 'free') ||
           cvOwner.plan === 'Premium' ||

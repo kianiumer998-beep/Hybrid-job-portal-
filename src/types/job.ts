@@ -126,6 +126,7 @@ export interface UserAccount {
   cvUrl?: string;
   resumeUrl?: string;
   cvData?: CvData;
+  cvDocuments?: CvDocument[];
   socialLinks?: Record<string, any>;
   notificationsEnabled?: boolean;
   whatsappAlertsEnabled?: boolean;
@@ -410,6 +411,13 @@ export interface CvData {
   }[];
   templateStyle: 'modern' | 'executive' | 'tech' | 'classic' | 'ats';
   themeColor: string;
+}
+
+export interface CvDocument {
+  id: string;
+  title: string;
+  data: CvData;
+  updatedAt: string;
 }
 
 export const GOVT_DEPT_OPTIONS = [

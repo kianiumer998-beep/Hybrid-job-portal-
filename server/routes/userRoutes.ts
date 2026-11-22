@@ -604,7 +604,8 @@ userRouter.patch('/cv/review/:id', requireAdminPermission('users.manage'), async
     if (note.length > 3000) return res.status(400).json({ success: false, message: 'Reviewer note cannot exceed 3000 characters.' });
     const existing = await UserRepository.getByIdAsync(id);
     if (!existing || !existing.cvData || !existing.cvReview || !['Submitted', 'Reviewed', 'Verified', 'Needs Changes'].includes(existing.cvReview.status)) return res.status(404).json({ success: false, message: 'A submitted CV was not found for this candidate.' });
-    if (status === 'Verified' && existing.cvReview.status === 'Needs Changes') return res.status(409).json({ success: false, message: 'Candidate must resubmit the corrected CV before verification.' });
+    if (existing.cvReview.status === 'Needs Changes' && status !== 'Needs Changes') return res.status(409).json({ success: false, message: 'Candidate must resubmit the corrected CV before another review decision.' });
+    if (status === 'Verified' && existing.cvReview.status !== 'Reviewed') return res.status(409).json({ success: false, message: 'Mark the CV as Reviewed before verifying it.' });
     const now = new Date().toISOString();
     const actor = String(req.user?.userId || req.user?.id || req.user?.email || 'Administrator');
     const history = [...(Array.isArray(existing.cvReview.history) ? existing.cvReview.history : []), { status, at: now, by: actor, ...(note ? { note } : {}) }].slice(-50);

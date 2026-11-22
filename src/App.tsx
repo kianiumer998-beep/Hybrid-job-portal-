@@ -9,6 +9,7 @@ import { CandidateApplicationModal } from './components/CandidateApplicationModa
 import { SubscriptionModal } from './components/SubscriptionModal';
 import { CvBuilder } from './components/CvBuilder';
 import { CvPaywallModal } from './components/CvPaywallModal';
+import { CvDesignCheckoutModal } from './components/CvDesignCheckoutModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { AdminDashboard } from './components/AdminDashboard';
 import { CompleteFeeConfigSavePayload } from './components/admin/AdminFeeManager';
@@ -1591,6 +1592,7 @@ export default function App() {
   const [selectedGate, setSelectedGate] = useState<any>(null);
   const [selectedJobTitleForSub, setSelectedJobTitleForSub] = useState<string>('');
   const [cvPaywallOpen, setCvPaywallOpen] = useState<boolean>(false);
+  const [cvDesignCheckout, setCvDesignCheckout] = useState<{ templateId: string; templateName: string; pricePkr: number } | null>(null);
   const [adminLoginOpen, setAdminLoginOpen] = useState<boolean>(false);
   const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState<boolean>(() => {
@@ -4609,6 +4611,11 @@ export default function App() {
                 isSubscribed={isSubscribed}
                 initialCvData={currentUser?.cvData}
                 initialCvDocuments={currentUser?.cvDocuments}
+                cvDesignEntitlements={currentUser?.cvDesignEntitlements || []}
+                onPurchaseTemplate={(templateId, templateName, pricePkr) => {
+                  if (!currentUser?.id) { setAuthModalOpen(true); return; }
+                  setCvDesignCheckout({ templateId, templateName, pricePkr });
+                }}
                 onSaveCv={async (cvData) => handleUpdateProfile({ cvData })}
                 onSaveCvDocuments={async (documents, activeData) => handleUpdateProfile({ cvData: activeData, cvDocuments: documents })}
                 cvBuilderSettings={cvBuilderSettings}
@@ -4760,6 +4767,25 @@ export default function App() {
         initialSelectedJobTitle={selectedJobTitleForSub}
         currentUser={currentUser}
         whatsappEnabledGlobal={channelAvailability.whatsapp}
+      />
+
+      <CvDesignCheckoutModal
+        isOpen={Boolean(cvDesignCheckout)}
+        templateId={cvDesignCheckout?.templateId || ''}
+        templateName={cvDesignCheckout?.templateName || ''}
+        pricePkr={cvDesignCheckout?.pricePkr || 0}
+        walletBalance={Number(currentUser?.walletBalance || 0)}
+        currentUser={currentUser ? { id: currentUser.id, name: currentUser.name, email: currentUser.email, phone: currentUser.phone } : null}
+        onClose={() => setCvDesignCheckout(null)}
+        onComplete={async (result) => {
+          if (currentUser?.id) {
+            await Promise.all([
+              loadBackendUserProfile(currentUser.id),
+              loadBackendTransactions(currentUser.id)
+            ]);
+          }
+          alert(result.message);
+        }}
       />
 
       <CvPaywallModal

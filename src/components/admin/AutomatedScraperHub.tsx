@@ -37,6 +37,7 @@ import { Job, Region, ScrapedJobAuditEntry, JobStatus } from '../../types/job';
 import { api } from '../../services/api';
 import { AdminJobDetailModal } from '../AdminJobDetailModal';
 import { AdminQuickEditJobModal } from './AdminQuickEditJobModal';
+import { AdminJobFilterPresets } from './AdminJobFilterPresets';
 import { suggestJobMetadata } from '../../utils/jobSuggestionEngine';
 import { isScrapedJob, calculateJobMissingFields } from '../../utils/jobValidation';
 import {
@@ -4604,6 +4605,29 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               </div>
             </div>
 
+            <div className="w-full">
+              <AdminJobFilterPresets
+                storageKey="hybrid-admin-scraper-review-filter-presets-v1"
+                filters={{ search: searchQuery, sort: reviewSortOrder, batch: reviewBatchFilter, portal: reviewPortalFilter, category: reviewCategoryFilter, city: reviewCityFilter, province: reviewProvinceFilter, scrapeDate: reviewScrapeDateFilter, completeness: reviewCompletenessFilter, location: reviewLocationFilter, expiry: reviewExpiryFilter, deadline: reviewDeadlineFilter, type: reviewTypeFilter }}
+                onApply={(values) => {
+                  setSearchQuery(String(values.search ?? ''));
+                  setReviewSortOrder(String(values.sort ?? 'latest') as typeof reviewSortOrder);
+                  setReviewBatchFilter(String(values.batch ?? ''));
+                  setReviewPortalFilter(String(values.portal ?? ''));
+                  setReviewCategoryFilter(String(values.category ?? 'all'));
+                  setReviewCityFilter(String(values.city ?? ''));
+                  setReviewProvinceFilter(String(values.province ?? 'all'));
+                  setReviewScrapeDateFilter(String(values.scrapeDate ?? 'all') as typeof reviewScrapeDateFilter);
+                  setReviewCompletenessFilter(String(values.completeness ?? 'all') as typeof reviewCompletenessFilter);
+                  setReviewLocationFilter(String(values.location ?? 'all') as typeof reviewLocationFilter);
+                  setReviewExpiryFilter(String(values.expiry ?? 'all') as typeof reviewExpiryFilter);
+                  setReviewDeadlineFilter(String(values.deadline ?? 'all') as typeof reviewDeadlineFilter);
+                  setReviewTypeFilter(String(values.type ?? 'all') as typeof reviewTypeFilter);
+                  setSelectedReviewIds([]);
+                  setSelectedReviewJobCache([]);
+                }}
+              />
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-2 text-[11px] font-semibold text-slate-400">
                 Sort:

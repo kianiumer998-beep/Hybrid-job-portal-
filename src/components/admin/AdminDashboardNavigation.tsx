@@ -76,7 +76,6 @@ export type AdminCanonicalTabId =
   | 'fee-logs'
   | 'currency-forex'
   | 'user-audit'
-  | 'cv-review'
   | 'employer-kyc'
   | 'subscribers'
   | 'chat-hub'
@@ -505,17 +504,6 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     keywords: ['users', 'accounts', 'directory', 'profiles', 'members', 'roles', 'audit', 'صارفین']
   },
   {
-    id: 'cv-review',
-    classicCategory: 'users',
-    proCategory: 'users-kyc-support',
-    label: 'CV & Career Profile Review',
-    description: 'Review candidate-submitted CVs, leave feedback and mark CVs reviewed or verified.',
-    classicSubTabLabel: () => 'CV & Career Profile Review',
-    urdu: 'سی وی اور پروفائل کا جائزہ',
-    icon: FileText,
-    keywords: ['cv', 'resume', 'career profile', 'candidate cv', 'resume review', 'verify cv', 'سی وی']
-  },
-  {
     id: 'employer-kyc',
     classicCategory: 'users',
     proCategory: 'users-kyc-support',
@@ -788,7 +776,7 @@ export const CLASSIC_CATEGORY_MODULE_ORDER: Record<AdminCategory, AdminCanonical
     'fee-logs',
     'currency-forex'
   ],
-  users: ['user-audit', 'cv-review', 'employer-kyc', 'subscribers', 'chat-hub'],
+  users: ['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'],
   alerts: ['whatsapp-manager', 'broadcast-center', 'bulk-notifications'],
   settings: [
     'locations-manager',

@@ -879,7 +879,8 @@ export class PaymentRepository {
       'Job Posting',
       'Job Posting Fee',
       'Advertisement',
-      'Ad Campaign Fee'
+      'Ad Campaign Fee',
+      'CV Design Purchase'
     ];
 
     if (!supportedVerificationTypes.includes(tx.type)) {
@@ -1073,6 +1074,49 @@ export class PaymentRepository {
           verifiedAt: new Date().toISOString(),
           adminNote: note || 'Verified and approved by administrator'
         });
+      } else if (tx.type === 'CV Design Purchase') {
+        const snapshot = tx.cvPurchaseSnapshot;
+        const templateId = String(snapshot?.templateId || tx.cvTemplateId || '').trim();
+        const templateName = String(snapshot?.templateName || '').trim();
+        const snapshotPrice = Number(snapshot?.pricePkr);
+        const transactionAmount = Number(tx.amount);
+        if (!tx.userId || !templateId || !templateName ||
+          !Number.isFinite(snapshotPrice) || snapshotPrice <= 0 ||
+          !Number.isFinite(transactionAmount) || Math.abs(snapshotPrice - transactionAmount) > 0.01 ||
+          String(tx.cvTemplateId || '') !== templateId) {
+          await this.updateAsync(id, {
+            status: 'VerificationUncertain',
+            rejectionReason: 'CV design purchase details or server price snapshot are missing or inconsistent.',
+            updatedAt: new Date().toISOString()
+          });
+          throw new Error('Cannot approve CV design purchase: its server-verified design and price details are invalid.');
+        }
+        let user: any = null;
+        try {
+          user = await UserRepository.getByIdAsync(String(tx.userId));
+          if (!user) throw new Error('The purchasing user account could not be found.');
+          const updatedUser = await UserRepository.grantCvDesignEntitlementAsync(user.id, {
+            templateId,
+            templateName,
+            transactionId: String(tx.id),
+            amount: transactionAmount,
+            purchasedAt: new Date().toISOString()
+          });
+          if (!updatedUser) throw new Error('The CV design entitlement could not be saved to the user account.');
+          await this.updateAsync(id, {
+            status: 'Success',
+            cvEntitlementGranted: true,
+            verifiedAt: new Date().toISOString(),
+            adminNote: note || 'CV design payment verified and one-time design access granted.'
+          });
+        } catch (purchaseErr: any) {
+          await this.updateAsync(id, {
+            status: 'VerificationUncertain',
+            rejectionReason: purchaseErr?.message || 'CV design entitlement update is uncertain; manual reconciliation is required.',
+            updatedAt: new Date().toISOString()
+          });
+          throw purchaseErr;
+        }
       } else if (tx.type === 'Job Posting Fee' || tx.type === 'Job Posting') {
         if (!tx.jobIdRef) {
           await this.updateAsync(id, {

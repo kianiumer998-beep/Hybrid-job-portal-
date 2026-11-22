@@ -243,7 +243,7 @@ function deepMergePricing(base: any, incoming: any): any {
       const price = Number(item.pricePkr ?? fallback.pricePkr ?? 0);
       return {
         id: String(fallback.id),
-        name: String(fallback.name || item.name || fallback.id).slice(0, 80),
+        name: String(item.name || fallback.name || fallback.id).trim().slice(0, 80) || String(fallback.id),
         enabled: item.enabled === undefined ? fallback.enabled !== false : item.enabled === true,
         free: item.free === undefined ? fallback.free === true : item.free === true,
         pricePkr: Number.isFinite(price) ? Math.min(10000000, Math.max(0, price)) : 0

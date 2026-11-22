@@ -124,7 +124,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
   }, [cvData, activeCvId]);
 
   const handleCreateCv = () => {
-    const maxAllowed = isSubscribed ? 10 : Math.max(0, Math.min(10, Math.floor(Number(cvBuilderSettings.freeCvLimit ?? 1))));
+    const maxAllowed = isSubscribed ? Math.max(0, Math.min(10, Math.floor(Number(cvBuilderSettings.premiumCvLimit ?? 10)))) : Math.max(0, Math.min(10, Math.floor(Number(cvBuilderSettings.freeCvLimit ?? 1))));
     if (documents.length >= maxAllowed) {
       setCvSaveMessage({ type: 'error', text: `Your current plan allows ${maxAllowed} CV(s). Upgrade to create more.` });
       onOpenPaywall();
@@ -321,7 +321,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
             <select aria-label="Select saved CV" value={activeCvId} onChange={(e) => handleSelectCv(e.target.value)} className="max-w-[170px] px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white">
               {documents.map((document, index) => <option key={document.id} value={document.id}>{document.title || `CV ${index + 1}`}</option>)}
             </select>
-            <button type="button" onClick={handleCreateCv} className="px-3 py-2.5 rounded-xl bg-indigo-500/20 border border-indigo-400/30 text-indigo-200 text-xs font-bold">+ New CV ({documents.length}/{isSubscribed ? 10 : Math.max(0, Number(cvBuilderSettings.freeCvLimit ?? 1))})</button>
+            <button type="button" onClick={handleCreateCv} className="px-3 py-2.5 rounded-xl bg-indigo-500/20 border border-indigo-400/30 text-indigo-200 text-xs font-bold">+ New CV ({documents.length}/{isSubscribed ? Math.max(0, Number(cvBuilderSettings.premiumCvLimit ?? 10)) : Math.max(0, Number(cvBuilderSettings.freeCvLimit ?? 1))})</button>
           </div>
           <button
             type="button"

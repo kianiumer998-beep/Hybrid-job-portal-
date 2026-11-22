@@ -593,9 +593,43 @@ export class PricingRepository {
     }
 
     if (updates.cvBuilder) {
-      if (updates.cvBuilder.standardPdfExportPkr !== undefined) validateNonNegativeNumber(updates.cvBuilder.standardPdfExportPkr, 'cvBuilder.standardPdfExportPkr');
-      if (updates.cvBuilder.premiumAiOptimizerPkr !== undefined) validateNonNegativeNumber(updates.cvBuilder.premiumAiOptimizerPkr, 'cvBuilder.premiumAiOptimizerPkr');
-      if (updates.cvBuilder.unlimitedTemplatesPkr !== undefined) validateNonNegativeNumber(updates.cvBuilder.unlimitedTemplatesPkr, 'cvBuilder.unlimitedTemplatesPkr');
+      const cv = updates.cvBuilder;
+      for (const field of ['standardPdfExportPkr', 'pdfExportPkr', 'atsTextExportPkr', 'premiumAiOptimizerPkr', 'unlimitedTemplatesPkr'] as const) {
+        if (cv[field] !== undefined) validateNonNegativeNumber(cv[field], `cvBuilder.${field}`, 10000000);
+      }
+      for (const field of ['freeCvLimit', 'freeDesignLimit'] as const) {
+        if (cv[field] !== undefined && (!Number.isInteger(Number(cv[field])) || Number(cv[field]) < 0 || Number(cv[field]) > 10)) {
+          throw new Error(`cvBuilder.${field} must be a whole number between 0 and 10.`);
+        }
+      }
+      if (cv.premiumCvLimit !== undefined && (!Number.isInteger(Number(cv.premiumCvLimit)) || Number(cv.premiumCvLimit) < 1 || Number(cv.premiumCvLimit) > 10)) {
+        throw new Error('cvBuilder.premiumCvLimit must be a whole number between 1 and 10.');
+      }
+      if (cv.watermarkOpacity !== undefined && (!Number.isFinite(Number(cv.watermarkOpacity)) || Number(cv.watermarkOpacity) < 0.05 || Number(cv.watermarkOpacity) > 0.35)) {
+        throw new Error('cvBuilder.watermarkOpacity must be between 0.05 and 0.35.');
+      }
+      if (cv.watermarkText !== undefined && (typeof cv.watermarkText !== 'string' || cv.watermarkText.length > 80)) {
+        throw new Error('cvBuilder.watermarkText must be text with a maximum of 80 characters.');
+      }
+      for (const field of ['pdfExportEnabled', 'atsTextExportEnabled', 'watermarkEnabled', 'watermarkFreeOnly'] as const) {
+        if (cv[field] !== undefined && typeof cv[field] !== 'boolean') {
+          throw new Error(`cvBuilder.${field} must be a boolean.`);
+        }
+      }
+      if (cv.templates !== undefined) {
+        if (!Array.isArray(cv.templates) || cv.templates.length > 5) throw new Error('cvBuilder.templates must be an array with no more than five designs.');
+        const allowed = new Set(['modern', 'executive', 'tech', 'classic', 'ats']);
+        const seen = new Set<string>();
+        for (const template of cv.templates) {
+          if (!template || typeof template !== 'object' || !allowed.has(String(template.id)) || seen.has(String(template.id))) {
+            throw new Error('Each CV design must use a unique supported design ID.');
+          }
+          seen.add(String(template.id));
+          if (template.enabled !== undefined && typeof template.enabled !== 'boolean') throw new Error(`CV design ${template.id} enabled must be a boolean.`);
+          if (template.free !== undefined && typeof template.free !== 'boolean') throw new Error(`CV design ${template.id} free must be a boolean.`);
+          if (template.pricePkr !== undefined) validateNonNegativeNumber(template.pricePkr, `cvBuilder.templates.${template.id}.pricePkr`, 10000000);
+        }
+      }
     }
 
     // Category fees update precedence without resurrecting deleted entries from stale current fields

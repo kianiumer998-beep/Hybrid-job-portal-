@@ -2316,11 +2316,14 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       if (statusRes?.success && statusRes.status) setSchedulerStatus(statusRes.status);
 
       const isDurable = Boolean(sourceSaveRes.isPersistedToMongo && schedulerSaveRes.isPersistedToMongo && schedulerReadRes.settings.isPersistedToMongo);
+      const schedulerStarted = schedulerSaveRes.schedulerRunning !== false || !globalSchedulerEnabled;
       setStatusMessage({
-        text: isDurable
-          ? 'All Step 6 settings were saved and verified in MongoDB.'
-          : 'Settings were applied in server memory and read back, but MongoDB persistence is not confirmed. They may be lost after a server restart.',
-        type: isDurable ? 'success' : 'info'
+        text: !isDurable
+          ? 'Settings were applied in server memory and read back, but MongoDB persistence is not confirmed. They may be lost after a server restart.'
+          : !schedulerStarted
+            ? 'Settings were saved and verified in MongoDB, but the background scheduler did not start. Check scheduler diagnostics.'
+            : 'All Step 6 settings were saved and verified in MongoDB.',
+        type: isDurable && schedulerStarted ? 'success' : 'info'
       });
     } catch (err: any) {
       setStatusMessage({ text: `Settings were not fully verified: ${err?.message || 'Unknown error'}`, type: 'error' });
@@ -4967,11 +4970,14 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                         if (!result?.success) {
                           throw new Error(result?.message || 'Scheduler state change was rejected.');
                         }
+                        const schedulerStarted = !checked || result.isRunning === true;
                         setStatusMessage({
-                          text: result.message || (result.isPersistedToMongo
-                            ? (checked ? 'Automatic background scheduler enabled and saved.' : 'Automatic background scheduler paused and saved.')
-                            : 'Scheduler state changed in memory only; MongoDB persistence is not confirmed.'),
-                          type: result.isPersistedToMongo ? 'success' : 'info'
+                          text: result.message || (!schedulerStarted
+                            ? 'Scheduler settings were saved, but the background scheduler did not start.'
+                            : result.isPersistedToMongo
+                              ? (checked ? 'Automatic background scheduler enabled and saved.' : 'Automatic background scheduler paused and saved.')
+                              : 'Scheduler state changed in memory only; MongoDB persistence is not confirmed.'),
+                          type: result.isPersistedToMongo && schedulerStarted ? 'success' : 'info'
                         });
                       } catch (err: any) {
                         setGlobalSchedulerEnabled(previous);

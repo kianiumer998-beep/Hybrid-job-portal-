@@ -226,10 +226,10 @@ function deepMergePricing(base: any, incoming: any): any {
   const srcCvBuilder = src.cvBuilder && typeof src.cvBuilder === 'object' ? src.cvBuilder : {};
   const defaultCvTemplates = [
     { id: 'modern', name: 'Modern Clean', enabled: true, free: true, pricePkr: 0 },
-    { id: 'ats', name: 'ATS Plain Text', enabled: true, free: true, pricePkr: 0 },
     { id: 'executive', name: 'Executive Dark Sidebar', enabled: true, free: false, pricePkr: 300 },
     { id: 'tech', name: 'Tech Minimalist', enabled: true, free: false, pricePkr: 300 },
-    { id: 'classic', name: 'Classic Corporate', enabled: true, free: false, pricePkr: 200 }
+    { id: 'classic', name: 'Classic Corporate', enabled: true, free: false, pricePkr: 200 },
+    { id: 'ats', name: 'ATS Plain Text', enabled: true, free: true, pricePkr: 0 }
   ];
   const templateDefaults = Array.isArray(baseCvBuilder.templates) && baseCvBuilder.templates.length
     ? baseCvBuilder.templates

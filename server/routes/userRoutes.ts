@@ -569,16 +569,7 @@ userRouter.get('/cv/review-queue', requireAdminPermission('users.manage'), async
     const allowed = new Set(['Submitted', 'Reviewed', 'Verified', 'Needs Changes']);
     const requestedStatus = typeof req.query.status === 'string' ? req.query.status : '';
     if (requestedStatus && !allowed.has(requestedStatus)) return res.status(400).json({ success: false, message: 'Invalid CV review status filter.' });
-    const allUsers = await UserRepository.getAllAsync();
-    const candidates = allUsers.filter((u: any) => u && u.cvData && allowed.has(u.cvReview?.status || ''))
-      .filter((u: any) => !requestedStatus || u.cvReview?.status === requestedStatus)
-      .map((u: any) => ({
-        id: String(u.id), name: String(u.cvData?.personalInfo?.fullName || u.name || ''),
-        email: String(u.cvData?.personalInfo?.email || u.email || ''),
-        jobTitle: String(u.cvData?.personalInfo?.jobTitle || ''), location: String(u.cvData?.personalInfo?.location || ''),
-        cvReview: u.cvReview
-      }));
-    candidates.sort((a: any, b: any) => String(b.cvReview?.submittedAt || '').localeCompare(String(a.cvReview?.submittedAt || '')));
+    const candidates = await UserRepository.getCvReviewQueueAsync(Array.from(allowed), requestedStatus || undefined);
     res.json({ success: true, candidates });
   } catch (err: any) { res.status(500).json({ success: false, message: err.message || 'Unable to load CV review queue.' }); }
 });

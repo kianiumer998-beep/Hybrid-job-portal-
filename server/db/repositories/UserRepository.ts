@@ -54,6 +54,60 @@ export class UserRepository {
     return Database.getUsers();
   }
 
+  /**
+   * Returns only lightweight candidate CV queue metadata.
+   * Mongo mode projects out the full CV body and embedded photo to avoid loading private documents in bulk.
+   */
+  static async getCvReviewQueueAsync(statuses: string[], requestedStatus?: string): Promise<any[]> {
+    const allowedStatuses = Array.isArray(statuses) ? statuses.filter((value) => typeof value === 'string') : [];
+    const statusFilter = requestedStatus ? [requestedStatus] : allowedStatuses;
+    if (isTest()) {
+      return Array.from(inMemoryUsers.values())
+        .filter((user) => user?.cvData && statusFilter.includes(user.cvReview?.status))
+        .map((user) => ({
+          id: String(user.id),
+          name: String(user.cvData?.personalInfo?.fullName || user.name || ''),
+          email: String(user.cvData?.personalInfo?.email || user.email || ''),
+          jobTitle: String(user.cvData?.personalInfo?.jobTitle || ''),
+          location: String(user.cvData?.personalInfo?.location || ''),
+          cvReview: user.cvReview
+        }));
+    }
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const users = await coll.find({
+        cvData: { $exists: true },
+        'cvReview.status': { $in: statusFilter }
+      }, {
+        projection: {
+          id: 1, name: 1, email: 1, cvReview: 1,
+          'cvData.personalInfo.fullName': 1,
+          'cvData.personalInfo.email': 1,
+          'cvData.personalInfo.jobTitle': 1,
+          'cvData.personalInfo.location': 1
+        }
+      }).sort({ 'cvReview.submittedAt': -1 }).toArray();
+      return (users || []).map((user) => ({
+        id: String(user.id),
+        name: String(user.cvData?.personalInfo?.fullName || user.name || ''),
+        email: String(user.cvData?.personalInfo?.email || user.email || ''),
+        jobTitle: String(user.cvData?.personalInfo?.jobTitle || ''),
+        location: String(user.cvData?.personalInfo?.location || ''),
+        cvReview: user.cvReview
+      }));
+    }
+    return Database.getUsers()
+      .filter((user: any) => user?.cvData && statusFilter.includes(user.cvReview?.status))
+      .map((user: any) => ({
+        id: String(user.id),
+        name: String(user.cvData?.personalInfo?.fullName || user.name || ''),
+        email: String(user.cvData?.personalInfo?.email || user.email || ''),
+        jobTitle: String(user.cvData?.personalInfo?.jobTitle || ''),
+        location: String(user.cvData?.personalInfo?.location || ''),
+        cvReview: user.cvReview
+      }));
+  }
+
   static getById(id: string): any | null {
     if (isTest()) return inMemoryUsers.get(id) || null;
     return Database.getUserById(id);

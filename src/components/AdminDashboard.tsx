@@ -7319,6 +7319,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         isOpen={isJobQuickEditOpen || isBulkJobEditOpen}
         job={isBulkJobEditOpen ? null : editingJob}
         selectedJobs={isBulkJobEditOpen ? jobs.concat(pendingJobs).filter(j => selectedJobIds.includes(j.id) || selectedPendingIds.includes(j.id)) : []}
+        allowBulkStatusChange={selectedPendingIds.length === 0}
         onClose={() => {
           setIsJobQuickEditOpen(false);
           setIsBulkJobEditOpen(false);

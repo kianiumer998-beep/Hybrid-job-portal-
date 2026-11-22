@@ -872,7 +872,7 @@ transactionRouter.post('/', async (req, res) => {
       const cleanSenderPhone = typeof senderPhoneOrAccount === 'string' && senderPhoneOrAccount.trim().length > 0 ? senderPhoneOrAccount.trim() : undefined;
 
       // Strict server-side receipt screenshot validation for manual Job Posting payments
-      if (effectiveType === 'Job Posting' && paymentMethod !== 'Wallet Balance') {
+      if ((effectiveType === 'Job Posting' || effectiveType === 'CV Design Purchase') && paymentMethod !== 'Wallet Balance') {
         if (proofScreenshotUrl !== undefined && proofScreenshotUrl !== null) {
           if (typeof proofScreenshotUrl !== 'string') {
             return res.status(400).json({

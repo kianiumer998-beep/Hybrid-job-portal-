@@ -253,7 +253,8 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
       else onOpenPaywall();
       return;
     }
-    if (!isSubscribed && cvBuilderSettings.atsTextExportEnabled === false) { onOpenPaywall(); return; }
+    const ownsSelectedDesignForExport = cvDesignEntitlements.some((item) => item.templateId === cvData.templateStyle);
+    if (!isSubscribed && !ownsSelectedDesignForExport && cvBuilderSettings.atsTextExportEnabled === false) { onOpenPaywall(); return; }
     const lines: string[] = [];
     const p = cvData.personalInfo;
     const extra: NonNullable<CvData['additionalSections']> = cvData.additionalSections || {};
@@ -297,7 +298,8 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
       else onOpenPaywall();
       return;
     }
-    if (!isSubscribed && cvBuilderSettings.pdfExportEnabled === false) { onOpenPaywall(); return; }
+    const ownsSelectedDesignForExport = cvDesignEntitlements.some((item) => item.templateId === cvData.templateStyle);
+    if (!isSubscribed && !ownsSelectedDesignForExport && cvBuilderSettings.pdfExportEnabled === false) { onOpenPaywall(); return; }
     window.print();
   };
 

@@ -71,7 +71,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
       standardPdfExportPkr: 0, pdfExportEnabled: true, pdfExportPkr: 0,
       atsTextExportEnabled: true, atsTextExportPkr: 0,
       premiumAiOptimizerPkr: 500, unlimitedTemplatesPkr: 1000,
-      freeDesignLimit: 2, freeCvLimit: 1, watermarkEnabled: true, watermarkFreeOnly: true,
+      freeDesignLimit: 2, freeCvLimit: 1, premiumCvLimit: 10, watermarkEnabled: true, watermarkFreeOnly: true,
       watermarkText: 'Hybrid Job Portal', watermarkOpacity: 0.16,
       templates: [
         { id: 'modern', name: 'Modern Clean', enabled: true, free: true, pricePkr: 0 },
@@ -760,8 +760,9 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
         {/* 4. CV Builder Access, Designs & Export Policy */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 lg:col-span-2">
           <div className="border-b border-slate-800 pb-4"><h3 className="font-bold text-white text-base">CV Builder Access & Monetization</h3><p className="text-xs text-slate-400 mt-1">Control free designs, premium design prices, export access and website watermark. Changes save with the main pricing settings.</p></div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
             <label className="rounded-xl border border-slate-800 bg-slate-950 p-3 text-slate-300">Maximum CVs for free members<input type="number" min="0" max="10" value={pricing.cvBuilder?.freeCvLimit ?? 1} onChange={(e) => updateNested('cvBuilder', 'freeCvLimit', Math.max(0, Math.min(10, Math.floor(Number(e.target.value) || 0))))} className="mt-2 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white" /></label>
+            <label className="rounded-xl border border-slate-800 bg-slate-950 p-3 text-slate-300">Maximum CVs for premium members<input type="number" min="1" max="10" value={pricing.cvBuilder?.premiumCvLimit ?? 10} onChange={(e) => updateNested('cvBuilder', 'premiumCvLimit', Math.max(1, Math.min(10, Math.floor(Number(e.target.value) || 1))))} className="mt-2 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white" /></label>
             <label className="rounded-xl border border-slate-800 bg-slate-950 p-3 text-slate-300">Maximum free designs<input type="number" min="0" max="5" value={pricing.cvBuilder?.freeDesignLimit ?? 2} onChange={(e) => updateNested('cvBuilder', 'freeDesignLimit', Math.max(0, Math.min(5, Math.floor(Number(e.target.value) || 0))))} className="mt-2 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white" /></label>
             <label className="rounded-xl border border-slate-800 bg-slate-950 p-3 text-slate-300">PDF export price (PKR)<input type="number" min="0" value={pricing.cvBuilder?.pdfExportPkr ?? pricing.cvBuilder?.standardPdfExportPkr ?? 0} onChange={(e) => updateNested('cvBuilder', 'pdfExportPkr', Math.max(0, Number(e.target.value) || 0))} className="mt-2 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white" /></label>
             <label className="rounded-xl border border-slate-800 bg-slate-950 p-3 text-slate-300">ATS text export price (PKR)<input type="number" min="0" value={pricing.cvBuilder?.atsTextExportPkr ?? 0} onChange={(e) => updateNested('cvBuilder', 'atsTextExportPkr', Math.max(0, Number(e.target.value) || 0))} className="mt-2 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white" /></label>

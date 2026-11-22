@@ -6211,7 +6211,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             return aTime - bTime;
           }
           if (jobsSortBy === 'title') return (a.title || '').localeCompare(b.title || '');
-          if (jobsSortBy === 'salary') return Number(a.salaryMin || 0) - Number(b.salaryMin || 0);
+          if (jobsSortBy === 'salary') return Number(a.salaryNumericMin || 0) - Number(b.salaryNumericMin || 0);
           const dateValue = (job: Job, mode: 'scraped' | 'updated' | 'posted') => {
             const value = mode === 'scraped' ? ((job as any).scrapedAt || (job as any).lastScrapedAt || job.createdAt || job.postedAt)
               : mode === 'updated' ? ((job as any).updatedAt || (job as any).lastUpdatedAt || job.createdAt || job.postedAt)

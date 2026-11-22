@@ -4118,6 +4118,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             selectedPendingIds.forEach(id => handleAdminApproveJob(id));
           }
           setSelectedPendingIds([]);
+          setSelectedPendingJobCache([]);
         };
 
         const handleBulkReject = () => {
@@ -4130,6 +4131,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               selectedPendingIds.forEach(id => handleAdminRejectJob(id, reason));
             }
             setSelectedPendingIds([]);
+            setSelectedPendingJobCache([]);
           }
         };
 
@@ -4146,6 +4148,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               });
             }
             setSelectedPendingIds([]);
+            setSelectedPendingJobCache([]);
           }
         };
 

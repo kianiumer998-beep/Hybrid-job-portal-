@@ -296,7 +296,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     return config ? config.free === true : ['modern', 'ats'].includes(template.id);
   }).slice(0, Math.max(0, Math.min(5, Number(cvBuilderSettings.freeDesignLimit ?? 2))));
   const isTemplateEnabled = (id: string) => enabledTemplates.some((template) => template.id === id);
-  const isTemplateFree = (id: string) => freeTemplates.some((template) => template.id === id);
+  const isTemplateFree = (id: string) => isSubscribed || freeTemplates.some((template) => template.id === id);
   const watermarkVisible = cvBuilderSettings.watermarkEnabled !== false && (!isSubscribed || cvBuilderSettings.watermarkFreeOnly === false);
 
   return (
@@ -325,7 +325,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
           </div>
           <button
             type="button"
-            onClick={handleSaveCv
+            onClick={handleSaveCv}
             disabled={isSavingCv}
             className="px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-300 font-black text-sm flex items-center space-x-2 disabled:opacity-50"
           >

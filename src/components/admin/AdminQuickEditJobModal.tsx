@@ -16,6 +16,7 @@ interface AdminQuickEditJobModalProps {
   onBulkSaveJobs?: (updatedJobs: Job[]) => void | Promise<any>;
   onSaveJobs?: (updatedJobs: Job[]) => void | Promise<any>;
   onSaveAndApproveJob?: (updatedJob: Job) => Promise<{ success: boolean; message?: string } | void> | void;
+  allowBulkStatusChange?: boolean;
 }
 
 export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
@@ -27,7 +28,8 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
   onSaveJob,
   onBulkSaveJobs,
   onSaveJobs,
-  onSaveAndApproveJob
+  onSaveAndApproveJob,
+  allowBulkStatusChange = true
 }) => {
   const activeBulkJobs = propSelectedJobs || propJobs || [];
   const isBulkMode = activeBulkJobs.length > 1 || (activeBulkJobs.length === 1 && !job);
@@ -391,30 +393,33 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 </select>
               </div>
 
-              {/* Status */}
-              <div className={`p-4 rounded-xl border transition-all ${bulkFields.applyStatus ? 'bg-slate-950 border-amber-500/60' : 'bg-slate-950/50 border-slate-800'}`}>
-                <label className="flex items-center space-x-2 cursor-pointer mb-2">
-                  <input
-                    type="checkbox"
-                    checked={bulkFields.applyStatus}
-                    onChange={(e) => setBulkFields(p => ({ ...p, applyStatus: e.target.checked }))}
-                    className="w-4 h-4 rounded text-amber-500"
-                  />
-                  <span className="font-bold text-slate-200">Update Visibility Status</span>
-                </label>
-                <select
-                  disabled={!bulkFields.applyStatus}
-                  value={bulkFields.status}
-                  onChange={(e) => setBulkFields(p => ({ ...p, status: e.target.value as JobStatus }))}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold disabled:opacity-40"
-                >
-                  <option value="Approved">Approved (Live on Site)</option>
-                  <option value="Pending">Pending (Moderation Queue)</option>
-                  <option value="Suspended">Suspended</option>
-                  <option value="Expired">Expired</option>
-                  <option value="Rejected">Rejected</option>
-                </select>
-              </div>
+              {/* Changing moderation status from scraper review could bypass approval workflow. */}
+              {allowBulkStatusChange && (
+                {/* Status */}
+                <div className={`p-4 rounded-xl border transition-all ${bulkFields.applyStatus ? 'bg-slate-950 border-amber-500/60' : 'bg-slate-950/50 border-slate-800'}`}>
+                  <label className="flex items-center space-x-2 cursor-pointer mb-2">
+                    <input
+                      type="checkbox"
+                      checked={bulkFields.applyStatus}
+                      onChange={(e) => setBulkFields(p => ({ ...p, applyStatus: e.target.checked }))}
+                      className="w-4 h-4 rounded text-amber-500"
+                    />
+                    <span className="font-bold text-slate-200">Update Visibility Status</span>
+                  </label>
+                  <select
+                    disabled={!bulkFields.applyStatus}
+                    value={bulkFields.status}
+                    onChange={(e) => setBulkFields(p => ({ ...p, status: e.target.value as JobStatus }))}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold disabled:opacity-40"
+                  >
+                    <option value="Approved">Approved (Live on Site)</option>
+                    <option value="Pending">Pending (Moderation Queue)</option>
+                    <option value="Suspended">Suspended</option>
+                    <option value="Expired">Expired</option>
+                    <option value="Rejected">Rejected</option>
+                  </select>
+                </div>
+              )}
 
               {/* Scale */}
               <div className={`p-4 rounded-xl border transition-all ${bulkFields.applyGovtScale ? 'bg-slate-950 border-amber-500/60' : 'bg-slate-950/50 border-slate-800'}`}>

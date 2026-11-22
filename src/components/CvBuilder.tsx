@@ -227,7 +227,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     setCvSaveMessage(null);
     try {
       const updatedDocuments = documents.map((document) => document.id === activeCvId
-        ? { ...document, title: cvData.personalInfo.fullName.trim() || document.title || 'My CV', data: cvData, updatedAt: new Date().toISOString() }
+        ? { ...document, title: (cvData.personalInfo.fullName.trim() || document.title || 'My CV').slice(0, 120), data: cvData, updatedAt: new Date().toISOString() }
         : document);
       const saved = onSaveCvDocuments
         ? await onSaveCvDocuments(updatedDocuments, cvData)

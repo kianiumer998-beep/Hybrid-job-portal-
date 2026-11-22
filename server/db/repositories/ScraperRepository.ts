@@ -266,15 +266,26 @@ export class ScraperRepository {
       isMongoConfiguredFn?: () => boolean;
       getCollectionFn?: () => Promise<any>;
     }
-  ): Promise<void> {
-    if (!Array.isArray(configs)) return;
+  ): Promise<{ isPersistedToMongo: boolean; persistedCount: number; totalCount: number }> {
+    if (!Array.isArray(configs)) {
+      throw new Error('Scraper source configurations must be supplied as an array.');
+    }
 
     const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
     const getCollFn = _deps?.getCollectionFn || getScraperSourcesCollection;
 
+    const validConfigs = configs.filter(cfg => cfg && typeof cfg.id === 'string' && cfg.id.trim());
+    if (validConfigs.length !== configs.length) {
+      throw new Error('Every scraper source configuration must have a valid source ID.');
+    }
+    const sourceIds = validConfigs.map(cfg => cfg.id.trim());
+    if (new Set(sourceIds).size !== sourceIds.length) {
+      throw new Error('Duplicate scraper source IDs are not allowed in one save operation.');
+    }
+
     if (!isMongoCfgFn()) {
       this.cachedSources = configs;
-      return;
+      return { isPersistedToMongo: false, persistedCount: validConfigs.length, totalCount: validConfigs.length };
     }
 
     let coll: any;
@@ -286,7 +297,6 @@ export class ScraperRepository {
       throw new Error(msg);
     }
 
-    const validConfigs = configs.filter(cfg => cfg && cfg.id);
     let persistedCount = 0;
 
     for (const cfg of validConfigs) {
@@ -313,8 +323,9 @@ export class ScraperRepository {
       }
     }
 
-    // Only update in-memory cache once all configurations have been successfully persisted to MongoDB
+    // Only update in-memory cache once all configurations have been successfully persisted to MongoDB.
     this.cachedSources = configs;
+    return { isPersistedToMongo: true, persistedCount, totalCount: validConfigs.length };
   }
 
   /**
@@ -1126,6 +1137,45 @@ export class ScraperRepository {
       throw new Error(`Invalid duplicateMode "${settings.duplicateMode}". Supported values are: with, without`);
     }
 
+    const VALID_INTERVALS = ['15m', '30m', '1h', '6h', '12h', '24h', '7d'];
+    if (settings.interval !== undefined && !VALID_INTERVALS.includes(settings.interval)) {
+      throw new Error(`Invalid scheduler interval "${settings.interval}".`);
+    }
+
+    const VALID_DEPTHS = ['Light (10 Jobs)', 'Standard (25 Jobs)', 'Deep Crawl (50+ Jobs)'];
+    if (settings.depth !== undefined && !VALID_DEPTHS.includes(settings.depth)) {
+      throw new Error(`Invalid scraper depth "${settings.depth}".`);
+    }
+
+    if (settings.enabled !== undefined && typeof settings.enabled !== 'boolean') {
+      throw new Error('enabled must be true or false.');
+    }
+
+    if (settings.autoApprove !== undefined && typeof settings.autoApprove !== 'boolean') {
+      throw new Error('autoApprove must be true or false.');
+    }
+
+    if (settings.keywords !== undefined && (typeof settings.keywords !== 'string' || settings.keywords.length > 2000)) {
+      throw new Error('Scheduler keywords must be text with a maximum length of 2000 characters.');
+    }
+
+    if (settings.scanMode === 'page_range') {
+      const startPage = settings.startPage ?? 1;
+      const endPage = settings.endPage ?? startPage;
+      if (!Number.isSafeInteger(startPage) || !Number.isSafeInteger(endPage) || startPage < 1 || endPage < startPage) {
+        throw new Error('Page Range requires whole page numbers: Start Page must be at least 1 and End Page must be equal to or greater than Start Page.');
+      }
+    }
+
+    if (settings.selectedSourceIds !== undefined) {
+      if (!Array.isArray(settings.selectedSourceIds) || settings.selectedSourceIds.some(id => typeof id !== 'string' || !id.trim())) {
+        throw new Error('selectedSourceIds must be an array of valid source IDs.');
+      }
+      if (new Set(settings.selectedSourceIds).size !== settings.selectedSourceIds.length) {
+        throw new Error('selectedSourceIds cannot contain duplicate source IDs.');
+      }
+    }
+
     const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
     const getDatabaseFn = _deps?.getDbFn || getMongoDb;
 
@@ -1163,6 +1213,24 @@ export class ScraperRepository {
       if (!result || result.acknowledged !== true || !hasMatchOrUpsert) {
         throw new Error('Write was not confirmed by MongoDB for scraper_settings');
       }
+
+      // Verify the authoritative document after the write; never report a durable save
+      // based only on an acknowledged write response.
+      const persistedDoc: any = await withMongoTimeout<any>(
+        coll.findOne({ id: 'global_scheduler_settings' }, { projection: { _id: 0 } }),
+        10000,
+        'verifySchedulerSettings'
+      );
+      if (!persistedDoc) {
+        throw new Error('MongoDB scheduler settings read-back returned no document after save.');
+      }
+      const mismatchedFields = Object.keys(docToPersist).filter(key =>
+        JSON.stringify(persistedDoc[key]) !== JSON.stringify(docToPersist[key])
+      );
+      if (mismatchedFields.length > 0) {
+        throw new Error(`MongoDB scheduler settings verification failed for: ${mismatchedFields.join(', ')}.`);
+      }
+
       this.cachedSettings = { ...updated, isPersistedToMongo: true };
       return this.cachedSettings;
     } catch (err: any) {

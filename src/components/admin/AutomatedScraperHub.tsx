@@ -714,6 +714,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [globalKeywords, setGlobalKeywords] = useState('jobs, careers, recruitment, vacancies, officers, lecturer');
   const [globalAutoApprove, setGlobalAutoApprove] = useState(false);
   const [globalSchedulerEnabled, setGlobalSchedulerEnabled] = useState(true);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   // Scheduled Scraper Scope State (Authoritative Connection to Background Scheduler)
   const [scheduledScope, setScheduledScope] = useState<'all' | 'selected' | 'group' | 'working' | 'failed' | 'single'>('all');
@@ -801,26 +802,34 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         setRunHistoryTotal(0);
       }
 
-      // 3. Fetch Scheduler Status & Authoritative Settings
+      // 3. Load authoritative scheduler settings independently from runtime diagnostics.
+      const schedulerSettingsRes = await api.scraper.getSchedulerSettings();
+      if (!schedulerSettingsRes?.success || !schedulerSettingsRes.settings) {
+        setStatusMessage({
+          text: schedulerSettingsRes?.message || 'Could not load authoritative scheduler settings. Existing form values were left unchanged.',
+          type: 'error'
+        });
+      } else {
+        const schedSettings = schedulerSettingsRes.settings;
+        if (schedSettings.enabled !== undefined) setGlobalSchedulerEnabled(Boolean(schedSettings.enabled));
+        if (typeof schedSettings.interval === 'string') setGlobalInterval(schedSettings.interval);
+        if (typeof schedSettings.depth === 'string') setGlobalDepth(schedSettings.depth);
+        if (typeof schedSettings.keywords === 'string') setGlobalKeywords(schedSettings.keywords);
+        if (schedSettings.autoApprove !== undefined) setGlobalAutoApprove(Boolean(schedSettings.autoApprove));
+        if (schedSettings.scope) setScheduledScope(schedSettings.scope);
+        setScheduledGroupId(typeof schedSettings.selectedGroupId === 'string' ? schedSettings.selectedGroupId : '');
+        setScheduledSingleSourceId(typeof schedSettings.singleSourceId === 'string' ? schedSettings.singleSourceId : '');
+        setScheduledSelectedSourceIds(Array.isArray(schedSettings.selectedSourceIds) ? schedSettings.selectedSourceIds : []);
+        setScheduledScanMode(schedSettings.scanMode || 'since_last');
+        setScheduledStartPage(Number.isSafeInteger(schedSettings.startPage) && schedSettings.startPage > 0 ? schedSettings.startPage : 1);
+        setScheduledEndPage(Number.isSafeInteger(schedSettings.endPage) && schedSettings.endPage > 0 ? schedSettings.endPage : 1);
+        setScheduledDuplicateMode(schedSettings.duplicateMode === 'without' ? 'without' : 'with');
+      }
+
+      // Runtime status is diagnostic only; it must not be the source of form values.
       const statusRes = await api.scraper.getSchedulerStatus();
       if (statusRes?.success && statusRes.status) {
         setSchedulerStatus(statusRes.status);
-        const schedSettings = statusRes.status.settings;
-        if (schedSettings) {
-          if (schedSettings.enabled !== undefined) setGlobalSchedulerEnabled(schedSettings.enabled);
-          if (schedSettings.interval) setGlobalInterval(schedSettings.interval);
-          if (schedSettings.depth) setGlobalDepth(schedSettings.depth);
-          if (schedSettings.keywords) setGlobalKeywords(schedSettings.keywords);
-          if (schedSettings.autoApprove !== undefined) setGlobalAutoApprove(schedSettings.autoApprove);
-          if (schedSettings.scope) setScheduledScope(schedSettings.scope);
-          if (schedSettings.selectedGroupId) setScheduledGroupId(schedSettings.selectedGroupId);
-          if (schedSettings.singleSourceId) setScheduledSingleSourceId(schedSettings.singleSourceId);
-          if (Array.isArray(schedSettings.selectedSourceIds)) setScheduledSelectedSourceIds(schedSettings.selectedSourceIds);
-          setScheduledScanMode(schedSettings.scanMode || 'since_last');
-          if (schedSettings.startPage) setScheduledStartPage(schedSettings.startPage);
-          if (schedSettings.endPage) setScheduledEndPage(schedSettings.endPage);
-          if (schedSettings.duplicateMode) setScheduledDuplicateMode(schedSettings.duplicateMode);
-        }
       }
 
       // 4. Fetch Source Groups
@@ -2203,34 +2212,52 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   // Settings Handlers (Step 6)
   // -------------------------------------------------------------
   const handleSaveSettings = async () => {
+    if (isSavingSettings) return;
+    if (sourcesList.length === 0) {
+      setStatusMessage({ text: 'No scraper sources are loaded. Refresh the source list before saving.', type: 'error' });
+      return;
+    }
     if (scheduledScope === 'selected' && scheduledSelectedSourceIds.length === 0) {
-      setStatusMessage({
-        text: 'Selected Sources scope requires at least one scheduled source. Please select or sync sources first.',
-        type: 'error'
-      });
+      setStatusMessage({ text: 'Selected Sources scope requires at least one scheduled source.', type: 'error' });
+      return;
+    }
+    if (scheduledScope === 'group' && !scheduledGroupId) {
+      setStatusMessage({ text: 'Please select an existing source group for the scheduler.', type: 'error' });
+      return;
+    }
+    if (scheduledScope === 'single' && !scheduledSingleSourceId) {
+      setStatusMessage({ text: 'Please select one source for the scheduler.', type: 'error' });
+      return;
+    }
+    if (scheduledScanMode === 'page_range' &&
+      (!Number.isSafeInteger(scheduledStartPage) || !Number.isSafeInteger(scheduledEndPage) ||
+        scheduledStartPage < 1 || scheduledEndPage < scheduledStartPage)) {
+      setStatusMessage({ text: 'Page Range is invalid. End Page must be equal to or greater than Start Page.', type: 'error' });
       return;
     }
 
+    setIsSavingSettings(true);
     try {
-      setStatusMessage({ text: 'Saving scraper settings...', type: 'info' });
-      const updated = sourcesList.map(s => ({
-        ...s,
+      setStatusMessage({ text: 'Saving and verifying scraper settings...', type: 'info' });
+
+      const updatedSources = sourcesList.map(source => ({
+        ...source,
         interval: globalInterval as any,
-        depth: globalDepth as any,
+        // Recalculate the next run from the newly selected frequency instead of
+        // leaving a stale timestamp from the previous interval.
+        nextRunAt: source.interval !== globalInterval ? undefined : source.nextRunAt,
+        depth: globalDepth,
         keywords: globalKeywords,
         autoApprove: globalAutoApprove
       }));
 
-      await api.scraper.saveConfigs(updated);
-      setLiveSources(updated);
-      if (propsSetSources) propsSetSources(updated);
+      const sourceSaveRes = await api.scraper.saveConfigs(updatedSources);
+      if (!sourceSaveRes?.success) {
+        throw new Error(sourceSaveRes?.message || 'Scraper source settings could not be saved.');
+      }
 
-      // Authoritative Scheduler Settings & Scope Persistence
-      const effectiveSelectedIds = scheduledScope === 'selected'
-        ? scheduledSelectedSourceIds
-        : [];
-
-      const saveRes = await api.scraper.saveSchedulerSettings({
+      const effectiveSelectedIds = scheduledScope === 'selected' ? scheduledSelectedSourceIds : [];
+      const requestedSettings = {
         enabled: globalSchedulerEnabled,
         interval: globalInterval,
         depth: globalDepth,
@@ -2244,23 +2271,71 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         startPage: scheduledStartPage,
         endPage: scheduledEndPage,
         duplicateMode: scheduledDuplicateMode
-      });
+      };
 
-      // Refresh scheduler status with latest authoritative state
-      const statusRes = await api.scraper.getSchedulerStatus();
-      if (statusRes?.success && statusRes.status) {
-        setSchedulerStatus(statusRes.status);
+      const schedulerSaveRes = await api.scraper.saveSchedulerSettings(requestedSettings);
+      if (!schedulerSaveRes?.success) {
+        throw new Error(schedulerSaveRes?.message || 'Scheduler settings could not be saved.');
       }
 
-      const isPersisted = Boolean(saveRes?.isPersistedToMongo);
+      // Read back both authoritative records instead of trusting optimistic UI state.
+      const [configsReadRes, schedulerReadRes] = await Promise.all([
+        api.scraper.getConfigs(),
+        api.scraper.getSchedulerSettings()
+      ]);
+      if (!configsReadRes?.success || !Array.isArray(configsReadRes.configs)) {
+        throw new Error(configsReadRes?.message || 'Could not verify saved scraper source settings.');
+      }
+      if (!schedulerReadRes?.success || !schedulerReadRes.settings) {
+        throw new Error(schedulerReadRes?.message || 'Could not verify saved scheduler settings.');
+      }
+
+      const sameValue = (actual: any, expected: any) => JSON.stringify(actual) === JSON.stringify(expected);
+      const persistedScheduler = schedulerReadRes.settings;
+      const schedulerFields: Array<keyof typeof requestedSettings> = [
+        'enabled', 'interval', 'depth', 'keywords', 'autoApprove', 'scope',
+        'selectedSourceIds', 'selectedGroupId', 'singleSourceId', 'scanMode',
+        'startPage', 'endPage', 'duplicateMode'
+      ];
+      const schedulerMismatch = schedulerFields.filter(field =>
+        !sameValue(persistedScheduler[field], requestedSettings[field])
+      );
+      if (schedulerMismatch.length > 0) {
+        throw new Error(`Scheduler settings read-back mismatch: ${schedulerMismatch.join(', ')}.`);
+      }
+
+      const savedSourcesById = new Map<string, any>(configsReadRes.configs.map((source: any) => [String(source.id), source] as [string, any]));
+      const sourceMismatch = updatedSources.filter(source => {
+        const saved = savedSourcesById.get(String(source.id)) as any;
+        return !saved ||
+          saved.interval !== source.interval ||
+          saved.depth !== source.depth ||
+          saved.keywords !== source.keywords ||
+          saved.autoApprove !== source.autoApprove;
+      });
+      if (sourceMismatch.length > 0) {
+        throw new Error(`Source settings read-back mismatch for ${sourceMismatch.length} portal(s).`);
+      }
+
+      setLiveSources(configsReadRes.configs);
+      if (propsSetSources) propsSetSources(configsReadRes.configs);
+      const statusRes = await api.scraper.getSchedulerStatus();
+      if (statusRes?.success && statusRes.status) setSchedulerStatus(statusRes.status);
+
+      const isDurable = Boolean(sourceSaveRes.isPersistedToMongo && schedulerSaveRes.isPersistedToMongo && schedulerReadRes.settings.isPersistedToMongo);
+      const schedulerStarted = schedulerSaveRes.schedulerRunning !== false || !globalSchedulerEnabled;
       setStatusMessage({
-        text: saveRes?.message || (isPersisted
-          ? 'Scheduler settings saved successfully to MongoDB!'
-          : 'Scheduler settings saved to memory cache (MongoDB not configured).'),
-        type: isPersisted ? 'success' : 'info'
+        text: !isDurable
+          ? 'Settings were applied in server memory and read back, but MongoDB persistence is not confirmed. They may be lost after a server restart.'
+          : !schedulerStarted
+            ? 'Settings were saved and verified in MongoDB, but the background scheduler did not start. Check scheduler diagnostics.'
+            : 'All Step 6 settings were saved and verified in MongoDB.',
+        type: isDurable && schedulerStarted ? 'success' : 'info'
       });
     } catch (err: any) {
-      setStatusMessage({ text: `Failed to save settings: ${err.message}`, type: 'error' });
+      setStatusMessage({ text: `Settings were not fully verified: ${err?.message || 'Unknown error'}`, type: 'error' });
+    } finally {
+      setIsSavingSettings(false);
     }
   };
 
@@ -4863,10 +4938,11 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               <button
                 type="button"
                 onClick={handleSaveSettings}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1.5"
+                disabled={isSavingSettings}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Check className="w-4 h-4" />
-                <span>Save Settings to Database</span>
+                <span>{isSavingSettings ? 'Saving & Verifying...' : 'Save Settings to Database'}</span>
               </button>
             </div>
           </div>
@@ -4894,15 +4970,25 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     checked={globalSchedulerEnabled}
                     onChange={async (e) => {
                       const checked = e.target.checked;
+                      const previous = globalSchedulerEnabled;
                       setGlobalSchedulerEnabled(checked);
                       try {
-                        await api.scraper.setSchedulerState(checked);
+                        const result = await api.scraper.setSchedulerState(checked);
+                        if (!result?.success) {
+                          throw new Error(result?.message || 'Scheduler state change was rejected.');
+                        }
+                        const schedulerStarted = !checked || result.isRunning === true;
                         setStatusMessage({
-                          text: checked ? 'Automatic background scheduler enabled.' : 'Automatic background scheduler paused.',
-                          type: 'info'
+                          text: result.message || (!schedulerStarted
+                            ? 'Scheduler settings were saved, but the background scheduler did not start.'
+                            : result.isPersistedToMongo
+                              ? (checked ? 'Automatic background scheduler enabled and saved.' : 'Automatic background scheduler paused and saved.')
+                              : 'Scheduler state changed in memory only; MongoDB persistence is not confirmed.'),
+                          type: result.isPersistedToMongo && schedulerStarted ? 'success' : 'info'
                         });
                       } catch (err: any) {
-                        console.warn('Failed to update scheduler state:', err);
+                        setGlobalSchedulerEnabled(previous);
+                        setStatusMessage({ text: `Scheduler state was not changed: ${err?.message || 'Request failed'}`, type: 'error' });
                       }
                     }}
                     className="rounded bg-slate-800 border-slate-700 text-indigo-600 cursor-pointer"

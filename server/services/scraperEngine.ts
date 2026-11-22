@@ -23,6 +23,8 @@ export interface ScraperRunOptions {
   fromTimestamp?: string;
   toTimestamp?: string;
   keywords?: string;
+  /** Optional per-source candidate limit used by the background scheduler only. */
+  maxJobsPerSource?: number;
   autoPublishTrusted?: boolean;
   duplicateMode?: 'with' | 'without';
   /** Shared ID for grouping source-level executions from one scheduler tick. */
@@ -514,7 +516,7 @@ export function validateDiscoveredNextPageUrl(
 
 export async function crawlPortalPages(
   target: ScraperTargetConfig,
-  options: Pick<ScraperRunOptions, 'mode' | 'startPage' | 'endPage' | 'toTimestamp' | 'keywords'>,
+  options: Pick<ScraperRunOptions, 'mode' | 'startPage' | 'endPage' | 'toTimestamp' | 'keywords' | 'maxJobsPerSource'>,
   sinceTimestamp: string | undefined,
   runId: string,
   scrapePageFn: typeof scrapeTargetPortal = scrapeTargetPortal
@@ -529,6 +531,14 @@ export async function crawlPortalPages(
 }> {
   const rawResults: ScrapedJobResult[] = [];
   const MAX_SAFETY_PAGES = 25;
+  const requestedJobLimit = Number(options.maxJobsPerSource);
+  const maxJobsPerSource = Number.isSafeInteger(requestedJobLimit) && requestedJobLimit > 0
+    ? Math.min(requestedJobLimit, 500)
+    : undefined;
+  const keywordList = (options.keywords || '')
+    .split(',')
+    .map(keyword => keyword.trim().toLowerCase())
+    .filter(keyword => keyword.length >= 2);
 
   let startPage = 1;
   let maxAllowedPage = 1;
@@ -599,12 +609,41 @@ export async function crawlPortalPages(
       sourcePagesSuccessful++;
 
       if (pageResults && pageResults.length > 0) {
-        rawResults.push(...pageResults);
+        const keywordMatchedPageResults = keywordList.length > 0
+          ? pageResults.filter(job => {
+              const searchableText = [
+                job.title,
+                job.description,
+                job.department,
+                job.company,
+                ...(Array.isArray(job.tags) ? job.tags : []),
+                ...(Array.isArray(job.requirements) ? job.requirements : [])
+              ].filter(Boolean).join(' ').toLowerCase();
+              return keywordList.some(keyword => searchableText.includes(keyword));
+            })
+          : pageResults;
+        const remainingJobSlots = maxJobsPerSource === undefined
+          ? keywordMatchedPageResults.length
+          : Math.max(0, maxJobsPerSource - rawResults.length);
+        rawResults.push(...keywordMatchedPageResults.slice(0, remainingJobSlots));
 
-        if (isMultiPageMode) {
-          const discoveredNextUrl = pageResults.find(
-            j => typeof j.nextPageUrl === 'string' && j.nextPageUrl.trim().length > 0
-          )?.nextPageUrl?.trim();
+        const discoveredNextUrl = pageResults.find(
+          j => typeof j.nextPageUrl === 'string' && j.nextPageUrl.trim().length > 0
+        )?.nextPageUrl?.trim();
+        const jobLimitReached = maxJobsPerSource !== undefined && rawResults.length >= maxJobsPerSource;
+        const mayHaveMorePages = options.mode === 'page_range'
+          ? currentPage < maxAllowedPage
+          : isMultiPageMode && (Boolean(discoveredNextUrl) || pageResults.length >= 10);
+
+        if (jobLimitReached) {
+          if (mayHaveMorePages) {
+            paginationDiagnostic = `Configured per-portal job limit of ${maxJobsPerSource} reached; remaining pages were not scanned and the completion checkpoint was preserved.`;
+            if (isMultiPageMode && currentPage >= maxAllowedPage) {
+              hitSafetyLimit = true;
+            }
+          }
+          hasMorePages = false;
+        } else if (isMultiPageMode) {
 
           if (discoveredNextUrl) {
             const validation = validateDiscoveredNextPageUrl(discoveredNextUrl, portalBaseUrl, visitedPageUrls);

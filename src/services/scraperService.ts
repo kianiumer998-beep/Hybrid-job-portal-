@@ -10,7 +10,7 @@ export interface ScraperTargetConfig {
   url?: string;
   portalUrl?: string;
   keywords?: string;
-  interval?: '15m' | '30m' | '1h' | '6h' | '24h' | '7d';
+  interval?: '15m' | '30m' | '1h' | '6h' | '12h' | '24h' | '7d';
   autoApprove?: boolean;
   status?: 'Active Scheduled' | 'Paused';
   lastRun?: string;

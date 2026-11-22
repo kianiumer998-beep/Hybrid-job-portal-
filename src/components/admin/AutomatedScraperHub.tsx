@@ -1239,10 +1239,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       if (reviewCategoryFilter !== 'all' && job.jobCategory !== reviewCategoryFilter) return false;
       const hasApplyUrl = Boolean((job as any).applicationUrl || (job as any).originalApplyUrl || (job as any).externalApplyUrl || (job as any).applyUrl);
       const hasSourceUrl = Boolean((job as any).sourceUrl || (job as any).scraperSourceUrl);
-      const isComplete = Boolean(job.title?.trim() && job.company?.trim() && job.description?.trim() && (job.city || job.province || job.region));
+      const isComplete = Boolean(job.title?.trim() && job.company?.trim() && job.description?.trim() && (job.city || job.province || job.district || (job.country && job.country !== 'Pakistan')));
       if (reviewCompletenessFilter === 'complete' && !isComplete) return false;
       if (reviewCompletenessFilter === 'incomplete' && isComplete) return false;
-      if (reviewCompletenessFilter === 'missing_location' && (job.city || job.province || job.region)) return false;
+      if (reviewCompletenessFilter === 'missing_location' && (job.city || job.province || job.district || (job.country && job.country !== 'Pakistan'))) return false;
       if (reviewCompletenessFilter === 'missing_apply' && hasApplyUrl) return false;
       if (reviewCompletenessFilter === 'missing_source' && hasSourceUrl) return false;
       const locationConfirmed = Boolean((job as any).isLocationConfirmed ?? job.metadata?.isLocationConfirmed ?? false);

@@ -1399,13 +1399,18 @@ export default function App() {
   // Apply the server-backed admin default once on initial pricing load.
   // Existing visitor page-size changes remain in effect for the current session.
   useEffect(() => {
-    if (!isPricingReady || hasAppliedAdminFeedPageSize.current) return;
+    if (!isPricingReady) return;
     const configuredSize = Number(campaignConfig.feedInlineSettings?.standardJobsPerPage ?? 10);
-    if (Number.isInteger(configuredSize) && configuredSize >= 1 && configuredSize <= 100) {
+    if (!Number.isInteger(configuredSize) || configuredSize < 1 || configuredSize > 100) return;
+
+    // Apply the admin default once for normal visitor sessions. If Admin hides
+    // the selector, enforce the configured page size even if a visitor had
+    // previously selected a different value in this session.
+    if (!hasAppliedAdminFeedPageSize.current || landingConfig.showPostsPerPageSelector === false) {
       setPostsPerPage(configuredSize);
     }
     hasAppliedAdminFeedPageSize.current = true;
-  }, [isPricingReady, campaignConfig.feedInlineSettings?.standardJobsPerPage]);
+  }, [isPricingReady, campaignConfig.feedInlineSettings?.standardJobsPerPage, landingConfig.showPostsPerPageSelector]);
 
   const loadBackendJobs = useCallback(async (targetPage?: number, targetLimit?: number): Promise<{ success: boolean; message?: string }> => {
     const pageToFetch = targetPage ?? pendingPage;

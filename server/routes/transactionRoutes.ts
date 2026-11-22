@@ -111,6 +111,12 @@ function sendSafeTransactionError(res: any, err: any, fallbackMessage: string) {
       message: 'Transaction storage is temporarily not ready. Please try again shortly; no new payment was submitted.'
     });
   }
+  if (typeof err?.statusCode === 'number' && err.statusCode >= 400 && err.statusCode < 500) {
+    return res.status(err.statusCode).json({
+      success: false,
+      message: typeof err?.message === 'string' ? err.message : fallbackMessage
+    });
+  }
   const rawMessage = typeof err?.message === 'string' ? err.message : '';
   const safeMessage =
     rawMessage && !/mongodb|e11000|keyvalue|duplicate key/i.test(rawMessage)

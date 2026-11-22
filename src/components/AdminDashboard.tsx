@@ -4012,10 +4012,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }
           const pendingHasApplyUrl = Boolean((pJob as any).applicationUrl || (pJob as any).originalApplyUrl || (pJob as any).externalApplyUrl || (pJob as any).applyUrl);
           const pendingHasSourceUrl = Boolean((pJob as any).sourceUrl || (pJob as any).scraperSourceUrl);
-          const pendingIsComplete = Boolean(pJob.title?.trim() && pJob.company?.trim() && pJob.description?.trim() && (pJob.city || pJob.province || pJob.region));
+          const pendingIsComplete = Boolean(pJob.title?.trim() && pJob.company?.trim() && pJob.description?.trim() && (pJob.city || pJob.province || pJob.district || (pJob.country && pJob.country !== 'Pakistan')));
           if (pendingCompletenessFilter === 'complete' && !pendingIsComplete) return false;
           if (pendingCompletenessFilter === 'incomplete' && pendingIsComplete) return false;
-          if (pendingCompletenessFilter === 'missing_location' && (pJob.city || pJob.province || pJob.region)) return false;
+          if (pendingCompletenessFilter === 'missing_location' && (pJob.city || pJob.province || pJob.district || (pJob.country && pJob.country !== 'Pakistan'))) return false;
           if (pendingCompletenessFilter === 'missing_apply' && pendingHasApplyUrl) return false;
           if (pendingCompletenessFilter === 'missing_source' && pendingHasSourceUrl) return false;
           const pendingLocationConfirmed = Boolean((pJob as any).isLocationConfirmed ?? pJob.metadata?.isLocationConfirmed ?? false);
@@ -6183,10 +6183,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }
           const liveHasApplyUrl = Boolean((job as any).applicationUrl || (job as any).originalApplyUrl || (job as any).externalApplyUrl || (job as any).applyUrl);
           const liveHasSourceUrl = Boolean((job as any).sourceUrl || (job as any).scraperSourceUrl);
-          const liveIsComplete = Boolean(job.title?.trim() && job.company?.trim() && job.description?.trim() && (job.city || job.province || job.region));
+          const liveIsComplete = Boolean(job.title?.trim() && job.company?.trim() && job.description?.trim() && (job.city || job.province || job.district || (job.country && job.country !== 'Pakistan')));
           if (jobsCompletenessFilter === 'complete' && !liveIsComplete) return false;
           if (jobsCompletenessFilter === 'incomplete' && liveIsComplete) return false;
-          if (jobsCompletenessFilter === 'missing_location' && (job.city || job.province || job.region)) return false;
+          if (jobsCompletenessFilter === 'missing_location' && (job.city || job.province || job.district || (job.country && job.country !== 'Pakistan'))) return false;
           if (jobsCompletenessFilter === 'missing_apply' && liveHasApplyUrl) return false;
           if (jobsCompletenessFilter === 'missing_source' && liveHasSourceUrl) return false;
           const liveLocationConfirmed = Boolean((job as any).isLocationConfirmed ?? job.metadata?.isLocationConfirmed ?? false);

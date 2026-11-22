@@ -464,6 +464,7 @@ transactionRouter.post('/', async (req, res) => {
       jobPricingOptions,
       adPricingOptions,
       plan,
+      cvTemplateId,
       idempotencyKey
     } = req.body;
 
@@ -525,7 +526,8 @@ transactionRouter.post('/', async (req, res) => {
         'Wallet Deposit',
         'Job Posting',
         'Advertisement',
-        'Subscription'
+        'Subscription',
+        'CV Design Purchase'
       ];
 
       if (!ALLOWED_TRANSACTION_TYPES.includes(effectiveType)) {
@@ -665,6 +667,51 @@ transactionRouter.post('/', async (req, res) => {
           fixedPriceOverridePkr: calc.fixedPriceOverridePkr,
           durationPresetId: adCalcInput.durationPresetId || adCalcInput.selectedDurationId
         };
+      } else if (effectiveType === 'CV Design Purchase') {
+        if (!effectiveUserId || typeof cvTemplateId !== 'string' || !cvTemplateId.trim()) {
+          return res.status(400).json({ success: false, message: 'A signed-in account and valid CV design are required.' });
+        }
+        const pricingConfig = (await PricingRepository.get()) || {};
+        const cvSettings = pricingConfig.cvBuilder || {};
+        const templates = Array.isArray(cvSettings.templates) ? cvSettings.templates : [];
+        const selectedTemplate = templates.find((item: any) => item && item.id === cvTemplateId.trim());
+        if (!selectedTemplate || selectedTemplate.enabled === false) {
+          return res.status(400).json({ success: false, message: 'This CV design is no longer available.' });
+        }
+        if (selectedTemplate.free === true) {
+          return res.status(400).json({ success: false, message: 'This CV design is free and does not require a purchase.' });
+        }
+        enforcedAmount = Number(selectedTemplate.pricePkr);
+        if (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0 || enforcedAmount > 10000000) {
+          return res.status(400).json({ success: false, message: 'The administrator has not configured a valid one-time price for this CV design.' });
+        }
+        const cvOwner = await UserRepository.getByIdAsync(effectiveUserId);
+        if (!cvOwner) return res.status(404).json({ success: false, message: 'Your account could not be found.' });
+        const ownedDesigns = Array.isArray(cvOwner.cvDesignEntitlements) ? cvOwner.cvDesignEntitlements : [];
+        if (ownedDesigns.some((item: any) => item?.templateId === selectedTemplate.id)) {
+          return res.status(409).json({ success: false, message: 'You already own this CV design.' });
+        }
+        const existingCvTransactions = await PaymentRepository.getAllAsync(effectiveUserId);
+        const activePurchase = existingCvTransactions.find((item: any) =>
+          item && item.type === 'CV Design Purchase' && item.cvTemplateId === selectedTemplate.id &&
+          ['Pending', 'Verifying', 'VerificationUncertain', 'Success'].includes(String(item.status))
+        );
+        if (activePurchase) {
+          return res.status(409).json({
+            success: false,
+            transaction: activePurchase,
+            message: activePurchase.status === 'Success'
+              ? 'This CV design has already been purchased.'
+              : 'A payment for this CV design is already awaiting verification.'
+          });
+        }
+        (req as any).cvPurchaseSnapshot = {
+          templateId: String(selectedTemplate.id),
+          templateName: String(selectedTemplate.name || selectedTemplate.id).slice(0, 80),
+          pricePkr: enforcedAmount,
+          timestamp: new Date().toISOString()
+        };
+        pricingBreakdown = [{ name: `${String(selectedTemplate.name || selectedTemplate.id)} CV Design (one-time)`, amount: enforcedAmount }];
       } else if (effectiveType === 'Subscription') {
         const rawPlan = typeof plan === 'string' ? plan.trim() : '';
         const pricingConfig = (await PricingRepository.get()) || {};
@@ -1071,6 +1118,10 @@ transactionRouter.post('/', async (req, res) => {
         type: effectiveType,
         ...(safeSubscriptionPlan ? { plan: safeSubscriptionPlan } : {}),
         ...(effectiveType === 'Subscription' ? { packageSnapshot: (req as any).packageSnapshot } : {}),
+        ...(effectiveType === 'CV Design Purchase' ? {
+          cvTemplateId: (req as any).cvPurchaseSnapshot.templateId,
+          cvPurchaseSnapshot: (req as any).cvPurchaseSnapshot
+        } : {}),
         status: 'Pending',
         paymentMethod: resolvedPaymentMethodName,
         ...(paymentMethod === 'Wallet Balance' ? { walletMutationState: 'NONE' as WalletMutationState } : {}),
@@ -1104,7 +1155,51 @@ transactionRouter.post('/', async (req, res) => {
         let effectiveBalanceAfter = previousWalletBalance;
 
         try {
-          if (effectiveType === 'Subscription') {
+          if (effectiveType === 'CV Design Purchase') {
+            const purchaseSnapshot = (req as any).cvPurchaseSnapshot;
+            await persistTransactionState(
+              newTx.id,
+              { walletMutationState: 'DEDUCTING', updatedAt: new Date().toISOString() },
+              { key: 'walletMutationState', expected: 'DEDUCTING' }
+            );
+            walletMutationState = 'DEDUCTING';
+            newTx.walletMutationState = 'DEDUCTING';
+            const purchase = await UserRepository.purchaseCvDesignWithWalletAsync(
+              effectiveUserId,
+              enforcedAmount,
+              {
+                templateId: purchaseSnapshot.templateId,
+                templateName: purchaseSnapshot.templateName,
+                transactionId: newTx.id,
+                amount: enforcedAmount,
+                purchasedAt: new Date().toISOString()
+              }
+            );
+            if (!purchase.ok || !purchase.user) {
+              walletMutationState = 'NONE';
+              const reason = purchase.reason === 'already_owned'
+                ? 'You already own this CV design.'
+                : purchase.reason === 'insufficient'
+                  ? 'Your wallet balance is insufficient for this CV design.'
+                  : 'Your account could not be updated for this CV design purchase.';
+              throw new Error(reason);
+            }
+            walletMutationState = 'DEDUCTED';
+            effectiveBalanceAfter = Number(purchase.user.walletBalance);
+            effectiveBalanceBefore = effectiveBalanceAfter + enforcedAmount;
+            await persistTransactionState(
+              newTx.id,
+              {
+                walletMutationState: 'DEDUCTED',
+                balanceBefore: effectiveBalanceBefore,
+                balanceAfter: effectiveBalanceAfter,
+                cvEntitlementGranted: true,
+                updatedAt: new Date().toISOString()
+              }
+            );
+            newTx.walletMutationState = 'DEDUCTED';
+            newTx.cvEntitlementGranted = true;
+          } else if (effectiveType === 'Subscription') {
             await persistTransactionState(
               newTx.id,
               { walletMutationState: 'DEDUCTING', updatedAt: new Date().toISOString() },

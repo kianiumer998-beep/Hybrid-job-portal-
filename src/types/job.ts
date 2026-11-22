@@ -126,7 +126,6 @@ export interface UserAccount {
   cvUrl?: string;
   resumeUrl?: string;
   cvData?: CvData;
-  cvReview?: CvReviewMetadata;
   socialLinks?: Record<string, any>;
   notificationsEnabled?: boolean;
   whatsappAlertsEnabled?: boolean;
@@ -359,12 +358,6 @@ export interface Subscriber {
   notes?: string;
 }
 
-export type CvReviewStatus = 'Draft' | 'Submitted' | 'Reviewed' | 'Verified' | 'Needs Changes';
-export interface CvReviewMetadata {
-  status: CvReviewStatus; submittedAt?: string; reviewedAt?: string; reviewedBy?: string;
-  reviewerNote?: string; updatedAt?: string;
-  history?: Array<{ status: CvReviewStatus; at: string; by: string; note?: string }>;
-}
 export interface CvAdditionalSections {
   objective?: string; projects?: string[]; internships?: string[]; volunteerWork?: string[];
   achievements?: string[]; professionalTraining?: string[]; relevantCoursework?: string[];

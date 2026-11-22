@@ -4607,7 +4607,9 @@ export default function App() {
               <CvBuilder
                 isSubscribed={isSubscribed}
                 initialCvData={currentUser?.cvData}
+                initialCvDocuments={currentUser?.cvDocuments}
                 onSaveCv={async (cvData) => handleUpdateProfile({ cvData })}
+                onSaveCvDocuments={async (documents, activeData) => handleUpdateProfile({ cvData: activeData, cvDocuments: documents })}
                 cvBuilderSettings={cvBuilderSettings}
                 onOpenPaywall={() => setCvPaywallOpen(true)}
               />

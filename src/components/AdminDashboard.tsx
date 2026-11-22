@@ -1796,6 +1796,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [jobsProvinceFilter, setJobsProvinceFilter] = useState('all');
   const [jobsStatusFilter, setJobsStatusFilter] = useState('all');
   const [jobsPortalFilter, setJobsPortalFilter] = useState('');
+  const [jobsBatchFilter, setJobsBatchFilter] = useState('');
   const [jobsCityFilter, setJobsCityFilter] = useState('');
   const [jobsScrapeDateFilter, setJobsScrapeDateFilter] = useState<'all' | 'today' | '24h' | '7days' | '30days' | 'older'>('all');
   const [jobsCompletenessFilter, setJobsCompletenessFilter] = useState<'all' | 'complete' | 'incomplete' | 'missing_location' | 'missing_apply' | 'missing_source'>('all');
@@ -1815,6 +1816,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [pendingCategoryFilter, setPendingCategoryFilter] = useState('all');
   const [pendingSourceFilter, setPendingSourceFilter] = useState('all');
   const [pendingPortalFilter, setPendingPortalFilter] = useState('');
+  const [pendingBatchFilter, setPendingBatchFilter] = useState('');
   const [pendingCityFilter, setPendingCityFilter] = useState('');
   const [pendingProvinceFilter, setPendingProvinceFilter] = useState('all');
   const [pendingScrapeDateFilter, setPendingScrapeDateFilter] = useState<'all' | 'today' | '24h' | '7days' | '30days' | 'older'>('all');
@@ -3992,10 +3994,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }
           const pendingPortal = String((pJob as any).sourcePortal || pJob.scraperSourceName || pJob.scrapedSourceDomain || '').toLowerCase();
           if (pendingPortalFilter.trim() && !pendingPortal.includes(pendingPortalFilter.trim().toLowerCase())) return false;
+          if (pendingBatchFilter.trim() && String((pJob as any).scraperBatchId || '').toLowerCase() !== pendingBatchFilter.trim().toLowerCase()) return false;
           if (pendingCityFilter.trim() && !(pJob.city || '').toLowerCase().includes(pendingCityFilter.trim().toLowerCase())) return false;
           if (pendingProvinceFilter !== 'all' && pJob.province !== pendingProvinceFilter) return false;
           if (pendingScrapeDateFilter !== 'all') {
-            const rawScrapeDate = (pJob as any).scrapedAt || (pJob as any).lastScrapedAt || pJob.createdAt || pJob.postedAt;
+            const rawScrapeDate = (pJob as any).lastScrapedAt || (pJob as any).scrapedAt || pJob.createdAt || pJob.postedAt;
             const scrapeTime = rawScrapeDate ? new Date(rawScrapeDate).getTime() : NaN;
             if (!Number.isFinite(scrapeTime)) return false;
             const ageHours = (Date.now() - scrapeTime) / 3600000;
@@ -4047,7 +4050,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const sortPendingCollection = (pendingList: Job[]) => [...pendingList].sort((a, b) => {
           if (pendingSortBy === 'title') return (a.title || '').localeCompare(b.title || '');
           const dateValue = (job: Job, mode: 'scraped' | 'updated' | 'posted') => {
-            const value = mode === 'scraped' ? ((job as any).scrapedAt || (job as any).lastScrapedAt || job.createdAt || job.postedAt)
+            const value = mode === 'scraped' ? ((job as any).lastScrapedAt || (job as any).scrapedAt || job.createdAt || job.postedAt)
               : mode === 'updated' ? ((job as any).updatedAt || (job as any).lastUpdatedAt || job.createdAt || job.postedAt)
               : (job.createdAt || job.postedAt);
             const parsed = value ? new Date(value).getTime() : NaN;
@@ -4262,6 +4265,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <option value="all">All Job Details</option><option value="complete">Complete Jobs</option><option value="incomplete">Incomplete Jobs</option><option value="missing_location">Missing Location</option><option value="missing_apply">Missing Apply URL</option><option value="missing_source">Missing Scraper Source URL</option>
                   </select>
                   <input value={pendingPortalFilter} onChange={(e) => setPendingPortalFilter(e.target.value)} placeholder="Source portal (e.g. FPSC)" className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white min-w-[150px]" />
+                  <input value={pendingBatchFilter} onChange={(e) => setPendingBatchFilter(e.target.value)} placeholder="Scrape batch ID" className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white min-w-[130px]" />
                   <input value={pendingCityFilter} onChange={(e) => setPendingCityFilter(e.target.value)} placeholder="City" className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white min-w-[110px]" />
                   <select value={pendingProvinceFilter} onChange={(e) => setPendingProvinceFilter(e.target.value)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium"><option value="all">All Provinces</option><option>Punjab</option><option>Sindh</option><option>Khyber Pakhtunkhwa</option><option>Balochistan</option><option>Islamabad Capital Territory</option><option>Azad Kashmir</option><option>Gilgit-Baltistan</option></select>
                   <select value={pendingScrapeDateFilter} onChange={(e) => setPendingScrapeDateFilter(e.target.value as typeof pendingScrapeDateFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium"><option value="all">Any Scrape Time</option><option value="today">Scraped Today</option><option value="24h">Last 24 Hours</option><option value="7days">Last 7 Days</option><option value="30days">Last 30 Days</option><option value="older">Older than 30 Days</option></select>
@@ -6162,9 +6166,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           if (jobsStatusFilter !== 'all' && (job.status || 'Approved') !== jobsStatusFilter) return false;
           const livePortal = String((job as any).sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || '').toLowerCase();
           if (jobsPortalFilter.trim() && !livePortal.includes(jobsPortalFilter.trim().toLowerCase())) return false;
+          if (jobsBatchFilter.trim() && String((job as any).scraperBatchId || '').toLowerCase() !== jobsBatchFilter.trim().toLowerCase()) return false;
           if (jobsCityFilter.trim() && !(job.city || '').toLowerCase().includes(jobsCityFilter.trim().toLowerCase())) return false;
           if (jobsScrapeDateFilter !== 'all') {
-            const rawScrapeDate = (job as any).scrapedAt || (job as any).lastScrapedAt || job.createdAt || job.postedAt;
+            const rawScrapeDate = (job as any).lastScrapedAt || (job as any).scrapedAt || job.createdAt || job.postedAt;
             const scrapeTime = rawScrapeDate ? new Date(rawScrapeDate).getTime() : NaN;
             if (!Number.isFinite(scrapeTime)) return false;
             const ageHours = (Date.now() - scrapeTime) / 3600000;
@@ -6223,7 +6228,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           if (jobsSortBy === 'title') return (a.title || '').localeCompare(b.title || '');
           if (jobsSortBy === 'salary') return Number(a.salaryNumericMin || 0) - Number(b.salaryNumericMin || 0);
           const dateValue = (job: Job, mode: 'scraped' | 'updated' | 'posted') => {
-            const value = mode === 'scraped' ? ((job as any).scrapedAt || (job as any).lastScrapedAt || job.createdAt || job.postedAt)
+            const value = mode === 'scraped' ? ((job as any).lastScrapedAt || (job as any).scrapedAt || job.createdAt || job.postedAt)
               : mode === 'updated' ? ((job as any).updatedAt || (job as any).lastUpdatedAt || job.createdAt || job.postedAt)
               : (job.createdAt || job.postedAt);
             const parsed = value ? new Date(value).getTime() : NaN;
@@ -6367,6 +6372,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </select>
 
                   <input value={jobsPortalFilter} onChange={(e) => setJobsPortalFilter(e.target.value)} placeholder="Source portal (e.g. FPSC)" className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white min-w-[150px]" />
+                  <input value={jobsBatchFilter} onChange={(e) => setJobsBatchFilter(e.target.value)} placeholder="Scrape batch ID" className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white min-w-[130px]" />
                   <input value={jobsCityFilter} onChange={(e) => setJobsCityFilter(e.target.value)} placeholder="City" className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white min-w-[110px]" />
                   <select value={jobsScrapeDateFilter} onChange={(e) => setJobsScrapeDateFilter(e.target.value as typeof jobsScrapeDateFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium"><option value="all">Any Scrape Time</option><option value="today">Scraped Today</option><option value="24h">Last 24 Hours</option><option value="7days">Last 7 Days</option><option value="30days">Last 30 Days</option><option value="older">Older than 30 Days</option></select>
                   <select

@@ -157,6 +157,8 @@ export interface LandingPageConfig {
   isFreeAllPostings?: boolean;
   globalDiscount?: number;
   jobCardDesign: JobCardDesignConfig;
+  /** Admin-configurable mobile filter columns (1–4). */
+  mobileFilterColumns?: 1 | 2 | 3 | 4;
 }
 
 export const DEFAULT_CATEGORY_POSTING_FEES: CategoryPostingFee[] = [
@@ -243,6 +245,7 @@ export const DEFAULT_LANDING_PAGE_CONFIG: LandingPageConfig = {
   categoryPostingFees: DEFAULT_CATEGORY_POSTING_FEES,
   exemptUserIds: [],
   exemptUserEmails: [],
+  mobileFilterColumns: 2,
   jobCardDesign: {
     layout: 'default',
     theme: {
@@ -487,6 +490,7 @@ export function normalizeLandingDesignSystem(
       config: {
         ...fallback.config,
         ...config,
+        mobileFilterColumns: ([1, 2, 3, 4].includes(Number(config.mobileFilterColumns)) ? Number(config.mobileFilterColumns) : fallback.config.mobileFilterColumns ?? 2) as 1 | 2 | 3 | 4,
         hero,
         sections: sections.length ? sections : fallback.config.sections,
         customCards,

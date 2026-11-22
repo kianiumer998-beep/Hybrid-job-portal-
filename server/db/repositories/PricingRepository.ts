@@ -224,7 +224,16 @@ function deepMergePricing(base: any, incoming: any): any {
   const baseSlot = base.jobPosting?.homepagePrioritySlotConfig || DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG;
   const baseCvBuilder = base.cvBuilder || {};
   const srcCvBuilder = src.cvBuilder && typeof src.cvBuilder === 'object' ? src.cvBuilder : {};
-  const templateDefaults = Array.isArray(baseCvBuilder.templates) ? baseCvBuilder.templates : [];
+  const defaultCvTemplates = [
+    { id: 'modern', name: 'Modern Clean', enabled: true, free: true, pricePkr: 0 },
+    { id: 'ats', name: 'ATS Plain Text', enabled: true, free: true, pricePkr: 0 },
+    { id: 'executive', name: 'Executive Dark Sidebar', enabled: true, free: false, pricePkr: 300 },
+    { id: 'tech', name: 'Tech Minimalist', enabled: true, free: false, pricePkr: 300 },
+    { id: 'classic', name: 'Classic Corporate', enabled: true, free: false, pricePkr: 200 }
+  ];
+  const templateDefaults = Array.isArray(baseCvBuilder.templates) && baseCvBuilder.templates.length
+    ? baseCvBuilder.templates
+    : defaultCvTemplates;
   const requestedTemplates = Array.isArray(srcCvBuilder.templates) ? srcCvBuilder.templates : templateDefaults;
   const allowedCvTemplateIds = new Set(['modern', 'executive', 'tech', 'classic', 'ats']);
   const cvTemplates = requestedTemplates

@@ -432,6 +432,7 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                         }`}>
                           {tx.type}
                         </span>
+                        {tx.type === 'CV Design Purchase' && tx.cvPurchaseSnapshot?.templateName && <div className="mt-1 max-w-[200px] truncate text-[11px] font-semibold text-fuchsia-200" title={tx.cvPurchaseSnapshot.templateName}>Design: {tx.cvPurchaseSnapshot.templateName}</div>}
                         {tx.jobTitleRef && (
                           <div className="text-[11px] text-slate-300 font-semibold mt-1 max-w-[200px] truncate" title={tx.jobTitleRef}>
                             Ref: {tx.jobTitleRef}

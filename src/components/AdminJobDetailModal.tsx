@@ -466,11 +466,11 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md overflow-y-auto">
-      <div className="relative w-full max-w-3xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden my-8 text-white animate-in fade-in zoom-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/85 backdrop-blur-md overflow-hidden">
+      <div className="relative flex flex-col w-full max-w-3xl h-[calc(100dvh-1rem)] sm:h-[calc(100dvh-2rem)] max-h-[900px] bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden my-0 text-white animate-in fade-in zoom-in duration-200">
         
         {/* Modal Header */}
-        <div className="p-6 bg-slate-950 border-b border-slate-800 flex items-start justify-between gap-4">
+        <div className="sticky top-0 z-20 shrink-0 p-3 sm:p-6 bg-slate-950 border-b border-slate-800 flex items-start justify-between gap-3">
           <div>
             <div className="flex flex-wrap items-center gap-2 mb-2">
               <span className={`px-2.5 py-1 rounded border text-xs font-bold uppercase ${
@@ -515,7 +515,7 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 max-h-[70vh] overflow-y-auto space-y-6 text-sm text-slate-300">
+        <div className="flex-1 min-h-0 p-3 sm:p-6 overflow-y-auto overscroll-contain space-y-5 sm:space-y-6 text-sm text-slate-300">
           
           {/* SCRAPED SOURCE & HARVEST TIMESTAMP BANNER */}
           {(job.sourceUrl || job.scrapedSourceDomain || job.scrapedAt) && (
@@ -560,7 +560,7 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
                   <Sparkles className="w-4 h-4 text-purple-400" />
                   <span>Auto-Detection Intelligence (Read-Only)</span>
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   <span className="text-xs text-slate-400 font-semibold">Confidence:</span>
                   <span className={`px-2.5 py-0.5 rounded text-xs font-bold border ${
                     suggestion.confidence === 'HIGH'
@@ -1458,7 +1458,7 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
         </div>
 
         {/* Modal Action Footer */}
-        <div className="p-4 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
+        <div className="sticky bottom-0 z-20 shrink-0 p-3 sm:p-4 bg-slate-950 border-t border-slate-800 flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-between gap-3">
           <button
             onClick={onClose}
             className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors cursor-pointer"

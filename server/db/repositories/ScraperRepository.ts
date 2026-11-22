@@ -1147,6 +1147,10 @@ export class ScraperRepository {
       throw new Error(`Invalid scraper depth "${settings.depth}".`);
     }
 
+    if (settings.enabled !== undefined && typeof settings.enabled !== 'boolean') {
+      throw new Error('enabled must be true or false.');
+    }
+
     if (settings.autoApprove !== undefined && typeof settings.autoApprove !== 'boolean') {
       throw new Error('autoApprove must be true or false.');
     }

@@ -33,7 +33,7 @@ export interface PaymentTransaction {
   dateTime: string; // "YYYY-MM-DD HH:MM"
   amount: number;
   currency: Currency;
-  type: 'Subscription' | 'Job Posting Fee' | 'Ad Campaign Fee' | 'Wallet Deposit' | 'Refund';
+  type: 'Subscription' | 'Job Posting Fee' | 'Ad Campaign Fee' | 'Wallet Deposit' | 'Refund' | 'CV Design Purchase';
   status: 'Success' | 'Pending' | 'Verifying' | 'VerificationUncertain' | 'Failed' | 'Rejected' | 'Refunded';
   paymentMethod: 'JazzCash' | 'Easypaisa' | 'Credit Card' | 'Bank Transfer' | 'Stripe' | 'PayPal' | 'Wallet Balance' | string;
   jobTitleRef?: string;
@@ -59,6 +59,9 @@ export interface PaymentTransaction {
   userId?: string;
   userName?: string;
   userEmail?: string;
+  cvTemplateId?: string;
+  cvPurchaseSnapshot?: { templateId: string; templateName: string; pricePkr: number; timestamp: string };
+  cvEntitlementGranted?: boolean;
 }
 
 export interface JobPostingFeeLog {
@@ -127,6 +130,7 @@ export interface UserAccount {
   resumeUrl?: string;
   cvData?: CvData;
   cvDocuments?: CvDocument[];
+  cvDesignEntitlements?: CvDesignEntitlement[];
   socialLinks?: Record<string, any>;
   notificationsEnabled?: boolean;
   whatsappAlertsEnabled?: boolean;
@@ -418,6 +422,15 @@ export interface CvDocument {
   title: string;
   data: CvData;
   updatedAt: string;
+}
+
+export interface CvDesignEntitlement {
+  templateId: string;
+  templateName: string;
+  transactionId: string;
+  amount: number;
+  currency: 'PKR';
+  purchasedAt: string;
 }
 
 export const GOVT_DEPT_OPTIONS = [

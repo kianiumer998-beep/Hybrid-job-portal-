@@ -306,7 +306,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     { id: 'tech', name: 'Tech Minimalist' }, { id: 'classic', name: 'Classic Corporate' }, { id: 'ats', name: 'ATS Plain Text' }
   ];
   const configuredTemplates = Array.isArray(cvBuilderSettings.templates) ? cvBuilderSettings.templates : [];
-  const enabledTemplates = templateCatalog.filter((template) => configuredTemplates.find((item: any) => item.id === template.id)?.enabled !== false);
+  const enabledTemplates = templateCatalog.filter((template) => configuredTemplates.find((item: any) => item.id === template.id)?.enabled !== false || cvDesignEntitlements.some((item) => item.templateId === template.id));
   const freeTemplates = enabledTemplates.filter((template) => {
     const config = configuredTemplates.find((item: any) => item.id === template.id);
     return config ? config.free === true : ['modern', 'ats'].includes(template.id);

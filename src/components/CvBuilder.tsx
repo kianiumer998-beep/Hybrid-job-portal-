@@ -213,7 +213,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
   const handleDownloadAtsText = () => {
     const lines: string[] = [];
     const p = cvData.personalInfo;
-    const extra = cvData.additionalSections || {};
+    const extra: NonNullable<CvData['additionalSections']> = cvData.additionalSections || {};
     const add = (heading: string, values: string[]) => {
       const clean = values.map((v) => String(v || '').trim()).filter(Boolean);
       if (clean.length) lines.push('', heading.toUpperCase(), ...clean);

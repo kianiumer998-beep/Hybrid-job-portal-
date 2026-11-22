@@ -780,10 +780,11 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                 <div className="grid grid-cols-2 gap-2">
                   {enabledTemplates.map((t) => {
                     const templateConfig = configuredTemplates.find((item: any) => item.id === t.id);
+                    const displayName = String(templateConfig?.name || t.name);
                     const free = isTemplateFree(t.id);
                     const price = Math.max(0, Number(templateConfig?.pricePkr || 0));
-                    return <button type="button" key={t.id} onClick={() => { if (free) setCvData({ ...cvData, templateStyle: t.id as CvData['templateStyle'] }); else if (price > 0) onPurchaseTemplate(t.id, t.name, price); else onOpenPaywall(); }} className={`py-2 px-3 rounded-lg border text-xs font-bold transition-all ${cvData.templateStyle === t.id ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500' : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'}`}>
-                      {t.name}{!free && <span className="block text-[10px] text-amber-300">Premium · {price > 0 ? `One-time PKR ${price}` : 'Premium plan'}</span>}{cvDesignEntitlements.some((item) => item.templateId === t.id) && <span className="block text-[10px] text-emerald-300">Purchased · Unlocked</span>}
+                    return <button type="button" key={t.id} onClick={() => { if (free) setCvData({ ...cvData, templateStyle: t.id as CvData['templateStyle'] }); else if (price > 0) onPurchaseTemplate(t.id, displayName, price); else onOpenPaywall(); }} className={`py-2 px-3 rounded-lg border text-xs font-bold transition-all ${cvData.templateStyle === t.id ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500' : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'}`}>
+                      {displayName}{!free && <span className="block text-[10px] text-amber-300">Premium · {price > 0 ? `One-time PKR ${price}` : 'Premium plan'}</span>}{cvDesignEntitlements.some((item) => item.templateId === t.id) && <span className="block text-[10px] text-emerald-300">Purchased · Unlocked</span>}
                     </button>;
                   })}
                 </div>

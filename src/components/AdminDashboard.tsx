@@ -4018,7 +4018,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           if (pendingCompletenessFilter === 'missing_location' && (pJob.city || pJob.province || pJob.region)) return false;
           if (pendingCompletenessFilter === 'missing_apply' && pendingHasApplyUrl) return false;
           if (pendingCompletenessFilter === 'missing_source' && pendingHasSourceUrl) return false;
-          const pendingLocationConfirmed = Boolean((pJob as any).isLocationConfirmed || pJob.metadata?.isLocationConfirmed);
+          const pendingLocationConfirmed = Boolean((pJob as any).isLocationConfirmed ?? pJob.metadata?.isLocationConfirmed ?? false);
           if (pendingLocationFilter === 'confirmed' && !pendingLocationConfirmed) return false;
           if (pendingLocationFilter === 'unconfirmed' && pendingLocationConfirmed) return false;
           const matchesAdminDateFilter = (rawDate: unknown, filter: string) => {
@@ -6189,7 +6189,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           if (jobsCompletenessFilter === 'missing_location' && (job.city || job.province || job.region)) return false;
           if (jobsCompletenessFilter === 'missing_apply' && liveHasApplyUrl) return false;
           if (jobsCompletenessFilter === 'missing_source' && liveHasSourceUrl) return false;
-          const liveLocationConfirmed = Boolean((job as any).isLocationConfirmed || job.metadata?.isLocationConfirmed);
+          const liveLocationConfirmed = Boolean((job as any).isLocationConfirmed ?? job.metadata?.isLocationConfirmed ?? false);
           if (jobsLocationFilter === 'confirmed' && !liveLocationConfirmed) return false;
           if (jobsLocationFilter === 'unconfirmed' && liveLocationConfirmed) return false;
           const matchesAdminDateFilter = (rawDate: unknown, filter: string) => {

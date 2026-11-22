@@ -261,7 +261,7 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
             <button type="button" onClick={onClose} disabled={submitting} className="rounded-xl border border-slate-700 px-4 py-3 text-xs font-bold text-slate-300 hover:bg-slate-900">Cancel</button>
             <button type="submit" disabled={submitting || loadingSettings || !priceReady || (selectedMethod === 'Wallet Balance' && !hasWallet)} className="flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 py-3 text-xs font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-50">
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : selectedMethod === 'Wallet Balance' ? <Wallet className="h-4 w-4" /> : <CreditCard className="h-4 w-4" />}
-              {submitting ? 'Processing…' : selectedMethod === 'Wallet Balance' ? `Pay PKR ${Number(pricePkr).toLocaleString('en-PK')}` : 'Submit Payment Proof'}
+              {submitting ? 'Processing…' : selectedMethod === 'Wallet Balance' ? `Pay PKR ${Number(checkoutPrice).toLocaleString('en-PK')}` : 'Submit Payment Proof'}
             </button>
           </div>
           <p className="flex items-center justify-center gap-1 text-[10px] text-slate-500"><Lock className="h-3 w-3" /> Payment is validated by the server. Pending manual payments do not unlock the design.</p>

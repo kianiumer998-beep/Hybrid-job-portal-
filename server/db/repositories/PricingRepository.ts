@@ -236,14 +236,14 @@ function deepMergePricing(base: any, incoming: any): any {
     : defaultCvTemplates;
   const requestedTemplates = Array.isArray(srcCvBuilder.templates) ? srcCvBuilder.templates : templateDefaults;
   const allowedCvTemplateIds = new Set(['modern', 'executive', 'tech', 'classic', 'ats']);
-  const cvTemplates = requestedTemplates
-    .filter((item: any) => item && allowedCvTemplateIds.has(String(item.id)))
-    .map((item: any) => {
-      const fallback = templateDefaults.find((entry: any) => entry.id === item.id) || {};
+  const cvTemplates = templateDefaults
+    .filter((entry: any) => entry && allowedCvTemplateIds.has(String(entry.id)))
+    .map((fallback: any) => {
+      const item = requestedTemplates.find((entry: any) => entry && String(entry.id) === String(fallback.id)) || fallback;
       const price = Number(item.pricePkr ?? fallback.pricePkr ?? 0);
       return {
-        id: String(item.id),
-        name: String(fallback.name || item.name || item.id).slice(0, 80),
+        id: String(fallback.id),
+        name: String(fallback.name || item.name || fallback.id).slice(0, 80),
         enabled: item.enabled !== false,
         free: item.free === true,
         pricePkr: Number.isFinite(price) ? Math.min(10000000, Math.max(0, price)) : 0

@@ -1824,6 +1824,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [pendingDeadlineFilter, setPendingDeadlineFilter] = useState<'all' | 'expired' | '7days' | '30days' | 'future' | 'none'>('all');
   const [pendingSortBy, setPendingSortBy] = useState<'newest' | 'oldest' | 'title' | 'scraped_latest' | 'scraped_oldest' | 'updated_latest' | 'updated_oldest'>('newest');
   const [selectedPendingIds, setSelectedPendingIds] = useState<string[]>([]);
+  const [isSelectingAllPending, setIsSelectingAllPending] = useState(false);
   const [showPendingDuplicatesOnly, setShowPendingDuplicatesOnly] = useState(false);
   const [isPendingDuplicateModalOpen, setIsPendingDuplicateModalOpen] = useState(false);
 
@@ -3965,7 +3966,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const liveCaseSet = new Set(jobs.filter(j => j.pdfCaseNumber).map(j => j.pdfCaseNumber!.trim().toLowerCase()));
 
         // Filter and Search
-        const filteredPending = pendingJobs.filter(pJob => {
+        const filterPendingCollection = (pendingCollection: Job[]) => {
+          const pendingClustersForCollection = computeJobDuplicateClusters([...jobs, ...pendingCollection]);
+          return pendingCollection.filter(pJob => {
           if (pendingSearchQuery.trim()) {
             const q = pendingSearchQuery.toLowerCase();
             const matchesTitle = (pJob.title || '').toLowerCase().includes(q);
@@ -4032,11 +4035,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           if (!matchesAdminDateFilter((pJob as any).deadlineDate, pendingDeadlineFilter)) return false;
           if (showPendingDuplicatesOnly) {
             const isDupOfLive = liveTitleSet.has(`${(pJob.title || '').trim().toLowerCase()}|${(pJob.company || '').trim().toLowerCase()}`) || (pJob.pdfCaseNumber && liveCaseSet.has(pJob.pdfCaseNumber.trim().toLowerCase()));
-            const isDupInPending = pendingClusters.some(c => c.items.some(it => it.id === pJob.id));
+            const isDupInPending = pendingClustersForCollection.some(c => c.items.some(it => it.id === pJob.id));
             if (!isDupOfLive && !isDupInPending) return false;
           }
           return true;
-        }).sort((a, b) => {
+          });
+        };
+
+        const sortPendingCollection = (pendingList: Job[]) => [...pendingList].sort((a, b) => {
           if (pendingSortBy === 'title') return (a.title || '').localeCompare(b.title || '');
           const dateValue = (job: Job, mode: 'scraped' | 'updated' | 'posted') => {
             const value = mode === 'scraped' ? ((job as any).scrapedAt || (job as any).lastScrapedAt || job.createdAt || job.postedAt)
@@ -4049,6 +4055,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           const delta = dateValue(a, mode) - dateValue(b, mode);
           return pendingSortBy === 'oldest' || pendingSortBy.endsWith('_oldest') ? delta : -delta;
         });
+        const filteredPending = sortPendingCollection(filterPendingCollection(pendingJobs));
+
+        const handleSelectAllFilteredAcrossPages = async () => {
+          if (isSelectingAllPending) return;
+          setIsSelectingAllPending(true);
+          try {
+            const firstPage: any = await api.jobs.getPendingQueue({ page: 1, limit: 200 });
+            if (!firstPage?.success || !Array.isArray(firstPage.pendingJobs)) throw new Error(firstPage?.message || 'Could not load the first pending page.');
+            const totalPages = Math.max(1, Number(firstPage.totalPages) || 1);
+            if (totalPages > 25) throw new Error('The pending queue is larger than the safe all-pages selection limit (5,000 records). Please narrow the filters or use page-by-page selection.');
+            const remainingPages = await Promise.all(Array.from({ length: totalPages - 1 }, (_, index) => api.jobs.getPendingQueue({ page: index + 2, limit: 200 })));
+            const failedPage = remainingPages.find((page: any) => !page?.success || !Array.isArray(page.pendingJobs));
+            if (failedPage) throw new Error('One or more pending pages could not be loaded. No new selection was applied.');
+            const allPending = [...firstPage.pendingJobs, ...remainingPages.flatMap((page: any) => page.pendingJobs)];
+            const allFiltered = sortPendingCollection(filterPendingCollection(allPending));
+            if (allFiltered.length > 500) throw new Error(`${allFiltered.length} jobs match these filters. Existing bulk endpoints safely process up to 500 IDs per operation; narrow the filters to 500 or fewer before selecting all pages.`);
+            setSelectedPendingIds(allFiltered.map(job => job.id));
+            alert(`Selected ${allFiltered.length} filtered pending jobs across ${totalPages} page(s).`);
+          } catch (err: any) {
+            alert(err?.message || 'Could not select all filtered pending jobs.');
+          } finally {
+            setIsSelectingAllPending(false);
+          }
+        };
 
         const allSelected = filteredPending.length > 0 && filteredPending.every(j => selectedPendingIds.includes(j.id));
 
@@ -4256,6 +4286,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs text-slate-400">
                 <div className="flex items-center space-x-3 flex-wrap">
                   <button type="button" onClick={() => setSelectedPendingIds(Array.from(new Set(pendingJobs.map(j => j.id))))} disabled={pendingJobs.length === 0} className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:text-white text-[11px] font-bold disabled:opacity-40">Select Current Page ({pendingJobs.length})</button>
+                  <button type="button" onClick={handleSelectAllFilteredAcrossPages} disabled={isSelectingAllPending || pendingJobs.length === 0} className="px-2.5 py-1.5 rounded-lg bg-cyan-950/60 border border-cyan-700/50 text-cyan-200 hover:bg-cyan-900 text-[11px] font-bold disabled:opacity-40">{isSelectingAllPending ? 'Loading all pages…' : 'Select Filtered (All Pages)'}</button>
                   <label className="flex items-center space-x-2 cursor-pointer font-bold text-slate-200">
                     <input
                       type="checkbox"

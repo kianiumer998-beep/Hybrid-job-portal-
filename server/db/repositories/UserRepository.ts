@@ -108,6 +108,36 @@ export class UserRepository {
       }));
   }
 
+  /**
+   * Compare-and-set CV review metadata so an administrator cannot verify a CV
+   * after the candidate has changed the underlying CV during the review.
+   */
+  static async updateCvReviewIfUnchangedAsync(id: string, expectedUpdatedAt: string, cvReview: any): Promise<any | null> {
+    if (!id || !expectedUpdatedAt) return null;
+    const updatedAt = new Date().toISOString();
+    if (isTest()) {
+      const existing = inMemoryUsers.get(id);
+      if (!existing || existing.cvReview?.updatedAt !== expectedUpdatedAt) return null;
+      const updated = { ...existing, cvReview, updatedAt };
+      inMemoryUsers.set(id, updated);
+      return updated;
+    }
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        { id, 'cvReview.updatedAt': expectedUpdatedAt },
+        { $set: { cvReview, updatedAt } },
+        { returnDocument: 'after' }
+      );
+      if (!updatedDoc) return null;
+      const { _id, ...safe } = updatedDoc;
+      return safe;
+    }
+    const existing = Database.getUserById(id);
+    if (!existing || existing.cvReview?.updatedAt !== expectedUpdatedAt) return null;
+    return Database.updateUser(id, { cvReview, updatedAt });
+  }
+
   static getById(id: string): any | null {
     if (isTest()) return inMemoryUsers.get(id) || null;
     return Database.getUserById(id);

@@ -601,8 +601,12 @@ userRouter.patch('/cv/review/:id', requireAdminPermission('users.manage'), async
     const actor = String(req.user?.userId || req.user?.id || req.user?.email || 'Administrator');
     const history = [...(Array.isArray(existing.cvReview.history) ? existing.cvReview.history : []), { status, at: now, by: actor, ...(note ? { note } : {}) }].slice(-50);
     const cvReview = { ...existing.cvReview, status, reviewedAt: now, reviewedBy: actor, reviewerNote: note, updatedAt: now, history };
-    const updated = await UserRepository.updateAsync(id, { cvReview });
-    if (!updated) return res.status(404).json({ success: false, message: 'Candidate account not found.' });
+    const expectedReviewUpdatedAt = existing.cvReview.updatedAt;
+    if (typeof expectedReviewUpdatedAt !== 'string' || !expectedReviewUpdatedAt) {
+      return res.status(409).json({ success: false, message: 'CV review data changed or is incomplete. Refresh the candidate CV before reviewing.' });
+    }
+    const updated = await UserRepository.updateCvReviewIfUnchangedAsync(id, expectedReviewUpdatedAt, cvReview);
+    if (!updated) return res.status(409).json({ success: false, message: 'The candidate CV changed while it was being reviewed. Refresh the CV and review the latest version.' });
     await AuditRepository.addAfterPrimaryOperation({
       user: req.user?.name || req.user?.email || 'Administrator', role: req.user?.role || 'Admin',
       action: 'Candidate CV Reviewed', target: `${existing.email || id} (${id})`, status: 'Success',

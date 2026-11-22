@@ -126,8 +126,8 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
   const handleCreateCv = () => {
     const maxAllowed = isSubscribed ? Math.max(0, Math.min(10, Math.floor(Number(cvBuilderSettings.premiumCvLimit ?? 10)))) : Math.max(0, Math.min(10, Math.floor(Number(cvBuilderSettings.freeCvLimit ?? 1))));
     if (documents.length >= maxAllowed) {
-      setCvSaveMessage({ type: 'error', text: `Your current plan allows ${maxAllowed} CV(s). Upgrade to create more.` });
-      onOpenPaywall();
+      setCvSaveMessage({ type: 'error', text: isSubscribed ? `The administrator has set a maximum of ${maxAllowed} CV(s) for premium members.` : `Your free plan allows ${maxAllowed} CV(s). Upgrade to create more.` });
+      if (!isSubscribed) onOpenPaywall();
       return;
     }
     const blank = createBlankCvData();
@@ -332,7 +332,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
             <FileText className="w-4 h-4" />
             <span>{isSavingCv ? 'Saving...' : 'Save CV Draft'}</span>
           </button>
-          <button type="button" onClick={handleDownloadAtsText} className="px-3 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs">Download ATS Text</button>
+          <button type="button" onClick={handleDownloadAtsText} className="px-3 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs">{!isSubscribed && Number(cvBuilderSettings.atsTextExportPkr || 0) > 0 ? `ATS Text · PKR ${Number(cvBuilderSettings.atsTextExportPkr)}` : 'Download ATS Text'}</button>
 
           <button
             onClick={handleDownloadPdf}
@@ -865,7 +865,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                 fontFamily: cvData.templateStyle === 'tech' ? 'ui-monospace, SFMono-Regular, monospace' : cvData.templateStyle === 'classic' ? 'Georgia, serif' : 'Arial, sans-serif'
               }}
             >
-              {watermarkVisible && <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center overflow-hidden"><span className="-rotate-35 whitespace-nowrap text-3xl font-black uppercase tracking-widest text-slate-500" style={{ opacity: Math.min(0.35, Math.max(0.05, Number(cvBuilderSettings.watermarkOpacity ?? 0.16))) }}>{String(cvBuilderSettings.watermarkText || 'Hybrid Job Portal')}</span></div>}
+              {watermarkVisible && <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center overflow-hidden"><span className="whitespace-nowrap text-3xl font-black uppercase tracking-widest text-slate-500" style={{ transform: "rotate(-35deg)", opacity: Math.min(0.35, Math.max(0.05, Number(cvBuilderSettings.watermarkOpacity ?? 0.16))) }}>{String(cvBuilderSettings.watermarkText || 'Hybrid Job Portal')}</span></div>}
               {/* CV Header */}
               <div className="border-b-2 pb-3 flex items-start justify-between gap-4" style={{ borderColor: cvData.themeColor }}>
                 <div className="flex-1">

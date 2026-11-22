@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { CvData, CvDocument } from '../types/job';
+import { CvData, CvDocument, CvDesignEntitlement } from '../types/job';
 import { Sparkles, Printer, Download, Plus, Trash2, CheckCircle2, FileText, ChevronRight, ChevronLeft, Palette, User, Briefcase, GraduationCap, Award, Eye } from 'lucide-react';
 
 interface CvBuilderProps {
   isSubscribed: boolean;
   initialCvData?: CvData;
   initialCvDocuments?: CvDocument[];
+  cvDesignEntitlements?: CvDesignEntitlement[];
+  onPurchaseTemplate: (templateId: string, templateName: string, pricePkr: number) => void;
   onSaveCvDocuments?: (documents: CvDocument[], activeData: CvData) => Promise<boolean> | boolean;
   onSaveCv: (data: CvData) => Promise<boolean> | boolean;
   onOpenPaywall: () => void;
@@ -91,7 +93,7 @@ const normalizeCvData = (value?: CvData): CvData => {
   };
 };
 
-export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, initialCvDocuments, onSaveCvDocuments, onSaveCv, onOpenPaywall, cvBuilderSettings = {} }) => {
+export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, initialCvDocuments, cvDesignEntitlements = [], onPurchaseTemplate, onSaveCvDocuments, onSaveCv, onOpenPaywall, cvBuilderSettings = {} }) => {
   const [step, setStep] = useState<number>(1);
   const [isSavingCv, setIsSavingCv] = useState(false);
   const [cvSaveMessage, setCvSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -296,7 +298,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     return config ? config.free === true : ['modern', 'ats'].includes(template.id);
   }).slice(0, Math.max(0, Math.min(5, Number(cvBuilderSettings.freeDesignLimit ?? 2))));
   const isTemplateEnabled = (id: string) => enabledTemplates.some((template) => template.id === id);
-  const isTemplateFree = (id: string) => isSubscribed || freeTemplates.some((template) => template.id === id);
+  const isTemplateFree = (id: string) => isSubscribed || freeTemplates.some((template) => template.id === id) || cvDesignEntitlements.some((item) => item.templateId === id);
   const watermarkVisible = cvBuilderSettings.watermarkEnabled !== false && (!isSubscribed || cvBuilderSettings.watermarkFreeOnly === false);
 
   return (
@@ -766,8 +768,8 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                     const templateConfig = configuredTemplates.find((item: any) => item.id === t.id);
                     const free = isTemplateFree(t.id);
                     const price = Math.max(0, Number(templateConfig?.pricePkr || 0));
-                    return <button type="button" key={t.id} onClick={() => free ? setCvData({ ...cvData, templateStyle: t.id as CvData['templateStyle'] }) : onOpenPaywall()} className={`py-2 px-3 rounded-lg border text-xs font-bold transition-all ${cvData.templateStyle === t.id ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500' : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'}`}>
-                      {t.name}{!free && <span className="block text-[10px] text-amber-300">Premium · {price > 0 ? `PKR ${price}` : 'Premium plan'}</span>}
+                    return <button type="button" key={t.id} onClick={() => { if (free) setCvData({ ...cvData, templateStyle: t.id as CvData['templateStyle'] }); else if (price > 0) onPurchaseTemplate(t.id, t.name, price); else onOpenPaywall(); }} className={`py-2 px-3 rounded-lg border text-xs font-bold transition-all ${cvData.templateStyle === t.id ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500' : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'}`}>
+                      {t.name}{!free && <span className="block text-[10px] text-amber-300">Premium · {price > 0 ? `One-time PKR ${price}` : 'Premium plan'}</span>}{cvDesignEntitlements.some((item) => item.templateId === t.id) && <span className="block text-[10px] text-emerald-300">Purchased · Unlocked</span>}
                     </button>;
                   })}
                 </div>

@@ -1274,10 +1274,11 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
                   <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
                     <div>
                       <label className="text-[10px] text-slate-400 block mb-1 font-bold">Maximum Concurrent Slots</label>
-                      <input type="number" min="1" max="50" step="1" value={placement.maxConcurrentSlots ?? ''} placeholder="No limit"
+                      <input type="number" min="1" max="50" step="1" value={placement.maxConcurrentSlots ?? ''} placeholder={placement.id === 'promo-discount-banner' || placement.id === 'dynamic-announcement-card' ? 'Required (1–50)' : 'No limit'}
                         onChange={(e) => {
                           const raw = e.target.value;
-                          const parsed = raw === '' ? undefined : Number(raw);
+                          const requiresSlots = placement.id === 'promo-discount-banner' || placement.id === 'dynamic-announcement-card';
+                          const parsed = raw === '' ? (requiresSlots ? 1 : undefined) : Number(raw);
                           handleUpdatePlacement(placement.id, { maxConcurrentSlots: parsed === undefined ? undefined : Math.min(50, Math.max(1, Math.floor(parsed))) });
                         }}
                         className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-1.5 font-mono focus:outline-none focus:border-teal-500"

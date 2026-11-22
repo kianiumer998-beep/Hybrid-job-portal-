@@ -1113,7 +1113,10 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                     onChange={(e) => {
                       const nextPlacement = e.target.value as AdPlacement;
                       setFormPlacement(nextPlacement);
-                      if (nextPlacement === 'promo-discount-banner' || nextPlacement === 'dynamic-announcement-card') setFormType('banner');
+                      if (nextPlacement === 'promo-discount-banner' || nextPlacement === 'dynamic-announcement-card') {
+                        setFormType('banner');
+                        setFormTargetPages(['jobs']);
+                      }
                     }}
                     className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   >
@@ -1203,7 +1206,9 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                 </label>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                  {campaignConfig.portalPages.map((page) => {
+                  {campaignConfig.portalPages.filter((page) =>
+                    !selectedPlacementOpt?.allowedPageIds?.length || selectedPlacementOpt.allowedPageIds.includes(page.id)
+                  ).map((page) => {
                     const isSelected = formTargetPages.includes(page.id as AdTargetPage);
                     const scheduleStatus = isPageScheduledActive(page);
                     const isAvailable = scheduleStatus.isActive;

@@ -30,7 +30,8 @@ pricingRouter.post('/calculate-ad', async (req, res) => {
     const calculation = await PricingRepository.calculateAdPrice(req.body);
     res.json({ success: true, calculation });
   } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Error calculating ad price' });
+    const statusCode = typeof err?.statusCode === 'number' && err.statusCode >= 400 ? err.statusCode : 500;
+    res.status(statusCode).json({ success: false, message: err.message || 'Error calculating ad price' });
   }
 });
 

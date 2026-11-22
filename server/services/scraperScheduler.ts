@@ -55,6 +55,14 @@ export function getSchedulerMaxJobs(depth?: string): number {
   }
 }
 
+function isSourceEligibleForScheduler(source: any, settings: ScraperSchedulerSettings): boolean {
+  const isEnabled = source.status === 'Active Scheduled' || source.status === 'Active';
+  // Explicit Failed scope is the only mode allowed to retry Error/Failed sources.
+  // Paused and Disabled sources remain excluded in every scope.
+  const isFailedRetry = settings.scope === 'failed' && ['Error', 'Failed'].includes(source.status);
+  return isEnabled || isFailedRetry;
+}
+
 const VALID_SCOPES: ScraperSchedulerSettings['scope'][] = ['all', 'selected', 'group', 'working', 'failed', 'single'];
 
 export function isValidSchedulerScope(scope: any): scope is ScraperSchedulerSettings['scope'] {
@@ -232,9 +240,8 @@ export async function runSchedulerTick(
 
     for (const src of sources) {
       try {
-        const isActive = src.status === 'Active Scheduled' || src.status === 'Active';
-        if (!isActive) {
-          // Source is paused, disabled, or inactive
+        if (!isSourceEligibleForScheduler(src, settings)) {
+          // Paused/Disabled sources stay excluded; Failed scope may explicitly retry Error/Failed sources.
           continue;
         }
 
@@ -602,9 +609,9 @@ export async function getSchedulerStatus(_deps?: SchedulerRuntimeDeps): Promise<
   const sourceStatuses: SchedulerSourceStatus[] = sources.map(src => {
     const intervalMs = parseIntervalToMs(src.interval || settings.interval);
     const nextRunMs = src.nextRunAt ? new Date(src.nextRunAt).getTime() : 0;
-    const isActive = src.status === 'Active Scheduled' || src.status === 'Active';
+    const isEligible = isSourceEligibleForScheduler(src, settings);
     const isScoped = scopedSourceIds === null || scopedSourceIds.has(src.id);
-    const isDue = isActive && isScoped && (nextRunMs <= now);
+    const isDue = isEligible && isScoped && (nextRunMs <= now);
 
     return {
       sourceId: src.id,
@@ -619,10 +626,10 @@ export async function getSchedulerStatus(_deps?: SchedulerRuntimeDeps): Promise<
     };
   });
 
-  const activeInScopeCount = sources.filter(s => {
-    const isActive = s.status === 'Active Scheduled' || s.status === 'Active';
-    const isScoped = scopedSourceIds === null || scopedSourceIds.has(s.id);
-    return isActive && isScoped;
+  const activeInScopeCount = sources.filter(source => {
+    const isEligible = isSourceEligibleForScheduler(source, settings);
+    const isScoped = scopedSourceIds === null || scopedSourceIds.has(source.id);
+    return isEligible && isScoped;
   }).length;
 
   return {

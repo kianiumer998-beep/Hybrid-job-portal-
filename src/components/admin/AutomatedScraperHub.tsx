@@ -2194,7 +2194,6 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           });
         }
         if (!singleId) { setSelectedReviewIds([]); setSelectedReviewJobCache([]); }
-        setSelectedReviewJobCache([]);
         await fetchPendingQueue();
         if (onReloadJobs) await onReloadJobs();
       } else {
@@ -2227,7 +2226,6 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           });
         }
         if (!singleId) { setSelectedReviewIds([]); setSelectedReviewJobCache([]); }
-        setSelectedReviewJobCache([]);
         await fetchPendingQueue();
         if (onReloadJobs) await onReloadJobs();
       } else {
@@ -4675,6 +4673,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     type="button"
                     onClick={() => {
                       setSelectedReviewIds([]);
+                      setSelectedReviewJobCache([]);
                       if (onPendingPageChange) onPendingPageChange(1, size);
                     }}
                     className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${

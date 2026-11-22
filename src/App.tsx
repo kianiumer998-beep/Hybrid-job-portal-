@@ -1058,8 +1058,9 @@ export default function App() {
     }
   };
 
-  const handlePaidAdCta = async (ad: Advertisement) => {
-    await handleAdClick(ad);
+  const handlePaidAdCta = (ad: Advertisement) => {
+    // Open/navigate synchronously within the click gesture so external links are not blocked.
+    void handleAdClick(ad);
     handleAdDestination(ad.ctaUrl);
   };
 

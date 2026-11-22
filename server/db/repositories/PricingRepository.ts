@@ -1008,7 +1008,7 @@ export class PricingRepository {
       const now = Date.now();
       const occupiedCount = (Database.getAds() || []).filter((ad: any) => {
         if (ad?.placement !== resolvedPlacement || !['active', 'pending', 'pending_approval'].includes(String(ad.status))) return false;
-        if (ad.approvalStatus === 'Rejected') return false;
+        if (ad.approvalStatus === 'Rejected' || ad.paymentStatus === 'Refunded') return false;
         const endValue = ad.scheduledEndAt || ad.endDate;
         if (endValue) {
           const endMs = new Date(String(endValue).replace(' ', 'T')).getTime();

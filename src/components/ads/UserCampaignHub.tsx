@@ -621,6 +621,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
     ad.placement === formPlacement &&
     ['active', 'pending', 'pending_approval'].includes(String(ad.status)) &&
     ad.approvalStatus !== 'Rejected' &&
+    ad.paymentStatus !== 'Refunded' &&
     (!ad.scheduledEndAt || !Number.isFinite(new Date(ad.scheduledEndAt.replace(' ', 'T')).getTime()) || new Date(ad.scheduledEndAt.replace(' ', 'T')).getTime() >= Date.now())
   ).length;
   const placementSlotsRemaining = hasPlacementSlotLimit ? Math.max(0, placementSlotLimit - placementOccupiedCount) : undefined;

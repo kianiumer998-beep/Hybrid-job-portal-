@@ -1363,6 +1363,7 @@ export function getOccupiedSlotRangesForPlacement(
       (a) =>
         a.placement === placement &&
         (a.status === 'active' || a.status === 'pending_approval' || a.status === 'pending') &&
+        a.paymentStatus !== 'Refunded' &&
         a.scheduledStartAt &&
         a.scheduledEndAt
     )

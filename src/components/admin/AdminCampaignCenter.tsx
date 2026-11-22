@@ -247,8 +247,6 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
             <option value="sms-broadcast">SMS Broadcast</option>
             <option value="promo-discount-banner">Promotional Discount Banner</option>
             <option value="dynamic-announcement-card">Dynamic Announcement Card</option>
-            <option value="promo-discount-banner">Promotional Discount Banner</option>
-            <option value="dynamic-announcement-card">Dynamic Announcement Card</option>
           </select>
 
           <div className="relative">

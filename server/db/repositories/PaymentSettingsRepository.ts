@@ -112,6 +112,13 @@ export class PaymentSettingsRepository {
         proofNoteRequired: parseStrictBoolean(m.proofNoteRequired, false),
         proofNoteLabel: m.proofNoteLabel ? String(m.proofNoteLabel).trim().slice(0, 100) : undefined,
         proofNotePlaceholder: m.proofNotePlaceholder ? String(m.proofNotePlaceholder).trim().slice(0, 100) : undefined,
+        walletDepositAllowCustomAmount: parseStrictBoolean(m.walletDepositAllowCustomAmount, true),
+        walletDepositFixedAmounts: Array.isArray(m.walletDepositFixedAmounts)
+          ? m.walletDepositFixedAmounts.slice(0, 50).map((item: any) => ({
+              amount: Number(item?.amount),
+              enabled: parseStrictBoolean(item?.enabled, true)
+            })).filter((item: any) => Number.isSafeInteger(item.amount) && item.amount > 0)
+          : [],
         customFields: sanitizeCustomFields(m.customFields)
       };
     };
@@ -361,6 +368,29 @@ export class PaymentSettingsRepository {
         }).sort((a: any, b: any) => a.order - b.order);
       }
 
+      const walletDepositAllowCustomAmount = PaymentSettingsRepository.parseStrictBoolean(m.walletDepositAllowCustomAmount, true);
+      let walletDepositFixedAmounts: Array<{ amount: number; enabled: boolean }> = [];
+      if (Array.isArray(m.walletDepositFixedAmounts)) {
+        if (m.walletDepositFixedAmounts.length > 50) {
+          throw new Error(`Validation Error for "${name}": A maximum of 50 fixed wallet deposit amounts are allowed.`);
+        }
+        const seenDepositAmounts = new Set<number>();
+        walletDepositFixedAmounts = m.walletDepositFixedAmounts.map((item: any, index: number) => {
+          const fixedAmount = Number(item?.amount);
+          if (!Number.isSafeInteger(fixedAmount) || fixedAmount <= 0 || fixedAmount > 100000000) {
+            throw new Error(`Validation Error for "${name}": Fixed deposit amount #${index + 1} must be a positive whole PKR amount.`);
+          }
+          if (seenDepositAmounts.has(fixedAmount)) {
+            throw new Error(`Validation Error for "${name}": Duplicate fixed deposit amount PKR ${fixedAmount}.`);
+          }
+          seenDepositAmounts.add(fixedAmount);
+          return { amount: fixedAmount, enabled: PaymentSettingsRepository.parseStrictBoolean(item?.enabled, true) };
+        });
+      }
+      if (enabled && !walletDepositAllowCustomAmount && !walletDepositFixedAmounts.some((item) => item.enabled)) {
+        throw new Error(`Validation Error for "${name}": Enable at least one fixed wallet deposit amount or allow custom amounts.`);
+      }
+
       validatedMethods[cleanKey] = {
         id: cleanKey,
         name,
@@ -389,6 +419,8 @@ export class PaymentSettingsRepository {
         proofNoteRequired,
         proofNoteLabel: m.proofNoteLabel ? String(m.proofNoteLabel).trim().slice(0, 100) : undefined,
         proofNotePlaceholder: m.proofNotePlaceholder ? String(m.proofNotePlaceholder).trim().slice(0, 100) : undefined,
+        walletDepositAllowCustomAmount,
+        walletDepositFixedAmounts,
         customFields
       };
     }

@@ -108,6 +108,10 @@ export interface PublicPaymentMethodConfig {
   proofNoteLabel?: string;
   proofNotePlaceholder?: string;
 
+  // Wallet Deposit-only amount controls. Missing values preserve legacy custom-amount behavior.
+  walletDepositAllowCustomAmount?: boolean;
+  walletDepositFixedAmounts?: Array<{ amount: number; enabled: boolean }>;
+
   // Configurable arbitrary proof fields (e.g. CNIC, Branch Code, Reference Code)
   customFields?: CustomProofField[];
 }

@@ -889,6 +889,26 @@ transactionRouter.post('/', async (req, res) => {
         const methodConfig = resolved.method;
         resolvedPaymentMethodName = methodConfig.name;
 
+        // Wallet Deposit amount policy is enforced on the server; subscription, job and campaign payments are untouched.
+        if (effectiveType === 'Wallet Deposit') {
+          const fixedAmounts = Array.isArray(methodConfig.walletDepositFixedAmounts)
+            ? methodConfig.walletDepositFixedAmounts.filter((item) => item && item.enabled && Number.isSafeInteger(item.amount) && item.amount > 0)
+            : [];
+          const customAmountAllowed = methodConfig.walletDepositAllowCustomAmount !== false;
+          const isConfiguredFixedAmount = fixedAmounts.some((item) => item.amount === enforcedAmount);
+          if (!customAmountAllowed && !isConfiguredFixedAmount) {
+            return res.status(400).json({
+              success: false,
+              message: fixedAmounts.length
+                ? `Please select one of the enabled fixed deposit amounts for ${methodConfig.name}.`
+                : `Wallet deposits are not currently configured for ${methodConfig.name}. Please contact support.`
+            });
+          }
+          if (customAmountAllowed && (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0)) {
+            return res.status(400).json({ success: false, message: 'Wallet deposit amount must be a positive whole PKR amount.' });
+          }
+        }
+
         // 1. Transaction ID requirement
         if (methodConfig.transactionIdRequired && !cleanTid) {
           return res.status(400).json({

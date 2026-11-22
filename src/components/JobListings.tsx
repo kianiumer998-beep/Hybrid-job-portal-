@@ -242,7 +242,11 @@ export const JobListings: React.FC<JobListingsProps> = ({
     const cleanTags = sanitizeJobTags(job.tags);
 
     const postedTimeSource = (job.postedAt && parseJobCardDate(job.postedAt) ? job.postedAt : job.createdAt) || '';
-    const relativePostedTime = getRelativeJobTime(postedTimeSource, clockNow);
+    // Prefer a timestamp with a time component for accurate 'X minutes ago' labels.
+    // Scraper/admin records sometimes store postedAt as a date-only string; in that
+    // case createdAt is the more precise publication timestamp when available.
+    const relativeTimeSource = (job.postedAt && /T|\\d{1,2}:\\d{2}/.test(job.postedAt) && parseJobCardDate(job.postedAt) ? job.postedAt : job.createdAt && parseJobCardDate(job.createdAt) ? job.createdAt : postedTimeSource) || '';
+    const relativePostedTime = getRelativeJobTime(relativeTimeSource, clockNow);
     const exactPostedDate = formatJobCardDate(postedTimeSource);
     const deadlineDisplayDate = formatJobCardDate(job.deadlineDate);
     const deadlineRemaining = getDeadlineRemaining(job.deadlineDate, clockNow);
@@ -348,15 +352,15 @@ export const JobListings: React.FC<JobListingsProps> = ({
                         {design.visibility.postedDate && (
                              <span className="text-[10px] font-medium text-slate-500 flex items-center gap-1">
                                  <Clock className="w-2.5 h-2.5" />
-                                 {job.postedAt}
+                                 {design.visibility.relativePostedTime !== false && relativePostedTime ? relativePostedTime : design.visibility.exactPostedDate !== false ? exactPostedDate : ''}
                              </span>
                         )}
                     </div>
                     {(design.visibility.poster !== false || design.visibility.relativePostedTime !== false || design.visibility.exactPostedDate !== false || design.visibility.deadlineDate !== false || design.visibility.deadlineRemaining !== false) && (
                       <div className="flex flex-wrap gap-x-2 gap-y-1 text-[9px] sm:text-[10px] text-slate-500">
                         {design.visibility.poster !== false && <span>Posted by: {posterLabel}</span>}
-                        {design.visibility.relativePostedTime !== false && relativePostedTime && <span>{relativePostedTime}</span>}
-                        {design.visibility.exactPostedDate !== false && design.visibility.postedDate === false && exactPostedDate && <span>{exactPostedDate}</span>}
+                        {design.visibility.postedDate === false && design.visibility.relativePostedTime !== false && relativePostedTime && <span>{relativePostedTime}</span>}
+                        {design.visibility.postedDate === false && design.visibility.exactPostedDate !== false && exactPostedDate && <span>{exactPostedDate}</span>}
                         {design.visibility.deadlineDate !== false && deadlineDisplayDate && <span>Deadline: {deadlineDisplayDate}</span>}
                         {design.visibility.deadlineRemaining !== false && deadlineRemaining && <span className={deadlineRemaining === 'Deadline passed' ? 'text-rose-400' : 'text-amber-400'}>{deadlineRemaining}</span>}
                       </div>

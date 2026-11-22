@@ -5997,6 +5997,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           isOpen={!!editingJob || editingSelectedJobs.length > 0}
           job={editingJob}
           selectedJobs={editingSelectedJobs}
+          allowBulkStatusChange={false}
           onClose={() => { setEditingJob(null); setEditingSelectedJobs([]); }}
           onSaveJob={async (updatedJob) => {
             try {

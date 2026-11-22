@@ -472,12 +472,6 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
     e.preventDefault();
     setDepositError(null);
 
-    const minAmount = pricingConfig.minDepositAmountPkr || 500;
-    if (depositAmountInput < minAmount) {
-      setDepositError(`Minimum deposit amount is PKR ${minAmount.toLocaleString()}.`);
-      return;
-    }
-
     const enabledMethods: [string, PublicPaymentMethodConfig][] = serverPaymentSettings?.methods
       ? Object.entries(serverPaymentSettings.methods).filter(
           ([_, m]) => m && m.enabled && m.accountNumber && m.accountTitle
@@ -499,6 +493,13 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
     const activeFixedDepositAmounts = (selectedMethod.walletDepositFixedAmounts || []).filter((item) => item.enabled);
     if (selectedMethod.walletDepositAllowCustomAmount === false && !activeFixedDepositAmounts.some((item) => item.amount === depositAmountInput)) {
       setDepositError('Please choose one of the enabled fixed deposit amounts for this payment method.');
+      return;
+    }
+
+    const isEnabledFixedDepositAmount = activeFixedDepositAmounts.some((item) => item.amount === depositAmountInput);
+    const minAmount = pricingConfig.minDepositAmountPkr || 500;
+    if (!isEnabledFixedDepositAmount && depositAmountInput < minAmount) {
+      setDepositError(`Minimum custom deposit amount is PKR ${minAmount.toLocaleString()}.`);
       return;
     }
 

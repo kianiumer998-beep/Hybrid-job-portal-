@@ -4017,6 +4017,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             if (filter === 'all') return true;
             if (!rawDate) return filter === 'none';
             const date = new Date(String(rawDate));
+            if (/^\d{4}-\d{2}-\d{2}$/.test(String(rawDate))) date.setHours(23, 59, 59, 999);
             const time = date.getTime();
             if (!Number.isFinite(time)) return filter === 'none';
             const now = Date.now();

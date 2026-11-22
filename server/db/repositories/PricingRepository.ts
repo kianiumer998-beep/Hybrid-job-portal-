@@ -171,9 +171,18 @@ function buildAuthoritativeDefaults(): any {
     },
     subscriptionPackages: [],
     cvBuilder: {
-      standardPdfExportPkr: 0,
-      premiumAiOptimizerPkr: 500,
-      unlimitedTemplatesPkr: 1000
+      standardPdfExportPkr: 0, pdfExportEnabled: true, pdfExportPkr: 0,
+      atsTextExportEnabled: true, atsTextExportPkr: 0,
+      premiumAiOptimizerPkr: 500, unlimitedTemplatesPkr: 1000,
+      freeDesignLimit: 2, watermarkEnabled: true, watermarkFreeOnly: true,
+      watermarkText: 'Hybrid Job Portal', watermarkOpacity: 0.16,
+      templates: [
+        { id: 'modern', name: 'Modern Clean', enabled: true, free: true, pricePkr: 0 },
+        { id: 'executive', name: 'Executive Dark Sidebar', enabled: true, free: false, pricePkr: 300 },
+        { id: 'tech', name: 'Tech Minimalist', enabled: true, free: false, pricePkr: 300 },
+        { id: 'classic', name: 'Classic Corporate', enabled: true, free: false, pricePkr: 200 },
+        { id: 'ats', name: 'ATS Plain Text', enabled: true, free: true, pricePkr: 0 }
+      ]
     },
     addons: {
       highlightColor: 1000,

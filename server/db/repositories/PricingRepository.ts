@@ -597,10 +597,11 @@ export class PricingRepository {
       for (const field of ['standardPdfExportPkr', 'pdfExportPkr', 'atsTextExportPkr', 'premiumAiOptimizerPkr', 'unlimitedTemplatesPkr'] as const) {
         if (cv[field] !== undefined) validateNonNegativeNumber(cv[field], `cvBuilder.${field}`, 10000000);
       }
-      for (const field of ['freeCvLimit', 'freeDesignLimit'] as const) {
-        if (cv[field] !== undefined && (!Number.isInteger(Number(cv[field])) || Number(cv[field]) < 0 || Number(cv[field]) > 10)) {
-          throw new Error(`cvBuilder.${field} must be a whole number between 0 and 10.`);
-        }
+      if (cv.freeCvLimit !== undefined && (!Number.isInteger(Number(cv.freeCvLimit)) || Number(cv.freeCvLimit) < 0 || Number(cv.freeCvLimit) > 10)) {
+        throw new Error('cvBuilder.freeCvLimit must be a whole number between 0 and 10.');
+      }
+      if (cv.freeDesignLimit !== undefined && (!Number.isInteger(Number(cv.freeDesignLimit)) || Number(cv.freeDesignLimit) < 0 || Number(cv.freeDesignLimit) > 5)) {
+        throw new Error('cvBuilder.freeDesignLimit must be a whole number between 0 and 5.');
       }
       if (cv.premiumCvLimit !== undefined && (!Number.isInteger(Number(cv.premiumCvLimit)) || Number(cv.premiumCvLimit) < 1 || Number(cv.premiumCvLimit) > 10)) {
         throw new Error('cvBuilder.premiumCvLimit must be a whole number between 1 and 10.');

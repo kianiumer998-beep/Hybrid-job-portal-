@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CvData, CvReviewMetadata } from '../types/job';
+import { CvData } from '../types/job';
 import { Sparkles, Printer, Download, Plus, Trash2, CheckCircle2, FileText, ChevronRight, ChevronLeft, Palette, User, Briefcase, GraduationCap, Award, Eye } from 'lucide-react';
 
 interface CvBuilderProps {
@@ -7,8 +7,7 @@ interface CvBuilderProps {
   initialCvData?: CvData;
   onSaveCv: (data: CvData) => Promise<boolean> | boolean;
   onOpenPaywall: () => void;
-  onSubmitCv?: (data: CvData) => Promise<any>;
-  reviewStatus?: CvReviewMetadata;
+  cvBuilderSettings?: any;
 }
 
 const createBlankCvData = (): CvData => ({
@@ -90,7 +89,7 @@ const normalizeCvData = (value?: CvData): CvData => {
   };
 };
 
-export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, onSaveCv, onOpenPaywall, onSubmitCv, reviewStatus }) => {
+export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, onSaveCv, onOpenPaywall, cvBuilderSettings = {} }) => {
   const [step, setStep] = useState<number>(1);
   const [isSavingCv, setIsSavingCv] = useState(false);
   const [isSubmittingCv, setIsSubmittingCv] = useState(false);
@@ -193,24 +192,8 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     }
   };
 
-  const handleSubmitCv = async () => {
-    if (!onSubmitCv || isSubmittingCv || isSavingCv) return;
-    if (!window.confirm('Submit your current CV for administrator review? You can edit and resubmit it later.')) return;
-    setIsSubmittingCv(true);
-    setCvSaveMessage(null);
-    try {
-      const result = await onSubmitCv(cvData);
-      setCvSaveMessage(result?.success
-        ? { type: 'success', text: result.message || 'CV submitted for review.' }
-        : { type: 'error', text: result?.message || 'CV submission failed. Please try again.' });
-    } catch (error: any) {
-      setCvSaveMessage({ type: 'error', text: error?.message || 'Unable to submit CV for review.' });
-    } finally {
-      setIsSubmittingCv(false);
-    }
-  };
-
   const handleDownloadAtsText = () => {
+    if (!isSubscribed && (cvBuilderSettings.atsTextExportEnabled === false || Number(cvBuilderSettings.atsTextExportPkr || 0) > 0)) { onOpenPaywall(); return; }
     const lines: string[] = [];
     const p = cvData.personalInfo;
     const extra: NonNullable<CvData['additionalSections']> = cvData.additionalSections || {};
@@ -233,6 +216,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     add('Research & Publications', extra.publications || []);
     add('References', extra.references || []);
     add('Additional Information', [extra.careerGapExplanation, extra.preferredEmploymentType, extra.noticePeriod, extra.domicile, extra.professionalRegistration].filter(Boolean) as string[]);
+    if (watermarkVisible) lines.push('', String(cvBuilderSettings.watermarkText || 'Hybrid Job Portal'));
     const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -246,25 +230,27 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
 
   // Trigger Print Engine
   const handleDownloadPdf = () => {
-    if (!isSubscribed) {
-      onOpenPaywall();
-    } else {
-      window.print();
-    }
+    if (!isSubscribed && (cvBuilderSettings.pdfExportEnabled === false || Number(cvBuilderSettings.pdfExportPkr ?? cvBuilderSettings.standardPdfExportPkr ?? 0) > 0)) { onOpenPaywall(); return; }
+    window.print();
   };
+
+  const templateCatalog = [
+    { id: 'modern', name: 'Modern Clean' }, { id: 'executive', name: 'Executive Dark Sidebar' },
+    { id: 'tech', name: 'Tech Minimalist' }, { id: 'classic', name: 'Classic Corporate' }, { id: 'ats', name: 'ATS Plain Text' }
+  ];
+  const configuredTemplates = Array.isArray(cvBuilderSettings.templates) ? cvBuilderSettings.templates : [];
+  const enabledTemplates = templateCatalog.filter((template) => configuredTemplates.find((item: any) => item.id === template.id)?.enabled !== false);
+  const freeTemplates = enabledTemplates.filter((template) => {
+    const config = configuredTemplates.find((item: any) => item.id === template.id);
+    return config ? config.free === true : ['modern', 'ats'].includes(template.id);
+  }).slice(0, Math.max(0, Math.min(5, Number(cvBuilderSettings.freeDesignLimit ?? 2))));
+  const isTemplateFree = (id: string) => isSubscribed || freeTemplates.some((template) => template.id === id);
+  const watermarkVisible = cvBuilderSettings.watermarkEnabled !== false && (!isSubscribed || cvBuilderSettings.watermarkFreeOnly === false);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       
       {cvSaveMessage && <div className={`mb-4 rounded-xl border px-4 py-3 text-xs ${cvSaveMessage.type === 'success' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-rose-500/30 bg-rose-500/10 text-rose-200'}`} role="status">{cvSaveMessage.text}</div>}
-      {reviewStatus && (reviewStatus.status !== 'Draft' || reviewStatus.reviewerNote) && (
-        <div className="mb-4 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-4 py-3 text-xs text-indigo-100">
-          <strong>CV Review Status: {reviewStatus.status}</strong>
-          {reviewStatus.reviewerNote && <p className="mt-1">Admin note: {reviewStatus.reviewerNote}</p>}
-          {reviewStatus.status === 'Verified' && <p className="mt-1 text-indigo-200/80">This confirms an administrator reviewed your CV content; it does not independently verify qualifications or employment records.</p>}
-          {(reviewStatus.status === 'Needs Changes' || (reviewStatus.status === 'Draft' && reviewStatus.reviewerNote)) && <p className="mt-1">Please update your CV and submit it again for review.</p>}
-        </div>
-      )}
       {/* Top Banner */}
       <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-slate-950 border border-indigo-500/30 rounded-2xl p-6 mb-8 text-white flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
         <div>
@@ -289,8 +275,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
             <span>{isSavingCv ? 'Saving...' : 'Save CV Draft'}</span>
           </button>
           <button type="button" onClick={handleDownloadAtsText} className="px-3 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs">Download ATS Text</button>
-          {onSubmitCv && (
-            <button type="button" onClick={handleSubmitCv} disabled={isSubmittingCv || isSavingCv} className="px-4 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white font-black text-sm disabled:opacity-50">
+          <button type="button" onClick={handleSubmitCv} disabled={isSubmittingCv || isSavingCv} className="px-4 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white font-black text-sm disabled:opacity-50">
               {isSubmittingCv ? 'Submitting...' : 'Submit for Review'}
             </button>
           )}
@@ -299,7 +284,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
             className="px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 flex items-center space-x-2 hover:scale-105 active:scale-95 transition-all"
           >
             <Printer className="w-4 h-4 text-slate-950" />
-            <span>{isSubscribed ? 'Export PDF Resume' : 'Download Premium PDF'}</span>
+            <span>{isSubscribed || (cvBuilderSettings.pdfExportEnabled !== false && Number(cvBuilderSettings.pdfExportPkr ?? cvBuilderSettings.standardPdfExportPkr ?? 0) === 0) ? 'Export PDF Resume' : `PDF Export · PKR ${Number(cvBuilderSettings.pdfExportPkr ?? cvBuilderSettings.standardPdfExportPkr ?? 0)}`}</span>
           </button>
         </div>
       </div>
@@ -722,17 +707,14 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
               <div>
                 <label className="block text-xs font-semibold text-slate-400 mb-2">Select Template Style</label>
                 <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { id: 'modern', name: 'Modern Clean' },
-                    { id: 'executive', name: 'Executive Dark Sidebar' },
-                    { id: 'tech', name: 'Tech Minimalist' },
-                    { id: 'classic', name: 'Classic Corporate' },
-                    { id: 'ats', name: 'ATS Plain Text' }
-                  ].map((t) => (
-                    <button type="button" key={t.id} onClick={() => setCvData({ ...cvData, templateStyle: t.id as CvData['templateStyle'] })} className={`py-2 px-3 rounded-lg border text-xs font-bold transition-all ${cvData.templateStyle === t.id ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500' : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'}`}>
-                      {t.name}
-                    </button>
-                  ))}
+                  {enabledTemplates.map((t) => {
+                    const templateConfig = configuredTemplates.find((item: any) => item.id === t.id);
+                    const free = isTemplateFree(t.id);
+                    const price = Math.max(0, Number(templateConfig?.pricePkr || 0));
+                    return <button type="button" key={t.id} onClick={() => free ? setCvData({ ...cvData, templateStyle: t.id as CvData['templateStyle'] }) : onOpenPaywall()} className={`py-2 px-3 rounded-lg border text-xs font-bold transition-all ${cvData.templateStyle === t.id ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500' : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'}`}>
+                      {t.name}{!free && <span className="block text-[10px] text-amber-300">Premium · {price > 0 ? `PKR ${price}` : 'Premium plan'}</span>}
+                    </button>;
+                  })}
                 </div>
               </div>
               <label className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-400">
@@ -821,13 +803,14 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
             {/* Simulated Paper Layout Container */}
             <div
               id="cv-print-area"
-              className="bg-white text-slate-900 p-6 rounded-lg shadow-inner min-h-[580px] text-xs space-y-4"
+              className="relative overflow-hidden bg-white text-slate-900 p-6 rounded-lg shadow-inner min-h-[580px] text-xs space-y-4"
               style={{
                 borderTop: cvData.templateStyle === 'ats' ? 'none' : `5px solid ${cvData.themeColor}`,
                 borderLeft: cvData.templateStyle === 'executive' ? '14px solid #0f172a' : undefined,
                 fontFamily: cvData.templateStyle === 'tech' ? 'ui-monospace, SFMono-Regular, monospace' : cvData.templateStyle === 'classic' ? 'Georgia, serif' : 'Arial, sans-serif'
               }}
             >
+              {watermarkVisible && <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center overflow-hidden"><span className="-rotate-35 whitespace-nowrap text-3xl font-black uppercase tracking-widest text-slate-500" style={{ opacity: Math.min(0.35, Math.max(0.05, Number(cvBuilderSettings.watermarkOpacity ?? 0.16))) }}>{String(cvBuilderSettings.watermarkText || 'Hybrid Job Portal')}</span></div>}
               {/* CV Header */}
               <div className="border-b-2 pb-3 flex items-start justify-between gap-4" style={{ borderColor: cvData.themeColor }}>
                 <div className="flex-1">

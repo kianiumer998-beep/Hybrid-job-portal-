@@ -175,10 +175,16 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
         const enabledKeys = Object.entries(res.settings.methods)
           .filter(([_, m]: [string, any]) => m && m.enabled && m.accountNumber)
           .map(([k]) => k);
-        if (res.settings.defaultMethod && enabledKeys.includes(res.settings.defaultMethod)) {
-          setDepositSelectedMethodKey(res.settings.defaultMethod);
-        } else if (enabledKeys.length > 0) {
-          setDepositSelectedMethodKey(enabledKeys[0]);
+        const preferredMethodKey = res.settings.defaultMethod && enabledKeys.includes(res.settings.defaultMethod)
+          ? res.settings.defaultMethod
+          : enabledKeys[0];
+        if (preferredMethodKey) {
+          setDepositSelectedMethodKey(preferredMethodKey);
+          const preferredMethod = res.settings.methods[preferredMethodKey];
+          const preferredFixedAmounts = (preferredMethod?.walletDepositFixedAmounts || []).filter((item) => item.enabled);
+          if (preferredMethod?.walletDepositAllowCustomAmount === false && preferredFixedAmounts.length > 0) {
+            setDepositAmountInput(preferredFixedAmounts[0].amount);
+          }
         }
       } else {
         setServerPaymentSettings(null);

@@ -169,6 +169,7 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
         type: 'CV Design Purchase',
         paymentMethod: selectedMethod,
         cvTemplateId: templateId,
+        expectedAmount: checkoutPrice,
         ...(walletPayment ? {} : {
           transactionId: transactionId.trim() || undefined,
           senderName: senderName.trim() || currentUser.name || 'Customer',

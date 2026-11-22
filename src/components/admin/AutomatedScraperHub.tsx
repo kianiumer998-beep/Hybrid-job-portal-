@@ -659,6 +659,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'Completed' | 'Partial' | 'Failed' | 'Stopped'>('all');
   const [resultsTypeFilter, setResultsTypeFilter] = useState<'all' | 'Approved' | 'Pending' | 'Duplicate' | 'Error'>('all');
   const [reviewTypeFilter, setReviewTypeFilter] = useState<'all' | 'pending' | 'duplicate' | 'conflict'>('all');
+  const [reviewSortOrder, setReviewSortOrder] = useState<'latest' | 'oldest' | 'updated_latest' | 'updated_oldest'>('latest');
 
   // Multi-Selection State for Sources
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
@@ -707,6 +708,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [inspectingRun, setInspectingRun] = useState<ScraperRunRecord | null>(null);
   const [inspectingJob, setInspectingJob] = useState<Job | null>(null);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
+  const [editingSelectedJobs, setEditingSelectedJobs] = useState<Job[]>([]);
 
   // Global Settings State
   const [globalInterval, setGlobalInterval] = useState('24h');
@@ -1189,7 +1191,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   }, [effectivePendingList, selectedReviewIds]);
 
   const reviewItems = useMemo(() => {
-    return effectivePendingList.filter(job => {
+    const filtered = effectivePendingList.filter(job => {
       const isDuplicate = (job as any).isDuplicate || (job as any).duplicateWarning ||
         job.description?.toLowerCase().includes('duplicate') ||
         ((job as any).confidenceScore && (job as any).confidenceScore < 60);
@@ -1220,7 +1222,19 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
       return true;
     });
-  }, [effectivePendingList, reviewTypeFilter, searchQuery, sourceFilter]);
+    const timestampFor = (job: Job, mode: 'scraped' | 'updated') => {
+      const value = mode === 'scraped'
+        ? ((job as any).scrapedAt || (job as any).lastScrapedAt || (job as any).createdAt || job.postedAt)
+        : ((job as any).updatedAt || (job as any).lastUpdatedAt || (job as any).createdAt || job.postedAt);
+      const parsed = value ? new Date(value).getTime() : NaN;
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    return [...filtered].sort((a, b) => {
+      const useUpdated = reviewSortOrder.startsWith('updated_');
+      const delta = timestampFor(a, useUpdated ? 'updated' : 'scraped') - timestampFor(b, useUpdated ? 'updated' : 'scraped');
+      return reviewSortOrder.endsWith('oldest') ? delta : -delta;
+    });
+  }, [effectivePendingList, reviewTypeFilter, searchQuery, sourceFilter, reviewSortOrder]);
 
   // -------------------------------------------------------------
   // Results Feed Items (Discovered Jobs from recent runs & live db)
@@ -4315,6 +4329,24 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Multi-Select:</span>
                 <button
                   type="button"
+                  onClick={() => setSelectedReviewIds(Array.from(new Set(effectivePendingList.map(job => job.id))))}
+                  disabled={effectivePendingList.length === 0}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40"
+                  title="Select every row loaded on the current server page, regardless of the active review filter"
+                >
+                  Select Current Page ({effectivePendingList.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedReviewIds(Array.from(new Set(reviewItems.map(job => job.id))))}
+                  disabled={reviewItems.length === 0}
+                  className="px-3 py-1.5 bg-cyan-950/50 hover:bg-cyan-900/60 text-cyan-200 border border-cyan-800/50 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40"
+                  title="Select all results matching active filters on the currently loaded page only"
+                >
+                  Select Filtered ({reviewItems.length})
+                </button>
+                <button
+                  type="button"
                   onClick={handleSelectAllPending}
                   className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5"
                 >
@@ -4347,8 +4379,24 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               </div>
             </div>
 
-            {/* Execution Buttons (MongoDB Operations) */}
+            {/* Explicit-field bulk editor: unchecked fields remain untouched. */}
             <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                disabled={selectedReviewIds.length === 0 || isProcessingReview}
+                onClick={() => {
+                  const selected = effectivePendingList.filter(job => selectedReviewIds.includes(job.id));
+                  if (selected.length > 0) {
+                    setEditingJob(null);
+                    setEditingSelectedJobs(selected);
+                  }
+                }}
+                className="px-3.5 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-200 border border-amber-500/30 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40"
+                title="Bulk edit only the attributes explicitly checked in the editor"
+              >
+                <Edit3 className="w-3.5 h-3.5 inline mr-1.5" />
+                Bulk Edit Selected ({selectedReviewIds.length})
+              </button>
               <button
                 type="button"
                 disabled={selectedReviewIds.length === 0 || isProcessingReview}
@@ -4421,7 +4469,22 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center space-x-2 flex-wrap gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 text-[11px] font-semibold text-slate-400">
+                Sort:
+                <select
+                  value={reviewSortOrder}
+                  onChange={(e) => setReviewSortOrder(e.target.value as typeof reviewSortOrder)}
+                  className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none focus:border-indigo-500"
+                  aria-label="Sort review jobs by scrape or update date"
+                >
+                  <option value="latest">Latest scraped first</option>
+                  <option value="oldest">Oldest scraped first</option>
+                  <option value="updated_latest">Recently updated first</option>
+                  <option value="updated_oldest">Oldest updated first</option>
+                </select>
+              </label>
+              <div className="flex items-center space-x-2 flex-wrap gap-1">
               {(['all', 'pending', 'duplicate', 'conflict'] as const).map(type => (
                 <button
                   key={type}
@@ -4442,6 +4505,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     : `⚠️ Conflicts (${locationConflictCount})`}
                 </button>
               ))}
+              </div>
             </div>
           </div>
 
@@ -4583,6 +4647,18 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                       >
                         <Eye className="w-3.5 h-3.5" />
                         <span>Details</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingSelectedJobs([]);
+                          setEditingJob(job);
+                        }}
+                        className="px-3 py-1.5 bg-amber-950/50 hover:bg-amber-900/70 text-amber-200 border border-amber-700/50 rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer"
+                        title="Edit this job directly"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>Edit</span>
                       </button>
 
                       {isDup ? (
@@ -5864,11 +5940,12 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       {/* ============================================================= */}
       {/* MODAL: QUICK EDIT SCRAPED / LIVE JOB                         */}
       {/* ============================================================= */}
-      {editingJob && (
+      {(editingJob || editingSelectedJobs.length > 0) && (
         <AdminQuickEditJobModal
-          isOpen={!!editingJob}
+          isOpen={!!editingJob || editingSelectedJobs.length > 0}
           job={editingJob}
-          onClose={() => setEditingJob(null)}
+          selectedJobs={editingSelectedJobs}
+          onClose={() => { setEditingJob(null); setEditingSelectedJobs([]); }}
           onSaveJob={async (updatedJob) => {
             try {
               const res = await api.jobs.update(updatedJob.id, updatedJob);
@@ -5883,6 +5960,24 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               setStatusMessage({ text: `Update error: ${err.message}`, type: 'error' });
             } finally {
               setEditingJob(null);
+            }
+          }}
+          onBulkSaveJobs={async (updatedJobs) => {
+            try {
+              const res = await api.jobs.bulkUpdate(updatedJobs);
+              if (res && (res as any).success === false) {
+                setStatusMessage({ text: `Bulk update error: ${(res as any).message || 'Failed to update selected jobs'}`, type: 'error' });
+              } else {
+                setStatusMessage({ text: `Bulk update completed for ${updatedJobs.length} selected jobs.`, type: 'success' });
+                setSelectedReviewIds([]);
+                await fetchPendingQueue();
+                if (onReloadJobs) await onReloadJobs();
+              }
+            } catch (err: any) {
+              setStatusMessage({ text: `Bulk update error: ${err.message}`, type: 'error' });
+            } finally {
+              setEditingJob(null);
+              setEditingSelectedJobs([]);
             }
           }}
           onSaveAndApproveJob={async (updatedJob) => {

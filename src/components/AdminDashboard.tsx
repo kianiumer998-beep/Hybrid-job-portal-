@@ -84,6 +84,7 @@ import { safeLocalStorageSet, safeLocalStorageGet, safeAlert, clearBulkyStorageC
 import { AdminAdHub } from './ads/AdminAdHub';
 import { PdfConsolidatedScraperModal } from './PdfConsolidatedScraperModal';
 import { AdminQuickEditJobModal } from './admin/AdminQuickEditJobModal';
+import { AdminJobFilterPresets } from './admin/AdminJobFilterPresets';
 import { AdminDuplicateCheckerModal, DuplicateCluster } from './admin/AdminDuplicateCheckerModal';
 import { AdminSubscriberModal } from './admin/AdminSubscriberModal';
 import { JobVisibilityDefaultsManager } from './admin/JobVisibilityDefaultsManager';
@@ -4229,6 +4230,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
 
                 {/* Filters */}
+                <div className="w-full">
+                  <AdminJobFilterPresets
+                    storageKey="hybrid-admin-pending-job-filter-presets-v1"
+                    filters={{ search: pendingSearchQuery, category: pendingCategoryFilter, source: pendingSourceFilter, sort: pendingSortBy, completeness: pendingCompletenessFilter, portal: pendingPortalFilter, batch: pendingBatchFilter, city: pendingCityFilter, province: pendingProvinceFilter, scrapeDate: pendingScrapeDateFilter, location: pendingLocationFilter, expiry: pendingExpiryFilter, deadline: pendingDeadlineFilter, duplicatesOnly: showPendingDuplicatesOnly }}
+                    onApply={(values) => {
+                      setPendingSearchQuery(String(values.search ?? ''));
+                      setPendingCategoryFilter(String(values.category ?? 'all'));
+                      setPendingSourceFilter(String(values.source ?? 'all'));
+                      setPendingSortBy(String(values.sort ?? 'newest') as typeof pendingSortBy);
+                      setPendingCompletenessFilter(String(values.completeness ?? 'all') as typeof pendingCompletenessFilter);
+                      setPendingPortalFilter(String(values.portal ?? ''));
+                      setPendingBatchFilter(String(values.batch ?? ''));
+                      setPendingCityFilter(String(values.city ?? ''));
+                      setPendingProvinceFilter(String(values.province ?? 'all'));
+                      setPendingScrapeDateFilter(String(values.scrapeDate ?? 'all') as typeof pendingScrapeDateFilter);
+                      setPendingLocationFilter(String(values.location ?? 'all') as typeof pendingLocationFilter);
+                      setPendingExpiryFilter(String(values.expiry ?? 'all') as typeof pendingExpiryFilter);
+                      setPendingDeadlineFilter(String(values.deadline ?? 'all') as typeof pendingDeadlineFilter);
+                      setShowPendingDuplicatesOnly(values.duplicatesOnly === true);
+                      setSelectedPendingIds([]);
+                      setSelectedPendingJobCache([]);
+                    }}
+                  />
+                </div>
                 <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
                   <select
                     value={pendingCategoryFilter}
@@ -6365,6 +6390,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   )}
                 </div>
 
+                <div className="w-full">
+                  <AdminJobFilterPresets
+                    storageKey="hybrid-admin-live-job-filter-presets-v1"
+                    filters={{ search: jobsSearchQuery, category: jobsCategoryFilter, scale: jobsScaleFilter, province: jobsProvinceFilter, status: jobsStatusFilter, portal: jobsPortalFilter, batch: jobsBatchFilter, city: jobsCityFilter, scrapeDate: jobsScrapeDateFilter, completeness: jobsCompletenessFilter, location: jobsLocationFilter, expiry: jobsExpiryFilter, deadline: jobsDeadlineFilter, sort: jobsSortBy, duplicatesOnly: showJobsDuplicatesOnly }}
+                    onApply={(values) => {
+                      setJobsSearchQuery(String(values.search ?? ''));
+                      setJobsCategoryFilter(String(values.category ?? 'all'));
+                      setJobsScaleFilter(String(values.scale ?? 'all'));
+                      setJobsProvinceFilter(String(values.province ?? 'all'));
+                      setJobsStatusFilter(String(values.status ?? 'all'));
+                      setJobsPortalFilter(String(values.portal ?? ''));
+                      setJobsBatchFilter(String(values.batch ?? ''));
+                      setJobsCityFilter(String(values.city ?? ''));
+                      setJobsScrapeDateFilter(String(values.scrapeDate ?? 'all') as typeof jobsScrapeDateFilter);
+                      setJobsCompletenessFilter(String(values.completeness ?? 'all') as typeof jobsCompletenessFilter);
+                      setJobsLocationFilter(String(values.location ?? 'all') as typeof jobsLocationFilter);
+                      setJobsExpiryFilter(String(values.expiry ?? 'all') as typeof jobsExpiryFilter);
+                      setJobsDeadlineFilter(String(values.deadline ?? 'all') as typeof jobsDeadlineFilter);
+                      setJobsSortBy(String(values.sort ?? 'newest') as typeof jobsSortBy);
+                      setShowJobsDuplicatesOnly(values.duplicatesOnly === true);
+                      setSelectedJobIds([]);
+                    }}
+                  />
+                </div>
                 <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
                   <select
                     value={jobsCategoryFilter}

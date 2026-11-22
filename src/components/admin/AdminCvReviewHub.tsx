@@ -92,6 +92,19 @@ export const AdminCvReviewHub: React.FC = () => {
   };
 
   const extra: NonNullable<CvData['additionalSections']> = selected?.cvData.additionalSections || {};
+  const completeness = useMemo(() => {
+    if (!selected) return { percent: 0, missing: [] as string[] };
+    const p = selected.cvData.personalInfo;
+    const checks: Array<[string, boolean]> = [
+      ['Full name', Boolean(p.fullName.trim())], ['Professional title', Boolean(p.jobTitle.trim())],
+      ['Email', Boolean(p.email.trim())], ['Phone', Boolean(p.phone.trim())],
+      ['Location', Boolean(p.location.trim())], ['Professional summary', Boolean(p.summary.trim())],
+      ['Work experience or education', selected.cvData.experience.length > 0 || selected.cvData.education.length > 0],
+      ['At least one skill or language', [...selected.cvData.skills.technical, ...selected.cvData.skills.soft, ...selected.cvData.skills.languages].length > 0]
+    ];
+    const complete = checks.filter(([, ok]) => ok).length;
+    return { percent: Math.round((complete / checks.length) * 100), missing: checks.filter(([, ok]) => !ok).map(([label]) => label) };
+  }, [selected]);
   const lists: Array<[string, string[] | undefined]> = [
     ['Projects', extra.projects], ['Internships', extra.internships], ['Volunteer Work', extra.volunteerWork],
     ['Achievements & Awards', extra.achievements], ['Professional Training', extra.professionalTraining],
@@ -124,6 +137,11 @@ export const AdminCvReviewHub: React.FC = () => {
               <div><h3 className="text-lg font-black text-white">{selected.cvData.personalInfo.fullName || selected.name}</h3><p className="text-xs text-slate-400">{selected.cvData.personalInfo.jobTitle} · {selected.cvData.personalInfo.location}</p><p className="text-xs text-slate-500 mt-1">{selected.cvData.personalInfo.email} · {selected.cvData.personalInfo.phone}</p></div>
               <div className="flex gap-2 flex-wrap"><span className="text-[11px] px-2 py-1 rounded bg-slate-800">{selected.cvReview.status}</span><button type="button" onClick={printCandidateCv} className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs font-bold flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> Print / Save PDF</button><button type="button" onClick={downloadReviewData} className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs font-bold flex items-center gap-1"><Download className="w-3.5 h-3.5" /> Export Data</button></div>
             </div>
+            <div className="rounded-xl bg-slate-950 border border-slate-800 p-3">
+              <div className="flex items-center justify-between text-xs"><strong className="text-white">Profile completeness</strong><span className="text-emerald-300 font-bold">{completeness.percent}%</span></div>
+              <div className="h-1.5 rounded-full bg-slate-800 mt-2 overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${completeness.percent}%` }} /></div>
+              {completeness.missing.length > 0 && <p className="text-[10px] text-slate-400 mt-2">Missing: {completeness.missing.join(', ')}</p>}
+            </div>
             <div className="space-y-4 max-h-[55vh] overflow-y-auto pr-1">
               {selected.cvData.personalInfo.summary && <div><h4 className="text-xs font-black uppercase text-emerald-300 mb-1">Professional Summary</h4><p className="text-xs whitespace-pre-wrap">{selected.cvData.personalInfo.summary}</p></div>}
               {extra.objective && <div><h4 className="text-xs font-black uppercase text-emerald-300 mb-1">Career Objective</h4><p className="text-xs whitespace-pre-wrap">{extra.objective}</p></div>}
@@ -133,8 +151,10 @@ export const AdminCvReviewHub: React.FC = () => {
               <div><h4 className="text-xs font-black uppercase text-emerald-300 mb-1">Certifications</h4>{selected.cvData.certifications.map((e) => <p key={e.id} className="text-xs">{e.name} · {e.issuer} · {e.year}</p>)}{!selected.cvData.certifications.length && <p className="text-xs text-slate-500">No certifications.</p>}</div>
               {lists.map(([label, entries]) => entries?.length ? <div key={label}><h4 className="text-xs font-black uppercase text-emerald-300 mb-1">{label}</h4><ul className="list-disc pl-4 text-xs space-y-1">{entries.map((entry, i) => <li key={i}>{entry}</li>)}</ul></div> : null)}
               {(['careerGapExplanation', 'preferredEmploymentType', 'noticePeriod', 'domicile', 'professionalRegistration'] as const).map((field) => extra[field] ? <div key={field}><h4 className="text-xs font-black uppercase text-emerald-300 mb-1">{field.replace(/([A-Z])/g, ' $1')}</h4><p className="text-xs">{extra[field]}</p></div> : null)}
+              {selected.cvReview.history?.length ? <div><h4 className="text-xs font-black uppercase text-emerald-300 mb-2">Review History</h4><div className="space-y-2">{selected.cvReview.history.slice().reverse().map((entry, index) => <div key={`${entry.at}-${index}`} className="border-l-2 border-slate-700 pl-3"><p className="text-xs text-white font-bold">{entry.status}</p><p className="text-[10px] text-slate-500">{entry.at} · {entry.by}</p>{entry.note && <p className="text-xs text-slate-300 mt-1">{entry.note}</p>}</div>)}</div></div> : null}
               <div><h4 className="text-xs font-black uppercase text-emerald-300 mb-1">Reviewer Notes</h4><textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={3000} rows={4} placeholder="Tell the candidate what is good or what needs correction..." className="w-full p-3 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white" /></div>
             </div>
+            <p className="text-[10px] text-slate-500">“Verified” means an administrator reviewed the CV content. It does not independently authenticate degrees, licences or employment history.</p>
             <div className="flex flex-wrap gap-2 border-t border-slate-800 pt-4">
               <button type="button" disabled={saving} onClick={() => void updateStatus('Reviewed')} className="px-3 py-2 rounded-lg bg-sky-500/15 border border-sky-500/30 text-sky-200 text-xs font-bold disabled:opacity-50"><Eye className="inline w-3.5 h-3.5 mr-1" /> Mark Reviewed</button>
               <button type="button" disabled={saving} onClick={() => void updateStatus('Verified')} className="px-3 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 text-xs font-bold disabled:opacity-50"><BadgeCheck className="inline w-3.5 h-3.5 mr-1" /> Verify CV</button>

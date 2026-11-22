@@ -2080,6 +2080,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           });
         }
         setSelectedReviewIds([]);
+        setSelectedReviewJobCache([]);
         await fetchPendingQueue();
         if (onReloadJobs) await onReloadJobs();
       } else {
@@ -2111,6 +2112,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           });
         }
         setSelectedReviewIds([]);
+        setSelectedReviewJobCache([]);
         await fetchPendingQueue();
         if (onReloadJobs) await onReloadJobs();
       } else {
@@ -2142,6 +2144,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           });
         }
         setSelectedReviewIds([]);
+        setSelectedReviewJobCache([]);
         await fetchPendingQueue();
         if (onReloadJobs) await onReloadJobs();
       } else {
@@ -2173,7 +2176,8 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             type: 'success'
           });
         }
-        if (!singleId) setSelectedReviewIds([]);
+        if (!singleId) { setSelectedReviewIds([]); setSelectedReviewJobCache([]); }
+        setSelectedReviewJobCache([]);
         await fetchPendingQueue();
         if (onReloadJobs) await onReloadJobs();
       } else {
@@ -2205,7 +2209,8 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             type: 'success'
           });
         }
-        if (!singleId) setSelectedReviewIds([]);
+        if (!singleId) { setSelectedReviewIds([]); setSelectedReviewJobCache([]); }
+        setSelectedReviewJobCache([]);
         await fetchPendingQueue();
         if (onReloadJobs) await onReloadJobs();
       } else {
@@ -4515,6 +4520,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                       if (res?.success) {
                         setStatusMessage({ text: `Deleted ${res.deletedCount ?? selectedReviewIds.length} selected jobs.`, type: 'success' });
                         setSelectedReviewIds([]);
+                        setSelectedReviewJobCache([]);
                         await fetchPendingQueue();
                         if (onReloadJobs) await onReloadJobs();
                       } else {
@@ -4671,6 +4677,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   disabled={(pendingPage ?? 1) <= 1}
                   onClick={() => {
                     setSelectedReviewIds([]);
+                    setSelectedReviewJobCache([]);
                     if (onPendingPageChange) onPendingPageChange((pendingPage ?? 1) - 1, pendingLimit);
                   }}
                   className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 font-bold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
@@ -4682,6 +4689,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   disabled={(pendingPage ?? 1) >= (pendingTotalPages ?? 1)}
                   onClick={() => {
                     setSelectedReviewIds([]);
+                    setSelectedReviewJobCache([]);
                     if (onPendingPageChange) onPendingPageChange((pendingPage ?? 1) + 1, pendingLimit);
                   }}
                   className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 font-bold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"

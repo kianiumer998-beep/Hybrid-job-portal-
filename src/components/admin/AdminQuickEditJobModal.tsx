@@ -79,55 +79,13 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
   const activeBulkJobs = propSelectedJobs || propJobs || [];
   const isBulkMode = activeBulkJobs.length > 1 || (activeBulkJobs.length === 1 && !job);
   const selectedJobs = activeBulkJobs;
-  const [isSubmit  const [bulkFields, setBulkFields] = useState(createDefaultBulkFields);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [bulkFields, setBulkFields] = useState(createDefaultBulkFields);
   const selectedJobKey = selectedJobs.map(selectedJob => selectedJob.id).join('|');
 
   useEffect(() => {
     if (isOpen && isBulkMode) setBulkFields(createDefaultBulkFields());
-  }, [isOpen, isBulkMode, selectedJobKey]);[bulkFields, setBulkFields] = useState({
-    applyCategory: false,
-    jobCategory: 'Government Sector',
-    applyGovtScale: false,
-    govtScale: 'BPS-17',
-    applyStatus: false,
-    status: 'Approved' as JobStatus,
-    applyRegion: false,
-    region: 'Pakistan' as Region,
-    applyProvince: false,
-    province: 'Punjab',
-    applyCity: false,
-    city: 'Islamabad',
-    applyJobType: false,
-    jobType: 'On-site' as JobType,
-    applyDeadline: false,
-    deadlineDate: '2026-12-31',
-    applyFeatured: false,
-    featured: true,
-    applyUrgent: false,
-    urgent: true,
-    applyTags: false,
-    tagsToAdd: 'Verified, Recommended',
-    applyCountry: false,
-    country: 'Pakistan',
-    applyDistrict: false,
-    district: '',
-    applyLocationConfirmed: false,
-    locationConfirmed: true,
-    applyExpiry: false,
-    expiryDate: '',
-    applyApplyUrl: false,
-    applicationUrl: '',
-    applySourceUrl: false,
-    sourceUrl: '',
-    applySourcePortal: false,
-    sourcePortal: '',
-    applyCompany: false,
-    company: '',
-    applyDescription: false,
-    description: '',
-    applyRequirements: false,
-    requirementsText: ''
-  });
+  }, [isOpen, isBulkMode, selectedJobKey]);
 
   const [tagInput, setTagInput] = useState('');
 

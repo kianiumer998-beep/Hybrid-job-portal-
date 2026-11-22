@@ -171,9 +171,18 @@ function buildAuthoritativeDefaults(): any {
     },
     subscriptionPackages: [],
     cvBuilder: {
-      standardPdfExportPkr: 0,
-      premiumAiOptimizerPkr: 500,
-      unlimitedTemplatesPkr: 1000
+      standardPdfExportPkr: 0, pdfExportEnabled: true, pdfExportPkr: 0,
+      atsTextExportEnabled: true, atsTextExportPkr: 0,
+      premiumAiOptimizerPkr: 500, unlimitedTemplatesPkr: 1000,
+      freeDesignLimit: 2, freeCvLimit: 1, premiumCvLimit: 10, watermarkEnabled: true, watermarkFreeOnly: true,
+      watermarkText: 'Hybrid Job Portal', watermarkOpacity: 0.16,
+      templates: [
+        { id: 'modern', name: 'Modern Clean', enabled: true, free: true, pricePkr: 0 },
+        { id: 'executive', name: 'Executive Dark Sidebar', enabled: true, free: false, pricePkr: 300 },
+        { id: 'tech', name: 'Tech Minimalist', enabled: true, free: false, pricePkr: 300 },
+        { id: 'classic', name: 'Classic Corporate', enabled: true, free: false, pricePkr: 200 },
+        { id: 'ats', name: 'ATS Plain Text', enabled: true, free: true, pricePkr: 0 }
+      ]
     },
     addons: {
       highlightColor: 1000,
@@ -213,6 +222,55 @@ function deepMergePricing(base: any, incoming: any): any {
 
   const srcSlot = src.jobPosting?.homepagePrioritySlotConfig || {};
   const baseSlot = base.jobPosting?.homepagePrioritySlotConfig || DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG;
+  const baseCvBuilder = base.cvBuilder || {};
+  const srcCvBuilder = src.cvBuilder && typeof src.cvBuilder === 'object' ? src.cvBuilder : {};
+  const defaultCvTemplates = [
+    { id: 'modern', name: 'Modern Clean', enabled: true, free: true, pricePkr: 0 },
+    { id: 'executive', name: 'Executive Dark Sidebar', enabled: true, free: false, pricePkr: 300 },
+    { id: 'tech', name: 'Tech Minimalist', enabled: true, free: false, pricePkr: 300 },
+    { id: 'classic', name: 'Classic Corporate', enabled: true, free: false, pricePkr: 200 },
+    { id: 'ats', name: 'ATS Plain Text', enabled: true, free: true, pricePkr: 0 }
+  ];
+  const templateDefaults = Array.isArray(baseCvBuilder.templates) && baseCvBuilder.templates.length
+    ? baseCvBuilder.templates
+    : defaultCvTemplates;
+  const requestedTemplates = Array.isArray(srcCvBuilder.templates) ? srcCvBuilder.templates : templateDefaults;
+  const allowedCvTemplateIds = new Set(['modern', 'executive', 'tech', 'classic', 'ats']);
+  const cvTemplates = templateDefaults
+    .filter((entry: any) => entry && allowedCvTemplateIds.has(String(entry.id)))
+    .map((fallback: any) => {
+      const item = requestedTemplates.find((entry: any) => entry && String(entry.id) === String(fallback.id)) || fallback;
+      const price = Number(item.pricePkr ?? fallback.pricePkr ?? 0);
+      return {
+        id: String(fallback.id),
+        name: String(item.name || fallback.name || fallback.id).trim().slice(0, 80) || String(fallback.id),
+        enabled: item.enabled === undefined ? fallback.enabled !== false : item.enabled === true,
+        free: item.free === undefined ? fallback.free === true : item.free === true,
+        pricePkr: Number.isFinite(price) ? Math.min(10000000, Math.max(0, price)) : 0
+      };
+    });
+  const cvBuilder = {
+    ...baseCvBuilder,
+    ...srcCvBuilder,
+    freeCvLimit: Number.isFinite(Number(srcCvBuilder.freeCvLimit)) ? Math.min(10, Math.max(0, Math.floor(Number(srcCvBuilder.freeCvLimit)))) : Math.min(10, Math.max(0, Math.floor(Number(baseCvBuilder.freeCvLimit ?? 1)))),
+    premiumCvLimit: Number.isFinite(Number(srcCvBuilder.premiumCvLimit)) ? Math.min(10, Math.max(1, Math.floor(Number(srcCvBuilder.premiumCvLimit)))) : Math.min(10, Math.max(1, Math.floor(Number(baseCvBuilder.premiumCvLimit ?? 10)))),
+    freeDesignLimit: Number.isFinite(Number(srcCvBuilder.freeDesignLimit))
+      ? Math.min(5, Math.max(0, Math.floor(Number(srcCvBuilder.freeDesignLimit))))
+      : Math.min(5, Math.max(0, Math.floor(Number(baseCvBuilder.freeDesignLimit ?? 2)))),
+    pdfExportEnabled: srcCvBuilder.pdfExportEnabled === undefined ? baseCvBuilder.pdfExportEnabled !== false : srcCvBuilder.pdfExportEnabled === true,
+    pdfExportPkr: Math.min(10000000, Math.max(0, Number(srcCvBuilder.pdfExportPkr ?? srcCvBuilder.standardPdfExportPkr ?? baseCvBuilder.pdfExportPkr ?? 0) || 0)),
+    atsTextExportEnabled: srcCvBuilder.atsTextExportEnabled === undefined ? baseCvBuilder.atsTextExportEnabled !== false : srcCvBuilder.atsTextExportEnabled === true,
+    atsTextExportPkr: Math.min(10000000, Math.max(0, Number(srcCvBuilder.atsTextExportPkr ?? baseCvBuilder.atsTextExportPkr ?? 0) || 0)),
+    watermarkEnabled: srcCvBuilder.watermarkEnabled === undefined ? baseCvBuilder.watermarkEnabled !== false : srcCvBuilder.watermarkEnabled === true,
+    watermarkFreeOnly: srcCvBuilder.watermarkFreeOnly === undefined ? baseCvBuilder.watermarkFreeOnly !== false : srcCvBuilder.watermarkFreeOnly === true,
+    watermarkText: typeof srcCvBuilder.watermarkText === 'string'
+      ? srcCvBuilder.watermarkText.trim().slice(0, 80)
+      : String(baseCvBuilder.watermarkText || 'Hybrid Job Portal').slice(0, 80),
+    watermarkOpacity: Number.isFinite(Number(srcCvBuilder.watermarkOpacity))
+      ? Math.min(0.35, Math.max(0.05, Number(srcCvBuilder.watermarkOpacity)))
+      : Math.min(0.35, Math.max(0.05, Number(baseCvBuilder.watermarkOpacity ?? 0.16))),
+    templates: cvTemplates.length ? cvTemplates : templateDefaults
+  };
 
   const srcLanding = src.landingPageConfig || {};
   const baseLanding = base.landingPageConfig || DEFAULT_LANDING_PAGE_CONFIG;
@@ -334,10 +392,7 @@ function deepMergePricing(base: any, incoming: any): any {
       ...(base.addons || {}),
       ...(src.addons || {})
     },
-    cvBuilder: {
-      ...(base.cvBuilder || {}),
-      ...(src.cvBuilder || {})
-    },
+    cvBuilder,
     advertisements: {
       ...(base.advertisements || {}),
       ...(src.advertisements || {})
@@ -538,9 +593,45 @@ export class PricingRepository {
     }
 
     if (updates.cvBuilder) {
-      if (updates.cvBuilder.standardPdfExportPkr !== undefined) validateNonNegativeNumber(updates.cvBuilder.standardPdfExportPkr, 'cvBuilder.standardPdfExportPkr');
-      if (updates.cvBuilder.premiumAiOptimizerPkr !== undefined) validateNonNegativeNumber(updates.cvBuilder.premiumAiOptimizerPkr, 'cvBuilder.premiumAiOptimizerPkr');
-      if (updates.cvBuilder.unlimitedTemplatesPkr !== undefined) validateNonNegativeNumber(updates.cvBuilder.unlimitedTemplatesPkr, 'cvBuilder.unlimitedTemplatesPkr');
+      const cv = updates.cvBuilder;
+      for (const field of ['standardPdfExportPkr', 'pdfExportPkr', 'atsTextExportPkr', 'premiumAiOptimizerPkr', 'unlimitedTemplatesPkr'] as const) {
+        if (cv[field] !== undefined) validateNonNegativeNumber(cv[field], `cvBuilder.${field}`, 10000000);
+      }
+      if (cv.freeCvLimit !== undefined && (!Number.isInteger(Number(cv.freeCvLimit)) || Number(cv.freeCvLimit) < 0 || Number(cv.freeCvLimit) > 10)) {
+        throw new Error('cvBuilder.freeCvLimit must be a whole number between 0 and 10.');
+      }
+      if (cv.freeDesignLimit !== undefined && (!Number.isInteger(Number(cv.freeDesignLimit)) || Number(cv.freeDesignLimit) < 0 || Number(cv.freeDesignLimit) > 5)) {
+        throw new Error('cvBuilder.freeDesignLimit must be a whole number between 0 and 5.');
+      }
+      if (cv.premiumCvLimit !== undefined && (!Number.isInteger(Number(cv.premiumCvLimit)) || Number(cv.premiumCvLimit) < 1 || Number(cv.premiumCvLimit) > 10)) {
+        throw new Error('cvBuilder.premiumCvLimit must be a whole number between 1 and 10.');
+      }
+      if (cv.watermarkOpacity !== undefined && (!Number.isFinite(Number(cv.watermarkOpacity)) || Number(cv.watermarkOpacity) < 0.05 || Number(cv.watermarkOpacity) > 0.35)) {
+        throw new Error('cvBuilder.watermarkOpacity must be between 0.05 and 0.35.');
+      }
+      if (cv.watermarkText !== undefined && (typeof cv.watermarkText !== 'string' || cv.watermarkText.length > 80)) {
+        throw new Error('cvBuilder.watermarkText must be text with a maximum of 80 characters.');
+      }
+      for (const field of ['pdfExportEnabled', 'atsTextExportEnabled', 'watermarkEnabled', 'watermarkFreeOnly'] as const) {
+        if (cv[field] !== undefined && typeof cv[field] !== 'boolean') {
+          throw new Error(`cvBuilder.${field} must be a boolean.`);
+        }
+      }
+      if (cv.templates !== undefined) {
+        if (!Array.isArray(cv.templates) || cv.templates.length > 5) throw new Error('cvBuilder.templates must be an array with no more than five designs.');
+        const allowed = new Set(['modern', 'executive', 'tech', 'classic', 'ats']);
+        const seen = new Set<string>();
+        for (const template of cv.templates) {
+          if (!template || typeof template !== 'object' || !allowed.has(String(template.id)) || seen.has(String(template.id))) {
+            throw new Error('Each CV design must use a unique supported design ID.');
+          }
+          seen.add(String(template.id));
+          if (template.name !== undefined && (typeof template.name !== 'string' || !template.name.trim() || template.name.length > 80)) throw new Error(`CV design ${template.id} name must contain 1 to 80 characters.`);
+          if (template.enabled !== undefined && typeof template.enabled !== 'boolean') throw new Error(`CV design ${template.id} enabled must be a boolean.`);
+          if (template.free !== undefined && typeof template.free !== 'boolean') throw new Error(`CV design ${template.id} free must be a boolean.`);
+          if (template.pricePkr !== undefined) validateNonNegativeNumber(template.pricePkr, `cvBuilder.templates.${template.id}.pricePkr`, 10000000);
+        }
+      }
     }
 
     // Category fees update precedence without resurrecting deleted entries from stale current fields

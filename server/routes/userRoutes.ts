@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import path from 'path';
 import { Database } from '../db/database';
-import { AuditRepository, PaymentRepository, UserRepository } from '../db/repositories';
+import { AuditRepository, PaymentRepository, PricingRepository, UserRepository } from '../db/repositories';
 import { requireAdminPermission, requireAuth, hasAdminPermission, getPermissionsForRole } from '../auth/authManager';
 
 export const userRouter = Router();
@@ -29,6 +29,7 @@ const ALLOWED_NORMAL_USER_FIELDS = new Set([
   'cvUrl',
   'resumeUrl',
   'cvData',
+  'cvDocuments',
   'socialLinks',
   'notificationsEnabled',
   'whatsappAlertsEnabled'
@@ -146,7 +147,21 @@ function validateCvDataPayload(value: unknown): string | null {
     }
   }
 
-  if (!['modern', 'executive', 'tech', 'classic'].includes(data.templateStyle)) {
+  if (data.additionalSections !== undefined) {
+    const extra = data.additionalSections;
+    if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return 'CV additional sections must be an object.';
+    const textFields = ['objective', 'careerGapExplanation', 'preferredEmploymentType', 'noticePeriod', 'domicile', 'professionalRegistration'];
+    for (const field of textFields) {
+      if (extra[field] !== undefined && (typeof extra[field] !== 'string' || extra[field].length > 5000)) return `CV additional field '${field}' must be text with a maximum of 5000 characters.`;
+    }
+    const listFields = ['projects', 'internships', 'volunteerWork', 'achievements', 'professionalTraining', 'relevantCoursework', 'publications', 'references'];
+    for (const field of listFields) {
+      if (extra[field] !== undefined && (!Array.isArray(extra[field]) || extra[field].length > 50 ||
+        extra[field].some((item: unknown) => typeof item !== 'string' || item.length > 2000))) return `CV additional field '${field}' must contain no more than 50 text entries (2000 characters each).`;
+    }
+  }
+
+  if (!['modern', 'executive', 'tech', 'classic', 'ats'].includes(data.templateStyle)) {
     return 'CV template style is invalid.';
   }
   if (typeof data.themeColor !== 'string' || !/^#[0-9a-f]{6}$/i.test(data.themeColor)) {
@@ -211,6 +226,7 @@ userRouter.get('/', requireAdminPermission('users.manage'), async (req, res) => 
       delete safe.salt;
       delete safe.password;
       delete safe.cvData;
+      delete safe.cvDocuments;
       delete safe.walletEscrowOperations;
       safe.permissions = getPermissionsForRole(u.role);
       return safe;
@@ -537,11 +553,12 @@ userRouter.get('/:id', requireAuth, async (req: any, res) => {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
-    const { passwordHash, salt, password, cvData, ...safeUser } = user;
+    const { passwordHash, salt, password, cvData, cvDocuments, ...safeUser } = user;
     delete safeUser.walletEscrowOperations;
-    // Only return the private CV draft to its owner, never to an administrator viewing another account.
-    if (String(id) === String(currentUserId) && cvData !== undefined) {
-      safeUser.cvData = cvData;
+    // CV drafts and saved CV documents are private to their owner, not exposed to administrators viewing another account.
+    if (String(id) === String(currentUserId)) {
+      if (cvData !== undefined) safeUser.cvData = cvData;
+      if (cvDocuments !== undefined) safeUser.cvDocuments = cvDocuments;
     }
     res.json({ success: true, user: safeUser });
   } catch (err: any) {
@@ -609,6 +626,9 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
             message: `Unsupported field '${key}' in admin user update payload.`
           });
         }
+        if (id !== currentUserId && (key === 'cvData' || key === 'cvDocuments')) {
+          return res.status(403).json({ success: false, message: 'CV content is private and can only be changed by its owner.' });
+        }
 
         if (key === 'plan') {
           if (typeof value !== 'string' || !VALID_USER_PLANS.has(value)) {
@@ -671,6 +691,9 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
             return res.status(400).json({ success: false, message: cvDataError });
           }
           finalUpdates[key] = value;
+        } else if (key === 'cvDocuments') {
+          if (!Array.isArray(value) || value.length > 10) return res.status(400).json({ success: false, message: 'CV documents must be an array with no more than 10 entries.' });
+          finalUpdates[key] = value;
         } else if (key === 'skills') {
           if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) {
             return res.status(400).json({ success: false, message: "Field 'skills' must be an array of strings." });
@@ -704,6 +727,76 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
           message: 'Access denied: Only a Super Admin can modify a Super Admin account.'
         });
       }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(finalUpdates, 'cvDocuments') || Object.prototype.hasOwnProperty.call(finalUpdates, 'cvData')) {
+      const cvOwner = await UserRepository.getByIdAsync(id);
+      if (!cvOwner) return res.status(404).json({ success: false, message: 'User not found.' });
+      const documents = Object.prototype.hasOwnProperty.call(finalUpdates, 'cvDocuments') ? finalUpdates.cvDocuments : [];
+      if (Object.prototype.hasOwnProperty.call(finalUpdates, 'cvDocuments') && (!Array.isArray(documents) || documents.length > 10)) return res.status(400).json({ success: false, message: 'CV documents must be an array with no more than 10 entries.' });
+      const seenIds = new Set<string>();
+      for (const document of documents) {
+        if (!document || typeof document !== 'object' || Array.isArray(document) ||
+          typeof document.id !== 'string' || !document.id.trim() || document.id.length > 100 ||
+          typeof document.title !== 'string' || document.title.length > 120 ||
+          typeof document.updatedAt !== 'string' || document.updatedAt.length > 50 ||
+          seenIds.has(document.id)) {
+          return res.status(400).json({ success: false, message: 'One or more saved CV document records are invalid.' });
+        }
+        seenIds.add(document.id);
+        const documentError = validateCvDataPayload(document.data);
+        if (documentError) return res.status(400).json({ success: false, message: documentError });
+      }
+      if (!isAdmin) {
+        const pricing = await PricingRepository.get();
+        const cvTemplates = Array.isArray(pricing?.cvBuilder?.templates) ? pricing.cvBuilder.templates : [];
+        const freeDesignLimit = Math.min(5, Math.max(0, Math.floor(Number(pricing?.cvBuilder?.freeDesignLimit ?? 2))));
+        const freeTemplateIds = new Set(cvTemplates
+          .filter((item: any) => item && item.enabled !== false && item.free === true)
+          .slice(0, freeDesignLimit)
+          .map((item: any) => String(item.id)));
+        const purchasedTemplateIds = new Set((Array.isArray(cvOwner.cvDesignEntitlements) ? cvOwner.cvDesignEntitlements : [])
+          .map((item: any) => String(item?.templateId || '')));
+        const membershipStatusForAccess = String(cvOwner.membershipStatus || '').trim();
+        const membershipTierForAccess = String(cvOwner.membershipTier || '').trim();
+        const inactiveStatusesForAccess = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled']);
+        const premiumAccess = !inactiveStatusesForAccess.has(membershipStatusForAccess) && (
+          (membershipStatusForAccess === 'Active' && Boolean(membershipTierForAccess) && membershipTierForAccess.toLowerCase() !== 'free') ||
+          cvOwner.plan === 'Premium' ||
+          (cvOwner.paymentStatus === 'Paid' && membershipStatusForAccess === 'Active')
+        );
+        const candidateCvPayloads = [
+          ...(Object.prototype.hasOwnProperty.call(finalUpdates, 'cvData') ? [finalUpdates.cvData] : []),
+          ...(Array.isArray(documents) ? documents.map((document: any) => document.data) : [])
+        ];
+        for (const cvPayload of candidateCvPayloads) {
+          const templateId = String(cvPayload?.templateStyle || '');
+          const template = cvTemplates.find((item: any) => String(item?.id || '') === templateId);
+          if (!template || (template.enabled === false && !purchasedTemplateIds.has(templateId))) {
+            return res.status(403).json({ success: false, message: 'This CV design is not currently available.' });
+          }
+          if (!premiumAccess && !freeTemplateIds.has(templateId) && !purchasedTemplateIds.has(templateId)) {
+            return res.status(403).json({ success: false, message: 'Purchase this Premium CV design or activate a Premium membership before saving it.' });
+          }
+        }
+        const freeLimit = Math.min(10, Math.max(0, Math.floor(Number(pricing?.cvBuilder?.freeCvLimit ?? 1))));
+        const premiumLimit = Math.min(10, Math.max(1, Math.floor(Number(pricing?.cvBuilder?.premiumCvLimit ?? 10))));
+        const membershipStatus = String(cvOwner.membershipStatus || '').trim();
+        const membershipTier = String(cvOwner.membershipTier || '').trim();
+        const inactiveStatuses = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled']);
+        const premiumActive = !inactiveStatuses.has(membershipStatus) && (
+          (membershipStatus === 'Active' && Boolean(membershipTier) && membershipTier.toLowerCase() !== 'free') ||
+          cvOwner.plan === 'Premium' ||
+          (cvOwner.paymentStatus === 'Paid' && membershipStatus === 'Active')
+        );
+        const maxAllowed = premiumActive ? premiumLimit : freeLimit;
+        const existingIds = new Set((Array.isArray(cvOwner.cvDocuments) ? cvOwner.cvDocuments : []).map((item: any) => String(item?.id || '')));
+        const addsNewDocument = Array.isArray(documents) && documents.some((document: any) => !existingIds.has(document.id));
+        if (Array.isArray(documents) && documents.length > maxAllowed && addsNewDocument) {
+          return res.status(403).json({ success: false, message: `Your current CV limit is ${maxAllowed}. Upgrade your plan or contact the administrator to increase it.` });
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(finalUpdates, 'cvDocuments')) finalUpdates.cvDocuments = documents;
     }
 
     // Defensive safeguard: never allow updating passwordHash, salt, password, role, permissions, walletBalance, or primary ID

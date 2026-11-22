@@ -68,9 +68,18 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
       govtAlertsWeeklyPkr: 400
     },
     cvBuilder: {
-      standardPdfExportPkr: 0,
-      premiumAiOptimizerPkr: 500,
-      unlimitedTemplatesPkr: 1000
+      standardPdfExportPkr: 0, pdfExportEnabled: true, pdfExportPkr: 0,
+      atsTextExportEnabled: true, atsTextExportPkr: 0,
+      premiumAiOptimizerPkr: 500, unlimitedTemplatesPkr: 1000,
+      freeDesignLimit: 2, freeCvLimit: 1, premiumCvLimit: 10, watermarkEnabled: true, watermarkFreeOnly: true,
+      watermarkText: 'Hybrid Job Portal', watermarkOpacity: 0.16,
+      templates: [
+        { id: 'modern', name: 'Modern Clean', enabled: true, free: true, pricePkr: 0 },
+        { id: 'executive', name: 'Executive Dark Sidebar', enabled: true, free: false, pricePkr: 300 },
+        { id: 'tech', name: 'Tech Minimalist', enabled: true, free: false, pricePkr: 300 },
+        { id: 'classic', name: 'Classic Corporate', enabled: true, free: false, pricePkr: 200 },
+        { id: 'ats', name: 'ATS Plain Text', enabled: true, free: true, pricePkr: 0 }
+      ]
     }
   });
 
@@ -98,7 +107,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
           jobPosting: { ...prev.jobPosting, ...(data.pricing.jobPosting || {}) },
           advertisements: { ...prev.advertisements, ...(data.pricing.advertisements || {}) },
           subscriptions: { ...prev.subscriptions, ...(data.pricing.subscriptions || {}) },
-          cvBuilder: { ...prev.cvBuilder, ...(data.pricing.cvBuilder || {}) }
+          cvBuilder: { ...prev.cvBuilder, ...(data.pricing.cvBuilder || {}), templates: Array.isArray(data.pricing.cvBuilder?.templates) ? data.pricing.cvBuilder.templates : prev.cvBuilder.templates }
         }));
       } else {
         setLoadError(data?.message || 'Failed to load authoritative pricing configuration.');
@@ -748,45 +757,38 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
           </div>
         </div>
 
-        {/* 4. CV Builder Tools */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-          <div className="flex items-center space-x-2.5 border-b border-slate-800 pb-4">
-            <Sliders className="w-5 h-5 text-purple-400" />
-            <h3 className="font-bold text-white text-base">Professional CV Builder Upgrades</h3>
+        {/* 4. CV Builder Access, Designs & Export Policy */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 lg:col-span-2">
+          <div className="border-b border-slate-800 pb-4"><h3 className="font-bold text-white text-base">CV Builder Access & Monetization</h3><p className="text-xs text-slate-400 mt-1">Control free designs, one-time Premium design prices, export availability and website watermark. A purchased design remains unlocked on the member account.</p></div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+            <label className="rounded-xl border border-slate-800 bg-slate-950 p-3 text-slate-300">Maximum CVs for free members<input type="number" min="0" max="10" value={pricing.cvBuilder?.freeCvLimit ?? 1} onChange={(e) => updateNested('cvBuilder', 'freeCvLimit', Math.max(0, Math.min(10, Math.floor(Number(e.target.value) || 0))))} className="mt-2 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white" /></label>
+            <label className="rounded-xl border border-slate-800 bg-slate-950 p-3 text-slate-300">Maximum CVs for premium members<input type="number" min="1" max="10" value={pricing.cvBuilder?.premiumCvLimit ?? 10} onChange={(e) => updateNested('cvBuilder', 'premiumCvLimit', Math.max(1, Math.min(10, Math.floor(Number(e.target.value) || 1))))} className="mt-2 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white" /></label>
+            <label className="rounded-xl border border-slate-800 bg-slate-950 p-3 text-slate-300">Maximum free designs<input type="number" min="0" max="5" value={pricing.cvBuilder?.freeDesignLimit ?? 2} onChange={(e) => updateNested('cvBuilder', 'freeDesignLimit', Math.max(0, Math.min(5, Math.floor(Number(e.target.value) || 0))))} className="mt-2 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white" /></label>
           </div>
-
-          <div className="space-y-3 text-sm">
-            <div className="flex items-center justify-between p-3 bg-slate-950/60 rounded-xl border border-slate-800">
-              <div>
-                <span className="font-semibold text-white block">Standard PDF CV Export</span>
-                <span className="text-xs text-slate-400">Default clean ATS export</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="number"
-                  value={pricing.cvBuilder?.standardPdfExportPkr || 0}
-                  onChange={(e) => updateNested('cvBuilder', 'standardPdfExportPkr', Number(e.target.value))}
-                  className="w-28 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
-                />
-                <span className="text-xs text-slate-400">PKR</span>
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            {[
+              { field: 'pdfExportEnabled', label: 'Allow PDF export for free members' },
+              { field: 'atsTextExportEnabled', label: 'Allow ATS text export for free members' },
+              { field: 'watermarkEnabled', label: 'Enable website watermark' },
+              { field: 'watermarkFreeOnly', label: 'Apply watermark to free-member exports only' }
+            ].map((item) => <label key={item.field} className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950 p-3 text-slate-300"><span>{item.label}</span><input type="checkbox" checked={pricing.cvBuilder?.[item.field] !== false} onChange={(e) => updateNested('cvBuilder', item.field, e.target.checked)} className="h-4 w-4" /></label>)}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="text-xs text-slate-400">Watermark text / website branding<input type="text" maxLength={80} value={pricing.cvBuilder?.watermarkText || 'Hybrid Job Portal'} onChange={(e) => updateNested('cvBuilder', 'watermarkText', e.target.value)} className="mt-1 w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white" /></label>
+            <label className="text-xs text-slate-400">Watermark opacity (0.05–0.35)<input type="number" min="0.05" max="0.35" step="0.01" value={pricing.cvBuilder?.watermarkOpacity ?? 0.16} onChange={(e) => updateNested('cvBuilder', 'watermarkOpacity', Math.max(0.05, Math.min(0.35, Number(e.target.value) || 0.16)))} className="mt-1 w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white" /></label>
+          </div>
+          <div className="space-y-3"><div><h4 className="text-sm font-bold text-white">Individual CV Design Controls</h4><p className="text-[11px] text-slate-400">Enable/hide each design, mark it free or premium and set its individual price.</p></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {(pricing.cvBuilder?.templates || []).map((template: any, index: number) => <div key={template.id} className="rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-3">
+                <div className="flex items-center justify-between gap-2"><input aria-label={`CV design ${index + 1} name`} type="text" maxLength={80} value={template.name || ''} onChange={(e) => { const templates = [...(pricing.cvBuilder?.templates || [])]; templates[index] = { ...templates[index], name: e.target.value }; updateNested('cvBuilder', 'templates', templates); }} className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm font-bold text-white" /><label className="flex items-center gap-2 text-[11px] text-slate-400">Available<input type="checkbox" checked={template.enabled !== false} onChange={(e) => { const templates = [...(pricing.cvBuilder?.templates || [])]; templates[index] = { ...templates[index], enabled: e.target.checked }; updateNested('cvBuilder', 'templates', templates); }} /></label></div>
+                <div className="flex items-center justify-between gap-3"><label className="flex items-center gap-2 text-xs text-slate-300">Free for free members<input type="checkbox" checked={template.free === true} onChange={(e) => { const templates = [...(pricing.cvBuilder?.templates || [])]; templates[index] = { ...templates[index], free: e.target.checked }; updateNested('cvBuilder', 'templates', templates); }} /></label><label className="text-[11px] text-slate-400">Price (PKR)<input type="number" min="0" value={template.pricePkr ?? 0} onChange={(e) => { const templates = [...(pricing.cvBuilder?.templates || [])]; templates[index] = { ...templates[index], pricePkr: Math.max(0, Number(e.target.value) || 0) }; updateNested('cvBuilder', 'templates', templates); }} className="ml-2 w-24 px-2 py-1.5 rounded bg-slate-900 border border-slate-700 text-white" /></label></div>
+              </div>)}
             </div>
-
-            <div className="flex items-center justify-between p-3 bg-slate-950/60 rounded-xl border border-slate-800">
-              <div>
-                <span className="font-semibold text-purple-300 block">AI Job Matching & Optimizer</span>
-                <span className="text-xs text-slate-400">Tailors resume keywords directly to vacancies</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="number"
-                  value={pricing.cvBuilder?.premiumAiOptimizerPkr || 0}
-                  onChange={(e) => updateNested('cvBuilder', 'premiumAiOptimizerPkr', Number(e.target.value))}
-                  className="w-28 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
-                />
-                <span className="text-xs text-slate-400">PKR</span>
-              </div>
-            </div>
+          </div>
+          <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/60 p-3">
+            <div className="text-xs font-bold text-slate-300">Future AI CV Optimizer price (PKR)</div>
+            <p className="mt-1 text-[10px] text-amber-300">Configuration is retained for compatibility. AI CV optimization is not currently enabled for candidates and this value does not trigger a payment.</p>
+            <input type="number" min="0" value={pricing.cvBuilder?.premiumAiOptimizerPkr ?? 500} onChange={(e) => updateNested('cvBuilder', 'premiumAiOptimizerPkr', Math.max(0, Number(e.target.value) || 0))} className="mt-2 w-full max-w-xs rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
           </div>
         </div>
 

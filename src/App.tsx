@@ -9,6 +9,7 @@ import { CandidateApplicationModal } from './components/CandidateApplicationModa
 import { SubscriptionModal } from './components/SubscriptionModal';
 import { CvBuilder } from './components/CvBuilder';
 import { CvPaywallModal } from './components/CvPaywallModal';
+import { CvDesignCheckoutModal } from './components/CvDesignCheckoutModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { AdminDashboard } from './components/AdminDashboard';
 import { CompleteFeeConfigSavePayload } from './components/admin/AdminFeeManager';
@@ -647,6 +648,7 @@ export default function App() {
   // Per-Job Posting Fee & Priority Placement Pricing Configuration State (Authoritative Backend /api/pricing)
   const [jobPostingFeePkr, setJobPostingFeePkr] = useState<number>(DEFAULT_JOB_POSTING_PRICING_CONFIG.standardFeePkr);
   const [jobPostingPricing, setJobPostingPricing] = useState<JobPostingPricingConfig>(DEFAULT_JOB_POSTING_PRICING_CONFIG);
+  const [cvBuilderSettings, setCvBuilderSettings] = useState<any>({});
 
   const [isPricingLoading, setIsPricingLoading] = useState<boolean>(true);
   const [pricingLoadError, setPricingLoadError] = useState<string | null>(null);
@@ -654,6 +656,7 @@ export default function App() {
 
   const applyAuthoritativePricing = useCallback((pricingData: any) => {
     if (!pricingData || typeof pricingData !== 'object') return;
+    if (pricingData.cvBuilder && typeof pricingData.cvBuilder === 'object') setCvBuilderSettings(pricingData.cvBuilder);
 
     if (pricingData.adPricingConfig) {
       setPricingConfig({
@@ -1589,6 +1592,7 @@ export default function App() {
   const [selectedGate, setSelectedGate] = useState<any>(null);
   const [selectedJobTitleForSub, setSelectedJobTitleForSub] = useState<string>('');
   const [cvPaywallOpen, setCvPaywallOpen] = useState<boolean>(false);
+  const [cvDesignCheckout, setCvDesignCheckout] = useState<{ templateId: string; templateName: string; pricePkr: number } | null>(null);
   const [adminLoginOpen, setAdminLoginOpen] = useState<boolean>(false);
   const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState<boolean>(() => {
@@ -2631,6 +2635,7 @@ export default function App() {
       'cvUrl',
       'resumeUrl',
       'cvData',
+      'cvDocuments',
       'socialLinks',
       'notificationsEnabled',
       'whatsappAlertsEnabled'
@@ -4605,7 +4610,15 @@ export default function App() {
               <CvBuilder
                 isSubscribed={isSubscribed}
                 initialCvData={currentUser?.cvData}
+                initialCvDocuments={currentUser?.cvDocuments}
+                cvDesignEntitlements={currentUser?.cvDesignEntitlements || []}
+                onPurchaseTemplate={(templateId, templateName, pricePkr) => {
+                  if (!currentUser?.id) { setAuthModalOpen(true); return; }
+                  setCvDesignCheckout({ templateId, templateName, pricePkr });
+                }}
                 onSaveCv={async (cvData) => handleUpdateProfile({ cvData })}
+                onSaveCvDocuments={async (documents, activeData) => handleUpdateProfile({ cvData: activeData, cvDocuments: documents })}
+                cvBuilderSettings={cvBuilderSettings}
                 onOpenPaywall={() => setCvPaywallOpen(true)}
               />
             )}
@@ -4754,6 +4767,25 @@ export default function App() {
         initialSelectedJobTitle={selectedJobTitleForSub}
         currentUser={currentUser}
         whatsappEnabledGlobal={channelAvailability.whatsapp}
+      />
+
+      <CvDesignCheckoutModal
+        isOpen={Boolean(cvDesignCheckout)}
+        templateId={cvDesignCheckout?.templateId || ''}
+        templateName={cvDesignCheckout?.templateName || ''}
+        pricePkr={cvDesignCheckout?.pricePkr || 0}
+        walletBalance={Number(currentUser?.walletBalance || 0)}
+        currentUser={currentUser ? { id: currentUser.id, name: currentUser.name, email: currentUser.email, phone: currentUser.phone } : null}
+        onClose={() => setCvDesignCheckout(null)}
+        onComplete={async (result) => {
+          if (currentUser?.id) {
+            await Promise.all([
+              loadBackendUserProfile(currentUser.id),
+              loadBackendTransactions(currentUser.id)
+            ]);
+          }
+          alert(result.message);
+        }}
       />
 
       <CvPaywallModal

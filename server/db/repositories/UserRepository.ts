@@ -555,6 +555,133 @@ export class UserRepository {
     });
   }
 
+  /** Grants one paid CV design once. Repeated approval of the same transaction is idempotent. */
+  static async grantCvDesignEntitlementAsync(userId: string, entitlement: Record<string, any>): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const templateId = String(entitlement?.templateId || '').trim();
+    const transactionId = String(entitlement?.transactionId || '').trim();
+    if (!cleanUserId || !templateId || !transactionId) throw new Error('Valid user, CV design and transaction references are required.');
+    const safeEntitlement = {
+      templateId,
+      templateName: String(entitlement.templateName || templateId).slice(0, 80),
+      transactionId,
+      amount: Number(entitlement.amount),
+      currency: 'PKR',
+      purchasedAt: String(entitlement.purchasedAt || new Date().toISOString())
+    };
+    if (!Number.isFinite(safeEntitlement.amount) || safeEntitlement.amount <= 0) throw new Error('CV design purchase amount is invalid.');
+    const updatedAt = new Date().toISOString();
+
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const entitlements = Array.isArray(existing.cvDesignEntitlements) ? existing.cvDesignEntitlements : [];
+      const sameTx = entitlements.find((item: any) => item?.transactionId === transactionId);
+      if (sameTx) return existing;
+      if (entitlements.some((item: any) => item?.templateId === templateId)) throw new Error('This CV design has already been purchased.');
+      const updated = { ...existing, cvDesignEntitlements: [...entitlements, safeEntitlement], updatedAt };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        { id: cleanUserId, 'cvDesignEntitlements.templateId': { $ne: templateId } },
+        { $push: { cvDesignEntitlements: safeEntitlement }, $set: { updatedAt } },
+        { returnDocument: 'after' }
+      );
+      if (updatedDoc) {
+        const { _id, ...safe } = updatedDoc;
+        return safe;
+      }
+      const existing = await coll.findOne({ id: cleanUserId });
+      if (!existing) return null;
+      const entitlements = Array.isArray(existing.cvDesignEntitlements) ? existing.cvDesignEntitlements : [];
+      if (entitlements.some((item: any) => item?.transactionId === transactionId)) {
+        const { _id, ...safe } = existing;
+        return safe;
+      }
+      if (entitlements.some((item: any) => item?.templateId === templateId)) throw new Error('This CV design has already been purchased.');
+      return null;
+    }
+
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    const entitlements = Array.isArray(existing.cvDesignEntitlements) ? existing.cvDesignEntitlements : [];
+    if (entitlements.some((item: any) => item?.transactionId === transactionId)) return existing;
+    if (entitlements.some((item: any) => item?.templateId === templateId)) throw new Error('This CV design has already been purchased.');
+    return Database.updateUser(cleanUserId, { cvDesignEntitlements: [...entitlements, safeEntitlement], updatedAt });
+  }
+
+  /** Atomically deducts wallet funds and grants a single CV design in the same user-document update. */
+  static async purchaseCvDesignWithWalletAsync(
+    userId: string,
+    amount: number,
+    entitlement: Record<string, any>
+  ): Promise<{ ok: boolean; user?: any; reason?: 'not_found' | 'already_owned' | 'insufficient' }> {
+    const cleanUserId = String(userId || '').trim();
+    const templateId = String(entitlement?.templateId || '').trim();
+    const transactionId = String(entitlement?.transactionId || '').trim();
+    if (!cleanUserId || !templateId || !transactionId) throw new Error('Valid user, CV design and transaction references are required.');
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error('CV design purchase amount must be positive.');
+    const safeEntitlement = {
+      templateId,
+      templateName: String(entitlement.templateName || templateId).slice(0, 80),
+      transactionId,
+      amount,
+      currency: 'PKR',
+      purchasedAt: String(entitlement.purchasedAt || new Date().toISOString())
+    };
+    const updatedAt = new Date().toISOString();
+
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return { ok: false, reason: 'not_found' };
+      const entitlements = Array.isArray(existing.cvDesignEntitlements) ? existing.cvDesignEntitlements : [];
+      if (entitlements.some((item: any) => item?.templateId === templateId)) return { ok: false, reason: 'already_owned' };
+      const balance = Number(existing.walletBalance || 0);
+      if (!Number.isFinite(balance) || balance < amount) return { ok: false, reason: 'insufficient' };
+      const updated = { ...existing, walletBalance: balance - amount, cvDesignEntitlements: [...entitlements, safeEntitlement], updatedAt };
+      inMemoryUsers.set(cleanUserId, updated);
+      return { ok: true, user: updated };
+    }
+
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        { id: cleanUserId, walletBalance: { $gte: amount }, 'cvDesignEntitlements.templateId': { $ne: templateId } },
+        { $inc: { walletBalance: -amount }, $push: { cvDesignEntitlements: safeEntitlement }, $set: { updatedAt } },
+        { returnDocument: 'after' }
+      );
+      if (updatedDoc) {
+        if (typeof updatedDoc.walletBalance !== 'number' || !Number.isFinite(updatedDoc.walletBalance) || updatedDoc.walletBalance < 0) {
+          throw new Error('Invalid wallet balance after CV design purchase.');
+        }
+        const { _id, ...safe } = updatedDoc;
+        return { ok: true, user: safe };
+      }
+      const existing = await coll.findOne({ id: cleanUserId });
+      if (!existing) return { ok: false, reason: 'not_found' };
+      const entitlements = Array.isArray(existing.cvDesignEntitlements) ? existing.cvDesignEntitlements : [];
+      if (entitlements.some((item: any) => item?.templateId === templateId)) return { ok: false, reason: 'already_owned' };
+      return { ok: false, reason: 'insufficient' };
+    }
+
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return { ok: false, reason: 'not_found' };
+    const entitlements = Array.isArray(existing.cvDesignEntitlements) ? existing.cvDesignEntitlements : [];
+    if (entitlements.some((item: any) => item?.templateId === templateId)) return { ok: false, reason: 'already_owned' };
+    const balance = Number(existing.walletBalance || 0);
+    if (!Number.isFinite(balance) || balance < amount) return { ok: false, reason: 'insufficient' };
+    const updated = Database.updateUser(cleanUserId, {
+      walletBalance: balance - amount,
+      cvDesignEntitlements: [...entitlements, safeEntitlement],
+      updatedAt
+    });
+    return updated ? { ok: true, user: updated } : { ok: false, reason: 'not_found' };
+  }
+
   static update(id: string, updates: any): any | null {
     if (isMongoActive()) {
       throw new Error('MongoDB is configured. Synchronous update is prohibited to ensure authoritative persistence; use updateAsync.');

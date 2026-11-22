@@ -1,12 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { CvData } from '../types/job';
+import { CvData, CvDocument, CvDesignEntitlement } from '../types/job';
 import { Sparkles, Printer, Download, Plus, Trash2, CheckCircle2, FileText, ChevronRight, ChevronLeft, Palette, User, Briefcase, GraduationCap, Award, Eye } from 'lucide-react';
 
 interface CvBuilderProps {
   isSubscribed: boolean;
   initialCvData?: CvData;
+  initialCvDocuments?: CvDocument[];
+  cvDesignEntitlements?: CvDesignEntitlement[];
+  onPurchaseTemplate: (templateId: string, templateName: string, pricePkr: number) => void;
+  onSaveCvDocuments?: (documents: CvDocument[], activeData: CvData) => Promise<boolean> | boolean;
   onSaveCv: (data: CvData) => Promise<boolean> | boolean;
   onOpenPaywall: () => void;
+  cvBuilderSettings?: any;
 }
 
 const createBlankCvData = (): CvData => ({
@@ -25,6 +30,7 @@ const createBlankCvData = (): CvData => ({
   education: [],
   skills: { technical: [], soft: [], languages: [] },
   certifications: [],
+  additionalSections: { objective: '', projects: [], internships: [], volunteerWork: [], achievements: [], professionalTraining: [], relevantCoursework: [], publications: [], references: [], careerGapExplanation: '', preferredEmploymentType: '', noticePeriod: '', domicile: '', professionalRegistration: '' },
   templateStyle: 'modern',
   themeColor: '#10b981'
 });
@@ -32,7 +38,7 @@ const createBlankCvData = (): CvData => ({
 const normalizeCvData = (value?: CvData): CvData => {
   const blank = createBlankCvData();
   const raw = value && typeof value === 'object' ? value : blank;
-  const validStyles = ['modern', 'executive', 'tech', 'classic'];
+  const validStyles = ['modern', 'executive', 'tech', 'classic', 'ats'];
   return {
     ...(typeof raw.photoBase64 === 'string' ? { photoBase64: raw.photoBase64 } : {}),
     personalInfo: { ...blank.personalInfo, ...(raw.personalInfo || {}) },
@@ -66,22 +72,82 @@ const normalizeCvData = (value?: CvData): CvData => {
       issuer: String(item?.issuer || ''),
       year: String(item?.year || '')
     })) : [],
+    additionalSections: {
+      objective: String(raw.additionalSections?.objective || ''),
+      projects: Array.isArray(raw.additionalSections?.projects) ? raw.additionalSections.projects.filter((v) => typeof v === 'string') : [],
+      internships: Array.isArray(raw.additionalSections?.internships) ? raw.additionalSections.internships.filter((v) => typeof v === 'string') : [],
+      volunteerWork: Array.isArray(raw.additionalSections?.volunteerWork) ? raw.additionalSections.volunteerWork.filter((v) => typeof v === 'string') : [],
+      achievements: Array.isArray(raw.additionalSections?.achievements) ? raw.additionalSections.achievements.filter((v) => typeof v === 'string') : [],
+      professionalTraining: Array.isArray(raw.additionalSections?.professionalTraining) ? raw.additionalSections.professionalTraining.filter((v) => typeof v === 'string') : [],
+      relevantCoursework: Array.isArray(raw.additionalSections?.relevantCoursework) ? raw.additionalSections.relevantCoursework.filter((v) => typeof v === 'string') : [],
+      publications: Array.isArray(raw.additionalSections?.publications) ? raw.additionalSections.publications.filter((v) => typeof v === 'string') : [],
+      references: Array.isArray(raw.additionalSections?.references) ? raw.additionalSections.references.filter((v) => typeof v === 'string') : [],
+      careerGapExplanation: String(raw.additionalSections?.careerGapExplanation || ''),
+      preferredEmploymentType: String(raw.additionalSections?.preferredEmploymentType || ''),
+      noticePeriod: String(raw.additionalSections?.noticePeriod || ''),
+      domicile: String(raw.additionalSections?.domicile || ''),
+      professionalRegistration: String(raw.additionalSections?.professionalRegistration || '')
+    },
     templateStyle: validStyles.includes(raw.templateStyle) ? raw.templateStyle : blank.templateStyle,
     themeColor: typeof raw.themeColor === 'string' && /^#[0-9a-f]{6}$/i.test(raw.themeColor) ? raw.themeColor : blank.themeColor
   };
 };
 
-export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, onSaveCv, onOpenPaywall }) => {
+export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, initialCvDocuments, cvDesignEntitlements = [], onPurchaseTemplate, onSaveCvDocuments, onSaveCv, onOpenPaywall, cvBuilderSettings = {} }) => {
   const [step, setStep] = useState<number>(1);
   const [isSavingCv, setIsSavingCv] = useState(false);
   const [cvSaveMessage, setCvSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [cvData, setCvData] = useState<CvData>(() => normalizeCvData(initialCvData));
+  const makeDocument = (data: CvData, title = ''): CvDocument => ({
+    id: `cv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    title: title || data.personalInfo.fullName || 'My CV',
+    data: normalizeCvData(data),
+    updatedAt: new Date().toISOString()
+  });
+  const [documents, setDocuments] = useState<CvDocument[]>(() => Array.isArray(initialCvDocuments) && initialCvDocuments.length
+    ? initialCvDocuments.map((doc) => ({ ...doc, data: normalizeCvData(doc.data) }))
+    : [makeDocument(normalizeCvData(initialCvData), 'My CV')]);
+  const [activeCvId, setActiveCvId] = useState<string>(() => documents[0]?.id || 'cv-main');
+  const [cvData, setCvData] = useState<CvData>(() => normalizeCvData(documents[0]?.data || initialCvData));
 
-  // Always reset to the current account's saved CV (or a blank draft) when the account data changes.
+  // Hydrate account documents while preserving the currently selected document after saves.
   useEffect(() => {
-    setCvData(normalizeCvData(initialCvData));
+    const next = Array.isArray(initialCvDocuments) && initialCvDocuments.length
+      ? initialCvDocuments.map((doc) => ({ ...doc, data: normalizeCvData(doc.data) }))
+      : [makeDocument(normalizeCvData(initialCvData), 'My CV')];
+    setDocuments(next);
+    const selected = next.find((doc) => doc.id === activeCvId) || next[0];
+    setActiveCvId(selected.id);
+    setCvData(normalizeCvData(selected.data));
     setCvSaveMessage(null);
-  }, [initialCvData]);
+  }, [initialCvData, initialCvDocuments]);
+
+  useEffect(() => {
+    setDocuments((previous) => previous.map((document) => document.id === activeCvId ? { ...document, data: cvData } : document));
+  }, [cvData, activeCvId]);
+
+  const handleCreateCv = () => {
+    const maxAllowed = isSubscribed ? Math.max(0, Math.min(10, Math.floor(Number(cvBuilderSettings.premiumCvLimit ?? 10)))) : Math.max(0, Math.min(10, Math.floor(Number(cvBuilderSettings.freeCvLimit ?? 1))));
+    if (documents.length >= maxAllowed) {
+      setCvSaveMessage({ type: 'error', text: isSubscribed ? `The administrator has set a maximum of ${maxAllowed} CV(s) for premium members.` : `Your free plan allows ${maxAllowed} CV(s). Upgrade to create more.` });
+      if (!isSubscribed) onOpenPaywall();
+      return;
+    }
+    const blank = createBlankCvData();
+    const next = makeDocument(blank, `CV ${documents.length + 1}`);
+    setDocuments((previous) => [...previous, next]);
+    setActiveCvId(next.id);
+    setCvData(blank);
+    setStep(1);
+    setCvSaveMessage({ type: 'success', text: 'A new CV draft is ready. Save it when you finish.' });
+  };
+
+  const handleSelectCv = (id: string) => {
+    const selected = documents.find((document) => document.id === id);
+    if (!selected) return;
+    setActiveCvId(id);
+    setCvData(normalizeCvData(selected.data));
+    setCvSaveMessage(null);
+  };
 
   // Add an empty achievement line for the user to complete; no simulated AI output is presented as generated content.
   const handleGenerateAiBullets = (expIndex: number) => {
@@ -162,9 +228,15 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     setIsSavingCv(true);
     setCvSaveMessage(null);
     try {
-      const saved = await onSaveCv(cvData);
+      const updatedDocuments = documents.map((document) => document.id === activeCvId
+        ? { ...document, title: (cvData.personalInfo.fullName.trim() || document.title || 'My CV').slice(0, 120), data: cvData, updatedAt: new Date().toISOString() }
+        : document);
+      const saved = onSaveCvDocuments
+        ? await onSaveCvDocuments(updatedDocuments, cvData)
+        : await onSaveCv(cvData);
+      if (saved) setDocuments(updatedDocuments);
       setCvSaveMessage(saved
-        ? { type: 'success', text: 'Your CV draft has been saved to your account.' }
+        ? { type: 'success', text: 'Your CV has been saved to your account.' }
         : { type: 'error', text: 'The CV could not be saved. Please try again.' });
     } catch (error: any) {
       setCvSaveMessage({ type: 'error', text: error?.message || 'Unable to save your CV right now.' });
@@ -173,14 +245,77 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     }
   };
 
+  const handleDownloadAtsText = () => {
+    if (!isTemplateEnabled(cvData.templateStyle) || (!isSubscribed && !isTemplateFree(cvData.templateStyle))) {
+      const selected = configuredTemplates.find((item: any) => item.id === cvData.templateStyle);
+      const price = Math.max(0, Number(selected?.pricePkr || 0));
+      if (price > 0) onPurchaseTemplate(cvData.templateStyle, selected?.name || 'Premium CV Design', price);
+      else onOpenPaywall();
+      return;
+    }
+    const ownsSelectedDesignForExport = cvDesignEntitlements.some((item) => item.templateId === cvData.templateStyle);
+    if (!isSubscribed && !ownsSelectedDesignForExport && cvBuilderSettings.atsTextExportEnabled === false) { onOpenPaywall(); return; }
+    const lines: string[] = [];
+    const p = cvData.personalInfo;
+    const extra: NonNullable<CvData['additionalSections']> = cvData.additionalSections || {};
+    const add = (heading: string, values: string[]) => {
+      const clean = values.map((v) => String(v || '').trim()).filter(Boolean);
+      if (clean.length) lines.push('', heading.toUpperCase(), ...clean);
+    };
+    lines.push(p.fullName, p.jobTitle, [p.email, p.phone, p.location, p.website, p.linkedin, p.github].filter(Boolean).join(' | '), '', 'PROFESSIONAL SUMMARY', p.summary || '');
+    add('Career Objective', [extra.objective || '']);
+    add('Work Experience', cvData.experience.flatMap((entry) => [`${entry.position} - ${entry.company} (${entry.startDate} - ${entry.current ? 'Present' : entry.endDate})`, ...entry.bullets]));
+    add('Education', cvData.education.map((entry) => `${entry.degree} ${entry.fieldOfStudy} - ${entry.institution} (${entry.startDate} - ${entry.endDate}) ${entry.gpa || ''}`));
+    add('Skills', [...cvData.skills.technical, ...cvData.skills.soft, ...cvData.skills.languages]);
+    add('Certifications', cvData.certifications.map((entry) => `${entry.name} - ${entry.issuer} - ${entry.year}`));
+    add('Projects', extra.projects || []);
+    add('Internships', extra.internships || []);
+    add('Volunteer Work', extra.volunteerWork || []);
+    add('Achievements & Awards', extra.achievements || []);
+    add('Professional Training', extra.professionalTraining || []);
+    add('Relevant Coursework', extra.relevantCoursework || []);
+    add('Research & Publications', extra.publications || []);
+    add('References', extra.references || []);
+    add('Additional Information', [extra.careerGapExplanation, extra.preferredEmploymentType, extra.noticePeriod, extra.domicile, extra.professionalRegistration].filter(Boolean) as string[]);
+    if (watermarkVisible) lines.push('', String(cvBuilderSettings.watermarkText || 'Hybrid Job Portal'));
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${(p.fullName || 'candidate-cv').replace(/[^a-z0-9-_]+/gi, '-').replace(/^-+|-+$/g, '') || 'candidate-cv'}-ats.txt`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
   // Trigger Print Engine
   const handleDownloadPdf = () => {
-    if (!isSubscribed) {
-      onOpenPaywall();
-    } else {
-      window.print();
+    if (!isTemplateEnabled(cvData.templateStyle) || (!isSubscribed && !isTemplateFree(cvData.templateStyle))) {
+      const selected = configuredTemplates.find((item: any) => item.id === cvData.templateStyle);
+      const price = Math.max(0, Number(selected?.pricePkr || 0));
+      if (price > 0) onPurchaseTemplate(cvData.templateStyle, selected?.name || 'Premium CV Design', price);
+      else onOpenPaywall();
+      return;
     }
+    const ownsSelectedDesignForExport = cvDesignEntitlements.some((item) => item.templateId === cvData.templateStyle);
+    if (!isSubscribed && !ownsSelectedDesignForExport && cvBuilderSettings.pdfExportEnabled === false) { onOpenPaywall(); return; }
+    window.print();
   };
+
+  const templateCatalog = [
+    { id: 'modern', name: 'Modern Clean' }, { id: 'executive', name: 'Executive Dark Sidebar' },
+    { id: 'tech', name: 'Tech Minimalist' }, { id: 'classic', name: 'Classic Corporate' }, { id: 'ats', name: 'ATS Plain Text' }
+  ];
+  const configuredTemplates = Array.isArray(cvBuilderSettings.templates) ? cvBuilderSettings.templates : [];
+  const enabledTemplates = templateCatalog.filter((template) => configuredTemplates.find((item: any) => item.id === template.id)?.enabled !== false || cvDesignEntitlements.some((item) => item.templateId === template.id));
+  const freeTemplates = enabledTemplates.filter((template) => {
+    const config = configuredTemplates.find((item: any) => item.id === template.id);
+    return config ? config.enabled !== false && config.free === true : ['modern', 'ats'].includes(template.id);
+  }).slice(0, Math.max(0, Math.min(5, Number(cvBuilderSettings.freeDesignLimit ?? 2))));
+  const isTemplateEnabled = (id: string) => enabledTemplates.some((template) => template.id === id);
+  const isTemplateFree = (id: string) => isSubscribed || freeTemplates.some((template) => template.id === id) || cvDesignEntitlements.some((item) => item.templateId === id);
+  const watermarkVisible = cvBuilderSettings.watermarkEnabled !== false && (!isSubscribed || cvBuilderSettings.watermarkFreeOnly === false);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -199,7 +334,13 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
           </p>
         </div>
 
-        <div className="flex items-center space-x-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <select aria-label="Select saved CV" value={activeCvId} onChange={(e) => handleSelectCv(e.target.value)} className="max-w-[170px] px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white">
+              {documents.map((document, index) => <option key={document.id} value={document.id}>{document.title || `CV ${index + 1}`}</option>)}
+            </select>
+            <button type="button" onClick={handleCreateCv} className="px-3 py-2.5 rounded-xl bg-indigo-500/20 border border-indigo-400/30 text-indigo-200 text-xs font-bold">+ New CV ({documents.length}/{isSubscribed ? Math.max(0, Number(cvBuilderSettings.premiumCvLimit ?? 10)) : Math.max(0, Number(cvBuilderSettings.freeCvLimit ?? 1))})</button>
+          </div>
           <button
             type="button"
             onClick={handleSaveCv}
@@ -209,12 +350,14 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
             <FileText className="w-4 h-4" />
             <span>{isSavingCv ? 'Saving...' : 'Save CV Draft'}</span>
           </button>
+          <button type="button" onClick={handleDownloadAtsText} className="px-3 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs">{!isSubscribed && cvBuilderSettings.atsTextExportEnabled === false ? 'ATS Text · Premium' : 'Download ATS Text'}</button>
+
           <button
             onClick={handleDownloadPdf}
             className="px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 flex items-center space-x-2 hover:scale-105 active:scale-95 transition-all"
           >
             <Printer className="w-4 h-4 text-slate-950" />
-            <span>{isSubscribed ? 'Export PDF Resume' : 'Download Premium PDF'}</span>
+            <span>{!isSubscribed && cvBuilderSettings.pdfExportEnabled === false ? 'PDF Export · Premium' : 'Export PDF Resume'}</span>
           </button>
         </div>
       </div>
@@ -231,7 +374,8 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
               { id: 1, label: 'Personal Info', icon: User },
               { id: 2, label: 'Experience', icon: Briefcase },
               { id: 3, label: 'Education', icon: GraduationCap },
-              { id: 4, label: 'Skills & Style', icon: Palette }
+              { id: 4, label: 'Skills & Style', icon: Palette },
+              { id: 5, label: 'Additional Sections', icon: FileText }
             ].map((s) => {
               const Icon = s.icon;
               return (
@@ -636,22 +780,51 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
               <div>
                 <label className="block text-xs font-semibold text-slate-400 mb-2">Select Template Style</label>
                 <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { id: 'modern', name: 'Modern Clean' },
-                    { id: 'executive', name: 'Executive Dark Sidebar' },
-                    { id: 'tech', name: 'Tech Minimalist' },
-                    { id: 'classic', name: 'Classic Corporate' }
-                  ].map((t) => (
-                    <button type="button" key={t.id} onClick={() => setCvData({ ...cvData, templateStyle: t.id as CvData['templateStyle'] })} className={`py-2 px-3 rounded-lg border text-xs font-bold transition-all ${cvData.templateStyle === t.id ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500' : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'}`}>
-                      {t.name}
-                    </button>
-                  ))}
+                  {enabledTemplates.map((t) => {
+                    const templateConfig = configuredTemplates.find((item: any) => item.id === t.id);
+                    const displayName = String(templateConfig?.name || t.name);
+                    const free = isTemplateFree(t.id);
+                    const price = Math.max(0, Number(templateConfig?.pricePkr || 0));
+                    return <button type="button" key={t.id} onClick={() => { if (free) setCvData({ ...cvData, templateStyle: t.id as CvData['templateStyle'] }); else if (price > 0) onPurchaseTemplate(t.id, displayName, price); else onOpenPaywall(); }} className={`py-2 px-3 rounded-lg border text-xs font-bold transition-all ${cvData.templateStyle === t.id ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500' : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'}`}>
+                      {displayName}{!free && <span className="block text-[10px] text-amber-300">Premium · {price > 0 ? `One-time PKR ${price}` : 'Premium plan'}</span>}{cvDesignEntitlements.some((item) => item.templateId === t.id) && <span className="block text-[10px] text-emerald-300">Purchased · Unlocked</span>}
+                    </button>;
+                  })}
                 </div>
               </div>
               <label className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-400">
                 Accent Color
                 <input type="color" value={cvData.themeColor} onChange={(e) => setCvData({ ...cvData, themeColor: e.target.value })} className="h-9 w-14 rounded border border-slate-700 bg-slate-900 cursor-pointer" aria-label="CV accent color" />
               </label>
+            </div>
+          )}
+
+          {/* STEP 5: OPTIONAL CAREER SECTIONS */}
+          {step === 5 && (
+            <div className="space-y-4">
+              <h3 className="text-base font-bold text-white">Additional Career Information (Optional)</h3>
+              <p className="text-xs text-slate-400">Only add information that is accurate and relevant. Leave any section blank if it does not apply.</p>
+              <label className="block text-xs font-semibold text-slate-400">Career Objective
+                <textarea rows={3} maxLength={5000} value={cvData.additionalSections?.objective || ''} onChange={(e) => setCvData({ ...cvData, additionalSections: { ...cvData.additionalSections, objective: e.target.value } })} className="mt-1 w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-sm" />
+              </label>
+              {([
+                ['projects', 'Projects'], ['internships', 'Internships'], ['volunteerWork', 'Volunteer Work'],
+                ['achievements', 'Achievements & Awards'], ['professionalTraining', 'Professional Training'],
+                ['relevantCoursework', 'Relevant Coursework'], ['publications', 'Research & Publications'], ['references', 'References (Optional)']
+              ] as const).map(([field, label]) => (
+                <label key={field} className="block text-xs font-semibold text-slate-400">{label} (one item per line)
+                  <textarea rows={3} value={(cvData.additionalSections?.[field] || []).join('\n')} onChange={(e) => setCvData({ ...cvData, additionalSections: { ...cvData.additionalSections, [field]: e.target.value.split('\n').map((v) => v.trim()).filter(Boolean) } })} className="mt-1 w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-sm" />
+                </label>
+              ))}
+              {([
+                ['careerGapExplanation', 'Career Gap Explanation (Optional)'], ['preferredEmploymentType', 'Preferred Employment Type'],
+                ['noticePeriod', 'Notice Period / Availability'], ['domicile', 'Domicile / Province (only where relevant)'],
+                ['professionalRegistration', 'Professional Registration / Licence (if applicable)']
+              ] as const).map(([field, label]) => (
+                <label key={field} className="block text-xs font-semibold text-slate-400">{label}
+                  <input type="text" maxLength={5000} value={cvData.additionalSections?.[field] || ''} onChange={(e) => setCvData({ ...cvData, additionalSections: { ...cvData.additionalSections, [field]: e.target.value } })} className="mt-1 w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-sm" />
+                </label>
+              ))}
+              <p className="text-[11px] text-amber-300">CNIC, religion, marital status, age and gender are not required in a standard CV. Do not add sensitive details unless a specific application requires them.</p>
             </div>
           )}
 
@@ -667,7 +840,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
               </button>
             ) : <div />}
 
-            {step < 4 ? (
+            {step < 5 ? (
               <button
                 onClick={() => setStep(step + 1)}
                 className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center space-x-1"
@@ -704,13 +877,14 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
             {/* Simulated Paper Layout Container */}
             <div
               id="cv-print-area"
-              className="bg-white text-slate-900 p-6 rounded-lg shadow-inner min-h-[580px] text-xs space-y-4"
+              className="relative overflow-hidden bg-white text-slate-900 p-6 rounded-lg shadow-inner min-h-[580px] text-xs space-y-4"
               style={{
-                borderTop: `5px solid ${cvData.themeColor}`,
+                borderTop: cvData.templateStyle === 'ats' ? 'none' : `5px solid ${cvData.themeColor}`,
                 borderLeft: cvData.templateStyle === 'executive' ? '14px solid #0f172a' : undefined,
                 fontFamily: cvData.templateStyle === 'tech' ? 'ui-monospace, SFMono-Regular, monospace' : cvData.templateStyle === 'classic' ? 'Georgia, serif' : 'Arial, sans-serif'
               }}
             >
+              {watermarkVisible && <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center overflow-hidden"><span className="whitespace-nowrap text-3xl font-black uppercase tracking-widest text-slate-500" style={{ transform: "rotate(-35deg)", opacity: Math.min(0.35, Math.max(0.05, Number(cvBuilderSettings.watermarkOpacity ?? 0.16))) }}>{String(cvBuilderSettings.watermarkText || 'Hybrid Job Portal')}</span></div>}
               {/* CV Header */}
               <div className="border-b-2 pb-3 flex items-start justify-between gap-4" style={{ borderColor: cvData.themeColor }}>
                 <div className="flex-1">
@@ -732,7 +906,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                   </div>
                 </div>
 
-                {cvData.photoBase64 && (
+                {cvData.photoBase64 && cvData.templateStyle !== 'ats' && (
                   <div className="w-16 h-16 rounded-lg overflow-hidden border border-slate-300 shadow-sm flex-shrink-0">
                     <img src={cvData.photoBase64} alt="Candidate Profile" className="w-full h-full object-cover" />
                   </div>
@@ -816,6 +990,23 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                   </div>
                 </div>
               )}
+
+              {cvData.additionalSections?.objective && <div><h3 className="text-xs font-black uppercase mb-1" style={{ color: cvData.themeColor }}>Career Objective</h3><p className="text-[11px] whitespace-pre-wrap">{cvData.additionalSections.objective}</p></div>}
+              {([
+                ['projects', 'Projects'], ['internships', 'Internships'], ['volunteerWork', 'Volunteer Work'],
+                ['achievements', 'Achievements & Awards'], ['professionalTraining', 'Professional Training'],
+                ['relevantCoursework', 'Relevant Coursework'], ['publications', 'Research & Publications'], ['references', 'References']
+              ] as const).map(([field, label]) => {
+                const items = cvData.additionalSections?.[field] || [];
+                return items.length ? <div key={field}><h3 className="text-xs font-black uppercase mb-1" style={{ color: cvData.themeColor }}>{label}</h3><ul className="list-disc pl-4 space-y-0.5">{items.map((item, index) => <li key={index} className="text-[11px]">{item}</li>)}</ul></div> : null;
+              })}
+              {([
+                ['careerGapExplanation', 'Career Gap'], ['preferredEmploymentType', 'Preferred Employment'],
+                ['noticePeriod', 'Notice Period'], ['domicile', 'Domicile'], ['professionalRegistration', 'Professional Registration']
+              ] as const).map(([field, label]) => {
+                const value = cvData.additionalSections?.[field];
+                return value ? <div key={field}><h3 className="text-xs font-black uppercase mb-1" style={{ color: cvData.themeColor }}>{label}</h3><p className="text-[11px]">{value}</p></div> : null;
+              })}
 
             </div>
 

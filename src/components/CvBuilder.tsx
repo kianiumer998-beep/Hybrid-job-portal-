@@ -92,7 +92,6 @@ const normalizeCvData = (value?: CvData): CvData => {
 export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, onSaveCv, onOpenPaywall, cvBuilderSettings = {} }) => {
   const [step, setStep] = useState<number>(1);
   const [isSavingCv, setIsSavingCv] = useState(false);
-  const [isSubmittingCv, setIsSubmittingCv] = useState(false);
   const [cvSaveMessage, setCvSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [cvData, setCvData] = useState<CvData>(() => normalizeCvData(initialCvData));
 

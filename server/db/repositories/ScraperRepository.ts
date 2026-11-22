@@ -267,8 +267,8 @@ export class ScraperRepository {
       getCollectionFn?: () => Promise<any>;
     }
   ): Promise<{ isPersistedToMongo: boolean; persistedCount: number; totalCount: number }> {
-    if (!Array.isArray(configs) || configs.length === 0) {
-      throw new Error('At least one valid scraper source configuration is required.');
+    if (!Array.isArray(configs)) {
+      throw new Error('Scraper source configurations must be supplied as an array.');
     }
 
     const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;

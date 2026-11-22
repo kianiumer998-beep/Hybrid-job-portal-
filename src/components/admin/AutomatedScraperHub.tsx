@@ -667,6 +667,8 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [reviewScrapeDateFilter, setReviewScrapeDateFilter] = useState<'all' | 'today' | '24h' | '7days' | '30days' | 'older'>('all');
   const [reviewProvinceFilter, setReviewProvinceFilter] = useState('all');
   const [reviewCityFilter, setReviewCityFilter] = useState('');
+  const [reviewPortalFilter, setReviewPortalFilter] = useState('');
+  const [reviewCategoryFilter, setReviewCategoryFilter] = useState('all');
 
   // Multi-Selection State for Sources
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
@@ -1229,10 +1231,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         if (!matchTitle && !matchCompany && !matchPortal) return false;
       }
 
-      if (sourceFilter !== 'all') {
-        const portal = (job as any).sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || '';
-        if (!portal.toLowerCase().includes(sourceFilter.toLowerCase())) return false;
-      }
+      const portal = String((job as any).sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || '').toLowerCase();
+      if (sourceFilter !== 'all' && !portal.includes(sourceFilter.toLowerCase())) return false;
+      if (reviewPortalFilter.trim() && !portal.includes(reviewPortalFilter.trim().toLowerCase())) return false;
+      if (reviewCategoryFilter !== 'all' && job.jobCategory !== reviewCategoryFilter) return false;
       const hasApplyUrl = Boolean((job as any).applicationUrl || (job as any).originalApplyUrl || (job as any).externalApplyUrl || (job as any).applyUrl);
       const hasSourceUrl = Boolean((job as any).sourceUrl || (job as any).scraperSourceUrl);
       const isComplete = Boolean(job.title?.trim() && job.company?.trim() && job.description?.trim() && (job.city || job.province || job.region));
@@ -1290,7 +1292,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     });
   };
 
-  const reviewItems = useMemo(() => filterReviewCollection(effectivePendingList), [effectivePendingList, reviewTypeFilter, searchQuery, sourceFilter, reviewSortOrder, reviewCompletenessFilter, reviewLocationFilter, reviewExpiryFilter, reviewDeadlineFilter, reviewScrapeDateFilter, reviewProvinceFilter, reviewCityFilter]);
+  const reviewItems = useMemo(() => filterReviewCollection(effectivePendingList), [effectivePendingList, reviewTypeFilter, searchQuery, sourceFilter, reviewSortOrder, reviewCompletenessFilter, reviewLocationFilter, reviewExpiryFilter, reviewDeadlineFilter, reviewScrapeDateFilter, reviewProvinceFilter, reviewCityFilter, reviewPortalFilter, reviewCategoryFilter]);
 
   const handleSelectAllFilteredReviewAcrossPages = async () => {
     if (isSelectingAllReview) return;
@@ -4609,6 +4611,8 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   <option value="updated_oldest">Oldest updated first</option>
                 </select>
               </label>
+              <input value={reviewPortalFilter} onChange={(e) => setReviewPortalFilter(e.target.value)} placeholder="Source portal (e.g. FPSC)" className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white w-36" />
+              <select value={reviewCategoryFilter} onChange={(e) => setReviewCategoryFilter(e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"><option value="all">All Job Categories</option><option value="Government Sector">Government</option><option value="Private Corporate">Private</option><option value="Newspaper Classified">Newspaper</option><option value="International Remote">International</option></select>
               <input value={reviewCityFilter} onChange={(e) => setReviewCityFilter(e.target.value)} placeholder="City" className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white w-24" />
               <select value={reviewProvinceFilter} onChange={(e) => setReviewProvinceFilter(e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"><option value="all">All Provinces</option><option>Punjab</option><option>Sindh</option><option>Khyber Pakhtunkhwa</option><option>Balochistan</option><option>Islamabad Capital Territory</option><option>Azad Kashmir</option><option>Gilgit-Baltistan</option></select>
               <select value={reviewScrapeDateFilter} onChange={(e) => setReviewScrapeDateFilter(e.target.value as typeof reviewScrapeDateFilter)} className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"><option value="all">Any Scrape Time</option><option value="today">Today</option><option value="24h">Last 24 Hours</option><option value="7days">Last 7 Days</option><option value="30days">Last 30 Days</option><option value="older">Older than 30 Days</option></select>

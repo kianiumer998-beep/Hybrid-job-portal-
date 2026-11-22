@@ -69,6 +69,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
   const [sections, setSections] = useState<LandingSectionOrder[]>(config.sections || DEFAULT_LANDING_PAGE_CONFIG.sections);
   const [customCards, setCustomCards] = useState<CustomLandingCard[]>(config.customCards || DEFAULT_LANDING_PAGE_CONFIG.customCards);
   const [jobCardDesignForm, setJobCardDesignForm] = useState<JobCardDesignConfig>(() => mergeJobCardDesign(config.jobCardDesign));
+  const [mobileFilterColumns, setMobileFilterColumns] = useState<1 | 2 | 3 | 4>(config.mobileFilterColumns || 2);
   const [promoBanners, setPromoBanners] = useState<PromoDiscountBanner[]>(campaignConfig.promoBanners || []);
   const [saveToast, setSaveToast] = useState<string | null>(null);
   const [activeDesignId, setActiveDesignId] = useState<LandingDesignSystem['activeDesignId']>(designSystem?.activeDesignId || 'legacy');
@@ -84,6 +85,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
     setSections(config.sections || DEFAULT_LANDING_PAGE_CONFIG.sections);
     setCustomCards(config.customCards || DEFAULT_LANDING_PAGE_CONFIG.customCards);
     setJobCardDesignForm(mergeJobCardDesign(config.jobCardDesign));
+    setMobileFilterColumns(([1, 2, 3, 4].includes(Number(config.mobileFilterColumns)) ? Number(config.mobileFilterColumns) : 2) as 1 | 2 | 3 | 4);
   }, [config]);
 
   useEffect(() => {
@@ -107,6 +109,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
       setSections(selected.config.sections || DEFAULT_LANDING_PAGE_CONFIG.sections);
       setCustomCards(selected.config.customCards || DEFAULT_LANDING_PAGE_CONFIG.customCards);
       setJobCardDesignForm(mergeJobCardDesign(selected.config.jobCardDesign));
+      setMobileFilterColumns(selected.config.mobileFilterColumns || 2);
       setSaveToast('Selected design is now published.');
       setTimeout(() => setSaveToast(null), 3500);
     } catch (error: any) {
@@ -216,7 +219,8 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
       hero: heroForm,
       sections,
       customCards,
-      jobCardDesign: jobCardDesignForm
+      jobCardDesign: jobCardDesignForm,
+      mobileFilterColumns
     };
 
     const newCampaignConfig: CampaignCustomizationConfig = {
@@ -254,6 +258,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
     const previousSections = sections;
     const previousCustomCards = customCards;
     const previousJobCardDesign = jobCardDesignForm;
+    const previousMobileFilterColumns = mobileFilterColumns;
 
     const selectedDesignDefaults = createDefaultLandingDesignSystem(DEFAULT_LANDING_PAGE_CONFIG).designs.find((design) => design.id === activeDesignId)?.config || DEFAULT_LANDING_PAGE_CONFIG;
     const newLandingConfig: LandingPageConfig = {
@@ -267,6 +272,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
     setSections(newLandingConfig.sections);
     setCustomCards(newLandingConfig.customCards);
     setJobCardDesignForm(newLandingConfig.jobCardDesign);
+    setMobileFilterColumns(newLandingConfig.mobileFilterColumns || 2);
 
     try {
       setSaveToast('⏳ Resetting and saving default configuration to database...');
@@ -284,6 +290,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
       setSections(previousSections);
       setCustomCards(previousCustomCards);
       setJobCardDesignForm(previousJobCardDesign);
+      setMobileFilterColumns(previousMobileFilterColumns);
       setSaveToast(null);
       alert('❌ Failed to reset landing page configuration. The database could not be updated. Changes have been rolled back.');
     }
@@ -402,6 +409,14 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
             <span className="text-xs font-mono font-bold text-indigo-400 bg-indigo-500/10 px-3 py-1 rounded-full border border-indigo-500/20">
               {sections.filter(s => s.isEnabled).length} of {sections.length} Sections Active
             </span>
+          </div>
+
+          <div className="rounded-2xl border border-cyan-500/25 bg-slate-900/80 p-4 space-y-3">
+            <div><h4 className="text-sm font-black text-white">Mobile Job Filter Layout</h4><p className="text-xs text-slate-400">Choose how many main filter fields appear in each row on mobile. Desktop remains four columns.</p></div>
+            <label className="block max-w-xs space-y-1.5"><span className="text-xs font-bold text-slate-300">Filters per row on mobile</span>
+              <select value={mobileFilterColumns} onChange={(event) => setMobileFilterColumns(Number(event.target.value) as 1 | 2 | 3 | 4)} className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white">
+                <option value={1}>1 filter per row</option><option value={2}>2 filters per row</option><option value={3}>3 filters per row</option><option value={4}>4 filters per row</option>
+              </select></label>
           </div>
 
           <div className="space-y-3">

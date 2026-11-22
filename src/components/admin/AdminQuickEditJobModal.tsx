@@ -341,7 +341,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
       if (bulkFields.applySourcePortal) (updatedJob as any).sourcePortal = bulkFields.sourcePortal;
       if (bulkFields.applyCompany) updatedJob.company = bulkFields.company;
       if (bulkFields.applyDescription) updatedJob.description = bulkFields.description;
-      if (bulkFields.applyRequirements) updatedJob.requirements = bulkFields.requirementsText.split(/\\r?\\n|,/).map(value => value.trim()).filter(Boolean);
+      if (bulkFields.applyRequirements) updatedJob.requirements = bulkFields.requirementsText.split(/\r?\n|,/).map(value => value.trim()).filter(Boolean);
       if (bulkFields.applyFeatured) updatedJob.featured = bulkFields.featured;
       if (bulkFields.applyUrgent) updatedJob.urgent = bulkFields.urgent;
       if (bulkFields.applyTags && bulkFields.tagsToAdd.trim()) {

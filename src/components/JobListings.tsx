@@ -553,7 +553,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                 <span>•</span>
                 <div className="flex items-center space-x-1">
                 <Clock className="w-3.5 h-3.5 text-slate-500" />
-                <span>{job.postedAt}</span>
+                <span>{design.visibility.relativePostedTime !== false && relativePostedTime ? relativePostedTime : design.visibility.exactPostedDate !== false ? exactPostedDate : ''}</span>
                 </div>
                 </>
             )}
@@ -561,8 +561,8 @@ export const JobListings: React.FC<JobListingsProps> = ({
           {(design.visibility.poster !== false || design.visibility.relativePostedTime !== false || design.visibility.exactPostedDate !== false || design.visibility.deadlineDate !== false || design.visibility.deadlineRemaining !== false) && (
             <div className="flex flex-wrap gap-x-2 gap-y-1 text-[10px] text-slate-500 mb-2">
               {design.visibility.poster !== false && <span>Posted by: {posterLabel}</span>}
-              {design.visibility.relativePostedTime !== false && relativePostedTime && <span>{relativePostedTime}</span>}
-              {design.visibility.exactPostedDate !== false && design.visibility.postedDate === false && exactPostedDate && <span>{exactPostedDate}</span>}
+              {design.visibility.postedDate === false && design.visibility.relativePostedTime !== false && relativePostedTime && <span>{relativePostedTime}</span>}
+              {design.visibility.postedDate === false && design.visibility.exactPostedDate !== false && exactPostedDate && <span>{exactPostedDate}</span>}
               {design.visibility.deadlineDate !== false && deadlineDisplayDate && <span>Deadline: {deadlineDisplayDate}</span>}
               {design.visibility.deadlineRemaining !== false && deadlineRemaining && <span className={deadlineRemaining === 'Deadline passed' ? 'text-rose-400' : 'text-amber-400'}>{deadlineRemaining}</span>}
             </div>

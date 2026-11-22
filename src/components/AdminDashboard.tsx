@@ -4328,6 +4328,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       type="button"
                       onClick={() => {
                         setSelectedPendingIds([]);
+                        setSelectedPendingJobCache([]);
                         if (onPendingPageChange) onPendingPageChange(1, size);
                       }}
                       className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
@@ -4352,6 +4353,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     disabled={(pendingPage ?? 1) <= 1}
                     onClick={() => {
                       setSelectedPendingIds([]);
+                      setSelectedPendingJobCache([]);
                       if (onPendingPageChange) onPendingPageChange((pendingPage ?? 1) - 1, pendingLimit);
                     }}
                     className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 font-bold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
@@ -4363,6 +4365,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     disabled={(pendingPage ?? 1) >= (pendingTotalPages ?? 1)}
                     onClick={() => {
                       setSelectedPendingIds([]);
+                      setSelectedPendingJobCache([]);
                       if (onPendingPageChange) onPendingPageChange((pendingPage ?? 1) + 1, pendingLimit);
                     }}
                     className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 font-bold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
@@ -4414,7 +4417,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => setSelectedPendingIds([])}
+                    onClick={() => { setSelectedPendingIds([]); setSelectedPendingJobCache([]); }}
                     className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-bold cursor-pointer"
                   >
                     Deselect
@@ -4585,6 +4588,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       type="button"
                       onClick={() => {
                         setSelectedPendingIds([]);
+                        setSelectedPendingJobCache([]);
                         if (onPendingPageChange) onPendingPageChange(1, size);
                       }}
                       className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
@@ -4609,6 +4613,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     disabled={(pendingPage ?? 1) <= 1}
                     onClick={() => {
                       setSelectedPendingIds([]);
+                      setSelectedPendingJobCache([]);
                       if (onPendingPageChange) onPendingPageChange((pendingPage ?? 1) - 1, pendingLimit);
                     }}
                     className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 font-bold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
@@ -4620,6 +4625,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     disabled={(pendingPage ?? 1) >= (pendingTotalPages ?? 1)}
                     onClick={() => {
                       setSelectedPendingIds([]);
+                      setSelectedPendingJobCache([]);
                       if (onPendingPageChange) onPendingPageChange((pendingPage ?? 1) + 1, pendingLimit);
                     }}
                     className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 font-bold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
@@ -7382,6 +7388,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }
           setSelectedJobIds([]);
           setSelectedPendingIds([]);
+          setSelectedPendingJobCache([]);
           setIsBulkJobEditOpen(false);
         }}
         onSaveAndApproveJob={async (updatedJob) => {

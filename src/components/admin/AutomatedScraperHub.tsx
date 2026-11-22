@@ -671,6 +671,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   // Multi-Selection State for Sources
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [selectedReviewIds, setSelectedReviewIds] = useState<string[]>([]);
+  const [selectedReviewJobCache, setSelectedReviewJobCache] = useState<Job[]>([]);
   const [isSelectingAllReview, setIsSelectingAllReview] = useState(false);
 
   // Execution State
@@ -1300,6 +1301,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       const allFiltered = filterReviewCollection(allPending);
       if (allFiltered.length > 500) throw new Error(`${allFiltered.length} jobs match. Existing bulk endpoints safely process up to 500 IDs per operation; narrow filters to 500 or fewer.`);
       setSelectedReviewIds(allFiltered.map(job => job.id));
+      setSelectedReviewJobCache(allFiltered);
       setStatusMessage({ text: `Selected ${allFiltered.length} filtered review jobs across ${totalPages} page(s).`, type: 'success' });
     } catch (err: any) {
       setStatusMessage({ text: err?.message || 'Could not select all filtered review jobs.', type: 'error' });
@@ -2056,6 +2058,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
   const handleDeselectAllReview = () => {
     setSelectedReviewIds([]);
+    setSelectedReviewJobCache([]);
   };
 
   const handleApproveSelected = async () => {
@@ -4401,7 +4404,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Multi-Select:</span>
                 <button
                   type="button"
-                  onClick={() => setSelectedReviewIds(Array.from(new Set(effectivePendingList.map(job => job.id))))}
+                  onClick={() => { setSelectedReviewIds(Array.from(new Set(effectivePendingList.map(job => job.id)))); setSelectedReviewJobCache(effectivePendingList); }}
                   disabled={effectivePendingList.length === 0}
                   className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40"
                   title="Select every row loaded on the current server page, regardless of the active review filter"
@@ -4410,7 +4413,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setSelectedReviewIds(Array.from(new Set(reviewItems.map(job => job.id))))}
+                  onClick={() => { setSelectedReviewIds(Array.from(new Set(reviewItems.map(job => job.id)))); setSelectedReviewJobCache(reviewItems); }}
                   disabled={reviewItems.length === 0}
                   className="px-3 py-1.5 bg-cyan-950/50 hover:bg-cyan-900/60 text-cyan-200 border border-cyan-800/50 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40"
                   title="Select all results matching active filters on the currently loaded page only"
@@ -4466,7 +4469,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 type="button"
                 disabled={selectedReviewIds.length === 0 || isProcessingReview}
                 onClick={() => {
-                  const selected = effectivePendingList.filter(job => selectedReviewIds.includes(job.id));
+                  const selected = Array.from(new Map([...selectedReviewJobCache, ...effectivePendingList].filter(job => selectedReviewIds.includes(job.id)).map(job => [job.id, job])).values());
                   if (selected.length > 0) {
                     setEditingJob(null);
                     setEditingSelectedJobs(selected);
@@ -6089,6 +6092,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               } else {
                 setStatusMessage({ text: `Bulk update completed for ${updatedJobs.length} selected jobs.`, type: 'success' });
                 setSelectedReviewIds([]);
+                setSelectedReviewJobCache([]);
                 await fetchPendingQueue();
                 if (onReloadJobs) await onReloadJobs();
               }

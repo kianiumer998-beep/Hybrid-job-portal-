@@ -553,11 +553,12 @@ userRouter.get('/:id', requireAuth, async (req: any, res) => {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
-    const { passwordHash, salt, password, cvData, ...safeUser } = user;
+    const { passwordHash, salt, password, cvData, cvDocuments, ...safeUser } = user;
     delete safeUser.walletEscrowOperations;
-    // Only return the private CV draft to its owner, never to an administrator viewing another account.
-    if (String(id) === String(currentUserId) && cvData !== undefined) {
-      safeUser.cvData = cvData;
+    // CV drafts and saved CV documents are private to their owner, not exposed to administrators viewing another account.
+    if (String(id) === String(currentUserId)) {
+      if (cvData !== undefined) safeUser.cvData = cvData;
+      if (cvDocuments !== undefined) safeUser.cvDocuments = cvDocuments;
     }
     res.json({ success: true, user: safeUser });
   } catch (err: any) {

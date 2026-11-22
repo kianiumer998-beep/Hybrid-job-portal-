@@ -2633,6 +2633,7 @@ export default function App() {
       'cvUrl',
       'resumeUrl',
       'cvData',
+      'cvDocuments',
       'socialLinks',
       'notificationsEnabled',
       'whatsappAlertsEnabled'

@@ -2243,6 +2243,9 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       const updatedSources = sourcesList.map(source => ({
         ...source,
         interval: globalInterval as any,
+        // Recalculate the next run from the newly selected frequency instead of
+        // leaving a stale timestamp from the previous interval.
+        nextRunAt: source.interval !== globalInterval ? undefined : source.nextRunAt,
         depth: globalDepth,
         keywords: globalKeywords,
         autoApprove: globalAutoApprove

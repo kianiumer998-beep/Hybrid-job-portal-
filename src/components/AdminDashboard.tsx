@@ -1795,7 +1795,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [jobsScaleFilter, setJobsScaleFilter] = useState('all');
   const [jobsProvinceFilter, setJobsProvinceFilter] = useState('all');
   const [jobsStatusFilter, setJobsStatusFilter] = useState('all');
-  const [jobsSortBy, setJobsSortBy] = useState<'newest' | 'oldest' | 'title' | 'salary'>('newest');
+  const [jobsCompletenessFilter, setJobsCompletenessFilter] = useState<'all' | 'complete' | 'incomplete' | 'missing_apply' | 'missing_source'>('all');
+  const [jobsLocationFilter, setJobsLocationFilter] = useState<'all' | 'confirmed' | 'unconfirmed'>('all');
+  const [jobsSortBy, setJobsSortBy] = useState<'newest' | 'oldest' | 'title' | 'salary' | 'scraped_latest' | 'scraped_oldest' | 'updated_latest' | 'updated_oldest'>('newest');
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
   const [showJobsDuplicatesOnly, setShowJobsDuplicatesOnly] = useState(false);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
@@ -1807,7 +1809,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [pendingSearchQuery, setPendingSearchQuery] = useState('');
   const [pendingCategoryFilter, setPendingCategoryFilter] = useState('all');
   const [pendingSourceFilter, setPendingSourceFilter] = useState('all');
-  const [pendingSortBy, setPendingSortBy] = useState<'newest' | 'oldest' | 'title'>('newest');
+  const [pendingCompletenessFilter, setPendingCompletenessFilter] = useState<'all' | 'complete' | 'incomplete' | 'missing_apply' | 'missing_source'>('all');
+  const [pendingLocationFilter, setPendingLocationFilter] = useState<'all' | 'confirmed' | 'unconfirmed'>('all');
+  const [pendingSortBy, setPendingSortBy] = useState<'newest' | 'oldest' | 'title' | 'scraped_latest' | 'scraped_oldest' | 'updated_latest' | 'updated_oldest'>('newest');
   const [selectedPendingIds, setSelectedPendingIds] = useState<string[]>([]);
   const [showPendingDuplicatesOnly, setShowPendingDuplicatesOnly] = useState(false);
   const [isPendingDuplicateModalOpen, setIsPendingDuplicateModalOpen] = useState(false);
@@ -3971,6 +3975,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           if (pendingSourceFilter === 'pdf' && !pJob.isPdfScraped && !pJob.pdfCaseNumber) {
             return false;
           }
+          const pendingHasApplyUrl = Boolean((pJob as any).applicationUrl || (pJob as any).originalApplyUrl || (pJob as any).externalApplyUrl || (pJob as any).applyUrl);
+          const pendingHasSourceUrl = Boolean((pJob as any).sourceUrl || (pJob as any).scraperSourceUrl);
+          const pendingIsComplete = Boolean(pJob.title?.trim() && pJob.company?.trim() && pJob.description?.trim() && (pJob.city || pJob.province || pJob.region));
+          if (pendingCompletenessFilter === 'complete' && !pendingIsComplete) return false;
+          if (pendingCompletenessFilter === 'incomplete' && pendingIsComplete) return false;
+          if (pendingCompletenessFilter === 'missing_apply' && pendingHasApplyUrl) return false;
+          if (pendingCompletenessFilter === 'missing_source' && pendingHasSourceUrl) return false;
+          const pendingLocationConfirmed = Boolean((pJob as any).isLocationConfirmed || pJob.metadata?.isLocationConfirmed || (pJob as any).isManuallyCorrected || pJob.metadata?.isManuallyCorrected);
+          if (pendingLocationFilter === 'confirmed' && !pendingLocationConfirmed) return false;
+          if (pendingLocationFilter === 'unconfirmed' && pendingLocationConfirmed) return false;
           if (showPendingDuplicatesOnly) {
             const isDupOfLive = liveTitleSet.has(`${(pJob.title || '').trim().toLowerCase()}|${(pJob.company || '').trim().toLowerCase()}`) || (pJob.pdfCaseNumber && liveCaseSet.has(pJob.pdfCaseNumber.trim().toLowerCase()));
             const isDupInPending = pendingClusters.some(c => c.items.some(it => it.id === pJob.id));
@@ -3978,9 +3992,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }
           return true;
         }).sort((a, b) => {
-          if (pendingSortBy === 'title') return a.title.localeCompare(b.title);
-          if (pendingSortBy === 'oldest') return (a.postedAt || '').localeCompare(b.postedAt || '');
-          return (b.postedAt || '').localeCompare(a.postedAt || '');
+          if (pendingSortBy === 'title') return (a.title || '').localeCompare(b.title || '');
+          const dateValue = (job: Job, mode: 'scraped' | 'updated' | 'posted') => {
+            const value = mode === 'scraped' ? ((job as any).scrapedAt || (job as any).lastScrapedAt || job.createdAt || job.postedAt)
+              : mode === 'updated' ? ((job as any).updatedAt || (job as any).lastUpdatedAt || job.createdAt || job.postedAt)
+              : (job.createdAt || job.postedAt);
+            const parsed = value ? new Date(value).getTime() : NaN;
+            return Number.isFinite(parsed) ? parsed : 0;
+          };
+          const mode = pendingSortBy.startsWith('scraped_') ? 'scraped' : pendingSortBy.startsWith('updated_') ? 'updated' : 'posted';
+          const delta = dateValue(a, mode) - dateValue(b, mode);
+          return pendingSortBy === 'oldest' || pendingSortBy.endsWith('_oldest') ? delta : -delta;
         });
 
         const allSelected = filteredPending.length > 0 && filteredPending.every(j => selectedPendingIds.includes(j.id));
@@ -4152,6 +4174,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <option value="newest">Sort: Newest First</option>
                     <option value="oldest">Sort: Oldest First</option>
                     <option value="title">Sort: Job Title (A-Z)</option>
+                    <option value="scraped_latest">Latest Scraped First</option>
+                    <option value="scraped_oldest">Oldest Scraped First</option>
+                    <option value="updated_latest">Recently Updated First</option>
+                    <option value="updated_oldest">Oldest Updated First</option>
+                  </select>
+
+                  <select value={pendingCompletenessFilter} onChange={(e) => setPendingCompletenessFilter(e.target.value as typeof pendingCompletenessFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium">
+                    <option value="all">All Job Details</option><option value="complete">Complete Jobs</option><option value="incomplete">Incomplete Jobs</option><option value="missing_apply">Missing Apply URL</option><option value="missing_source">Missing Scraper Source URL</option>
+                  </select>
+                  <select value={pendingLocationFilter} onChange={(e) => setPendingLocationFilter(e.target.value as typeof pendingLocationFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium">
+                    <option value="all">All Location Status</option><option value="confirmed">Location Confirmed</option><option value="unconfirmed">Location Unconfirmed</option>
                   </select>
 
                   <button
@@ -4170,7 +4203,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               {/* Selection Summary and Quick Controls */}
               <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs text-slate-400">
-                <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-3 flex-wrap">
+                  <button type="button" onClick={() => setSelectedPendingIds(Array.from(new Set(pendingJobs.map(j => j.id))))} disabled={pendingJobs.length === 0} className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:text-white text-[11px] font-bold disabled:opacity-40">Select Current Page ({pendingJobs.length})</button>
                   <label className="flex items-center space-x-2 cursor-pointer font-bold text-slate-200">
                     <input
                       type="checkbox"
@@ -4264,6 +4298,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={() => setIsBulkJobEditOpen(true)} className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl cursor-pointer flex items-center space-x-1">
+                    <Edit3 className="w-3.5 h-3.5" /><span>Bulk Edit Attributes ({selectedPendingIds.length})</span>
+                  </button>
                   <button
                     type="button"
                     onClick={handleBulkApprove}
@@ -6032,6 +6069,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           if (jobsScaleFilter !== 'all' && job.govtScale !== jobsScaleFilter) return false;
           if (jobsProvinceFilter !== 'all' && job.province !== jobsProvinceFilter) return false;
           if (jobsStatusFilter !== 'all' && (job.status || 'Approved') !== jobsStatusFilter) return false;
+          const liveHasApplyUrl = Boolean((job as any).applicationUrl || (job as any).originalApplyUrl || (job as any).externalApplyUrl || (job as any).applyUrl);
+          const liveHasSourceUrl = Boolean((job as any).sourceUrl || (job as any).scraperSourceUrl);
+          const liveIsComplete = Boolean(job.title?.trim() && job.company?.trim() && job.description?.trim() && (job.city || job.province || job.region));
+          if (jobsCompletenessFilter === 'complete' && !liveIsComplete) return false;
+          if (jobsCompletenessFilter === 'incomplete' && liveIsComplete) return false;
+          if (jobsCompletenessFilter === 'missing_apply' && liveHasApplyUrl) return false;
+          if (jobsCompletenessFilter === 'missing_source' && liveHasSourceUrl) return false;
+          const liveLocationConfirmed = Boolean((job as any).isLocationConfirmed || job.metadata?.isLocationConfirmed || (job as any).isManuallyCorrected || job.metadata?.isManuallyCorrected);
+          if (jobsLocationFilter === 'confirmed' && !liveLocationConfirmed) return false;
+          if (jobsLocationFilter === 'unconfirmed' && liveLocationConfirmed) return false;
 
           if (showJobsDuplicatesOnly) {
             const isDup = liveJobClusters.some(c => c.items.some(it => it.id === job.id));
@@ -6050,10 +6097,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             const aTime = new Date(a.createdAt || 0).getTime() || (a.postedAt === 'Just now' ? Date.now() : new Date(a.postedAt || 0).getTime()) || 0;
             return aTime - bTime;
           }
-          if (jobsSortBy === 'title') {
-            return (a.title || '').localeCompare(b.title || '');
-          }
-          return 0;
+          if (jobsSortBy === 'title') return (a.title || '').localeCompare(b.title || '');
+          if (jobsSortBy === 'salary') return Number(a.salaryMin || 0) - Number(b.salaryMin || 0);
+          const dateValue = (job: Job, mode: 'scraped' | 'updated' | 'posted') => {
+            const value = mode === 'scraped' ? ((job as any).scrapedAt || (job as any).lastScrapedAt || job.createdAt || job.postedAt)
+              : mode === 'updated' ? ((job as any).updatedAt || (job as any).lastUpdatedAt || job.createdAt || job.postedAt)
+              : (job.createdAt || job.postedAt);
+            const parsed = value ? new Date(value).getTime() : NaN;
+            return Number.isFinite(parsed) ? parsed : 0;
+          };
+          const mode = jobsSortBy.startsWith('scraped_') ? 'scraped' : jobsSortBy.startsWith('updated_') ? 'updated' : 'posted';
+          const delta = dateValue(a, mode) - dateValue(b, mode);
+          return jobsSortBy === 'oldest' || jobsSortBy.endsWith('_oldest') ? delta : -delta;
         });
 
         const allSelected = filteredLiveJobs.length > 0 && filteredLiveJobs.every(j => selectedJobIds.includes(j.id));
@@ -6207,6 +6262,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <option value="newest">📅 Newest First</option>
                     <option value="oldest">📅 Oldest First</option>
                     <option value="title">🔤 Title (A-Z)</option>
+                    <option value="scraped_latest">Latest Scraped First</option>
+                    <option value="scraped_oldest">Oldest Scraped First</option>
+                    <option value="updated_latest">Recently Updated First</option>
+                    <option value="updated_oldest">Oldest Updated First</option>
+                  </select>
+                  <select value={jobsCompletenessFilter} onChange={(e) => setJobsCompletenessFilter(e.target.value as typeof jobsCompletenessFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium">
+                    <option value="all">All Job Details</option><option value="complete">Complete Jobs</option><option value="incomplete">Incomplete Jobs</option><option value="missing_apply">Missing Apply URL</option><option value="missing_source">Missing Scraper Source URL</option>
+                  </select>
+                  <select value={jobsLocationFilter} onChange={(e) => setJobsLocationFilter(e.target.value as typeof jobsLocationFilter)} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium">
+                    <option value="all">All Location Status</option><option value="confirmed">Location Confirmed</option><option value="unconfirmed">Location Unconfirmed</option>
                   </select>
 
                   <button

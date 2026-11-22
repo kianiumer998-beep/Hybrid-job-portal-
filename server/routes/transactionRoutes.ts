@@ -485,6 +485,7 @@ transactionRouter.post('/', async (req, res) => {
     const isAdmin = Boolean(authUser && adminRoles.includes(authUser.role));
 
     const effectiveType = type || 'Wallet Deposit';
+    const effectiveCurrency = effectiveType === 'CV Design Purchase' ? 'PKR' : (currency || 'PKR');
 
     if (!authUserId) {
       if (effectiveType === 'Subscription' && paymentMethod !== 'Wallet Balance' && (userEmail || senderPhoneOrAccount)) {
@@ -1136,7 +1137,7 @@ transactionRouter.post('/', async (req, res) => {
 
       const newTx = await PaymentRepository.createAsync({
         amount: enforcedAmount,
-        currency: currency || 'PKR',
+        currency: effectiveCurrency,
         type: effectiveType,
         ...(safeSubscriptionPlan ? { plan: safeSubscriptionPlan } : {}),
         ...(effectiveType === 'Subscription' ? { packageSnapshot: (req as any).packageSnapshot } : {}),
@@ -1490,7 +1491,7 @@ transactionRouter.post('/', async (req, res) => {
         user: effectiveUserName || 'User',
         role: 'Member',
         action: finalStatus === 'Success' ? 'Payment Completed (Wallet)' : 'Payment Proof Submitted',
-        target: `${enforcedAmount} ${currency || 'PKR'} via ${resolvedPaymentMethodName} (Ref: ${tid})`,
+        target: `${enforcedAmount} ${effectiveCurrency} via ${resolvedPaymentMethodName} (Ref: ${tid})`,
         status: 'Success',
         metadata: {
           transactionId: tid,
@@ -1508,8 +1509,8 @@ transactionRouter.post('/', async (req, res) => {
             userId: effectiveUserId,
             title: finalStatus === 'Success' ? 'Payment Approved' : 'Payment Submitted',
             message: finalStatus === 'Success'
-              ? `Your payment of ${enforcedAmount} ${currency || 'PKR'} for ${effectiveType} via ${resolvedPaymentMethodName} has been processed.`
-              : `Your payment of ${enforcedAmount} ${currency || 'PKR'} for ${effectiveType} via ${resolvedPaymentMethodName} has been submitted for review.`,
+              ? `Your payment of ${enforcedAmount} ${effectiveCurrency} for ${effectiveType} via ${resolvedPaymentMethodName} has been processed.`
+              : `Your payment of ${enforcedAmount} ${effectiveCurrency} for ${effectiveType} via ${resolvedPaymentMethodName} has been submitted for review.`,
             type: finalStatus === 'Success' ? 'success' : 'info',
             eventId: finalStatus === 'Success' ? `payment-approved-${newTx.id}` : `payment-submitted-${newTx.id}`,
             idempotencyKey: finalStatus === 'Success' ? `payment-approved-${newTx.id}` : `payment-submitted-${newTx.id}`,

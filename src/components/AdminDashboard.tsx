@@ -6246,14 +6246,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             setSelectedJobIds(prev => prev.filter(id => !filteredLiveJobs.some(j => j.id === id)));
           } else {
             const toAdd = filteredLiveJobs.map(j => j.id);
-            setSelectedJobIds(prev => Array.from(new Set([...prev, ...toAdd])));
+            const combined = Array.from(new Set([...selectedJobIds, ...toAdd]));
+            if (combined.length > 500) {
+              alert(`Bulk actions support up to 500 selected jobs at a time. ${combined.length} match; please narrow the filters or select a smaller batch.`);
+              return;
+            }
+            setSelectedJobIds(combined);
           }
         };
 
         const toggleLiveJobSelection = (id: string) => {
-          setSelectedJobIds(prev =>
-            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-          );
+          setSelectedJobIds(prev => {
+            if (prev.includes(id)) return prev.filter(i => i !== id);
+            if (prev.length >= 500) {
+              alert('Bulk actions support up to 500 selected jobs at a time. Please remove a selection or narrow the filters.');
+              return prev;
+            }
+            return [...prev, id];
+          });
         };
 
         const handleBulkDeleteSelectedLiveJobs = () => {
@@ -6425,7 +6435,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {/* Selection Summary */}
               <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs text-slate-400">
                 <div className="flex items-center space-x-3 flex-wrap">
-                  <button type="button" onClick={() => setSelectedJobIds(Array.from(new Set(jobs.map(j => j.id))))} disabled={jobs.length === 0} className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:text-white text-[11px] font-bold disabled:opacity-40">Select All Live Jobs ({jobs.length})</button>
+                  <button type="button" onClick={() => {
+                    if (jobs.length > 500) {
+                      alert(`There are ${jobs.length} live jobs. Existing bulk operations safely process up to 500 at a time; use filters to select a smaller batch.`);
+                      return;
+                    }
+                    setSelectedJobIds(Array.from(new Set(jobs.map(j => j.id))));
+                  }} disabled={jobs.length === 0} className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:text-white text-[11px] font-bold disabled:opacity-40">Select All Live Jobs ({jobs.length})</button>
                   <label className="flex items-center space-x-2 cursor-pointer font-bold text-slate-200">
                     <input
                       type="checkbox"

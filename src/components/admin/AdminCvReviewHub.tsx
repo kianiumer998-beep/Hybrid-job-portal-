@@ -58,6 +58,29 @@ export const AdminCvReviewHub: React.FC = () => {
     finally { setSaving(false); }
   };
 
+  const printCandidateCv = () => {
+    if (!selected) return;
+    const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[char] || char));
+    const cv = selected.cvData;
+    const p = cv.personalInfo;
+    const extra = cv.additionalSections || {};
+    const section = (title: string, body: string) => body ? `<section><h2>${escapeHtml(title)}</h2>${body}</section>` : '';
+    const list = (title: string, values?: string[]) => values?.length ? section(title, `<ul>${values.map((v) => `<li>${escapeHtml(v)}</li>`).join('')}</ul>`) : '';
+    const experience = cv.experience.map((e) => section('Work Experience', `<h3>${escapeHtml(e.position)} — ${escapeHtml(e.company)}</h3><p>${escapeHtml(e.location)} · ${escapeHtml(e.startDate)} – ${escapeHtml(e.current ? 'Present' : e.endDate)}</p><ul>${e.bullets.filter(Boolean).map((b) => `<li>${escapeHtml(b)}</li>`).join('')}</ul>`)).join('');
+    const education = cv.education.map((e) => `<p><strong>${escapeHtml(e.degree)} ${escapeHtml(e.fieldOfStudy)}</strong> — ${escapeHtml(e.institution)} · ${escapeHtml(e.startDate)} – ${escapeHtml(e.endDate)} ${escapeHtml(e.gpa || '')}</p>`).join('');
+    const skills = [...cv.skills.technical, ...cv.skills.soft, ...cv.skills.languages].map(escapeHtml).join(' · ');
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>CV - ${escapeHtml(p.fullName)}</title><style>body{font:11pt Arial,sans-serif;color:#172033;max-width:800px;margin:36px auto;line-height:1.45}h1{font-size:22pt;margin:0}h2{font-size:12pt;border-bottom:1px solid #9ca3af;padding-bottom:4px;margin:20px 0 8px;text-transform:uppercase}h3{font-size:11pt;margin:8px 0 2px}p{margin:4px 0;color:#374151}ul{margin:5px 0;padding-left:20px}li{margin:2px 0}@media print{body{margin:15mm;max-width:none}}</style></head><body><h1>${escapeHtml(p.fullName)}</h1><p><strong>${escapeHtml(p.jobTitle)}</strong></p><p>${[p.email,p.phone,p.location,p.website,p.linkedin,p.github].filter(Boolean).map(escapeHtml).join(' · ')}</p>${section('Professional Summary', `<p>${escapeHtml(p.summary)}</p>`)}${section('Career Objective', `<p>${escapeHtml(extra.objective)}</p>`)}${experience}${section('Education', education)}${section('Skills & Languages', `<p>${skills}</p>`)}${list('Certifications',cv.certifications.map((c)=>[c.name,c.issuer,c.year].filter(Boolean).join(' · ')))}${list('Projects',extra.projects)}${list('Internships',extra.internships)}${list('Volunteer Work',extra.volunteerWork)}${list('Achievements & Awards',extra.achievements)}${list('Professional Training',extra.professionalTraining)}${list('Relevant Coursework',extra.relevantCoursework)}${list('Research & Publications',extra.publications)}${list('References',extra.references)}${section('Additional Information',[extra.careerGapExplanation,extra.preferredEmploymentType,extra.noticePeriod,extra.domicile,extra.professionalRegistration].filter(Boolean).map(escapeHtml).join('<br>'))}</body></html>`;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) { setError('Please allow pop-ups to print or save the CV as PDF.'); return; }
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  };
+
   const downloadReviewData = () => {
     if (!selected) return;
     const blob = new Blob([JSON.stringify({ candidate: { id: selected.id, name: selected.name, email: selected.email }, cvData: selected.cvData, cvReview: selected.cvReview }, null, 2)], { type: 'application/json;charset=utf-8' });
@@ -98,7 +121,7 @@ export const AdminCvReviewHub: React.FC = () => {
           {!selected ? <div className="min-h-[300px] flex flex-col items-center justify-center text-center text-slate-500"><Eye className="w-9 h-9 mb-3" /><p className="text-sm font-bold">Select a candidate to review their CV</p><p className="text-xs mt-1">The complete CV opens here after selection.</p></div> : <>
             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 border-b border-slate-800 pb-4">
               <div><h3 className="text-lg font-black text-white">{selected.cvData.personalInfo.fullName || selected.name}</h3><p className="text-xs text-slate-400">{selected.cvData.personalInfo.jobTitle} · {selected.cvData.personalInfo.location}</p><p className="text-xs text-slate-500 mt-1">{selected.cvData.personalInfo.email} · {selected.cvData.personalInfo.phone}</p></div>
-              <div className="flex gap-2 flex-wrap"><span className="text-[11px] px-2 py-1 rounded bg-slate-800">{selected.cvReview.status}</span><button type="button" onClick={downloadReviewData} className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs font-bold flex items-center gap-1"><Download className="w-3.5 h-3.5" /> Export Review Data</button></div>
+              <div className="flex gap-2 flex-wrap"><span className="text-[11px] px-2 py-1 rounded bg-slate-800">{selected.cvReview.status}</span><button type="button" onClick={printCandidateCv} className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs font-bold flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> Print / Save PDF</button><button type="button" onClick={downloadReviewData} className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs font-bold flex items-center gap-1"><Download className="w-3.5 h-3.5" /> Export Data</button></div>
             </div>
             <div className="space-y-4 max-h-[55vh] overflow-y-auto pr-1">
               {selected.cvData.personalInfo.summary && <div><h4 className="text-xs font-black uppercase text-emerald-300 mb-1">Professional Summary</h4><p className="text-xs whitespace-pre-wrap">{selected.cvData.personalInfo.summary}</p></div>}

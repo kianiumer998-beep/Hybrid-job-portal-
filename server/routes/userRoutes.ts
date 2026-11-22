@@ -225,13 +225,6 @@ userRouter.get('/', requireAdminPermission('users.manage'), async (req, res) => 
       delete safe.salt;
       delete safe.password;
       delete safe.cvData;
-      if (u.cvReview) {
-        safe.cvReview = {
-          status: u.cvReview.status,
-          submittedAt: u.cvReview.submittedAt,
-          reviewedAt: u.cvReview.reviewedAt
-        };
-      }
       delete safe.walletEscrowOperations;
       safe.permissions = getPermissionsForRole(u.role);
       return safe;
@@ -609,14 +602,6 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
         if (cvDataError) {
           return res.status(400).json({ success: false, message: cvDataError });
         }
-        const priorUser = await UserRepository.getByIdAsync(id);
-        const priorHistory = Array.isArray(priorUser?.cvReview?.history) ? priorUser.cvReview.history : [];
-        finalUpdates.cvReview = {
-          ...(priorUser?.cvReview || {}),
-          status: 'Draft',
-          updatedAt: new Date().toISOString(),
-          history: priorHistory.slice(-50)
-        };
       }
     } else {
       const updateEntries = Object.entries(updates);

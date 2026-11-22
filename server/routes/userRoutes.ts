@@ -542,80 +542,6 @@ userRouter.get('/:id/wallet', requireAuth, async (req: any, res) => {
   }
 });
 
-// Candidate CV submission and private administrator review workflow.
-userRouter.post('/cv/submit', requireAuth, async (req: any, res) => {
-  try {
-    const userId = String(req.user?.userId || req.user?.id || '').trim();
-    if (!isValidUserIdParam(userId)) return res.status(401).json({ success: false, message: 'A valid signed-in candidate account is required.' });
-    const cvData = req.body?.cvData;
-    const validationError = validateCvDataPayload(cvData);
-    if (validationError) return res.status(400).json({ success: false, message: validationError });
-    const personal = cvData.personalInfo;
-    if (!personal.fullName.trim() || !personal.email.trim()) return res.status(400).json({ success: false, message: 'Please provide your full name and email before submitting your CV.' });
-    const existing = await UserRepository.getByIdAsync(userId);
-    if (!existing) return res.status(404).json({ success: false, message: 'Candidate account not found.' });
-    const now = new Date().toISOString();
-    const priorHistory = Array.isArray(existing.cvReview?.history) ? existing.cvReview.history : [];
-    const history = [...priorHistory, { status: 'Submitted', at: now, by: userId }].slice(-50);
-    const cvReview = { status: 'Submitted', submittedAt: now, updatedAt: now, reviewerNote: '', history };
-    const updated = await UserRepository.updateAsync(userId, { cvData, cvReview });
-    if (!updated) return res.status(404).json({ success: false, message: 'Candidate account not found.' });
-    res.json({ success: true, cvReview: updated.cvReview, message: 'CV submitted successfully for administrator review.' });
-  } catch (err: any) { res.status(500).json({ success: false, message: err.message || 'Unable to submit CV for review.' }); }
-});
-
-userRouter.get('/cv/review-queue', requireAdminPermission('users.manage'), async (req: any, res) => {
-  try {
-    const allowed = new Set(['Submitted', 'Reviewed', 'Verified', 'Needs Changes']);
-    const requestedStatus = typeof req.query.status === 'string' ? req.query.status : '';
-    if (requestedStatus && !allowed.has(requestedStatus)) return res.status(400).json({ success: false, message: 'Invalid CV review status filter.' });
-    const candidates = await UserRepository.getCvReviewQueueAsync(Array.from(allowed), requestedStatus || undefined);
-    res.json({ success: true, candidates });
-  } catch (err: any) { res.status(500).json({ success: false, message: err.message || 'Unable to load CV review queue.' }); }
-});
-
-userRouter.get('/cv/review/:id', requireAdminPermission('users.manage'), async (req: any, res) => {
-  try {
-    const id = String(req.params.id || '').trim();
-    if (!isValidUserIdParam(id)) return res.status(400).json({ success: false, message: 'Invalid candidate ID.' });
-    const user = await UserRepository.getByIdAsync(id);
-    if (!user || !user.cvData || !user.cvReview || !['Submitted', 'Reviewed', 'Verified', 'Needs Changes'].includes(user.cvReview.status)) return res.status(404).json({ success: false, message: 'A submitted CV was not found for this candidate.' });
-    res.json({ success: true, user: { id: user.id, name: user.name, email: user.email, cvData: user.cvData, cvReview: user.cvReview } });
-  } catch (err: any) { res.status(500).json({ success: false, message: err.message || 'Unable to load candidate CV.' }); }
-});
-
-userRouter.patch('/cv/review/:id', requireAdminPermission('users.manage'), async (req: any, res) => {
-  try {
-    const id = String(req.params.id || '').trim();
-    const status = req.body?.status;
-    const note = typeof req.body?.reviewerNote === 'string' ? req.body.reviewerNote.trim() : '';
-    const validStatuses = new Set(['Reviewed', 'Verified', 'Needs Changes']);
-    if (!isValidUserIdParam(id)) return res.status(400).json({ success: false, message: 'Invalid candidate ID.' });
-    if (!validStatuses.has(status)) return res.status(400).json({ success: false, message: 'Invalid CV review status.' });
-    if (note.length > 3000) return res.status(400).json({ success: false, message: 'Reviewer note cannot exceed 3000 characters.' });
-    const existing = await UserRepository.getByIdAsync(id);
-    if (!existing || !existing.cvData || !existing.cvReview || !['Submitted', 'Reviewed', 'Verified', 'Needs Changes'].includes(existing.cvReview.status)) return res.status(404).json({ success: false, message: 'A submitted CV was not found for this candidate.' });
-    if (existing.cvReview.status === 'Needs Changes' && status !== 'Needs Changes') return res.status(409).json({ success: false, message: 'Candidate must resubmit the corrected CV before another review decision.' });
-    if (status === 'Verified' && existing.cvReview.status !== 'Reviewed') return res.status(409).json({ success: false, message: 'Mark the CV as Reviewed before verifying it.' });
-    const now = new Date().toISOString();
-    const actor = String(req.user?.userId || req.user?.id || req.user?.email || 'Administrator');
-    const history = [...(Array.isArray(existing.cvReview.history) ? existing.cvReview.history : []), { status, at: now, by: actor, ...(note ? { note } : {}) }].slice(-50);
-    const cvReview = { ...existing.cvReview, status, reviewedAt: now, reviewedBy: actor, reviewerNote: note, updatedAt: now, history };
-    const expectedReviewUpdatedAt = existing.cvReview.updatedAt;
-    if (typeof expectedReviewUpdatedAt !== 'string' || !expectedReviewUpdatedAt) {
-      return res.status(409).json({ success: false, message: 'CV review data changed or is incomplete. Refresh the candidate CV before reviewing.' });
-    }
-    const updated = await UserRepository.updateCvReviewIfUnchangedAsync(id, expectedReviewUpdatedAt, cvReview);
-    if (!updated) return res.status(409).json({ success: false, message: 'The candidate CV changed while it was being reviewed. Refresh the CV and review the latest version.' });
-    await AuditRepository.addAfterPrimaryOperation({
-      user: req.user?.name || req.user?.email || 'Administrator', role: req.user?.role || 'Admin',
-      action: 'Candidate CV Reviewed', target: `${existing.email || id} (${id})`, status: 'Success',
-      metadata: { actorId: actor, targetUserId: id, cvReviewStatus: status }
-    }, 'PATCH /api/users/cv/review/:id');
-    res.json({ success: true, cvReview, message: `CV review status updated to ${status}.` });
-  } catch (err: any) { res.status(500).json({ success: false, message: err.message || 'Unable to update CV review status.' }); }
-});
-
 // 1b. Get Single User Profile (Self or Admin)
 userRouter.get('/:id', requireAuth, async (req: any, res) => {
   try {
@@ -800,15 +726,6 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
       const existingUser = await UserRepository.getByIdAsync(id);
       if (!existingUser) {
         return res.status(404).json({ success: false, message: 'User not found.' });
-      }
-      if (Object.prototype.hasOwnProperty.call(finalUpdates, 'cvData')) {
-        const priorHistory = Array.isArray(existingUser.cvReview?.history) ? existingUser.cvReview.history : [];
-        finalUpdates.cvReview = {
-          ...(existingUser.cvReview || {}),
-          status: 'Draft',
-          updatedAt: new Date().toISOString(),
-          history: priorHistory.slice(-50)
-        };
       }
       if (existingUser.role === 'Super Admin' && req.user?.role !== 'Super Admin') {
         return res.status(403).json({

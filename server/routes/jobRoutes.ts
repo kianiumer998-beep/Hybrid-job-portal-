@@ -115,6 +115,14 @@ jobRouter.get('/early-access', async (req: any, res: any) => {
         return bStart - aStart;
       });
     const maxJobs = landingConfig.maxJobs;
+    const nextReleaseAt = earlyJobs
+      .map((job: any) => {
+        const rawStart = job.approvedAt || job.publishedAt || job.createdAt || job.postedAt || job.datePosted;
+        const start = rawStart ? new Date(rawStart).getTime() : Number.NaN;
+        return Number.isFinite(start) ? start + landingConfig.durationHours * 60 * 60 * 1000 : Number.NaN;
+      })
+      .filter((value: number) => Number.isFinite(value) && value > Date.now())
+      .sort((a: number, b: number) => a - b)[0];
     const jobs = isPremium
       ? await Promise.all(earlyJobs.slice(0, maxJobs).map(async (job: any) => {
           const policyApplied = await JobVisibilityRepository.applyPolicyToJob(job);
@@ -129,6 +137,7 @@ jobRouter.get('/early-access', async (req: any, res: any) => {
       isPremium,
       config: landingConfig,
       count: earlyJobs.length,
+      nextReleaseAt: Number.isFinite(nextReleaseAt) ? new Date(nextReleaseAt).toISOString() : null,
       jobs
     });
   } catch (err: any) {

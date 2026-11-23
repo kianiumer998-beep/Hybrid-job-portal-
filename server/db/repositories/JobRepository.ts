@@ -14,6 +14,7 @@ import { generateJobSlug } from '../../utils/slugify';
 import { JobVisibilityRepository } from './JobVisibilityRepository';
 import { PricingRepository } from './PricingRepository';
 import { DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG } from '../../../src/types/job';
+import { isEarlyAccessJobLocked } from '../../services/earlyAccessPolicy';
 import {
   normalizeExactJobUrl,
   isGenericApplicationPortalUrl
@@ -40,6 +41,7 @@ export interface JobFilterOptions {
   scraperSourceId?: string;
   status?: string;
   visibility?: string;
+  earlyAccessPolicy?: { config: any; isPremium: boolean; now?: number };
 }
 
 export function parseDeadlineTimestamp(deadlineStr?: string): number | null {
@@ -288,6 +290,9 @@ export class JobRepository {
           if (filter.status === 'Expired') matchesStatus = evaluated.isExpired === true;
           else if (filter.status === 'Approved') matchesStatus = evaluated.isExpired !== true && (evaluated.status === 'Approved' || !evaluated.status);
           else if (!filter.includeExpired) matchesStatus = evaluated.isExpired !== true;
+          if (matchesStatus && filter.earlyAccessPolicy && filter.earlyAccessPolicy.isPremium !== true) {
+            matchesStatus = !isEarlyAccessJobLocked(evaluated, filter.earlyAccessPolicy.config, filter.earlyAccessPolicy.now);
+          }
           return matchesStatus;
         });
 
@@ -529,6 +534,10 @@ export class JobRepository {
         else if (filter.status === 'Approved') matchesStatus = evaluated.isExpired !== true && (evaluated.status === 'Approved' || !evaluated.status);
         else if (!filter.includeExpired) matchesStatus = evaluated.isExpired !== true;
 
+        if (matchesStatus && filter.earlyAccessPolicy && filter.earlyAccessPolicy.isPremium !== true) {
+          matchesStatus = !isEarlyAccessJobLocked(evaluated, filter.earlyAccessPolicy.config, filter.earlyAccessPolicy.now);
+        }
+
         if (matchesStatus) {
           const currentIndex = total;
           total++;
@@ -753,6 +762,10 @@ export class JobRepository {
         if (tA !== tB) return tB - tA;
         return String(a.id || '').localeCompare(String(b.id || ''));
       });
+    }
+
+    if (filter.earlyAccessPolicy && filter.earlyAccessPolicy.isPremium !== true) {
+      candidateJobs = candidateJobs.filter((job) => !isEarlyAccessJobLocked(job, filter.earlyAccessPolicy?.config, filter.earlyAccessPolicy?.now));
     }
 
     const vipJobs: any[] = [];

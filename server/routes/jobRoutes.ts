@@ -137,7 +137,7 @@ jobRouter.get('/early-access', async (req: any, res: any) => {
       isPremium,
       config: landingConfig,
       count: earlyJobs.length,
-      nextReleaseAt: Number.isFinite(nextReleaseAt) ? new Date(nextReleaseAt).toISOString() : null,
+      nextReleaseAt: typeof nextReleaseAt === 'number' && Number.isFinite(nextReleaseAt) ? new Date(nextReleaseAt).toISOString() : null,
       jobs
     });
   } catch (err: any) {

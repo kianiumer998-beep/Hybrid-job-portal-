@@ -337,8 +337,10 @@ userRouter.post('/cv/export/:format', requireAuth, async (req: any, res) => {
     const ownsDesign = (Array.isArray(user.cvDesignEntitlements) ? user.cvDesignEntitlements : []).some((item: any) => String(item?.templateId || '') === templateId);
     const inactive = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled', 'Revoked']);
     const premium = !inactive.has(String(user.membershipStatus || '')) && ((user.membershipStatus === 'Active' && Boolean(user.membershipTier) && String(user.membershipTier).toLowerCase() !== 'free') || user.plan === 'Premium' || (user.paymentStatus === 'Paid' && user.membershipStatus === 'Active'));
+    const freeDesignLimit = Math.min(5, Math.max(0, Math.floor(Number(settings.freeDesignLimit ?? 2))));
+    const freeTemplateIds = new Set(templates.filter((item: any) => item && item.enabled !== false && item.free === true).slice(0, freeDesignLimit).map((item: any) => String(item.id)));
     if (!template || (template.enabled === false && !ownsDesign)) return res.status(403).json({ success: false, message: 'This CV design is not currently available.' });
-    if (template.free !== true && !ownsDesign && !premium) return res.status(403).json({ success: false, message: 'This premium CV design must be purchased or unlocked by an active subscription.' });
+    if (!premium && !freeTemplateIds.has(templateId) && !ownsDesign) return res.status(403).json({ success: false, message: 'Purchase this Premium CV design or activate a Premium membership before exporting.' });
     if ((action === 'pdf' && (settings.pdfExportEnabled === false || template.pdfExportEnabled === false)) || (action === 'ats' && (settings.atsTextExportEnabled === false || template.atsExportEnabled === false))) {
       return res.status(403).json({ success: false, message: 'This CV export format is disabled by the administrator.' });
     }
@@ -388,8 +390,10 @@ userRouter.post('/cv/consume', requireAuth, async (req: any, res) => {
     const ownsDesign = (Array.isArray(user.cvDesignEntitlements) ? user.cvDesignEntitlements : []).some((item: any) => String(item?.templateId || '') === templateId);
     const inactive = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled', 'Revoked']);
     const premium = !inactive.has(String(user.membershipStatus || '')) && ((user.membershipStatus === 'Active' && Boolean(user.membershipTier) && String(user.membershipTier).toLowerCase() !== 'free') || user.plan === 'Premium' || (user.paymentStatus === 'Paid' && user.membershipStatus === 'Active'));
+    const freeDesignLimit = Math.min(5, Math.max(0, Math.floor(Number(settings.freeDesignLimit ?? 2))));
+    const freeTemplateIds = new Set(templates.filter((item: any) => item && item.enabled !== false && item.free === true).slice(0, freeDesignLimit).map((item: any) => String(item.id)));
     if (!template || (template.enabled === false && !ownsDesign)) return res.status(403).json({ success: false, message: 'This CV design is not currently available.' });
-    if (template.free !== true && !ownsDesign && !premium) return res.status(403).json({ success: false, message: 'This premium CV design must be purchased or unlocked by an active subscription.' });
+    if (!premium && !freeTemplateIds.has(templateId) && !ownsDesign) return res.status(403).json({ success: false, message: 'Purchase this Premium CV design or activate a Premium membership before sharing.' });
     if (action === 'pdf' && (settings.pdfExportEnabled === false || template.pdfExportEnabled === false)) {
       return res.status(403).json({ success: false, message: 'PDF export is disabled by the administrator for this CV design.' });
     }

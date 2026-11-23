@@ -246,7 +246,7 @@ function buildCvExportLines(data: any, watermarkText?: string): string[] {
   return lines.map((line) => String(line ?? '').replace(/[\r\n\t]+/g, ' ').trim()).filter((line, index) => line || index === 0);
 }
 
-function createCvPdf(lines: string[]): Buffer {
+function createCvPdf(lines: string[], watermarkText?: string, watermarkOpacity: number = 0.16): Buffer {
   const escapePdf = (value: string) => value.replace(/[^\x20-\x7E]/g, '?').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
   const wrapped: string[] = [];
   for (const raw of lines) {
@@ -269,14 +269,24 @@ function createCvPdf(lines: string[]): Buffer {
   objects[2] = '<< /Type /Pages /Kids [' + pageIds.map((id) => id + ' 0 R').join(' ') + '] /Count ' + pages.length + ' >>';
   objects[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>';
   objects[4] = '<< /Producer (Hybrid Job Portal CV Export) >>';
+  objects[5] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>';
   pages.forEach((page, index) => {
     const pageId = pageIds[index];
     const contentId = pageId + 1;
-    const commands = ['BT', '/F1 10 Tf', '50 790 Td', '13 TL'];
-    page.forEach((line) => commands.push('(' + escapePdf(line) + ') Tj', 'T*'));
+    const commands: string[] = [];
+    if (watermarkText) {
+      const gray = Math.max(0.65, Math.min(0.97, 1 - Math.max(0.05, Math.min(0.35, Number(watermarkOpacity) || 0.16))));
+      commands.push('q', gray.toFixed(2) + ' g', 'BT', '/F1 30 Tf', '0.707 0.707 -0.707 0.707 125 360 Tm', '(' + escapePdf(watermarkText) + ') Tj', 'ET', 'Q');
+    }
+    commands.push('BT', '/F1 10 Tf', '50 790 Td', '13 TL');
+    page.forEach((line, lineIndex) => {
+      if (lineIndex === 0 || (line && line === line.toUpperCase() && line.length < 80)) commands.push('/F2 10 Tf');
+      else commands.push('/F1 10 Tf');
+      commands.push('(' + escapePdf(line) + ') Tj', 'T*');
+    });
     commands.push('ET');
     const stream = commands.join('\n');
-    objects[pageId] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ' + contentId + ' 0 R >>';
+    objects[pageId] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 5 0 R >> >> /Contents ' + contentId + ' 0 R >>';
     objects[contentId] = '<< /Length ' + Buffer.byteLength(stream, 'ascii') + ' >>\nstream\n' + stream + '\nendstream';
   });
   let pdf = '%PDF-1.4\n';
@@ -328,9 +338,12 @@ userRouter.post('/cv/export/:format', requireAuth, async (req: any, res) => {
     } else return res.status(403).json({ success: false, message: 'No active CV export allowance is configured for this account or design.' });
     const watermark = noWatermark ? undefined : String(template.watermarkText || settings.watermarkText || 'Hybrid Job Portal');
     const safeName = String(cvData.personalInfo?.fullName || 'candidate-cv').replace(/[^a-z0-9-_]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'candidate-cv';
-    const lines = buildCvExportLines(cvData, watermark);
-    if (action === 'ats') return res.json({ success: true, filename: safeName + '-ats.txt', mimeType: 'text/plain;charset=utf-8', contentBase64: Buffer.from(lines.join('\n'), 'utf8').toString('base64') });
-    const pdf = createCvPdf(lines);
+    if (action === 'ats') {
+      const lines = buildCvExportLines(cvData, watermark);
+      return res.json({ success: true, filename: safeName + '-ats.txt', mimeType: 'text/plain;charset=utf-8', contentBase64: Buffer.from(lines.join('\n'), 'utf8').toString('base64') });
+    }
+    const lines = buildCvExportLines(cvData);
+    const pdf = createCvPdf(lines, watermark, Number(template.watermarkOpacity ?? settings.watermarkOpacity ?? 0.16));
     return res.json({ success: true, filename: safeName + '.pdf', mimeType: 'application/pdf', contentBase64: pdf.toString('base64') });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err?.message || 'Unable to generate CV export.' });

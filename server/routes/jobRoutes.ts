@@ -2305,20 +2305,30 @@ jobRouter.post('/:id/redeem-subscription-slot', requireAuth, async (req: any, re
       subscriptionSlotExpiresAt: priorityExpiresAt,
       subscriptionSlotTransactionSource: String(entitlement.sourcePackageId || 'subscription')
     };
-    const updated = await JobRepository.update(String(job.id), updates);
+    let updated: any = null;
+    try {
+      updated = await JobRepository.update(String(job.id), updates);
+    } catch (updateError) {
+      await UserRepository.restoreSubscriptionFeatureSlotAsync(userId, selected.featureId, String(job.id));
+      throw updateError;
+    }
     if (!updated) {
       await UserRepository.restoreSubscriptionFeatureSlotAsync(userId, selected.featureId, String(job.id));
       return res.status(500).json({ success: false, message: 'The posting slot could not be applied. Its credit was restored where possible.' });
     }
-    await NotificationRepository.createAsync({
-      userId,
-      title: 'Subscription Posting Slot Applied',
-      message: `Your ${tier} posting slot has been applied to "${String(job.title || 'your job')}". It remains active until ${priorityExpiresAt} or subscription expiry, whichever comes first.`,
-      type: 'success',
-      channel: 'in-app',
-      eventId: `subscription-slot-applied:${userId}:${String(job.id)}:${selected.featureId}`,
-      metadata: { jobId: String(job.id), featureId: selected.featureId, priorityExpiresAt }
-    });
+    try {
+      await NotificationRepository.createAsync({
+        userId,
+        title: 'Subscription Posting Slot Applied',
+        message: `Your ${tier} posting slot has been applied to "${String(job.title || 'your job')}". It remains active until ${priorityExpiresAt} or subscription expiry, whichever comes first.`,
+        type: 'success',
+        channel: 'in-app',
+        eventId: `subscription-slot-applied:${userId}:${String(job.id)}:${selected.featureId}`,
+        metadata: { jobId: String(job.id), featureId: selected.featureId, priorityExpiresAt }
+      });
+    } catch (notificationError: any) {
+      console.error('[Subscription Posting Slot] Applied but notification could not be saved:', notificationError?.message || notificationError);
+    }
     return res.json({
       success: true,
       job: updated,

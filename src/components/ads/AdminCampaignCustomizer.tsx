@@ -1284,16 +1284,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
                         className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-1.5 font-mono focus:outline-none focus:border-teal-500"
                       />
                     </div>
-                    <div>
-                      <label className="text-[10px] text-slate-400 block mb-1 font-bold">Fixed Campaign Price (PKR, flat per campaign)</label>
-                      <input type="number" min="0" step="1" value={placement.fixedPriceOverridePkr ?? ''} placeholder="Use rate card"
-                        onChange={(e) => {
-                          const raw = e.target.value;
-                          handleUpdatePlacement(placement.id, { fixedPriceOverridePkr: raw === '' ? undefined : Math.max(0, Number(raw) || 0) });
-                        }}
-                        className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-1.5 font-mono focus:outline-none focus:border-teal-500"
-                      />
-                    </div>
+
                   </div>
                 </div>
               ))}

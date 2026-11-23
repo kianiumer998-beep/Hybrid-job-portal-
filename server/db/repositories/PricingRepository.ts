@@ -255,9 +255,28 @@ function deepMergePricing(base: any, incoming: any): any {
         watermarkText: typeof item.watermarkText === 'string' ? item.watermarkText.trim().slice(0, 80) : '',
         watermarkOpacity: Number.isFinite(Number(item.watermarkOpacity))
           ? Math.min(0.35, Math.max(0.05, Number(item.watermarkOpacity)))
-          : Number(baseCvBuilder.watermarkOpacity ?? 0.16)
+          : Number(baseCvBuilder.watermarkOpacity ?? 0.16),
+        editMode: ['disabled', 'limited', 'unlimited'].includes(String(item.editMode)) ? String(item.editMode) : 'unlimited',
+        editLimit: Number.isInteger(Number(item.editLimit)) ? Math.min(1000, Math.max(0, Number(item.editLimit))) : 0,
+        pdfExportLimit: Number.isInteger(Number(item.pdfExportLimit)) ? Math.min(1000, Math.max(0, Number(item.pdfExportLimit))) : 0,
+        atsExportLimit: Number.isInteger(Number(item.atsExportLimit)) ? Math.min(1000, Math.max(0, Number(item.atsExportLimit))) : 0,
+        shareEnabled: item.shareEnabled === true,
+        shareLimit: Number.isInteger(Number(item.shareLimit)) ? Math.min(1000, Math.max(0, Number(item.shareLimit))) : 0
       };
     });
+  const cvPackages = Array.isArray(srcCvBuilder.packages) ? srcCvBuilder.packages.slice(0, 30).map((pkg: any, index: number) => ({
+    id: String(pkg?.id || `cv-package-${index + 1}`).slice(0, 80),
+    name: String(pkg?.name || 'CV Package').trim().slice(0, 80),
+    enabled: pkg?.enabled !== false,
+    pricePkr: Number.isFinite(Number(pkg?.pricePkr)) ? Math.min(10000000, Math.max(0, Number(pkg.pricePkr))) : 0,
+    durationDays: Number.isInteger(Number(pkg?.durationDays)) ? Math.min(3650, Math.max(1, Number(pkg.durationDays))) : 30,
+    cvCreateLimit: Number.isInteger(Number(pkg?.cvCreateLimit)) ? Math.min(100, Math.max(0, Number(pkg.cvCreateLimit))) : 1,
+    editLimit: Number.isInteger(Number(pkg?.editLimit)) ? Math.min(1000, Math.max(0, Number(pkg.editLimit))) : 0,
+    pdfExportLimit: Number.isInteger(Number(pkg?.pdfExportLimit)) ? Math.min(1000, Math.max(0, Number(pkg.pdfExportLimit))) : 0,
+    atsExportLimit: Number.isInteger(Number(pkg?.atsExportLimit)) ? Math.min(1000, Math.max(0, Number(pkg.atsExportLimit))) : 0,
+    shareLimit: Number.isInteger(Number(pkg?.shareLimit)) ? Math.min(1000, Math.max(0, Number(pkg.shareLimit))) : 0,
+    noWatermark: pkg?.noWatermark === true
+  })) : (Array.isArray(baseCvBuilder.packages) ? baseCvBuilder.packages : []);
   const cvBuilder = {
     ...baseCvBuilder,
     ...srcCvBuilder,
@@ -278,6 +297,7 @@ function deepMergePricing(base: any, incoming: any): any {
     watermarkOpacity: Number.isFinite(Number(srcCvBuilder.watermarkOpacity))
       ? Math.min(0.35, Math.max(0.05, Number(srcCvBuilder.watermarkOpacity)))
       : Math.min(0.35, Math.max(0.05, Number(baseCvBuilder.watermarkOpacity ?? 0.16))),
+    packages: cvPackages,
     templates: cvTemplates.length ? cvTemplates : templateDefaults
   };
 
@@ -652,6 +672,25 @@ export class PricingRepository {
             const opacity = Number(template.watermarkOpacity);
             if (!Number.isFinite(opacity) || opacity < 0.05 || opacity > 0.35) throw new Error(`cvBuilder.templates.${template.id}.watermarkOpacity must be between 0.05 and 0.35.`);
           }
+          if (template.editMode !== undefined && !['disabled', 'limited', 'unlimited'].includes(String(template.editMode))) throw new Error(`cvBuilder.templates.${template.id}.editMode is invalid.`);
+          for (const field of ['editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit'] as const) {
+            if (template[field] !== undefined && (!Number.isInteger(Number(template[field])) || Number(template[field]) < 0 || Number(template[field]) > 1000)) throw new Error(`cvBuilder.templates.${template.id}.${field} must be a whole number from 0 to 1000.`);
+          }
+          if (template.shareEnabled !== undefined && typeof template.shareEnabled !== 'boolean') throw new Error(`cvBuilder.templates.${template.id}.shareEnabled must be a boolean.`);
+        }
+      }
+      if (cv.packages !== undefined) {
+        if (!Array.isArray(cv.packages) || cv.packages.length > 30) throw new Error('cvBuilder.packages must contain no more than 30 packages.');
+        const seenPackageIds = new Set<string>();
+        for (const pkg of cv.packages) {
+          if (!pkg || typeof pkg.id !== 'string' || !pkg.id.trim() || seenPackageIds.has(pkg.id)) throw new Error('Each CV package must have a unique ID.');
+          seenPackageIds.add(pkg.id);
+          if (typeof pkg.name !== 'string' || !pkg.name.trim() || pkg.name.length > 80) throw new Error(`CV package ${pkg.id} needs a valid name.`);
+          for (const field of ['pricePkr', 'durationDays', 'cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit'] as const) {
+            if (!Number.isInteger(Number(pkg[field])) || Number(pkg[field]) < (field === 'durationDays' ? 1 : 0) || Number(pkg[field]) > (field === 'durationDays' ? 3650 : field === 'pricePkr' ? 10000000 : 1000)) throw new Error(`CV package ${pkg.id} has an invalid ${field}.`);
+          }
+          if (pkg.noWatermark !== undefined && typeof pkg.noWatermark !== 'boolean') throw new Error(`CV package ${pkg.id} noWatermark must be a boolean.`);
+          if (pkg.enabled !== undefined && typeof pkg.enabled !== 'boolean') throw new Error(`CV package ${pkg.id} enabled must be a boolean.`);
         }
       }
     }

@@ -910,6 +910,519 @@ export class UserRepository {
     return updated ? { ok: true, user: updated } : { ok: false, reason: 'not_found' };
   }
 
+  /** Grants a purchased CV quota package once per payment transaction. */
+  static async grantCvPackageEntitlementAsync(userId: string, packageSnapshot: Record<string, any>, transactionId: string): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanTransactionId = String(transactionId || '').trim();
+    const packageId = String(packageSnapshot?.packageId || packageSnapshot?.id || '').trim();
+    const durationDays = Number(packageSnapshot?.durationDays);
+    if (!cleanUserId || !cleanTransactionId || !packageId || !Number.isInteger(durationDays) || durationDays <= 0 || durationDays > 3650) {
+      throw new Error('Valid user, CV package, transaction and package duration are required.');
+    }
+    const numericFields = ['cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit'];
+    const limits: Record<string, number> = {};
+    for (const field of numericFields) {
+      const value = Number(packageSnapshot[field]);
+      if (!Number.isInteger(value) || value < 0 || value > 10000) throw new Error(`Invalid CV package quota: ${field}.`);
+      limits[field] = value;
+    }
+    const grantedAt = new Date().toISOString();
+    const entitlement = {
+      packageId,
+      packageName: String(packageSnapshot.packageName || packageSnapshot.name || packageId).slice(0, 80),
+      transactionId: cleanTransactionId,
+      pricePkr: Number(packageSnapshot.pricePkr),
+      grantedAt,
+      expiresAt: new Date(Date.now() + durationDays * 86400000).toISOString(),
+      durationDays,
+      limits,
+      usage: { cvCreateLimit: 0, editLimit: 0, pdfExportLimit: 0, atsExportLimit: 0, shareLimit: 0 },
+      noWatermark: packageSnapshot.noWatermark === true
+    };
+    if (!Number.isFinite(entitlement.pricePkr) || entitlement.pricePkr <= 0) throw new Error('CV package price is invalid.');
+    const updatedAt = grantedAt;
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+      if (list.some((item: any) => item?.transactionId === cleanTransactionId)) return existing;
+      const updated = { ...existing, cvPackageEntitlements: [...list, entitlement], updatedAt };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        { id: cleanUserId, 'cvPackageEntitlements.transactionId': { $ne: cleanTransactionId } },
+        { $push: { cvPackageEntitlements: entitlement }, $set: { updatedAt } },
+        { returnDocument: 'after' }
+      );
+      if (updatedDoc) { const { _id, ...safe } = updatedDoc; return safe; }
+      const existing = await coll.findOne({ id: cleanUserId });
+      if (!existing) return null;
+      if ((Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : []).some((item: any) => item?.transactionId === cleanTransactionId)) {
+        const { _id, ...safe } = existing; return safe;
+      }
+      return null;
+    }
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+    if (list.some((item: any) => item?.transactionId === cleanTransactionId)) return existing;
+    return Database.updateUser(cleanUserId, { cvPackageEntitlements: [...list, entitlement], updatedAt });
+  }
+
+  /** Atomically deducts wallet funds and grants a CV package, idempotently tied to its transaction. */
+  static async purchaseCvPackageWithWalletAsync(userId: string, amount: number, packageSnapshot: Record<string, any>, transactionId: string): Promise<{ ok: boolean; user?: any; reason?: 'not_found' | 'insufficient' }> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanTransactionId = String(transactionId || '').trim();
+    if (!cleanUserId || !cleanTransactionId || !Number.isFinite(amount) || amount <= 0) throw new Error('Valid user, transaction and positive payment amount are required.');
+    const durationDays = Number(packageSnapshot?.durationDays);
+    const packageId = String(packageSnapshot?.packageId || packageSnapshot?.id || '').trim();
+    if (!packageId || !Number.isInteger(durationDays) || durationDays <= 0 || durationDays > 3650) throw new Error('CV package snapshot is invalid.');
+    const limits: Record<string, number> = {};
+    for (const field of ['cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit']) {
+      const value = Number(packageSnapshot[field]);
+      if (!Number.isInteger(value) || value < 0 || value > 10000) throw new Error(`Invalid CV package quota: ${field}.`);
+      limits[field] = value;
+    }
+    const grantedAt = new Date().toISOString();
+    const entitlement = {
+      packageId,
+      packageName: String(packageSnapshot.packageName || packageSnapshot.name || packageId).slice(0, 80),
+      transactionId: cleanTransactionId,
+      pricePkr: amount,
+      grantedAt,
+      expiresAt: new Date(Date.now() + durationDays * 86400000).toISOString(),
+      durationDays,
+      limits,
+      usage: { cvCreateLimit: 0, editLimit: 0, pdfExportLimit: 0, atsExportLimit: 0, shareLimit: 0 },
+      noWatermark: packageSnapshot.noWatermark === true
+    };
+    const updatedAt = grantedAt;
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return { ok: false, reason: 'not_found' };
+      const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+      if (list.some((item: any) => item?.transactionId === cleanTransactionId)) return { ok: true, user: existing };
+      const balance = Number(existing.walletBalance || 0);
+      if (!Number.isFinite(balance) || balance < amount) return { ok: false, reason: 'insufficient' };
+      const updated = { ...existing, walletBalance: balance - amount, cvPackageEntitlements: [...list, entitlement], updatedAt };
+      inMemoryUsers.set(cleanUserId, updated);
+      return { ok: true, user: updated };
+    }
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        { id: cleanUserId, walletBalance: { $gte: amount }, 'cvPackageEntitlements.transactionId': { $ne: cleanTransactionId } },
+        { $inc: { walletBalance: -amount }, $push: { cvPackageEntitlements: entitlement }, $set: { updatedAt } },
+        { returnDocument: 'after' }
+      );
+      if (updatedDoc) { const { _id, ...safe } = updatedDoc; return { ok: true, user: safe }; }
+      const existing = await coll.findOne({ id: cleanUserId });
+      if (!existing) return { ok: false, reason: 'not_found' };
+      if ((Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : []).some((item: any) => item?.transactionId === cleanTransactionId)) {
+        const { _id, ...safe } = existing; return { ok: true, user: safe };
+      }
+      return { ok: false, reason: 'insufficient' };
+    }
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return { ok: false, reason: 'not_found' };
+    const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+    if (list.some((item: any) => item?.transactionId === cleanTransactionId)) return { ok: true, user: existing };
+    const balance = Number(existing.walletBalance || 0);
+    if (!Number.isFinite(balance) || balance < amount) return { ok: false, reason: 'insufficient' };
+    const updated = Database.updateUser(cleanUserId, { walletBalance: balance - amount, cvPackageEntitlements: [...list, entitlement], updatedAt });
+    return updated ? { ok: true, user: updated } : { ok: false, reason: 'not_found' };
+  }
+
+  /** Atomically saves CV documents and consumes package creation/edit quotas. */
+  static async saveCvDocumentsWithPackageUsageAsync(
+    userId: string,
+    documents: any[],
+    activeCvData: any,
+    transactionId: string,
+    createCount: number,
+    editCount: number,
+    createLimit: number,
+    editLimit: number,
+    templateEditUsage: Record<string, { count: number; limit: number }> = {}
+  ): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanTransactionId = String(transactionId || '').trim();
+    const usesPackageQuota = Boolean(cleanTransactionId);
+    if (!cleanUserId || (!usesPackageQuota && (createCount > 0 || editCount > 0)) || !Array.isArray(documents) ||
+      !Number.isInteger(createCount) || createCount < 0 || !Number.isInteger(editCount) || editCount < 0 ||
+      !Number.isInteger(createLimit) || createLimit < 0 || !Number.isInteger(editLimit) || editLimit < 0 ||
+      !templateEditUsage || typeof templateEditUsage !== 'object' || Object.values(templateEditUsage).some((item: any) => !Number.isInteger(item?.count) || item.count < 1 || !Number.isInteger(item?.limit) || item.limit < 1)) {
+      throw new Error('Invalid CV save or quota usage request.');
+    }
+    const now = new Date().toISOString();
+    const updatedAt = now;
+    const increments: Record<string, number> = {};
+    const parseTemplateUsageKey = (key: string) => {
+      const separator = key.lastIndexOf('::');
+      const templateId = separator > 0 ? key.slice(0, separator) : key;
+      const field = separator > 0 ? key.slice(separator + 2) : 'editCount';
+      if (!['editCount', 'createCount'].includes(field)) throw new Error('Invalid per-design CV usage field.');
+      return { templateId, field };
+    };
+    if (createCount > 0) {
+      increments['cvPackageEntitlements.$[grant].usage.cvCreateLimit'] = createCount;
+    }
+    if (editCount > 0) {
+      increments['cvPackageEntitlements.$[grant].usage.editLimit'] = editCount;
+    }
+    for (const [usageKey, usage] of Object.entries(templateEditUsage)) {
+      const parsed = parseTemplateUsageKey(usageKey);
+      increments[`cvTemplateUsage.${parsed.templateId}.${parsed.field}`] = usage.count;
+    }
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+      const grant = usesPackageQuota ? list.find((item: any) => {
+        if (item?.transactionId !== cleanTransactionId || !item.expiresAt || Date.parse(item.expiresAt) <= Date.now()) return false;
+        const limits = item.limits || {};
+        const usage = item.usage || {};
+        return Number(limits.cvCreateLimit || 0) === createLimit && Number(limits.editLimit || 0) === editLimit &&
+          createCount <= Math.max(0, createLimit - Number(usage.cvCreateLimit || 0)) &&
+          editCount <= Math.max(0, editLimit - Number(usage.editLimit || 0));
+      }) : null;
+      if (usesPackageQuota && !grant) return null;
+      const templateUsage = existing.cvTemplateUsage || {};
+      for (const [usageKey, usage] of Object.entries(templateEditUsage)) {
+        const parsed = parseTemplateUsageKey(usageKey);
+        const used = Number(templateUsage?.[parsed.templateId]?.[parsed.field] || 0);
+        if (used + usage.count > usage.limit) return null;
+      }
+      const updatedGrant = grant ? { ...grant, usage: {
+        ...(grant.usage || {}),
+        cvCreateLimit: Number(grant.usage?.cvCreateLimit || 0) + createCount,
+        editLimit: Number(grant.usage?.editLimit || 0) + editCount
+      }} : null;
+      const updatedList = grant ? list.map((item: any) => item?.transactionId === cleanTransactionId ? updatedGrant : item) : list;
+      const updatedTemplateUsage = { ...templateUsage };
+      for (const [usageKey, usage] of Object.entries(templateEditUsage)) {
+        const parsed = parseTemplateUsageKey(usageKey);
+        updatedTemplateUsage[parsed.templateId] = {
+          ...(updatedTemplateUsage[parsed.templateId] || {}),
+          [parsed.field]: Number(updatedTemplateUsage[parsed.templateId]?.[parsed.field] || 0) + usage.count
+        };
+      }
+      const updated = { ...existing, cvDocuments: documents, cvData: activeCvData, cvPackageEntitlements: updatedList, ...(Object.keys(templateEditUsage).length ? { cvTemplateUsage: updatedTemplateUsage } : {}), updatedAt };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const elemMatch: Record<string, any> = { transactionId: cleanTransactionId, expiresAt: { $gt: now } };
+      if (createCount > 0) {
+        elemMatch['limits.cvCreateLimit'] = { $gte: createCount };
+        elemMatch['usage.cvCreateLimit'] = { $lte: createLimit - createCount };
+      }
+      if (editCount > 0) {
+        elemMatch['limits.editLimit'] = { $gte: editCount };
+        elemMatch['usage.editLimit'] = { $lte: editLimit - editCount };
+      }
+      const filter: Record<string, any> = { id: cleanUserId };
+      if (usesPackageQuota) filter.cvPackageEntitlements = { $elemMatch: elemMatch };
+      const templateConditions: any[] = [];
+      for (const [usageKey, usage] of Object.entries(templateEditUsage)) {
+        const parsed = parseTemplateUsageKey(usageKey);
+        const field = `cvTemplateUsage.${parsed.templateId}.${parsed.field}`;
+        templateConditions.push({ $or: [{ [field]: { $lte: usage.limit - usage.count } }, { [field]: { $exists: false } }] });
+      }
+      if (templateConditions.length) filter.$and = templateConditions;
+      const arrayFilter: Record<string, any> = { 'grant.transactionId': cleanTransactionId, 'grant.expiresAt': { $gt: now } };
+      const update: any = { $set: { cvDocuments: documents, cvData: activeCvData, updatedAt } };
+      if (Object.keys(increments).length) {
+        update.$inc = increments;
+        if (usesPackageQuota) {
+          if (createCount > 0) {
+            arrayFilter['grant.limits.cvCreateLimit'] = createLimit;
+            arrayFilter['grant.usage.cvCreateLimit'] = { $lte: createLimit - createCount };
+          }
+          if (editCount > 0) {
+            arrayFilter['grant.limits.editLimit'] = editLimit;
+            arrayFilter['grant.usage.editLimit'] = { $lte: editLimit - editCount };
+          }
+        }
+      }
+      const updatedDoc = await coll.findOneAndUpdate(filter, update, { returnDocument: 'after', ...(usesPackageQuota && (createCount > 0 || editCount > 0) ? { arrayFilters: [arrayFilter] } : {}) });
+      if (!updatedDoc) return null;
+      const { _id, ...safe } = updatedDoc;
+      return safe;
+    }
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+    const grant = usesPackageQuota ? list.find((item: any) => item?.transactionId === cleanTransactionId &&
+      Date.parse(String(item?.expiresAt || '')) > Date.now() &&
+      Number(item?.limits?.cvCreateLimit || 0) === createLimit && Number(item?.limits?.editLimit || 0) === editLimit &&
+      createCount <= Math.max(0, createLimit - Number(item?.usage?.cvCreateLimit || 0)) &&
+      editCount <= Math.max(0, editLimit - Number(item?.usage?.editLimit || 0))) : null;
+    if (usesPackageQuota && !grant) return null;
+    const templateUsage = existing.cvTemplateUsage || {};
+    for (const [usageKey, usage] of Object.entries(templateEditUsage)) {
+      const parsed = parseTemplateUsageKey(usageKey);
+      if (Number(templateUsage?.[parsed.templateId]?.[parsed.field] || 0) + usage.count > usage.limit) return null;
+    }
+    const updatedList = grant ? list.map((item: any) => item?.transactionId === cleanTransactionId ? {
+      ...item, usage: { ...(item.usage || {}),
+        cvCreateLimit: Number(item.usage?.cvCreateLimit || 0) + createCount,
+        editLimit: Number(item.usage?.editLimit || 0) + editCount
+      }
+    } : item) : list;
+    const updatedTemplateUsage = { ...templateUsage };
+    for (const [usageKey, usage] of Object.entries(templateEditUsage)) {
+      const parsed = parseTemplateUsageKey(usageKey);
+      updatedTemplateUsage[parsed.templateId] = {
+        ...(updatedTemplateUsage[parsed.templateId] || {}),
+        [parsed.field]: Number(updatedTemplateUsage[parsed.templateId]?.[parsed.field] || 0) + usage.count
+      };
+    }
+    return Database.updateUser(cleanUserId, { cvDocuments: documents, cvData: activeCvData, cvPackageEntitlements: updatedList, ...(Object.keys(templateEditUsage).length ? { cvTemplateUsage: updatedTemplateUsage } : {}), updatedAt });
+  }
+
+  /** Atomically consumes the package quota and optional per-design quota for one CV action. */
+  static async consumeCvActionQuotasAsync(
+    userId: string,
+    templateId: string,
+    action: 'pdfExportLimit' | 'atsExportLimit' | 'shareLimit',
+    packageGrant?: { transactionId: string; limit: number } | null,
+    templateLimit: number = 0
+  ): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanTemplateId = String(templateId || '').trim();
+    if (!cleanUserId || !cleanTemplateId || !['pdfExportLimit', 'atsExportLimit', 'shareLimit'].includes(action) ||
+      !Number.isInteger(templateLimit) || templateLimit < 0 ||
+      (packageGrant && (!String(packageGrant.transactionId || '').trim() || !Number.isInteger(packageGrant.limit) || packageGrant.limit < 1))) {
+      throw new Error('Invalid CV action quota request.');
+    }
+    const now = new Date().toISOString();
+    const updatedAt = now;
+    const designPath = `cvTemplateUsage.${cleanTemplateId}.${action}`;
+    const packagePath = packageGrant ? `cvPackageEntitlements.$[grant].usage.${action}` : '';
+    const increment: Record<string, number> = {};
+    if (packageGrant) increment[packagePath] = 1;
+    if (templateLimit > 0) increment[designPath] = 1;
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+      if (packageGrant && !list.some((item: any) => item?.transactionId === packageGrant.transactionId &&
+        Date.parse(String(item?.expiresAt || '')) > Date.now() &&
+        Number(item?.limits?.[action] || 0) === packageGrant.limit &&
+        Number(item?.usage?.[action] || 0) < packageGrant.limit)) return null;
+      const designUsed = Number(existing.cvTemplateUsage?.[cleanTemplateId]?.[action] || 0);
+      if (templateLimit > 0 && designUsed >= templateLimit) return null;
+      const updatedList = packageGrant ? list.map((item: any) => item?.transactionId === packageGrant.transactionId ? {
+        ...item, usage: { ...(item.usage || {}), [action]: Number(item.usage?.[action] || 0) + 1 }
+      } : item) : list;
+      const updated = {
+        ...existing,
+        cvPackageEntitlements: updatedList,
+        ...(templateLimit > 0 ? { cvTemplateUsage: {
+          ...(existing.cvTemplateUsage || {}),
+          [cleanTemplateId]: { ...(existing.cvTemplateUsage?.[cleanTemplateId] || {}), [action]: designUsed + 1 }
+        }} : {}),
+        updatedAt
+      };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+    if (isMongoActive()) {
+      const filter: Record<string, any> = { id: cleanUserId };
+      if (packageGrant) {
+        filter.cvPackageEntitlements = { $elemMatch: {
+          transactionId: packageGrant.transactionId,
+          expiresAt: { $gt: now },
+          [`limits.${action}`]: packageGrant.limit,
+          [`usage.${action}`]: { $lt: packageGrant.limit }
+        }};
+      }
+      if (templateLimit > 0) {
+        filter.$or = [
+          { [designPath]: { $lt: templateLimit } },
+          { [designPath]: { $exists: false } }
+        ];
+      }
+      const options: any = { returnDocument: 'after' };
+      if (packageGrant) {
+        options.arrayFilters = [{
+          'grant.transactionId': packageGrant.transactionId,
+          'grant.expiresAt': { $gt: now },
+          [`grant.limits.${action}`]: packageGrant.limit,
+          [`grant.usage.${action}`]: { $lt: packageGrant.limit }
+        }];
+      }
+      const updatedDoc = await (await getUsersCollection()).findOneAndUpdate(filter, {
+        ...(Object.keys(increment).length ? { $inc: increment } : {}),
+        $set: { updatedAt }
+      }, options);
+      if (!updatedDoc) return null;
+      const { _id, ...safe } = updatedDoc;
+      return safe;
+    }
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+    if (packageGrant && !list.some((item: any) => item?.transactionId === packageGrant.transactionId &&
+      Date.parse(String(item?.expiresAt || '')) > Date.now() &&
+      Number(item?.limits?.[action] || 0) === packageGrant.limit &&
+      Number(item?.usage?.[action] || 0) < packageGrant.limit)) return null;
+    const designUsed = Number(existing.cvTemplateUsage?.[cleanTemplateId]?.[action] || 0);
+    if (templateLimit > 0 && designUsed >= templateLimit) return null;
+    const updatedList = packageGrant ? list.map((item: any) => item?.transactionId === packageGrant.transactionId ? {
+      ...item, usage: { ...(item.usage || {}), [action]: Number(item.usage?.[action] || 0) + 1 }
+    } : item) : list;
+    return Database.updateUser(cleanUserId, {
+      cvPackageEntitlements: updatedList,
+      ...(templateLimit > 0 ? { cvTemplateUsage: {
+        ...(existing.cvTemplateUsage || {}),
+        [cleanTemplateId]: { ...(existing.cvTemplateUsage?.[cleanTemplateId] || {}), [action]: designUsed + 1 }
+      }} : {}),
+      updatedAt
+    });
+  }
+
+  /** Atomically consumes a single export/share quota from an active CV package. */
+  static async consumeCvPackageQuotaAsync(userId: string, transactionId: string, action: 'pdfExportLimit' | 'atsExportLimit' | 'shareLimit', limit: number): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanTransactionId = String(transactionId || '').trim();
+    if (!cleanUserId || !cleanTransactionId || !['pdfExportLimit', 'atsExportLimit', 'shareLimit'].includes(action) || !Number.isInteger(limit) || limit < 0) throw new Error('Invalid CV package quota request.');
+    const now = new Date().toISOString();
+    const updatedAt = now;
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+      const grant = list.find((item: any) => item?.transactionId === cleanTransactionId &&
+        Date.parse(String(item?.expiresAt || '')) > Date.now() &&
+        Number(item?.limits?.[action] || 0) === limit && Number(item?.usage?.[action] || 0) < limit);
+      if (!grant) return null;
+      const updatedList = list.map((item: any) => item?.transactionId === cleanTransactionId ? {
+        ...item, usage: { ...(item.usage || {}), [action]: Number(item.usage?.[action] || 0) + 1 }
+      } : item);
+      const updated = { ...existing, cvPackageEntitlements: updatedList, updatedAt };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const filter: Record<string, any> = {
+        id: cleanUserId,
+        cvPackageEntitlements: { $elemMatch: { transactionId: cleanTransactionId, expiresAt: { $gt: now }, [`limits.${action}`]: limit, [`usage.${action}`]: { $lt: limit } } }
+      };
+      const arrayFilter: Record<string, any> = {
+        'grant.transactionId': cleanTransactionId,
+        'grant.expiresAt': { $gt: now },
+        [`grant.limits.${action}`]: limit,
+        [`grant.usage.${action}`]: { $lt: limit }
+      };
+      const updatedDoc = await coll.findOneAndUpdate(filter, {
+        $inc: { [`cvPackageEntitlements.$[grant].usage.${action}`]: 1 },
+        $set: { updatedAt }
+      }, { returnDocument: 'after', arrayFilters: [arrayFilter] });
+      if (!updatedDoc) return null;
+      const { _id, ...safe } = updatedDoc;
+      return safe;
+    }
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+    const grant = list.find((item: any) => item?.transactionId === cleanTransactionId &&
+      Date.parse(String(item?.expiresAt || '')) > Date.now() &&
+      Number(item?.limits?.[action] || 0) === limit && Number(item?.usage?.[action] || 0) < limit);
+    if (!grant) return null;
+    const updatedList = list.map((item: any) => item?.transactionId === cleanTransactionId ? {
+      ...item, usage: { ...(item.usage || {}), [action]: Number(item.usage?.[action] || 0) + 1 }
+    } : item);
+    return Database.updateUser(cleanUserId, { cvPackageEntitlements: updatedList, updatedAt });
+  }
+
+  /** Atomically activates a subscription and its optional CV quota grant with one wallet deduction. */
+  static async purchaseSubscriptionWithCvBenefitsAsync(
+    userId: string,
+    amount: number,
+    membershipUpdates: Record<string, any>,
+    packageSnapshot: Record<string, any>,
+    transactionId: string
+  ): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanTransactionId = String(transactionId || '').trim();
+    const packageId = String(packageSnapshot?.id || '').trim();
+    const durationDays = Number(packageSnapshot?.durationDays);
+    if (!cleanUserId || !cleanTransactionId || !packageId || !Number.isFinite(amount) || amount <= 0 ||
+      !Number.isInteger(durationDays) || durationDays <= 0 || durationDays > 3650) {
+      throw new Error('Subscription CV benefit purchase snapshot is invalid.');
+    }
+    const benefits = packageSnapshot.cvBenefits || {};
+    const limits: Record<string, number> = {};
+    for (const field of ['cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit']) {
+      const value = Number(benefits[field] ?? 0);
+      if (!Number.isInteger(value) || value < 0 || value > 10000) throw new Error(`Invalid subscription CV benefit quota: ${field}.`);
+      limits[field] = value;
+    }
+    const grantedAt = new Date().toISOString();
+    const entitlement = {
+      packageId: `subscription:${packageId}`,
+      packageName: `${String(packageSnapshot.name || packageId).slice(0, 70)} CV Benefits`,
+      transactionId: cleanTransactionId,
+      pricePkr: amount,
+      grantedAt,
+      expiresAt: new Date(Date.now() + durationDays * 86400000).toISOString(),
+      durationDays,
+      limits,
+      usage: { cvCreateLimit: 0, editLimit: 0, pdfExportLimit: 0, atsExportLimit: 0, shareLimit: 0 },
+      noWatermark: benefits.noWatermark === true
+    };
+    const setPayload: Record<string, any> = { ...(membershipUpdates || {}), updatedAt: grantedAt };
+    delete setPayload.id;
+    delete setPayload._id;
+    delete setPayload.walletBalance;
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const current = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+      if (current.some((item: any) => item?.transactionId === cleanTransactionId)) return existing;
+      const balance = Number(existing.walletBalance || 0);
+      if (!Number.isFinite(balance) || balance < amount) return null;
+      const updated = {
+        ...existing, ...setPayload, walletBalance: balance - amount,
+        cvPackageEntitlements: [...current, entitlement]
+      };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        { id: cleanUserId, walletBalance: { $gte: amount }, 'cvPackageEntitlements.transactionId': { $ne: cleanTransactionId } },
+        { $inc: { walletBalance: -amount }, $set: setPayload, $push: { cvPackageEntitlements: entitlement } },
+        { returnDocument: 'after' }
+      );
+      if (updatedDoc) { const { _id, ...safe } = updatedDoc; return safe; }
+      const existing = await coll.findOne({ id: cleanUserId });
+      if (existing && (Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : []).some((item: any) => item?.transactionId === cleanTransactionId)) {
+        const { _id, ...safe } = existing; return safe;
+      }
+      return null;
+    }
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    const current = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+    if (current.some((item: any) => item?.transactionId === cleanTransactionId)) return existing;
+    const balance = Number(existing.walletBalance || 0);
+    if (!Number.isFinite(balance) || balance < amount) return null;
+    return Database.updateUser(cleanUserId, {
+      ...setPayload,
+      walletBalance: balance - amount,
+      cvPackageEntitlements: [...current, entitlement]
+    });
+  }
+
   static update(id: string, updates: any): any | null {
     if (isMongoActive()) {
       throw new Error('MongoDB is configured. Synchronous update is prohibited to ensure authoritative persistence; use updateAsync.');

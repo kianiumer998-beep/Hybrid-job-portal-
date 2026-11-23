@@ -633,6 +633,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                   features: ['Feature 1'],
                   enabled: true,
                   cvBenefitsEnabled: false,
+                  cvBenefitsDescription: '',
                   cvBenefits: { cvCreateLimit: 0, editLimit: 0, pdfExportLimit: 0, atsExportLimit: 0, shareLimit: 0, noWatermark: false }
                 };
                 setPricing((prev: any) => ({
@@ -732,6 +733,13 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                   {pkg.cvBenefitsEnabled === true && (
                     <>
                       <p className="text-[10px] text-slate-400">CV benefit quota follows this subscription's validity period ({Number(pkg.durationDays || 0)} days).</p>
+                      <label className="block text-[10px] text-slate-400">CV benefit description shown to candidates
+                        <textarea rows={2} maxLength={240} value={pkg.cvBenefitsDescription || ''} onChange={e => {
+                          const newList = [...pricing.subscriptionPackages];
+                          newList[idx] = { ...newList[idx], cvBenefitsDescription: e.target.value.slice(0, 240) };
+                          setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
+                        }} className="mt-1 w-full rounded bg-slate-900 p-2 text-white" placeholder="e.g. Includes 2 CVs, 5 edits and 2 PDF downloads." />
+                      </label>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {([{field:'cvCreateLimit',label:'CV creations'},{field:'editLimit',label:'CV edits'},{field:'pdfExportLimit',label:'PDF exports'},{field:'atsExportLimit',label:'ATS exports'},{field:'shareLimit',label:'Shares'}] as const).map(item => (
                           <label key={item.field} className="text-[10px] text-slate-400">{item.label}

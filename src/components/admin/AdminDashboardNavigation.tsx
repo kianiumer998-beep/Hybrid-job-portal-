@@ -70,6 +70,7 @@ export type AdminCanonicalTabId =
   | 'advertisements'
   | 'landing-customizer'
   | 'pricing-controller'
+  | 'cv-settings'
   | 'admin-payment-methods'
   | 'payment-proofs'
   | 'fee-management'
@@ -426,6 +427,16 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     hideInProfessionalNav: true,
   },
   {
+    id: 'cv-settings',
+    classicCategory: 'payments',
+    proCategory: 'finance-payments',
+    label: 'CV Management & Entitlements',
+    description: 'Manage CV designs, package quotas, export permissions, watermark and subscription CV benefits.',
+    urdu: 'سی وی مینجمنٹ',
+    icon: FileText,
+    keywords: ['cv', 'resume', 'curriculum vitae', 'cv packages', 'cv quotas', 'watermark', 'ats export', 'سی وی', 'ریزیومے'],
+  },
+  {
     id: 'admin-payment-methods',
     classicCategory: 'payments',
     proCategory: 'finance-payments',
@@ -770,6 +781,7 @@ export const CLASSIC_CATEGORY_MODULE_ORDER: Record<AdminCategory, AdminCanonical
   ads: ['campaign-center', 'advertisements', 'landing-customizer'],
   payments: [
     'pricing-controller',
+    'cv-settings',
     'admin-payment-methods',
     'payment-proofs',
     'fee-management',

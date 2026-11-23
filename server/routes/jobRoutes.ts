@@ -17,6 +17,7 @@ export const jobRouter = Router();
 import { JobVisibilityRepository } from '../db/repositories/JobVisibilityRepository';
 import { PricingRepository } from '../db/repositories/PricingRepository';
 import { buildEarlyAccessDisplayJob, getEarlyAccessLandingConfig, isEarlyAccessJobLocked } from '../services/earlyAccessPolicy';
+import { hasActiveSubscriptionFeature } from '../services/subscriptionEntitlements';
 import { evaluateApplyAccess } from '../services/applyAccessPolicy';
 
 // 1. Get Live Approved Jobs with Query Filters & Pagination
@@ -43,9 +44,10 @@ jobRouter.get('/', async (req, res) => {
     const pricing = await PricingRepository.get();
     const isPrivilegedUser = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(user.role));
     const isPremium = isPrivilegedUser || await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    const hasEarlyAccess = isPrivilegedUser || await hasActiveSubscriptionFeature(user?.userId || user?.id, 'early_access');
 
     const result = await JobRepository.getAll({
-      earlyAccessPolicy: { config: pricing.earlyAccess, isPremium },
+      earlyAccessPolicy: { config: pricing.earlyAccess, isPremium: hasEarlyAccess },
       search,
       jobType,
       region,
@@ -105,7 +107,7 @@ jobRouter.get('/early-access', async (req: any, res: any) => {
 
     const user = req.user;
     const isAdmin = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(user.role));
-    const isPremium = isAdmin || await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    const hasEarlyAccess = isAdmin || await hasActiveSubscriptionFeature(user?.userId || user?.id, 'early_access');
     const result = await JobRepository.getAll({ page: 1, limit: 1000 });
     const earlyJobs = result.jobs
       .filter((job: any) => isEarlyAccessJobLocked(job, config))
@@ -123,7 +125,7 @@ jobRouter.get('/early-access', async (req: any, res: any) => {
       })
       .filter((value: number) => Number.isFinite(value) && value > Date.now())
       .sort((a: number, b: number) => a - b)[0];
-    const jobs = isPremium
+    const jobs = hasEarlyAccess
       ? await Promise.all(earlyJobs.slice(0, maxJobs).map(async (job: any) => {
           const policyApplied = await JobVisibilityRepository.applyPolicyToJob(job);
           const filtered = JobVisibilityRepository.filterJobForUser(policyApplied, user, true);
@@ -167,9 +169,11 @@ jobRouter.get('/priority', async (req, res) => {
     const user = (req as any).user;
     const pricing = await PricingRepository.get();
     const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    const isPrivilegedUser = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(user.role));
+    const hasEarlyAccess = isPrivilegedUser || await hasActiveSubscriptionFeature(user?.userId || user?.id, 'early_access');
 
     const result = await JobRepository.getPriorityPlacementJobs({
-      earlyAccessPolicy: { config: pricing.earlyAccess, isPremium },
+      earlyAccessPolicy: { config: pricing.earlyAccess, isPremium: hasEarlyAccess },
       search,
       jobType,
       region,
@@ -1806,8 +1810,9 @@ jobRouter.get('/slug/:slug', async (req, res) => {
     const user = (req as any).user;
     const isPrivilegedUser = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(user.role));
     const isPremium = isPrivilegedUser || await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    const hasEarlyAccess = isPrivilegedUser || await hasActiveSubscriptionFeature(user?.userId || user?.id, 'early_access');
     const pricing = await PricingRepository.get();
-    if (!isPremium && isEarlyAccessJobLocked(job, pricing?.earlyAccess)) {
+    if (!hasEarlyAccess && isEarlyAccessJobLocked(job, pricing?.earlyAccess)) {
       return res.status(404).json({ success: false, message: 'This job is reserved for Premium Early Access and is not yet publicly available.' });
     }
     const policyAppliedJob = await JobVisibilityRepository.applyPolicyToJob(job);
@@ -2116,8 +2121,9 @@ jobRouter.get('/:idOrSlug', async (req, res) => {
     const user = (req as any).user;
     const isPrivilegedUser = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(user.role));
     const isPremium = isPrivilegedUser || await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    const hasEarlyAccess = isPrivilegedUser || await hasActiveSubscriptionFeature(user?.userId || user?.id, 'early_access');
     const pricing = await PricingRepository.get();
-    if (!isPremium && isEarlyAccessJobLocked(job, pricing?.earlyAccess)) {
+    if (!hasEarlyAccess && isEarlyAccessJobLocked(job, pricing?.earlyAccess)) {
       return res.status(404).json({ success: false, message: 'This job is reserved for Premium Early Access and is not yet publicly available.' });
     }
     const policyAppliedJob = await JobVisibilityRepository.applyPolicyToJob(job);

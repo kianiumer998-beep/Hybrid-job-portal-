@@ -319,8 +319,8 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
   // A preview watermark is intentionally always visible to discourage screenshot-based reuse.
   // Export watermark policy is evaluated separately and never controls the on-screen preview.
   const previewWatermarkVisible = true;
-  const exportWatermarkVisible = selectedTemplateConfig.exportWatermarkEnabled === true ||
-    (selectedTemplateConfig.exportWatermarkEnabled === undefined &&
+  const exportWatermarkVisible = selectedTemplateConfig.exportWatermarkMode === 'always' ||
+    (selectedTemplateConfig.exportWatermarkMode !== 'never' &&
       cvBuilderSettings.watermarkEnabled !== false &&
       (!isSubscribed || cvBuilderSettings.watermarkFreeOnly === false));
 

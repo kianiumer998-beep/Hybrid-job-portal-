@@ -52,11 +52,21 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
       if (!active) return;
       const cv = res?.success ? res?.pricing?.cvBuilder : null;
       if (!cv) { setError('Current CV pricing could not be confirmed. Please try again.'); return; }
-      const selected = Array.isArray(cv.templates) ? cv.templates.find((item: any) => item?.id === templateId) : null;
-      if (!selected || selected.enabled === false || selected.free === true) { setError('This CV design is no longer available for one-time purchase.'); return; }
+      const isPackage = templateId.startsWith('cvpkg:');
+      const selected = isPackage
+        ? (Array.isArray(cv.packages) ? cv.packages.find((item: any) => item?.id === templateId.slice('cvpkg:'.length)) : null)
+        : (Array.isArray(cv.templates) ? cv.templates.find((item: any) => item?.id === templateId) : null);
+      if (!selected || selected.enabled === false || (!isPackage && selected.free === true)) {
+        setError(isPackage ? 'This CV package is no longer available.' : 'This CV design is no longer available for one-time purchase.');
+        return;
+      }
       const latestPrice = Number(selected.pricePkr || 0);
       setDisplayName(String(selected.name || templateName));
       if (!Number.isFinite(latestPrice) || latestPrice <= 0) { setError('The administrator has not configured a valid one-time price for this item.'); return; }
+      if (isPackage && (!Number.isInteger(Number(selected.durationDays)) || Number(selected.durationDays) <= 0)) {
+        setError('The CV package validity is not configured correctly. Please contact the administrator.');
+        return;
+      }
       setCheckoutPrice(latestPrice);
       setPriceReady(true);
     }).catch(() => {
@@ -182,7 +192,7 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
       });
       if (!result?.success || !result?.transaction) {
         if (result?.transaction?.status === 'Success' || /already own|already been purchased/i.test(String(result?.message || ''))) {
-          onComplete({ status: 'Success', message: 'This CV item is already unlocked on your account.' });
+          onComplete({ status: 'Success', message: 'This CV item is already active on your account.' });
           onClose();
           return;
         }
@@ -195,12 +205,12 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
         return;
       }
       if (result.transaction.status === 'Success') {
-        onComplete({ status: 'Success', message: 'Payment completed. This CV design is now unlocked for your account.' });
+        onComplete({ status: 'Success', message: 'Payment completed. Your CV purchase is now active on your account.' });
         onClose();
         return;
       }
       if (result.transaction.status === 'Pending') {
-        onComplete({ status: 'Pending', message: 'Payment proof submitted. This CV design will unlock after the administrator verifies your payment.' });
+        onComplete({ status: 'Pending', message: 'Payment proof submitted. Your CV package will activate after the administrator verifies your payment.' });
         onClose();
         return;
       }
@@ -218,12 +228,12 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-3 sm:p-5" role="dialog" aria-modal="true" aria-labelledby="cv-design-checkout-title">
       <div className="w-full max-w-xl max-h-[92vh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-800 bg-slate-950 px-5 py-4">
-          <div><h2 id="cv-design-checkout-title" className="text-lg font-black text-white">Unlock CV Design</h2><p className="mt-1 text-xs text-slate-400">One-time payment · No recurring subscription</p></div>
+          <div><h2 id="cv-design-checkout-title" className="text-lg font-black text-white">{templateId.startsWith('cvpkg:') ? 'Purchase CV Package' : 'Unlock CV Design'}</h2><p className="mt-1 text-xs text-slate-400">One-time payment · {templateId.startsWith('cvpkg:') ? 'Time-limited quota package' : 'Permanent design access'}</p></div>
           <button type="button" onClick={onClose} aria-label="Close checkout" className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="h-5 w-5" /></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-5 p-5">
           <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-            <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold text-white">{displayName}</p><p className="mt-1 text-[11px] text-slate-400">Permanent access to this design on your account</p></div><p className="whitespace-nowrap text-lg font-black text-emerald-300">PKR {Number(checkoutPrice).toLocaleString('en-PK')}</p></div>
+            <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold text-white">{displayName}</p><p className="mt-1 text-[11px] text-slate-400">{templateId.startsWith('cvpkg:') ? 'CV creation, edit and export quotas activate after successful payment approval.' : 'Permanent access to this design on your account'}</p></div><p className="whitespace-nowrap text-lg font-black text-emerald-300">PKR {Number(checkoutPrice).toLocaleString('en-PK')}</p></div>
             <p className="mt-3 text-xs text-slate-400">Wallet balance: <strong className="text-white">PKR {Number(walletBalance || 0).toLocaleString('en-PK')}</strong></p>
           </div>
 
@@ -264,7 +274,7 @@ export const CvDesignCheckoutModal: React.FC<CvDesignCheckoutModalProps> = ({
               {submitting ? 'Processing…' : selectedMethod === 'Wallet Balance' ? `Pay PKR ${Number(checkoutPrice).toLocaleString('en-PK')}` : 'Submit Payment Proof'}
             </button>
           </div>
-          <p className="flex items-center justify-center gap-1 text-[10px] text-slate-500"><Lock className="h-3 w-3" /> Payment is validated by the server. Pending manual payments do not unlock the design.</p>
+          <p className="flex items-center justify-center gap-1 text-[10px] text-slate-500"><Lock className="h-3 w-3" /> Payment is validated by the server. Pending manual payments do not activate CV access.</p>
         </form>
       </div>
     </div>

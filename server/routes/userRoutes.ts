@@ -215,6 +215,241 @@ function isUserAdmin(user: any): boolean {
   return hasAdminPermission(user?.role, 'users.manage');
 }
 
+function buildCvExportLines(data: any, watermarkText?: string): string[] {
+  const p = data.personalInfo || {};
+  const extra = data.additionalSections || {};
+  const lines = [p.fullName, p.jobTitle, [p.email, p.phone, p.location, p.website, p.linkedin, p.github].filter(Boolean).join(' | '), '', 'PROFESSIONAL SUMMARY', p.summary || ''];
+  const add = (heading: string, values: any[]) => {
+    const clean = values.map((value) => String(value || '').trim()).filter(Boolean);
+    if (clean.length) lines.push('', heading.toUpperCase(), ...clean);
+  };
+  add('Career Objective', [extra.objective]);
+  add('Work Experience', (data.experience || []).flatMap((entry: any) => [
+    entry.position + ' - ' + entry.company + ' (' + entry.startDate + ' - ' + (entry.current ? 'Present' : entry.endDate) + ')',
+    ...(entry.bullets || []).map((bullet: string) => '• ' + bullet)
+  ]));
+  add('Education', (data.education || []).map((entry: any) => entry.degree + ' ' + entry.fieldOfStudy + ' - ' + entry.institution + ' (' + entry.startDate + ' - ' + entry.endDate + ') ' + (entry.gpa || '')));
+  add('Technical Skills', data.skills?.technical || []);
+  add('Soft Skills', data.skills?.soft || []);
+  add('Languages', data.skills?.languages || []);
+  add('Certifications', (data.certifications || []).map((entry: any) => entry.name + ' - ' + entry.issuer + ' - ' + entry.year));
+  add('Projects', extra.projects || []);
+  add('Internships', extra.internships || []);
+  add('Volunteer Work', extra.volunteerWork || []);
+  add('Achievements & Awards', extra.achievements || []);
+  add('Professional Training', extra.professionalTraining || []);
+  add('Relevant Coursework', extra.relevantCoursework || []);
+  add('Research & Publications', extra.publications || []);
+  add('References', extra.references || []);
+  add('Additional Information', [extra.careerGapExplanation, extra.preferredEmploymentType, extra.noticePeriod, extra.domicile, extra.professionalRegistration]);
+  if (watermarkText) lines.push('', watermarkText);
+  return lines.map((line) => String(line ?? '').replace(/[\r\n\t]+/g, ' ').trim()).filter((line, index) => line || index === 0);
+}
+
+function createCvPdf(lines: string[], watermarkText?: string, watermarkOpacity: number = 0.16, templateStyle: string = 'modern', themeColor: string = '#10b981'): Buffer {
+  const escapePdf = (value: string) => value.replace(/[^\x20-\x7E]/g, '?').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+  const wrapped: string[] = [];
+  const maxLineLength = templateStyle === 'executive' ? 70 : 92;
+  for (const raw of lines) {
+    let remaining = String(raw || '');
+    if (!remaining) { wrapped.push(''); continue; }
+    while (remaining.length > maxLineLength) {
+      let split = remaining.lastIndexOf(' ', maxLineLength);
+      if (split < 30) split = maxLineLength;
+      wrapped.push(remaining.slice(0, split));
+      remaining = remaining.slice(split).trim();
+    }
+    wrapped.push(remaining);
+  }
+  const pages: string[][] = [];
+  for (let i = 0; i < wrapped.length; i += 48) pages.push(wrapped.slice(i, i + 48));
+  if (!pages.length) pages.push(['Professional CV']);
+  const objects: string[] = [];
+  const pageIds = pages.map((_, index) => 6 + index * 2);
+  objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+  objects[2] = '<< /Type /Pages /Kids [' + pageIds.map((id) => id + ' 0 R').join(' ') + '] /Count ' + pages.length + ' >>';
+  objects[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>';
+  objects[4] = '<< /Producer (Hybrid Job Portal CV Export) >>';
+  objects[5] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>';
+  pages.forEach((page, index) => {
+    const pageId = pageIds[index];
+    const contentId = pageId + 1;
+    const commands: string[] = [];
+    const hex = /^#[0-9a-f]{6}$/i.test(themeColor) ? themeColor.slice(1) : '10b981';
+    const red = parseInt(hex.slice(0, 2), 16) / 255;
+    const green = parseInt(hex.slice(2, 4), 16) / 255;
+    const blue = parseInt(hex.slice(4, 6), 16) / 255;
+    if (templateStyle === 'executive') commands.push('q', '0.94 g', '0 0 132 842 re f', 'Q');
+    if (templateStyle === 'tech') commands.push('q', red.toFixed(3) + ' ' + green.toFixed(3) + ' ' + blue.toFixed(3) + ' rg', '0 0 7 842 re f', 'Q');
+    if (templateStyle === 'modern' || templateStyle === 'classic') commands.push('q', red.toFixed(3) + ' ' + green.toFixed(3) + ' ' + blue.toFixed(3) + ' RG', '2 w', '45 818 m 550 818 l S', 'Q');
+    if (watermarkText) {
+      const gray = Math.max(0.65, Math.min(0.97, 1 - Math.max(0.05, Math.min(0.35, Number(watermarkOpacity) || 0.16))));
+      commands.push('q', gray.toFixed(2) + ' g', 'BT', '/F1 30 Tf', '0.707 0.707 -0.707 0.707 125 360 Tm', '(' + escapePdf(watermarkText) + ') Tj', 'ET', 'Q');
+    }
+    const textX = templateStyle === 'executive' ? 155 : 50;
+    commands.push('BT', '/F1 10 Tf', textX + ' 790 Td', '13 TL');
+    page.forEach((line, lineIndex) => {
+      if (lineIndex === 0) {
+        commands.push('0.08 0.12 0.18 rg', '/F2 18 Tf');
+      } else if (line && line === line.toUpperCase() && line.length < 80) {
+        commands.push(red.toFixed(3) + ' ' + green.toFixed(3) + ' ' + blue.toFixed(3) + ' rg', '/F2 11 Tf');
+      } else {
+        commands.push('0.12 0.16 0.22 rg', '/F1 10 Tf');
+      }
+      commands.push('(' + escapePdf(line) + ') Tj', 'T*');
+    });
+    commands.push('ET');
+    const stream = commands.join('\n');
+    objects[pageId] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 5 0 R >> >> /Contents ' + contentId + ' 0 R >>';
+    objects[contentId] = '<< /Length ' + Buffer.byteLength(stream, 'ascii') + ' >>\nstream\n' + stream + '\nendstream';
+  });
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  for (let id = 1; id < objects.length; id++) {
+    offsets[id] = Buffer.byteLength(pdf, 'ascii');
+    pdf += id + ' 0 obj\n' + objects[id] + '\nendobj\n';
+  }
+  const xrefOffset = Buffer.byteLength(pdf, 'ascii');
+  pdf += 'xref\n0 ' + objects.length + '\n0000000000 65535 f \n';
+  for (let id = 1; id < objects.length; id++) pdf += String(offsets[id]).padStart(10, '0') + ' 00000 n \n';
+  pdf += 'trailer\n<< /Size ' + objects.length + ' /Root 1 0 R /Info 4 0 R >>\nstartxref\n' + xrefOffset + '\n%%EOF';
+  return Buffer.from(pdf, 'ascii');
+}
+
+// Server-generated CV exports. Quotas are consumed only when the file is generated.
+userRouter.post('/cv/export/:format', requireAuth, async (req: any, res) => {
+  try {
+    const userId = String(req.user?.userId || req.user?.id || '').trim();
+    const format = String(req.params?.format || '').toLowerCase();
+    const action = format === 'pdf' ? 'pdf' : format === 'ats' ? 'ats' : '';
+    const usageField = action === 'pdf' ? 'pdfExportLimit' : action === 'ats' ? 'atsExportLimit' : '';
+    const cvData = req.body?.cvData;
+    if (!userId || !usageField || !cvData || typeof cvData !== 'object') return res.status(400).json({ success: false, message: 'A valid CV and export format are required.' });
+    const validationError = validateCvDataPayload(cvData);
+    if (validationError) return res.status(400).json({ success: false, message: validationError });
+    const user = await UserRepository.getByIdAsync(userId);
+    if (!user) return res.status(404).json({ success: false, message: 'User account not found.' });
+    const pricing = (await PricingRepository.get()) || {};
+    const settings = pricing.cvBuilder || {};
+    const templateId = String(cvData.templateStyle || '');
+    const templates = Array.isArray(settings.templates) ? settings.templates : [];
+    const template = templates.find((item: any) => String(item?.id || '') === templateId);
+    const ownsDesign = (Array.isArray(user.cvDesignEntitlements) ? user.cvDesignEntitlements : []).some((item: any) => String(item?.templateId || '') === templateId);
+    const inactive = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled', 'Revoked']);
+    const premium = !inactive.has(String(user.membershipStatus || '')) && ((user.membershipStatus === 'Active' && Boolean(user.membershipTier) && String(user.membershipTier).toLowerCase() !== 'free') || user.plan === 'Premium' || (user.paymentStatus === 'Paid' && user.membershipStatus === 'Active'));
+    const freeDesignLimit = Math.min(5, Math.max(0, Math.floor(Number(settings.freeDesignLimit ?? 2))));
+    const freeTemplateIds = new Set(templates.filter((item: any) => item && item.enabled !== false && item.free === true).slice(0, freeDesignLimit).map((item: any) => String(item.id)));
+    if (!template || (template.enabled === false && !ownsDesign)) return res.status(403).json({ success: false, message: 'This CV design is not currently available.' });
+    if (!premium && !freeTemplateIds.has(templateId) && !ownsDesign) return res.status(403).json({ success: false, message: 'Purchase this Premium CV design or activate a Premium membership before exporting.' });
+    if ((action === 'pdf' && (settings.pdfExportEnabled === false || template.pdfExportEnabled === false)) || (action === 'ats' && (settings.atsTextExportEnabled === false || template.atsExportEnabled === false))) {
+      return res.status(403).json({ success: false, message: 'This CV export format is disabled by the administrator.' });
+    }
+    const activeGrants = (Array.isArray(user.cvPackageEntitlements) ? user.cvPackageEntitlements : []).filter((item: any) => Date.parse(String(item?.expiresAt || '')) > Date.now()).sort((a: any, b: any) => Date.parse(String(a.expiresAt)) - Date.parse(String(b.expiresAt)));
+    const selectedGrant = activeGrants.find((grant: any) => Number(grant?.limits?.[usageField] || 0) > Number(grant?.usage?.[usageField] || 0)) || null;
+    const watermarkGrant = activeGrants.find((grant: any) => grant?.noWatermark === true) || null;
+    const hasConfiguredPackageQuota = activeGrants.some((grant: any) => Number(grant?.limits?.[usageField] || 0) > 0);
+    const designLimit = Math.max(0, Math.min(10000, Math.floor(Number(template?.[usageField] || 0))));
+    const noWatermark = template.exportWatermarkMode === 'always' ? false : template.exportWatermarkMode === 'never' ? true : (Boolean(selectedGrant?.noWatermark === true || watermarkGrant?.noWatermark === true) || settings.watermarkEnabled === false || (premium && settings.watermarkFreeOnly !== false));
+    if (selectedGrant || designLimit > 0) {
+      const packageGrant = selectedGrant ? { transactionId: String(selectedGrant.transactionId), limit: Number(selectedGrant.limits[usageField]) } : null;
+      const consumed = await UserRepository.consumeCvActionQuotasAsync(userId, templateId, usageField as any, packageGrant, designLimit);
+      if (!consumed) return res.status(403).json({ success: false, message: 'Your CV export quota has been used up.' });
+    } else if (hasConfiguredPackageQuota) {
+      return res.status(403).json({ success: false, message: 'Your active CV package export quota has been used up.' });
+    }
+    const watermark = noWatermark ? undefined : String(template.watermarkText || settings.watermarkText || 'Hybrid Job Portal');
+    const safeName = String(cvData.personalInfo?.fullName || 'candidate-cv').replace(/[^a-z0-9-_]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'candidate-cv';
+    if (action === 'ats') {
+      const lines = buildCvExportLines(cvData, watermark);
+      return res.json({ success: true, filename: safeName + '-ats.txt', mimeType: 'text/plain;charset=utf-8', contentBase64: Buffer.from(lines.join('\n'), 'utf8').toString('base64') });
+    }
+    const lines = buildCvExportLines(cvData);
+    const pdf = createCvPdf(lines, watermark, Number(template.watermarkOpacity ?? settings.watermarkOpacity ?? 0.16), templateId, String(cvData.themeColor || '#10b981'));
+    return res.json({ success: true, filename: safeName + '.pdf', mimeType: 'application/pdf', contentBase64: pdf.toString('base64') });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Unable to generate CV export.' });
+  }
+});
+
+// CV export/share authorization. Quota is consumed server-side before the client starts the action.
+userRouter.post('/cv/consume', requireAuth, async (req: any, res) => {
+  try {
+    const userId = String(req.user?.userId || req.user?.id || '').trim();
+    const action = String(req.body?.action || '').trim();
+    const templateId = String(req.body?.templateId || '').trim();
+    const usageField = action === 'pdf' ? 'pdfExportLimit' : action === 'ats' ? 'atsExportLimit' : action === 'share' ? 'shareLimit' : '';
+    if (!userId || !usageField || !templateId || templateId.length > 80) {
+      return res.status(400).json({ success: false, message: 'A valid CV action and template are required.' });
+    }
+    const user = await UserRepository.getByIdAsync(userId);
+    if (!user) return res.status(404).json({ success: false, message: 'User account not found.' });
+    const pricing = (await PricingRepository.get()) || {};
+    const settings = pricing.cvBuilder || {};
+    const templates = Array.isArray(settings.templates) ? settings.templates : [];
+    const template = templates.find((item: any) => String(item?.id || '') === templateId);
+    const ownsDesign = (Array.isArray(user.cvDesignEntitlements) ? user.cvDesignEntitlements : []).some((item: any) => String(item?.templateId || '') === templateId);
+    const inactive = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled', 'Revoked']);
+    const premium = !inactive.has(String(user.membershipStatus || '')) && ((user.membershipStatus === 'Active' && Boolean(user.membershipTier) && String(user.membershipTier).toLowerCase() !== 'free') || user.plan === 'Premium' || (user.paymentStatus === 'Paid' && user.membershipStatus === 'Active'));
+    const freeDesignLimit = Math.min(5, Math.max(0, Math.floor(Number(settings.freeDesignLimit ?? 2))));
+    const freeTemplateIds = new Set(templates.filter((item: any) => item && item.enabled !== false && item.free === true).slice(0, freeDesignLimit).map((item: any) => String(item.id)));
+    if (!template || (template.enabled === false && !ownsDesign)) return res.status(403).json({ success: false, message: 'This CV design is not currently available.' });
+    if (!premium && !freeTemplateIds.has(templateId) && !ownsDesign) return res.status(403).json({ success: false, message: 'Purchase this Premium CV design or activate a Premium membership before sharing.' });
+    if (action === 'pdf' && (settings.pdfExportEnabled === false || template.pdfExportEnabled === false)) {
+      return res.status(403).json({ success: false, message: 'PDF export is disabled by the administrator for this CV design.' });
+    }
+    if (action === 'ats' && (settings.atsTextExportEnabled === false || template.atsExportEnabled === false)) {
+      return res.status(403).json({ success: false, message: 'ATS text export is disabled by the administrator for this CV design.' });
+    }
+    if (action === 'share' && template.shareEnabled === false) {
+      return res.status(403).json({ success: false, message: 'Sharing is disabled by the administrator for this CV design.' });
+    }
+    const activeGrants = (Array.isArray(user.cvPackageEntitlements) ? user.cvPackageEntitlements : [])
+      .filter((item: any) => Date.parse(String(item?.expiresAt || '')) > Date.now())
+      .sort((a: any, b: any) => Date.parse(String(a.expiresAt)) - Date.parse(String(b.expiresAt)));
+    const templateLimit = Math.max(0, Math.min(10000, Math.floor(Number(template?.[usageField] || 0))));
+    let selectedGrant: any = null;
+    if (activeGrants.length) {
+      selectedGrant = activeGrants.find((grant: any) =>
+        Number(grant?.limits?.[usageField] || 0) > Number(grant?.usage?.[usageField] || 0)
+      ) || null;
+    }
+    const watermarkGrant = activeGrants.find((grant: any) => grant?.noWatermark === true) || null;
+    const noWatermark = template.exportWatermarkMode === 'always'
+      ? false
+      : template.exportWatermarkMode === 'never'
+        ? true
+        : (Boolean(selectedGrant?.noWatermark === true || watermarkGrant?.noWatermark === true) || settings.watermarkEnabled === false || (premium && settings.watermarkFreeOnly !== false));
+    if (selectedGrant || templateLimit > 0) {
+      const packageGrant = selectedGrant ? {
+        transactionId: String(selectedGrant.transactionId),
+        limit: Number(selectedGrant.limits[usageField])
+      } : null;
+      const updated = await UserRepository.consumeCvActionQuotasAsync(userId, templateId, usageField as any, packageGrant, templateLimit);
+      if (!updated) return res.status(403).json({ success: false, message: 'Your CV package or design quota has been used up. Please review your remaining quota.' });
+      const packageUsed = selectedGrant ? Number(selectedGrant.usage?.[usageField] || 0) + 1 : 0;
+      const designUsed = Number(updated.cvTemplateUsage?.[templateId]?.[usageField] || 0);
+      return res.json({
+        success: true,
+        action,
+        remaining: selectedGrant ? Math.max(0, packageGrant!.limit - packageUsed) : null,
+        designRemaining: templateLimit > 0 ? Math.max(0, templateLimit - designUsed) : null,
+        packageName: selectedGrant?.packageName,
+        packageExpiresAt: selectedGrant?.expiresAt,
+        noWatermark
+      });
+    }
+    return res.json({
+      success: true,
+      action,
+      remaining: null,
+      designRemaining: null,
+      noWatermark
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Unable to authorize CV action.' });
+  }
+});
+
 // 1. Get All Users (Admin Only - Requires users.manage)
 userRouter.get('/', requireAdminPermission('users.manage'), async (req, res) => {
   try {
@@ -789,8 +1024,12 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
           cvOwner.plan === 'Premium' ||
           (cvOwner.paymentStatus === 'Paid' && membershipStatus === 'Active')
         );
-        const maxAllowed = premiumActive ? premiumLimit : freeLimit;
-        const existingIds = new Set((Array.isArray(cvOwner.cvDocuments) ? cvOwner.cvDocuments : []).map((item: any) => String(item?.id || '')));
+        const existingDocuments = Array.isArray(cvOwner.cvDocuments) ? cvOwner.cvDocuments : [];
+        const existingIds = new Set(existingDocuments.map((item: any) => String(item?.id || '')));
+        const packageRemaining = (Array.isArray(cvOwner.cvPackageEntitlements) ? cvOwner.cvPackageEntitlements : [])
+          .filter((item: any) => Date.parse(String(item?.expiresAt || '')) > Date.now())
+          .reduce((total: number, item: any) => total + Math.max(0, Number(item?.limits?.cvCreateLimit || 0) - Number(item?.usage?.cvCreateLimit || 0)), 0);
+        const maxAllowed = Math.max(premiumActive ? premiumLimit : freeLimit, existingDocuments.length + packageRemaining);
         const addsNewDocument = Array.isArray(documents) && documents.some((document: any) => !existingIds.has(document.id));
         if (Array.isArray(documents) && documents.length > maxAllowed && addsNewDocument) {
           return res.status(403).json({ success: false, message: `Your current CV limit is ${maxAllowed}. Upgrade your plan or contact the administrator to increase it.` });
@@ -811,7 +1050,108 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
     delete finalUpdates.walletEscrowBalance;
     delete finalUpdates.walletEscrowOperations;
 
-    const updated = await UserRepository.updateAsync(id, finalUpdates);
+    let updated: any = null;
+    if (!isAdmin && Array.isArray(finalUpdates.cvDocuments)) {
+      const cvOwner = await UserRepository.getByIdAsync(id);
+      if (!cvOwner) return res.status(404).json({ success: false, message: 'User not found.' });
+      const previousDocs = Array.isArray(cvOwner.cvDocuments) ? cvOwner.cvDocuments : [];
+      const previousById = new Map(previousDocs.map((item: any) => [String(item?.id || ''), item]));
+      const incomingDocs = finalUpdates.cvDocuments;
+      const createCount = incomingDocs.filter((item: any) => !previousById.has(String(item.id))).length;
+      const changedDocs = incomingDocs.filter((item: any) => {
+        const previous: any = previousById.get(String(item.id));
+        return Boolean(previous) && (String(previous.title || '') !== String(item.title || '') ||
+          JSON.stringify(previous.data) !== JSON.stringify(item.data));
+      });
+      const editCount = changedDocs.length;
+      const createdDocs = incomingDocs.filter((item: any) => !previousById.has(String(item.id)));
+      const pricingConfig = (await PricingRepository.get()) || {};
+      const templateConfigs = Array.isArray(pricingConfig.cvBuilder?.templates) ? pricingConfig.cvBuilder.templates : [];
+      const templateEditUsage: Record<string, { count: number; limit: number }> = {};
+      const templateCreateUsage: Record<string, { count: number; limit: number }> = {};
+      for (const document of changedDocs) {
+        const previous: any = previousById.get(String(document.id));
+        const templateIds = Array.from(new Set([
+          String(previous?.data?.templateStyle || '').trim(),
+          String(document?.data?.templateStyle || '').trim()
+        ].filter(Boolean)));
+        for (const templateId of templateIds) {
+          const templateConfig = templateConfigs.find((item: any) => String(item?.id || '') === templateId);
+          const editMode = templateConfig?.editMode || 'unlimited';
+          if (editMode === 'disabled') {
+            return res.status(403).json({ success: false, message: `Editing is disabled for the ${templateConfig?.name || templateId} CV design.` });
+          }
+          if (editMode === 'limited') {
+            const limit = Math.max(0, Math.min(10000, Math.floor(Number(templateConfig?.editLimit || 0))));
+            if (limit <= 0) return res.status(403).json({ success: false, message: 'This CV design has no remaining edit allowance configured.' });
+            const used = Number(cvOwner.cvTemplateUsage?.[templateId]?.editCount || 0);
+            const pending = templateEditUsage[templateId]?.count || 0;
+            if (used + pending + 1 > limit) return res.status(403).json({ success: false, message: `The ${templateConfig?.name || templateId} design edit quota has been reached.` });
+            templateEditUsage[templateId] = { count: pending + 1, limit };
+          }
+        }
+      }
+      for (const document of createdDocs) {
+        const templateId = String(document?.data?.templateStyle || '').trim();
+        const templateConfig = templateConfigs.find((item: any) => String(item?.id || '') === templateId);
+        const limit = Math.max(0, Math.min(10000, Math.floor(Number(templateConfig?.cvCreateLimit || 0))));
+        if (templateId && limit > 0) {
+          const usageKey = `${templateId}::createCount`;
+          const used = Number(cvOwner.cvTemplateUsage?.[templateId]?.createCount || 0);
+          const pending = templateCreateUsage[usageKey]?.count || 0;
+          if (used + pending + 1 > limit) {
+            return res.status(403).json({ success: false, message: `The ${templateConfig?.name || templateId} design CV creation quota has been reached.` });
+          }
+          templateCreateUsage[usageKey] = { count: pending + 1, limit };
+        }
+      }
+      const templateUsageDeltas = { ...templateEditUsage, ...templateCreateUsage };
+      const activeGrants = (Array.isArray(cvOwner.cvPackageEntitlements) ? cvOwner.cvPackageEntitlements : [])
+        .filter((item: any) => Date.parse(String(item?.expiresAt || '')) > Date.now())
+        .sort((a: any, b: any) => Date.parse(String(a.expiresAt)) - Date.parse(String(b.expiresAt)));
+      if (activeGrants.length && (createCount > 0 || editCount > 0)) {
+        const grant = activeGrants.find((item: any) => {
+          const createLimit = Number(item?.limits?.cvCreateLimit || 0);
+          const editLimit = Number(item?.limits?.editLimit || 0);
+          const createRemaining = Math.max(0, createLimit - Number(item?.usage?.cvCreateLimit || 0));
+          const editRemaining = Math.max(0, editLimit - Number(item?.usage?.editLimit || 0));
+          const createCovered = createCount === 0 || createLimit === 0 || createCount <= createRemaining;
+          const editCovered = editCount === 0 || editLimit === 0 || editCount <= editRemaining;
+          return createCovered && editCovered && ((createCount > 0 && createLimit > 0) || (editCount > 0 && editLimit > 0));
+        });
+        // Never fall back to an unrestricted save when an active package explicitly governs
+        // the action being performed. If separate grants cannot safely cover a combined save,
+        // reject it rather than silently bypassing either package quota.
+        const createQuotaConfigured = createCount > 0 && activeGrants.some((item: any) => Number(item?.limits?.cvCreateLimit || 0) > 0);
+        const editQuotaConfigured = editCount > 0 && activeGrants.some((item: any) => Number(item?.limits?.editLimit || 0) > 0);
+        if (!grant && (createQuotaConfigured || editQuotaConfigured)) {
+          return res.status(403).json({ success: false, message: 'Your active CV package does not have enough remaining creation or edit quota for this save. Please review your package usage or purchase another package.' });
+        }
+        if (grant) {
+          const packageCreateCount = Number(grant.limits?.cvCreateLimit || 0) > 0 ? createCount : 0;
+          const packageEditCount = Number(grant.limits?.editLimit || 0) > 0 ? editCount : 0;
+          updated = await UserRepository.saveCvDocumentsWithPackageUsageAsync(
+            id, incomingDocs, finalUpdates.cvData, String(grant.transactionId),
+            packageCreateCount, packageEditCount,
+            Number(grant.limits?.cvCreateLimit || 0), Number(grant.limits?.editLimit || 0), templateUsageDeltas
+          );
+          if (!updated) {
+            return res.status(409).json({ success: false, message: 'CV package or per-design quota changed during save. Please reload your CV and try again.' });
+          }
+          delete finalUpdates.cvDocuments;
+          delete finalUpdates.cvData;
+        }
+      }
+      if (!updated && Object.keys(templateUsageDeltas).length > 0) {
+        updated = await UserRepository.saveCvDocumentsWithPackageUsageAsync(
+          id, incomingDocs, finalUpdates.cvData, '', 0, 0, 0, 0, templateUsageDeltas
+        );
+        if (!updated) return res.status(409).json({ success: false, message: 'Per-design edit quota changed during save. Please reload your CV and try again.' });
+        delete finalUpdates.cvDocuments;
+        delete finalUpdates.cvData;
+      }
+    }
+    if (!updated) updated = await UserRepository.updateAsync(id, finalUpdates);
     if (!updated) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }

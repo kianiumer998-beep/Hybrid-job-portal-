@@ -28,6 +28,7 @@ import {
 } from './components/WhatsAppStickyButton';
 import { INITIAL_PAYMENT_TRANSACTIONS } from './data/mockTransactions';
 import { api } from './services/api';
+import { cvAiApi } from './services/cvAiApi';
 import { PaymentVerificationResult } from './components/admin/AdminPaymentVerificationHub';
 import { BulkJobImportResult } from './components/admin/AdminDataBackupHub';
 
@@ -4612,12 +4613,24 @@ export default function App() {
                 initialCvData={currentUser?.cvData}
                 initialCvDocuments={currentUser?.cvDocuments}
                 cvDesignEntitlements={currentUser?.cvDesignEntitlements || []}
+                cvPackageEntitlements={currentUser?.cvPackageEntitlements || []}
                 onPurchaseTemplate={(templateId, templateName, pricePkr) => {
                   if (!currentUser?.id) { setAuthModalOpen(true); return; }
                   setCvDesignCheckout({ templateId, templateName, pricePkr });
                 }}
                 onSaveCv={async (cvData) => handleUpdateProfile({ cvData })}
                 onSaveCvDocuments={async (documents, activeData) => handleUpdateProfile({ cvData: activeData, cvDocuments: documents })}
+                onConsumeCvAction={async (action, templateId) => {
+                  const result = await api.users.consumeCvAction(action, templateId);
+                  if (result?.success && currentUser?.id) await loadBackendUserProfile(currentUser.id);
+                  return result;
+                }}
+                onExportCv={async (format, cvData) => {
+                  const result = await api.users.exportCv(format, cvData as any);
+                  if (result?.success && currentUser?.id) await loadBackendUserProfile(currentUser.id);
+                  return result;
+                }}
+                onGenerateCvAiText={async (payload) => cvAiApi.generate(payload)}
                 cvBuilderSettings={cvBuilderSettings}
                 onOpenPaywall={() => setCvPaywallOpen(true)}
               />

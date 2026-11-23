@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { CvData, CvDocument, CvDesignEntitlement } from '../types/job';
+import { CvToolsPanel } from './CvToolsPanel';
 import { Sparkles, Printer, Download, Plus, Trash2, CheckCircle2, FileText, ChevronRight, ChevronLeft, Palette, User, Briefcase, GraduationCap, Award, Eye } from 'lucide-react';
 
 interface CvBuilderProps {
@@ -7,9 +8,13 @@ interface CvBuilderProps {
   initialCvData?: CvData;
   initialCvDocuments?: CvDocument[];
   cvDesignEntitlements?: CvDesignEntitlement[];
+  cvPackageEntitlements?: any[];
   onPurchaseTemplate: (templateId: string, templateName: string, pricePkr: number) => void;
   onSaveCvDocuments?: (documents: CvDocument[], activeData: CvData) => Promise<boolean> | boolean;
   onSaveCv: (data: CvData) => Promise<boolean> | boolean;
+  onConsumeCvAction?: (action: 'pdf' | 'ats' | 'share', templateId: string) => Promise<any>;
+  onExportCv?: (format: 'pdf' | 'ats', cvData: CvData) => Promise<any>;
+  onGenerateCvAiText?: (payload: { action: 'improve_summary' | 'rewrite_bullet'; text: string; jobTitle?: string }) => Promise<any>;
   onOpenPaywall: () => void;
   cvBuilderSettings?: any;
 }
@@ -93,9 +98,10 @@ const normalizeCvData = (value?: CvData): CvData => {
   };
 };
 
-export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, initialCvDocuments, cvDesignEntitlements = [], onPurchaseTemplate, onSaveCvDocuments, onSaveCv, onOpenPaywall, cvBuilderSettings = {} }) => {
+export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, initialCvDocuments, cvDesignEntitlements = [], cvPackageEntitlements = [], onPurchaseTemplate, onSaveCvDocuments, onSaveCv, onConsumeCvAction, onExportCv, onGenerateCvAiText, onOpenPaywall, cvBuilderSettings = {} }) => {
   const [step, setStep] = useState<number>(1);
   const [isSavingCv, setIsSavingCv] = useState(false);
+  const [exportNoWatermarkOverride, setExportNoWatermarkOverride] = useState(false);
   const [cvSaveMessage, setCvSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const makeDocument = (data: CvData, title = ''): CvDocument => ({
     id: `cv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -126,7 +132,10 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
   }, [cvData, activeCvId]);
 
   const handleCreateCv = () => {
-    const maxAllowed = isSubscribed ? Math.max(0, Math.min(10, Math.floor(Number(cvBuilderSettings.premiumCvLimit ?? 10)))) : Math.max(0, Math.min(10, Math.floor(Number(cvBuilderSettings.freeCvLimit ?? 1))));
+    const baseLimit = isSubscribed ? Math.max(0, Math.min(10, Math.floor(Number(cvBuilderSettings.premiumCvLimit ?? 10)))) : Math.max(0, Math.min(10, Math.floor(Number(cvBuilderSettings.freeCvLimit ?? 1))));
+    const packageRemaining = cvPackageEntitlements.filter((entry: any) => Date.parse(String(entry?.expiresAt || '')) > Date.now()).reduce((total: number, entry: any) => total + Math.max(0, Number(entry?.limits?.cvCreateLimit || 0) - Number(entry?.usage?.cvCreateLimit || 0)), 0);
+    const savedDocumentCount = Array.isArray(initialCvDocuments) ? initialCvDocuments.length : 0;
+    const maxAllowed = Math.max(baseLimit, savedDocumentCount + packageRemaining);
     if (documents.length >= maxAllowed) {
       setCvSaveMessage({ type: 'error', text: isSubscribed ? `The administrator has set a maximum of ${maxAllowed} CV(s) for premium members.` : `Your free plan allows ${maxAllowed} CV(s). Upgrade to create more.` });
       if (!isSubscribed) onOpenPaywall();
@@ -245,7 +254,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     }
   };
 
-  const handleDownloadAtsText = () => {
+  const downloadServerCvExport = async (format: 'pdf' | 'ats') => {
     if (!isTemplateEnabled(cvData.templateStyle) || (!isSubscribed && !isTemplateFree(cvData.templateStyle))) {
       const selected = configuredTemplates.find((item: any) => item.id === cvData.templateStyle);
       const price = Math.max(0, Number(selected?.pricePkr || 0));
@@ -253,54 +262,114 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
       else onOpenPaywall();
       return;
     }
-    const ownsSelectedDesignForExport = cvDesignEntitlements.some((item) => item.templateId === cvData.templateStyle);
-    if (!isSubscribed && !ownsSelectedDesignForExport && cvBuilderSettings.atsTextExportEnabled === false) { onOpenPaywall(); return; }
-    const lines: string[] = [];
-    const p = cvData.personalInfo;
-    const extra: NonNullable<CvData['additionalSections']> = cvData.additionalSections || {};
-    const add = (heading: string, values: string[]) => {
-      const clean = values.map((v) => String(v || '').trim()).filter(Boolean);
-      if (clean.length) lines.push('', heading.toUpperCase(), ...clean);
-    };
-    lines.push(p.fullName, p.jobTitle, [p.email, p.phone, p.location, p.website, p.linkedin, p.github].filter(Boolean).join(' | '), '', 'PROFESSIONAL SUMMARY', p.summary || '');
-    add('Career Objective', [extra.objective || '']);
-    add('Work Experience', cvData.experience.flatMap((entry) => [`${entry.position} - ${entry.company} (${entry.startDate} - ${entry.current ? 'Present' : entry.endDate})`, ...entry.bullets]));
-    add('Education', cvData.education.map((entry) => `${entry.degree} ${entry.fieldOfStudy} - ${entry.institution} (${entry.startDate} - ${entry.endDate}) ${entry.gpa || ''}`));
-    add('Skills', [...cvData.skills.technical, ...cvData.skills.soft, ...cvData.skills.languages]);
-    add('Certifications', cvData.certifications.map((entry) => `${entry.name} - ${entry.issuer} - ${entry.year}`));
-    add('Projects', extra.projects || []);
-    add('Internships', extra.internships || []);
-    add('Volunteer Work', extra.volunteerWork || []);
-    add('Achievements & Awards', extra.achievements || []);
-    add('Professional Training', extra.professionalTraining || []);
-    add('Relevant Coursework', extra.relevantCoursework || []);
-    add('Research & Publications', extra.publications || []);
-    add('References', extra.references || []);
-    add('Additional Information', [extra.careerGapExplanation, extra.preferredEmploymentType, extra.noticePeriod, extra.domicile, extra.professionalRegistration].filter(Boolean) as string[]);
-    if (watermarkVisible) lines.push('', String(cvBuilderSettings.watermarkText || 'Hybrid Job Portal'));
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${(p.fullName || 'candidate-cv').replace(/[^a-z0-9-_]+/gi, '-').replace(/^-+|-+$/g, '') || 'candidate-cv'}-ats.txt`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    if (format === 'pdf' && (cvBuilderSettings.pdfExportEnabled === false || selectedTemplateConfig.pdfExportEnabled === false)) { onOpenPaywall(); return; }
+    if (format === 'ats' && (cvBuilderSettings.atsTextExportEnabled === false || selectedTemplateConfig.atsExportEnabled === false)) { onOpenPaywall(); return; }
+    try {
+      if (!onExportCv) throw new Error('Secure CV export service is not connected. Please contact support.');
+      const result = await onExportCv(format, cvData);
+      if (!result?.success || !result?.contentBase64) throw new Error(result?.message || 'The server could not generate this CV export.');
+      const binary = atob(String(result.contentBase64));
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+      const blob = new Blob([bytes], { type: String(result.mimeType || (format === 'pdf' ? 'application/pdf' : 'text/plain;charset=utf-8')) });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = String(result.filename || (format === 'pdf' ? 'candidate-cv.pdf' : 'candidate-cv-ats.txt'));
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setCvSaveMessage({ type: 'success', text: format === 'pdf' ? 'Your PDF CV was generated securely.' : 'Your ATS text CV was generated securely.' });
+    } catch (error: any) {
+      setCvSaveMessage({ type: 'error', text: error?.message || 'Unable to generate this CV export.' });
+    }
   };
 
-  // Trigger Print Engine
-  const handleDownloadPdf = () => {
-    if (!isTemplateEnabled(cvData.templateStyle) || (!isSubscribed && !isTemplateFree(cvData.templateStyle))) {
-      const selected = configuredTemplates.find((item: any) => item.id === cvData.templateStyle);
-      const price = Math.max(0, Number(selected?.pricePkr || 0));
-      if (price > 0) onPurchaseTemplate(cvData.templateStyle, selected?.name || 'Premium CV Design', price);
-      else onOpenPaywall();
+  const handleApplyAiSuggestion = (action: 'improve_summary' | 'rewrite_bullet', text: string) => {
+    const suggestion = String(text || '').trim();
+    if (!suggestion) return;
+    if (action === 'improve_summary') {
+      setCvData((previous) => ({ ...previous, personalInfo: { ...previous.personalInfo, summary: suggestion } }));
+    } else {
+      if (!cvData.experience.length) {
+        setCvSaveMessage({ type: 'error', text: 'Add a work-experience entry before applying an experience bullet.' });
+        return;
+      }
+      setCvData((previous) => {
+        const targetIndex = previous.experience.findIndex((item) => Array.isArray(item.bullets) && item.bullets.length > 0);
+        const index = targetIndex >= 0 ? targetIndex : 0;
+        const experience = previous.experience.map((item, itemIndex) => {
+          if (itemIndex !== index) return item;
+          const bullets = [...(item.bullets || [])];
+          if (bullets.length) bullets[0] = suggestion;
+          else bullets.push(suggestion);
+          return { ...item, bullets };
+        });
+        return { ...previous, experience };
+      });
+    }
+    setCvSaveMessage({ type: 'success', text: 'AI suggestion added to your CV draft. Select Save CV to keep the change.' });
+  };
+
+  const handleDownloadAtsText = async () => downloadServerCvExport('ats');
+
+  // Trigger a server-generated PDF file; browser print is not used for quota-controlled exports.
+  const handleDownloadPdf = async () => downloadServerCvExport('pdf');
+
+  const handleShareCv = async () => {
+    if (typeof navigator === 'undefined' || typeof navigator.share !== 'function') {
+      setCvSaveMessage({ type: 'error', text: 'Native sharing is not supported by this browser.' });
       return;
     }
-    const ownsSelectedDesignForExport = cvDesignEntitlements.some((item) => item.templateId === cvData.templateStyle);
-    if (!isSubscribed && !ownsSelectedDesignForExport && cvBuilderSettings.pdfExportEnabled === false) { onOpenPaywall(); return; }
-    window.print();
+    try {
+      const authorization = onConsumeCvAction ? await onConsumeCvAction('share', cvData.templateStyle) : { success: true };
+      if (!authorization?.success) {
+        setCvSaveMessage({ type: 'error', text: authorization?.message || 'Sharing is not available under your current CV entitlement.' });
+        return;
+      }
+      const p = cvData.personalInfo;
+      const shareText = [
+        p.fullName || 'Professional CV',
+        p.jobTitle || '',
+        [p.email, p.phone, p.location, p.website, p.linkedin, p.github].filter(Boolean).join(' · '),
+        '',
+        'PROFESSIONAL SUMMARY',
+        p.summary || '',
+        '',
+        'EXPERIENCE',
+        ...cvData.experience.flatMap((item) => [`${item.position} — ${item.company}`, `${item.startDate} – ${item.current ? 'Present' : item.endDate}`, item.location || '', ...(item.bullets || []).map((bullet) => `• ${bullet}`), '']),
+        'EDUCATION',
+        ...cvData.education.flatMap((item) => [`${item.degree} — ${item.institution}`, item.fieldOfStudy || '', `${item.startDate} – ${item.endDate}`, '']),
+        'SKILLS',
+        [...cvData.skills.technical, ...cvData.skills.soft, ...cvData.skills.languages].filter(Boolean).join(', '),
+        '',
+        'CERTIFICATIONS',
+        ...cvData.certifications.map((item) => [item.name, item.issuer, item.year].filter(Boolean).join(' — ')),
+        '',
+        'ADDITIONAL INFORMATION',
+        cvData.additionalSections?.objective || '',
+        ...(cvData.additionalSections?.projects || []),
+        ...(cvData.additionalSections?.internships || []),
+        ...(cvData.additionalSections?.volunteerWork || []),
+        ...(cvData.additionalSections?.achievements || []),
+        ...(cvData.additionalSections?.professionalTraining || []),
+        ...(cvData.additionalSections?.relevantCoursework || []),
+        ...(cvData.additionalSections?.publications || []),
+        ...(cvData.additionalSections?.references || [])
+      ].filter((line) => line !== undefined).join('\n');
+      const shareTitle = p.fullName ? `${p.fullName} — CV` : 'Professional CV';
+      const shareFile = new File([shareText], `${(p.fullName || 'professional-cv').replace(/[^a-z0-9-_]+/gi, '-').toLowerCase()}.txt`, { type: 'text/plain' });
+      const shareData: any = { title: shareTitle, text: shareText };
+      if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [shareFile] })) {
+        shareData.files = [shareFile];
+        delete shareData.text;
+      }
+      await navigator.share(shareData);
+      setCvSaveMessage({ type: 'success', text: 'CV share action completed.' });
+    } catch (error: any) {
+      if (error?.name !== 'AbortError') setCvSaveMessage({ type: 'error', text: error?.message || 'Unable to share this CV.' });
+    }
   };
 
   const templateCatalog = [
@@ -315,7 +384,28 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
   }).slice(0, Math.max(0, Math.min(5, Number(cvBuilderSettings.freeDesignLimit ?? 2))));
   const isTemplateEnabled = (id: string) => enabledTemplates.some((template) => template.id === id);
   const isTemplateFree = (id: string) => isSubscribed || freeTemplates.some((template) => template.id === id) || cvDesignEntitlements.some((item) => item.templateId === id);
-  const watermarkVisible = cvBuilderSettings.watermarkEnabled !== false && (!isSubscribed || cvBuilderSettings.watermarkFreeOnly === false);
+  const selectedTemplateConfig = configuredTemplates.find((item: any) => item.id === cvData.templateStyle) || {};
+  // A preview watermark is intentionally always visible to discourage screenshot-based reuse.
+  // Export watermark policy is evaluated separately and never controls the on-screen preview.
+  const previewWatermarkVisible = true;
+  const exportWatermarkVisible = selectedTemplateConfig.exportWatermarkMode === 'always' ||
+    (selectedTemplateConfig.exportWatermarkMode !== 'never' &&
+      cvBuilderSettings.watermarkEnabled !== false &&
+      (!isSubscribed || cvBuilderSettings.watermarkFreeOnly === false));
+
+  // A transparent completeness guide helps candidates spot missing CV basics; it does not claim to be an ATS score.
+  const cvQualityChecks = [
+    { label: 'Full name', complete: Boolean(cvData.personalInfo.fullName.trim()) },
+    { label: 'Target job title', complete: Boolean(cvData.personalInfo.jobTitle.trim()) },
+    { label: 'Email address', complete: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cvData.personalInfo.email.trim()) },
+    { label: 'Phone number or location', complete: Boolean(cvData.personalInfo.phone.trim() || cvData.personalInfo.location.trim()) },
+    { label: 'Professional summary (at least 60 characters)', complete: cvData.personalInfo.summary.trim().length >= 60 },
+    { label: 'Work experience with role and employer', complete: cvData.experience.some((item) => item.position.trim() && item.company.trim()) },
+    { label: 'Education with qualification and institute', complete: cvData.education.some((item) => item.degree.trim() && item.institution.trim()) },
+    { label: 'At least 3 skills', complete: [...cvData.skills.technical, ...cvData.skills.soft, ...cvData.skills.languages].filter((item) => item.trim()).length >= 3 }
+  ];
+  const cvCompletionScore = Math.round((cvQualityChecks.filter((item) => item.complete).length / cvQualityChecks.length) * 100);
+  const cvNextSteps = cvQualityChecks.filter((item) => !item.complete).slice(0, 3);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -351,6 +441,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
             <span>{isSavingCv ? 'Saving...' : 'Save CV Draft'}</span>
           </button>
           <button type="button" onClick={handleDownloadAtsText} className="px-3 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs">{!isSubscribed && cvBuilderSettings.atsTextExportEnabled === false ? 'ATS Text · Premium' : 'Download ATS Text'}</button>
+          <button type="button" onClick={handleShareCv} disabled={selectedTemplateConfig.shareEnabled === false} className="px-3 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs disabled:cursor-not-allowed disabled:opacity-50">{selectedTemplateConfig.shareEnabled === false ? 'Sharing Disabled' : 'Share CV'}</button>
 
           <button
             onClick={handleDownloadPdf}
@@ -361,6 +452,21 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
           </button>
         </div>
       </div>
+
+
+      <section className="mb-6 rounded-2xl border border-slate-800 bg-slate-900/90 p-4 sm:p-5" aria-label="CV completeness guide">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-bold text-white"><CheckCircle2 className="h-4 w-4 text-emerald-400" /> CV Completeness</div>
+            <p className="mt-1 text-xs text-slate-400">A practical checklist for essential CV information — this is not an ATS compatibility score.</p>
+          </div>
+          <div className="text-left sm:text-right"><span className="text-2xl font-black text-emerald-300">{cvCompletionScore}%</span><span className="ml-2 text-xs text-slate-400">{cvQualityChecks.filter((item) => item.complete).length}/{cvQualityChecks.length} essentials</span></div>
+        </div>
+        <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-800" role="progressbar" aria-label="CV completeness" aria-valuemin={0} aria-valuemax={100} aria-valuenow={cvCompletionScore}><div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all" style={{ width: `${cvCompletionScore}%` }} /></div>
+        {cvNextSteps.length > 0 ? <div className="mt-3 flex flex-wrap gap-2">{cvNextSteps.map((item) => <span key={item.label} className="rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-[11px] text-amber-200">Add: {item.label}</span>)}</div> : <p className="mt-3 text-xs font-semibold text-emerald-300">Great work — all essential checklist items are complete.</p>}
+      </section>
+
+      <CvToolsPanel cvData={cvData} settings={cvBuilderSettings} onGenerateAiText={onGenerateCvAiText} onApplyAiSuggestion={handleApplyAiSuggestion} />
 
       {/* Main Builder Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -791,6 +897,46 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                   })}
                 </div>
               </div>
+              {Array.isArray(cvBuilderSettings.packages) && cvBuilderSettings.packages.some((item: any) => item?.enabled !== false) && (
+                <div className="space-y-2 rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3">
+                  <div>
+                    <h4 className="text-xs font-black text-white">CV Usage Packages</h4>
+                    <p className="mt-1 text-[10px] text-slate-400">One-time payment. Package quotas activate only after wallet payment or administrator approval.</p>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {cvBuilderSettings.packages.filter((item: any) => item && item.enabled !== false).map((pkg: any) => {
+                      const owned = cvPackageEntitlements.find((entry: any) =>
+                        entry?.packageId === pkg.id && Number.isFinite(Date.parse(String(entry?.expiresAt || ''))) && Date.parse(String(entry.expiresAt)) > Date.now()
+                      );
+                      const price = Math.max(0, Number(pkg.pricePkr || 0));
+                      return (
+                        <button key={pkg.id} type="button" disabled={!price || Boolean(owned)} onClick={() => onPurchaseTemplate(`cvpkg:${pkg.id}`, String(pkg.name || 'CV Package'), price)}
+                          className="rounded-lg border border-slate-700 bg-slate-950 p-3 text-left hover:border-indigo-400 disabled:cursor-not-allowed disabled:opacity-60">
+                          <span className="block text-xs font-bold text-white">{pkg.name || 'CV Package'}</span>
+                          <span className="mt-1 block text-[10px] text-slate-400">PKR {price.toLocaleString('en-PK')} · {Number(pkg.durationDays || 0)} days</span>
+                          <span className="mt-1 block text-[10px] text-slate-400">CVs: {pkg.cvCreateLimit ?? 0} · Edits: {pkg.editLimit ?? 0} · PDF: {pkg.pdfExportLimit ?? 0} · ATS: {pkg.atsExportLimit ?? 0} · Shares: {pkg.shareLimit ?? 0}</span>
+                          <span className="mt-2 block text-[10px] font-bold text-indigo-300">{owned ? `Active until ${new Date(owned.expiresAt).toLocaleDateString()}` : 'Purchase package'}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {cvPackageEntitlements.some((entry: any) => Date.parse(String(entry?.expiresAt || '')) > Date.now()) && (
+                <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+                  <p className="text-xs font-bold text-emerald-300">Active CV package entitlements</p>
+                  {cvPackageEntitlements.filter((entry: any) => Date.parse(String(entry?.expiresAt || '')) > Date.now()).map((entry: any) => (
+                    <p key={entry.transactionId} className="mt-1 text-[10px] text-slate-300">
+                      {entry.packageName} · expires {new Date(entry.expiresAt).toLocaleDateString()} ·
+                      CVs {Math.max(0, Number(entry.limits?.cvCreateLimit || 0) - Number(entry.usage?.cvCreateLimit || 0))} ·
+                      edits {Math.max(0, Number(entry.limits?.editLimit || 0) - Number(entry.usage?.editLimit || 0))} ·
+                      PDF {Math.max(0, Number(entry.limits?.pdfExportLimit || 0) - Number(entry.usage?.pdfExportLimit || 0))} ·
+                      ATS {Math.max(0, Number(entry.limits?.atsExportLimit || 0) - Number(entry.usage?.atsExportLimit || 0))} ·
+                      shares {Math.max(0, Number(entry.limits?.shareLimit || 0) - Number(entry.usage?.shareLimit || 0))}
+                    </p>
+                  ))}
+                </div>
+              )}
               <label className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-400">
                 Accent Color
                 <input type="color" value={cvData.themeColor} onChange={(e) => setCvData({ ...cvData, themeColor: e.target.value })} className="h-9 w-14 rounded border border-slate-700 bg-slate-900 cursor-pointer" aria-label="CV accent color" />
@@ -884,7 +1030,8 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                 fontFamily: cvData.templateStyle === 'tech' ? 'ui-monospace, SFMono-Regular, monospace' : cvData.templateStyle === 'classic' ? 'Georgia, serif' : 'Arial, sans-serif'
               }}
             >
-              {watermarkVisible && <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center overflow-hidden"><span className="whitespace-nowrap text-3xl font-black uppercase tracking-widest text-slate-500" style={{ transform: "rotate(-35deg)", opacity: Math.min(0.35, Math.max(0.05, Number(cvBuilderSettings.watermarkOpacity ?? 0.16))) }}>{String(cvBuilderSettings.watermarkText || 'Hybrid Job Portal')}</span></div>}
+              {previewWatermarkVisible && <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center overflow-hidden print:hidden"><span className="whitespace-nowrap text-3xl font-black uppercase tracking-widest text-slate-500" style={{ transform: "rotate(-35deg)", opacity: Math.min(0.35, Math.max(0.05, Number(selectedTemplateConfig.watermarkOpacity ?? cvBuilderSettings.watermarkOpacity ?? 0.16))) }}>{String(selectedTemplateConfig.watermarkText || cvBuilderSettings.watermarkText || 'Hybrid Job Portal')} · PREVIEW</span></div>}
+              {exportWatermarkVisible && !exportNoWatermarkOverride && <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 hidden print:flex items-center justify-center overflow-hidden"><span className="whitespace-nowrap text-3xl font-black uppercase tracking-widest text-slate-500" style={{ transform: "rotate(-35deg)", opacity: Math.min(0.35, Math.max(0.05, Number(selectedTemplateConfig.watermarkOpacity ?? cvBuilderSettings.watermarkOpacity ?? 0.16))) }}>{String(selectedTemplateConfig.watermarkText || cvBuilderSettings.watermarkText || 'Hybrid Job Portal')}</span></div>}
               {/* CV Header */}
               <div className="border-b-2 pb-3 flex items-start justify-between gap-4" style={{ borderColor: cvData.themeColor }}>
                 <div className="flex-1">

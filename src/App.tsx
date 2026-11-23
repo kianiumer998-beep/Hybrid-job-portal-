@@ -28,6 +28,7 @@ import {
 } from './components/WhatsAppStickyButton';
 import { INITIAL_PAYMENT_TRANSACTIONS } from './data/mockTransactions';
 import { api } from './services/api';
+import { cvAiApi } from './services/cvAiApi';
 import { PaymentVerificationResult } from './components/admin/AdminPaymentVerificationHub';
 import { BulkJobImportResult } from './components/admin/AdminDataBackupHub';
 
@@ -4629,7 +4630,7 @@ export default function App() {
                   if (result?.success && currentUser?.id) await loadBackendUserProfile(currentUser.id);
                   return result;
                 }}
-                onGenerateCvAiText={async (payload) => api.pricing.generateCvAiText(payload)}
+                onGenerateCvAiText={async (payload) => cvAiApi.generate(payload)}
                 cvBuilderSettings={cvBuilderSettings}
                 onOpenPaywall={() => setCvPaywallOpen(true)}
               />

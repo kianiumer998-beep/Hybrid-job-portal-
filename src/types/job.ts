@@ -131,7 +131,8 @@ export interface UserAccount {
   cvData?: CvData;
   cvDocuments?: CvDocument[];
   cvDesignEntitlements?: CvDesignEntitlement[];
-  cvPackageEntitlements?: CvPackageEntitlement[];,  cvTemplateUsage?: Record<string, Record<string, number>>;
+  cvPackageEntitlements?: CvPackageEntitlement[];
+  cvTemplateUsage?: Record<string, Record<string, number>>;
   socialLinks?: Record<string, any>;
   notificationsEnabled?: boolean;
   whatsappAlertsEnabled?: boolean;
@@ -197,7 +198,11 @@ export interface Job {
   isFutureJob?: boolean; // Future job opportunity
   futureIntakeDate?: string; // Target start or batch intake date (e.g. '2026-10-01' or 'Fall 2026')
   priorityTier?: 'standard' | 'urgent' | 'featured_top' | 'vip_bundle';
-  subscriptionSlotFeatureId?: string;,  subscriptionSlotExpiresAt?: string;,  subscriptionSlotUsedAt?: string;,  subscriptionSlotExpired?: boolean;,  vipBundle?: boolean;
+  subscriptionSlotFeatureId?: string;
+  subscriptionSlotExpiresAt?: string;
+  subscriptionSlotUsedAt?: string;
+  subscriptionSlotExpired?: boolean;
+  vipBundle?: boolean;
   applicationsCount: number;
   status?: JobStatus;
   createdAt?: string;
@@ -435,7 +440,31 @@ export interface CvDesignEntitlement {
   purchasedAt: string;
 }
 
-export interface CvPackageEntitlement {,  packageId: string;,  packageName: string;,  transactionId: string;,  pricePkr: number;,  grantedAt: string;,  expiresAt: string;,  durationDays: number;,  limits: {,    cvCreateLimit: number;,    editLimit: number;,    pdfExportLimit: number;,    atsExportLimit: number;,    shareLimit: number;,  };,  usage: {,    cvCreateLimit: number;,    editLimit: number;,    pdfExportLimit: number;,    atsExportLimit: number;,    shareLimit: number;,  };,  noWatermark: boolean;,},
+export interface CvPackageEntitlement {
+  packageId: string;
+  packageName: string;
+  transactionId: string;
+  pricePkr: number;
+  grantedAt: string;
+  expiresAt: string;
+  durationDays: number;
+  limits: {
+    cvCreateLimit: number;
+    editLimit: number;
+    pdfExportLimit: number;
+    atsExportLimit: number;
+    shareLimit: number;
+  };
+  usage: {
+    cvCreateLimit: number;
+    editLimit: number;
+    pdfExportLimit: number;
+    atsExportLimit: number;
+    shareLimit: number;
+  };
+  noWatermark: boolean;
+}
+
 export const GOVT_DEPT_OPTIONS = [
   'Federal Public Service Commission (FPSC)',
   'Punjab Public Service Commission (PPSC)',

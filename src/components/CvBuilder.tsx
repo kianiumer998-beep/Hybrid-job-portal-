@@ -12,6 +12,7 @@ interface CvBuilderProps {
   onSaveCvDocuments?: (documents: CvDocument[], activeData: CvData) => Promise<boolean> | boolean;
   onSaveCv: (data: CvData) => Promise<boolean> | boolean;
   onConsumeCvAction?: (action: 'pdf' | 'ats' | 'share', templateId: string) => Promise<any>;
+  onExportCv?: (format: 'pdf' | 'ats', cvData: CvData) => Promise<any>;
   onOpenPaywall: () => void;
   cvBuilderSettings?: any;
 }
@@ -251,7 +252,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     }
   };
 
-  const handleDownloadAtsText = async () => {
+  const downloadServerCvExport = async (format: 'pdf' | 'ats') => {
     if (!isTemplateEnabled(cvData.templateStyle) || (!isSubscribed && !isTemplateFree(cvData.templateStyle))) {
       const selected = configuredTemplates.find((item: any) => item.id === cvData.templateStyle);
       const price = Math.max(0, Number(selected?.pricePkr || 0));
@@ -259,77 +260,34 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
       else onOpenPaywall();
       return;
     }
-    const ownsSelectedDesignForExport = cvDesignEntitlements.some((item) => item.templateId === cvData.templateStyle);
-    if (cvBuilderSettings.atsTextExportEnabled === false || selectedTemplateConfig.atsExportEnabled === false) { onOpenPaywall(); return; }
-    let shouldApplyExportWatermark = exportWatermarkVisible;
+    if (format === 'pdf' && (cvBuilderSettings.pdfExportEnabled === false || selectedTemplateConfig.pdfExportEnabled === false)) { onOpenPaywall(); return; }
+    if (format === 'ats' && (cvBuilderSettings.atsTextExportEnabled === false || selectedTemplateConfig.atsExportEnabled === false)) { onOpenPaywall(); return; }
     try {
-      const authorization = onConsumeCvAction ? await onConsumeCvAction('ats', cvData.templateStyle) : { success: true };
-      if (!authorization?.success) {
-        setCvSaveMessage({ type: 'error', text: authorization?.message || 'ATS export is not available under your current CV entitlement.' });
-        return;
-      }
-      shouldApplyExportWatermark = exportWatermarkVisible && authorization.noWatermark !== true;
+      if (!onExportCv) throw new Error('Secure CV export service is not connected. Please contact support.');
+      const result = await onExportCv(format, cvData);
+      if (!result?.success || !result?.contentBase64) throw new Error(result?.message || 'The server could not generate this CV export.');
+      const binary = atob(String(result.contentBase64));
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+      const blob = new Blob([bytes], { type: String(result.mimeType || (format === 'pdf' ? 'application/pdf' : 'text/plain;charset=utf-8')) });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = String(result.filename || (format === 'pdf' ? 'candidate-cv.pdf' : 'candidate-cv-ats.txt'));
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setCvSaveMessage({ type: 'success', text: format === 'pdf' ? 'Your PDF CV was generated securely.' : 'Your ATS text CV was generated securely.' });
     } catch (error: any) {
-      setCvSaveMessage({ type: 'error', text: error?.message || 'ATS export authorization failed. Please try again.' });
-      return;
+      setCvSaveMessage({ type: 'error', text: error?.message || 'Unable to generate this CV export.' });
     }
-    const lines: string[] = [];
-    const p = cvData.personalInfo;
-    const extra: NonNullable<CvData['additionalSections']> = cvData.additionalSections || {};
-    const add = (heading: string, values: string[]) => {
-      const clean = values.map((v) => String(v || '').trim()).filter(Boolean);
-      if (clean.length) lines.push('', heading.toUpperCase(), ...clean);
-    };
-    lines.push(p.fullName, p.jobTitle, [p.email, p.phone, p.location, p.website, p.linkedin, p.github].filter(Boolean).join(' | '), '', 'PROFESSIONAL SUMMARY', p.summary || '');
-    add('Career Objective', [extra.objective || '']);
-    add('Work Experience', cvData.experience.flatMap((entry) => [`${entry.position} - ${entry.company} (${entry.startDate} - ${entry.current ? 'Present' : entry.endDate})`, ...entry.bullets]));
-    add('Education', cvData.education.map((entry) => `${entry.degree} ${entry.fieldOfStudy} - ${entry.institution} (${entry.startDate} - ${entry.endDate}) ${entry.gpa || ''}`));
-    add('Skills', [...cvData.skills.technical, ...cvData.skills.soft, ...cvData.skills.languages]);
-    add('Certifications', cvData.certifications.map((entry) => `${entry.name} - ${entry.issuer} - ${entry.year}`));
-    add('Projects', extra.projects || []);
-    add('Internships', extra.internships || []);
-    add('Volunteer Work', extra.volunteerWork || []);
-    add('Achievements & Awards', extra.achievements || []);
-    add('Professional Training', extra.professionalTraining || []);
-    add('Relevant Coursework', extra.relevantCoursework || []);
-    add('Research & Publications', extra.publications || []);
-    add('References', extra.references || []);
-    add('Additional Information', [extra.careerGapExplanation, extra.preferredEmploymentType, extra.noticePeriod, extra.domicile, extra.professionalRegistration].filter(Boolean) as string[]);
-    if (shouldApplyExportWatermark) lines.push('', String(selectedTemplateConfig.watermarkText || cvBuilderSettings.watermarkText || 'Hybrid Job Portal'));
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${(p.fullName || 'candidate-cv').replace(/[^a-z0-9-_]+/gi, '-').replace(/^-+|-+$/g, '') || 'candidate-cv'}-ats.txt`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
   };
 
-  // Trigger Print Engine
-  const handleDownloadPdf = async () => {
-    if (!isTemplateEnabled(cvData.templateStyle) || (!isSubscribed && !isTemplateFree(cvData.templateStyle))) {
-      const selected = configuredTemplates.find((item: any) => item.id === cvData.templateStyle);
-      const price = Math.max(0, Number(selected?.pricePkr || 0));
-      if (price > 0) onPurchaseTemplate(cvData.templateStyle, selected?.name || 'Premium CV Design', price);
-      else onOpenPaywall();
-      return;
-    }
-    const ownsSelectedDesignForExport = cvDesignEntitlements.some((item) => item.templateId === cvData.templateStyle);
-    if (cvBuilderSettings.pdfExportEnabled === false || selectedTemplateConfig.pdfExportEnabled === false) { onOpenPaywall(); return; }
-    try {
-      const authorization = onConsumeCvAction ? await onConsumeCvAction('pdf', cvData.templateStyle) : { success: true };
-      if (!authorization?.success) {
-        setCvSaveMessage({ type: 'error', text: authorization?.message || 'PDF export is not available under your current CV entitlement.' });
-        return;
-      }
-      setExportNoWatermarkOverride(authorization.noWatermark === true);
-      window.setTimeout(() => window.print(), 80);
-    } catch (error: any) {
-      setCvSaveMessage({ type: 'error', text: error?.message || 'PDF export authorization failed. Please try again.' });
-    }
-  };
+  const handleDownloadAtsText = async () => downloadServerCvExport('ats');
+
+  // Trigger a server-generated PDF file; browser print is not used for quota-controlled exports.
+  const handleDownloadPdf = async () => downloadServerCvExport('pdf');
 
   const handleShareCv = async () => {
     if (typeof navigator === 'undefined' || typeof navigator.share !== 'function') {

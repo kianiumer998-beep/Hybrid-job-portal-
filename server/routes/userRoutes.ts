@@ -32,6 +32,8 @@ const ALLOWED_NORMAL_USER_FIELDS = new Set([
   'cvDocuments',
   'socialLinks',
   'notificationsEnabled',
+  'emailAlertsEnabled',
+  'smsAlertsEnabled',
   'whatsappAlertsEnabled'
 ]);
 
@@ -695,7 +697,7 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
             });
           }
           finalUpdates[key] = value;
-        } else if (key === 'autoRenew' || key === 'notificationsEnabled' || key === 'whatsappAlertsEnabled') {
+        } else if (key === 'autoRenew' || key === 'notificationsEnabled' || key === 'emailAlertsEnabled' || key === 'smsAlertsEnabled' || key === 'whatsappAlertsEnabled') {
           if (typeof value !== 'boolean') {
             return res.status(400).json({ success: false, message: `Field '${key}' must be a boolean.` });
           }

@@ -37,7 +37,7 @@ function publicPricing(pricing: any): any {
   const safe = { ...pricing, cvBuilder: { ...(pricing?.cvBuilder || {}) } };
   const config = safe.cvBuilder.aiProviderConfig || {};
   delete safe.cvBuilder.aiProviderConfig;
-  safe.cvBuilder.aiProviderConfigured = Boolean(config.apiKeyEncrypted && CV_AI_PROVIDERS[config.provider]);
+  safe.cvBuilder.aiProviderConfigured = Boolean(config.apiKeyEncrypted && config.verified === true && CV_AI_PROVIDERS[config.provider]);
   return safe;
 }
 
@@ -46,7 +46,8 @@ function publicCvAiConfig(pricing: any): any {
   return {
     provider: CV_AI_PROVIDERS[config.provider] ? config.provider : 'openai',
     model: String(config.model || CV_AI_PROVIDERS[config.provider]?.defaultModel || CV_AI_PROVIDERS.openai.defaultModel),
-    apiKeyConfigured: Boolean(config.apiKeyEncrypted && CV_AI_PROVIDERS[config.provider])
+    apiKeyConfigured: Boolean(config.apiKeyEncrypted && CV_AI_PROVIDERS[config.provider]),
+    connectionVerified: config.verified === true
   };
 }
 
@@ -104,14 +105,15 @@ pricingRouter.put('/cv-ai/config', requireAdminPermission('finance.manage'), asy
     const clearApiKey = req.body?.clearApiKey === true;
     const current = await PricingRepository.get();
     const existing = current?.cvBuilder?.aiProviderConfig || {};
-    const config: any = { provider, model };
+    const config: any = { provider, model, verified: false };
     if (clearApiKey) {
       // Explicit removal disables user access until a new provider key is saved.
     } else if (apiKey) {
       if (apiKey.length < 12) return res.status(400).json({ success: false, message: 'The API key looks too short. Check it and try again.' });
       config.apiKeyEncrypted = encryptCvAiKey(apiKey);
-    } else if (existing.apiKeyEncrypted && existing.provider === provider) {
+    } else if (existing.apiKeyEncrypted && existing.provider === provider && String(existing.model || '') === model) {
       config.apiKeyEncrypted = existing.apiKeyEncrypted;
+      config.verified = existing.verified === true;
     } else {
       return res.status(400).json({ success: false, message: 'Enter an API key before saving provider settings.' });
     }
@@ -119,6 +121,27 @@ pricingRouter.put('/cv-ai/config', requireAdminPermission('finance.manage'), asy
     res.json({ success: true, config: publicCvAiConfig(updated), message: clearApiKey ? 'AI provider key removed.' : 'AI provider settings saved securely.' });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Unable to save CV AI provider settings.' });
+  }
+});
+
+pricingRouter.post('/cv-ai/test', requireAdminPermission('finance.manage'), async (_req, res) => {
+  try {
+    const pricing = await PricingRepository.get();
+    const config = pricing?.cvBuilder?.aiProviderConfig || {};
+    const providerConfig = CV_AI_PROVIDERS[String(config.provider || '')];
+    if (!providerConfig || !config.apiKeyEncrypted) return res.status(400).json({ success: false, message: 'Save a provider API key before testing the connection.' });
+    const response = await fetch(providerConfig.endpoint, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + decryptCvAiKey(config.apiKeyEncrypted), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: String(config.model || providerConfig.defaultModel), temperature: 0, max_tokens: 5, messages: [{ role: 'user', content: 'Reply with OK.' }] }),
+      signal: AbortSignal.timeout(20000)
+    });
+    if (!response.ok) return res.status(response.status === 401 || response.status === 403 ? 400 : 503).json({ success: false, message: response.status === 401 || response.status === 403 ? 'The provider rejected this API key. Check the key and model.' : 'The provider test request failed. Check the selected model and try again.' });
+    const updated = await PricingRepository.update({ cvBuilder: { aiProviderConfig: { ...config, verified: true } } });
+    res.json({ success: true, config: publicCvAiConfig(updated), message: 'AI provider connection verified successfully.' });
+  } catch (err: any) {
+    const timeout = err?.name === 'TimeoutError' || err?.name === 'AbortError';
+    res.status(timeout ? 504 : 500).json({ success: false, message: timeout ? 'Provider test timed out. Please try again.' : 'Unable to verify the AI provider connection.' });
   }
 });
 
@@ -137,7 +160,7 @@ pricingRouter.post('/cv-ai/generate', requireAuth, async (req: any, res) => {
     const config = cv.aiProviderConfig || {};
     const provider = String(config.provider || '');
     const providerConfig = CV_AI_PROVIDERS[provider];
-    if (!providerConfig || !config.apiKeyEncrypted) return res.status(503).json({ success: false, message: 'The AI Writing Assistant is not configured yet.' });
+    if (!providerConfig || !config.apiKeyEncrypted || config.verified !== true) return res.status(503).json({ success: false, message: 'The AI Writing Assistant provider has not been verified by an administrator yet.' });
     const action = String(req.body?.action || '');
     if (!['improve_summary', 'rewrite_bullet'].includes(action)) return res.status(400).json({ success: false, message: 'Choose a supported CV writing task.' });
     const sourceText = safeAiText(req.body?.text, 5000);

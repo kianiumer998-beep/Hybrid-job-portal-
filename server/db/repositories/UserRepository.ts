@@ -464,7 +464,7 @@ export class UserRepository {
       const existing = inMemoryUsers.get(cleanUserId);
       if (!existing) return null;
       if (expectedState && Object.entries(expectedState).some(([key, value]) => existing[key] !== value)) return null;
-      const operations = existing.subscriptionSlotOperations || {};
+      const operations = existing.walletEscrowOperations || {};
       if (operations[cleanKey] === 'DEDUCTED') return existing;
       const balance = Number(existing.walletBalance || 0);
       if (!Number.isFinite(balance) || balance < amount) return null;
@@ -499,7 +499,7 @@ export class UserRepository {
     const existing = Database.getUserById(cleanUserId);
     if (!existing) return null;
     if (expectedState && Object.entries(expectedState).some(([key, value]) => existing[key] !== value)) return null;
-    const operations = existing.subscriptionSlotOperations || {};
+    const operations = existing.walletEscrowOperations || {};
     if (operations[cleanKey] === 'DEDUCTED') return existing;
     const balance = Number(existing.walletBalance || 0);
     if (!Number.isFinite(balance) || balance < amount) return null;
@@ -604,7 +604,7 @@ export class UserRepository {
     if (isTest()) {
       const existing = inMemoryUsers.get(cleanUserId);
       if (!existing) return null;
-      const operations = existing.subscriptionSlotOperations || {};
+      const operations = existing.walletEscrowOperations || {};
       if (operations[cleanKey] === 'HELD') return existing;
       const balance = Number(existing.walletBalance || 0);
       if (!Number.isFinite(balance) || balance < amount) return null;
@@ -640,7 +640,7 @@ export class UserRepository {
 
     const existing = Database.getUserById(cleanUserId);
     if (!existing) return null;
-    const operations = existing.subscriptionSlotOperations || {};
+    const operations = existing.walletEscrowOperations || {};
     if (operations[cleanKey] === 'HELD') return existing;
     const balance = Number(existing.walletBalance || 0);
     if (!Number.isFinite(balance) || balance < amount) return null;
@@ -670,7 +670,7 @@ export class UserRepository {
     if (isTest()) {
       const existing = inMemoryUsers.get(cleanUserId);
       if (!existing) return null;
-      const operations = existing.subscriptionSlotOperations || {};
+      const operations = existing.walletEscrowOperations || {};
       if (operations[cleanKey] === resultState) return existing;
       if (operations[cleanKey] === 'CAPTURED' || operations[cleanKey] === 'RELEASED') {
         throw new Error(`Campaign escrow was already settled as ${operations[cleanKey]} and cannot be settled again.`);
@@ -714,7 +714,7 @@ export class UserRepository {
 
     const existing = Database.getUserById(cleanUserId);
     if (!existing) return null;
-    const operations = existing.subscriptionSlotOperations || {};
+    const operations = existing.walletEscrowOperations || {};
     if (operations[cleanKey] === resultState) return existing;
     if (operations[cleanKey] === 'CAPTURED' || operations[cleanKey] === 'RELEASED') {
       throw new Error(`Campaign escrow was already settled as ${operations[cleanKey]} and cannot be settled again.`);
@@ -741,7 +741,7 @@ export class UserRepository {
     if (isTest()) {
       const existing = inMemoryUsers.get(cleanUserId);
       if (!existing) return null;
-      const operations = existing.subscriptionSlotOperations || {};
+      const operations = existing.walletEscrowOperations || {};
       if (operations[cleanKey] === 'REFUNDED') return existing;
       const updated = {
         ...existing,
@@ -774,7 +774,7 @@ export class UserRepository {
 
     const existing = Database.getUserById(cleanUserId);
     if (!existing) return null;
-    const operations = existing.subscriptionSlotOperations || {};
+    const operations = existing.walletEscrowOperations || {};
     if (operations[cleanKey] === 'REFUNDED') return existing;
     return Database.updateUser(cleanUserId, {
       walletBalance: Number(existing.walletBalance || 0) + amount,

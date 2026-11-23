@@ -1,7 +1,8 @@
 import cron from 'node-cron';
 import crypto from 'crypto';
 import { PaymentRepository, PricingRepository, UserRepository } from '../db/repositories';
-import { resolveSubscriptionPackage } from './subscriptionEntitlements';
+import { hasActiveSubscriptionFeature, resolveSubscriptionPackage } from './subscriptionEntitlements';
+import { sendConfiguredPremiumAlert } from './communicationDeliveryService';
 import { NotificationRepository } from '../db/repositories/NotificationRepository';
 
 let reminderTask: ReturnType<typeof cron.schedule> | null = null;
@@ -196,19 +197,34 @@ export async function runSubscriptionReminderTick(now = new Date()): Promise<{ s
       const expiry = Date.parse(String(user.subscriptionExpiresAt));
       if (!Number.isFinite(expiry) || expiry < targetStart || expiry >= targetEnd) continue;
       const expiryKey = new Date(expiry).toISOString();
+      const reminderToken = expiryKey + ':' + daysBefore;
+      if (String(user.subscriptionReminderSentFor || '') === reminderToken) continue;
+      const reminderMessage = `Your ${String(user.membershipTier || 'Premium')} subscription is due to expire in about ${daysBefore} day(s). Renew before expiry to avoid interruption.`;
       try {
         await NotificationRepository.createAsync({
           userId: String(user.id),
           title: 'Premium Subscription Expiring Soon',
-          message: `Your ${String(user.membershipTier || 'Premium')} subscription is due to expire in about ${daysBefore} day(s). Renew before expiry to avoid interruption.`,
+          message: reminderMessage,
           type: 'warning',
           channel: 'in-app',
           eventId: `subscription-expiry-reminder:${String(user.id)}:${expiryKey}:${daysBefore}`,
           metadata: { subscriptionExpiresAt: expiryKey, daysBefore, action: 'renew_subscription' }
         });
+        // Persist a send-once marker before external delivery to avoid duplicate messages after a restart.
+        await UserRepository.updateAsync(String(user.id), { subscriptionReminderSentFor: reminderToken });
         notified += 1;
+
+        if (user.emailAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'email_alerts')) {
+          await sendConfiguredPremiumAlert(user, 'email', 'Your Premium Subscription Is Expiring', reminderMessage);
+        }
+        if (user.whatsappAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'whatsapp_alerts')) {
+          await sendConfiguredPremiumAlert(user, 'whatsapp', 'Subscription expiry reminder', reminderMessage);
+        }
+        if (user.smsAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'sms_alerts')) {
+          await sendConfiguredPremiumAlert(user, 'sms', 'Subscription expiry reminder', reminderMessage);
+        }
       } catch (notificationError: any) {
-        console.error('[Subscription Reminder] Could not persist reminder for user:', user.id, notificationError?.message || notificationError);
+        console.error('[Subscription Reminder] Could not process reminder for user:', user.id, notificationError?.message || notificationError);
       }
     }
     return { scanned: (users || []).length, notified: notified + autoRenewed, skipped: false };

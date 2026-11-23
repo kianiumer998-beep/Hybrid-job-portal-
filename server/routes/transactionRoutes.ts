@@ -695,6 +695,9 @@ transactionRouter.post('/', async (req, res) => {
           }
           const cvOwner = await UserRepository.getByIdAsync(effectiveUserId);
           if (!cvOwner) return res.status(404).json({ success: false, message: 'Your account could not be found.' });
+          const existingPackageTransactions = await PaymentRepository.getAllAsync(effectiveUserId);
+          const pendingPackagePurchase = existingPackageTransactions.find((item: any) => item && item.type === 'CV Design Purchase' && item.cvTemplateId === purchaseId && ['Pending', 'Verifying', 'VerificationUncertain'].includes(String(item.status)));
+          if (pendingPackagePurchase) return res.status(409).json({ success: false, transaction: pendingPackagePurchase, message: 'A payment for this CV package is already awaiting verification.' });
           const packageName = String(selectedPackage.name || packageId).slice(0, 80);
           (req as any).cvPurchaseSnapshot = {
             kind: 'package',

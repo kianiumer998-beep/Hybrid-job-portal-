@@ -668,6 +668,7 @@ transactionRouter.post('/', async (req, res) => {
           totalCostPkr: calc.totalCostPkr,
           isFreeOverride: calc.isFreeOverride,
           fixedPriceOverridePkr: calc.fixedPriceOverridePkr,
+          percentageUpliftPercent: calc.percentageUpliftPercent,
           durationPresetId: adCalcInput.durationPresetId || adCalcInput.selectedDurationId
         };
       } else if (effectiveType === 'CV Design Purchase') {

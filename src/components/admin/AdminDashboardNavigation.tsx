@@ -781,6 +781,7 @@ export const CLASSIC_CATEGORY_MODULE_ORDER: Record<AdminCategory, AdminCanonical
   ads: ['campaign-center', 'advertisements', 'landing-customizer'],
   payments: [
     'pricing-controller',
+    'cv-settings',
     'admin-payment-methods',
     'payment-proofs',
     'fee-management',

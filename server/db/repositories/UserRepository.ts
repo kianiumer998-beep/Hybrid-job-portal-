@@ -955,8 +955,8 @@ export class UserRepository {
       const coll = await getUsersCollection();
       const updatedDoc = await coll.findOneAndUpdate(
         { id: cleanUserId, 'cvPackageEntitlements.transactionId': { $ne: cleanTransactionId } },
-        { $push: { cvPackageEntitlements: entitlement }, $set: { updatedAt } },
-        { returnDocument: 'after' }
+        { $push: { cvPackageEntitlements: entitlement }, $set: { updatedAt } } as any,
+        { returnDocument: 'after', includeResultMetadata: false }
       );
       if (updatedDoc) { const { _id, ...safe } = updatedDoc; return safe; }
       const existing = await coll.findOne({ id: cleanUserId });
@@ -1016,8 +1016,8 @@ export class UserRepository {
       const coll = await getUsersCollection();
       const updatedDoc = await coll.findOneAndUpdate(
         { id: cleanUserId, walletBalance: { $gte: amount }, 'cvPackageEntitlements.transactionId': { $ne: cleanTransactionId } },
-        { $inc: { walletBalance: -amount }, $push: { cvPackageEntitlements: entitlement }, $set: { updatedAt } },
-        { returnDocument: 'after' }
+        { $inc: { walletBalance: -amount }, $push: { cvPackageEntitlements: entitlement }, $set: { updatedAt } } as any,
+        { returnDocument: 'after', includeResultMetadata: false }
       );
       if (updatedDoc) { const { _id, ...safe } = updatedDoc; return { ok: true, user: safe }; }
       const existing = await coll.findOne({ id: cleanUserId });
@@ -1249,7 +1249,7 @@ export class UserRepository {
           { [designPath]: { $exists: false } }
         ];
       }
-      const options: any = { returnDocument: 'after' };
+      const options: any = { returnDocument: 'after', includeResultMetadata: false };
       if (packageGrant) {
         options.arrayFilters = [{
           'grant.transactionId': packageGrant.transactionId,
@@ -1401,8 +1401,8 @@ export class UserRepository {
       const coll = await getUsersCollection();
       const updatedDoc = await coll.findOneAndUpdate(
         { id: cleanUserId, walletBalance: { $gte: amount }, 'cvPackageEntitlements.transactionId': { $ne: cleanTransactionId } },
-        { $inc: { walletBalance: -amount }, $set: setPayload, $push: { cvPackageEntitlements: entitlement } },
-        { returnDocument: 'after' }
+        { $inc: { walletBalance: -amount }, $set: setPayload, $push: { cvPackageEntitlements: entitlement } } as any,
+        { returnDocument: 'after', includeResultMetadata: false }
       );
       if (updatedDoc) { const { _id, ...safe } = updatedDoc; return safe; }
       const existing = await coll.findOne({ id: cleanUserId });

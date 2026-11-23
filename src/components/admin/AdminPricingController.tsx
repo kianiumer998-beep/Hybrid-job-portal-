@@ -727,7 +727,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
             <select value={selectedEarlyAccessJobId} onChange={(e) => setSelectedEarlyAccessJobId(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white">
               <option value="">Select a live job...</option>
               {earlyAccessJobs.map((job: any) => {
-                const source = job.isScraped || job.sourceType === 'scraped' || job.scraperSourceId ? 'Scraper' : (job.isAdminCreated || job.sourceType === 'admin_created' ? 'Admin' : 'User');
+                const source = job.isScraped || job.sourceType === 'scraped' || job.scraperSourceId ? 'Scraper' : (job.isAdminCreated || job.sourceType === 'admin_created' || job.createdByRole === 'Admin' || job.createdByRole === 'Super Admin' ? 'Admin' : 'User');
                 return <option key={job.id} value={String(job.id)}>{job.title || 'Untitled job'} — {source}</option>;
               })}
             </select>
@@ -737,7 +737,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
               const currentOverride = overrides.find((item: any) => item.jobId === selectedEarlyAccessJobId);
               const selectedSource = selectedJob?.isScraped || selectedJob?.sourceType === 'scraped' || selectedJob?.scraperSourceId
                 ? 'scraped'
-                : (selectedJob?.isAdminCreated || selectedJob?.sourceType === 'admin_created' ? 'admin_created' : 'user_posted');
+                : (selectedJob?.isAdminCreated || selectedJob?.sourceType === 'admin_created' || selectedJob?.createdByRole === 'Admin' || selectedJob?.createdByRole === 'Super Admin' ? 'admin_created' : 'user_posted');
               const sourceEligible = (pricing.earlyAccess?.sourceTypes || []).includes(selectedSource);
               const enabled = currentOverride ? currentOverride.enabled !== false : sourceEligible;
               const updateOverride = (patch: any) => setPricing((prev: any) => {

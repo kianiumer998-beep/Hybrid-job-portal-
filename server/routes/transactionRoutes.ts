@@ -800,6 +800,8 @@ transactionRouter.post('/', async (req, res) => {
           featureIds: resolvedPackage.featureIds,
           featureSnapshots: resolvedPackage.featureSnapshots,
           bundleDiscountPercent: resolvedPackage.bundleDiscountPercent,
+          cvBenefitsEnabled: targetPackage.cvBenefitsEnabled === true,
+          ...(targetPackage.cvBenefitsEnabled === true ? { cvBenefits: targetPackage.cvBenefits || {}, cvBenefitsDescription: String(targetPackage.cvBenefitsDescription || '').slice(0, 240) } : {}),
           undiscountedPricePkr: resolvedPackage.undiscountedPricePkr,
           pricingMode: targetPackage.pricingMode === 'catalog' ? 'catalog' : 'fixed',
           timestamp: new Date().toISOString()
@@ -1336,6 +1338,28 @@ transactionRouter.post('/', async (req, res) => {
               throw new Error('Failed to deduct wallet balance and activate subscription.');
             }
 
+            if (walletPackageSnapshot.cvBenefitsEnabled === true) {
+              try {
+                const benefits = walletPackageSnapshot.cvBenefits || {};
+                const cvGrant = await UserRepository.grantCvPackageEntitlementAsync(effectiveUserId, {
+                  packageId: `subscription:${walletPackageSnapshot.id}`,
+                  packageName: `${String(walletPackageSnapshot.name || safeSubscriptionPlan || 'Subscription')} CV Benefits`,
+                  pricePkr: enforcedAmount,
+                  durationDays: subDurationDays,
+                  cvCreateLimit: Number(benefits.cvCreateLimit ?? 0),
+                  editLimit: Number(benefits.editLimit ?? 0),
+                  pdfExportLimit: Number(benefits.pdfExportLimit ?? 0),
+                  atsExportLimit: Number(benefits.atsExportLimit ?? 0),
+                  shareLimit: Number(benefits.shareLimit ?? 0),
+                  noWatermark: benefits.noWatermark === true
+                }, String(newTx.id));
+                if (!cvGrant) throw new Error('Subscription was charged, but its CV benefits could not be saved.');
+              } catch (cvBenefitError) {
+                walletMutationState = 'UNCERTAIN';
+                throw cvBenefitError;
+              }
+            }
+
             walletMutationState = 'DEDUCTED';
             effectiveBalanceAfter = Number(updatedUser.walletBalance);
             effectiveBalanceBefore = effectiveBalanceAfter + enforcedAmount;
@@ -1345,10 +1369,12 @@ transactionRouter.post('/', async (req, res) => {
                 walletMutationState: 'DEDUCTED',
                 balanceBefore: effectiveBalanceBefore,
                 balanceAfter: effectiveBalanceAfter,
+                ...(walletPackageSnapshot.cvBenefitsEnabled === true ? { cvPackageEntitlementGranted: true } : {}),
                 updatedAt: new Date().toISOString()
               }
             );
             newTx.walletMutationState = 'DEDUCTED';
+            if (walletPackageSnapshot.cvBenefitsEnabled === true) newTx.cvPackageEntitlementGranted = true;
           } else {
             if (effectiveType === 'Advertisement' && enforcedAmount > 0) {
               await persistTransactionState(

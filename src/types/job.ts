@@ -131,6 +131,7 @@ export interface UserAccount {
   cvData?: CvData;
   cvDocuments?: CvDocument[];
   cvDesignEntitlements?: CvDesignEntitlement[];
+  cvPackageEntitlements?: CvPackageEntitlement[];
   socialLinks?: Record<string, any>;
   notificationsEnabled?: boolean;
   whatsappAlertsEnabled?: boolean;
@@ -431,6 +432,31 @@ export interface CvDesignEntitlement {
   amount: number;
   currency: 'PKR';
   purchasedAt: string;
+}
+
+export interface CvPackageEntitlement {
+  packageId: string;
+  packageName: string;
+  transactionId: string;
+  pricePkr: number;
+  grantedAt: string;
+  expiresAt: string;
+  durationDays: number;
+  limits: {
+    cvCreateLimit: number;
+    editLimit: number;
+    pdfExportLimit: number;
+    atsExportLimit: number;
+    shareLimit: number;
+  };
+  usage: {
+    cvCreateLimit: number;
+    editLimit: number;
+    pdfExportLimit: number;
+    atsExportLimit: number;
+    shareLimit: number;
+  };
+  noWatermark: boolean;
 }
 
 export const GOVT_DEPT_OPTIONS = [

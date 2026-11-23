@@ -330,9 +330,10 @@ userRouter.post('/cv/export/:format', requireAuth, async (req: any, res) => {
     }
     const activeGrants = (Array.isArray(user.cvPackageEntitlements) ? user.cvPackageEntitlements : []).filter((item: any) => Date.parse(String(item?.expiresAt || '')) > Date.now()).sort((a: any, b: any) => Date.parse(String(a.expiresAt)) - Date.parse(String(b.expiresAt)));
     const selectedGrant = activeGrants.find((grant: any) => Number(grant?.limits?.[usageField] || 0) > Number(grant?.usage?.[usageField] || 0)) || null;
+    const watermarkGrant = activeGrants.find((grant: any) => grant?.noWatermark === true) || null;
     const hasConfiguredPackageQuota = activeGrants.some((grant: any) => Number(grant?.limits?.[usageField] || 0) > 0);
     const designLimit = Math.max(0, Math.min(10000, Math.floor(Number(template?.[usageField] || 0))));
-    const noWatermark = template.exportWatermarkMode === 'always' ? false : template.exportWatermarkMode === 'never' ? true : (selectedGrant?.noWatermark === true || settings.watermarkEnabled === false || (premium && settings.watermarkFreeOnly !== false));
+    const noWatermark = template.exportWatermarkMode === 'always' ? false : template.exportWatermarkMode === 'never' ? true : (Boolean(selectedGrant?.noWatermark === true || watermarkGrant?.noWatermark === true) || settings.watermarkEnabled === false || (premium && settings.watermarkFreeOnly !== false));
     if (selectedGrant || designLimit > 0) {
       const packageGrant = selectedGrant ? { transactionId: String(selectedGrant.transactionId), limit: Number(selectedGrant.limits[usageField]) } : null;
       const consumed = await UserRepository.consumeCvActionQuotasAsync(userId, templateId, usageField as any, packageGrant, designLimit);
@@ -394,11 +395,12 @@ userRouter.post('/cv/consume', requireAuth, async (req: any, res) => {
         Number(grant?.limits?.[usageField] || 0) > Number(grant?.usage?.[usageField] || 0)
       ) || null;
     }
+    const watermarkGrant = activeGrants.find((grant: any) => grant?.noWatermark === true) || null;
     const noWatermark = template.exportWatermarkMode === 'always'
       ? false
       : template.exportWatermarkMode === 'never'
         ? true
-        : (selectedGrant?.noWatermark === true || settings.watermarkEnabled === false || (premium && settings.watermarkFreeOnly !== false));
+        : (Boolean(selectedGrant?.noWatermark === true || watermarkGrant?.noWatermark === true) || settings.watermarkEnabled === false || (premium && settings.watermarkFreeOnly !== false));
     if (selectedGrant || templateLimit > 0) {
       const packageGrant = selectedGrant ? {
         transactionId: String(selectedGrant.transactionId),

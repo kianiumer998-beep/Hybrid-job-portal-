@@ -28,6 +28,7 @@ import {
 } from './components/WhatsAppStickyButton';
 import { INITIAL_PAYMENT_TRANSACTIONS } from './data/mockTransactions';
 import { api } from './services/api';
+import { cvAiApi } from './services/cvAiApi';
 import { PaymentVerificationResult } from './components/admin/AdminPaymentVerificationHub';
 import { BulkJobImportResult } from './components/admin/AdminDataBackupHub';
 
@@ -2035,15 +2036,7 @@ export default function App() {
     setIsSubscribed(isAuthoritativeUserSubscribed(currentUser));
   }, [currentUser]);
 
-  const isCvBuilderEntitled = (() => {
-    if (!isSubscribed) return false;
-    const featureIds = (currentUser as any)?.subscriptionFeatureIds;
-    if (!Array.isArray(featureIds) || featureIds.length === 0) return true;
-    const entitlement = (currentUser as any)?.subscriptionEntitlements?.cv_builder;
-    const expiry = Date.parse(String(entitlement?.expiresAt || ''));
-    return featureIds.includes('cv_builder') && entitlement?.enabled === true && Number.isFinite(expiry) && expiry > Date.now();
-  })();
-
+  const isCvBuilderEntitled = (() => {,    if (!isSubscribed) return false;,    const featureIds = (currentUser as any)?.subscriptionFeatureIds;,    if (!Array.isArray(featureIds) || featureIds.length === 0) return true;,    const entitlement = (currentUser as any)?.subscriptionEntitlements?.cv_builder;,    const expiry = Date.parse(String(entitlement?.expiresAt || ''));,    return featureIds.includes('cv_builder') && entitlement?.enabled === true && Number.isFinite(expiry) && expiry > Date.now();,  })();,
   const loadBackendUserResources = useCallback(async (activeUserId?: string) => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('hybrid_auth_token') : null;
     const targetUserId = activeUserId ?? currentUser?.id;
@@ -4624,12 +4617,14 @@ export default function App() {
                 initialCvData={currentUser?.cvData}
                 initialCvDocuments={currentUser?.cvDocuments}
                 cvDesignEntitlements={currentUser?.cvDesignEntitlements || []}
+                cvPackageEntitlements={currentUser?.cvPackageEntitlements || []}
                 onPurchaseTemplate={(templateId, templateName, pricePkr) => {
                   if (!currentUser?.id) { setAuthModalOpen(true); return; }
                   setCvDesignCheckout({ templateId, templateName, pricePkr });
                 }}
                 onSaveCv={async (cvData) => handleUpdateProfile({ cvData })}
                 onSaveCvDocuments={async (documents, activeData) => handleUpdateProfile({ cvData: activeData, cvDocuments: documents })}
+                onConsumeCvAction={async (action, templateId) => {,                  const result = await api.users.consumeCvAction(action, templateId);,                  if (result?.success && currentUser?.id) await loadBackendUserProfile(currentUser.id);,                  return result;,                }},                onExportCv={async (format, cvData) => {,                  const result = await api.users.exportCv(format, cvData as any);,                  if (result?.success && currentUser?.id) await loadBackendUserProfile(currentUser.id);,                  return result;,                }},                onGenerateCvAiText={async (payload) => cvAiApi.generate(payload)}
                 cvBuilderSettings={cvBuilderSettings}
                 onOpenPaywall={() => setCvPaywallOpen(true)}
               />
@@ -4671,13 +4666,7 @@ export default function App() {
                                 <span>{feat}</span>
                               </li>
                             ))}
-                            {(pkg.featureLabels || []).map((feat: string, i: number) => (
-                              <li key={`catalog-feature-${i}`} className="flex items-center space-x-2">
-                                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                                <span>{feat}</span>
-                              </li>
-                            ))}
-                            {(!pkg.features || pkg.features.length === 0) && (!pkg.featureLabels || pkg.featureLabels.length === 0) && (
+                            {(pkg.featureLabels || []).map((feat: string, i: number) => (,                              <li key={`catalog-feature-${i}`} className="flex items-center space-x-2">,                                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />,                                <span>{feat}</span>,                              </li>,                            ))},                            {(!pkg.features || pkg.features.length === 0) && (!pkg.featureLabels || pkg.featureLabels.length === 0) && (
                               <>
                                 <li className="flex items-center space-x-2">
                                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />

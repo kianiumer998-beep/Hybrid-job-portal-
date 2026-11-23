@@ -163,7 +163,9 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
     setSaveError(null);
     setSaveSuccess(false);
     try {
-      const res = await api.pricing.update(pricing);
+      const savePayload = { ...pricing };
+      if (hideCvSettings) delete savePayload.cvBuilder;
+      const res = await api.pricing.update(savePayload);
       if (res && res.success) {
         if (res.pricing) {
           setPricing(res.pricing);

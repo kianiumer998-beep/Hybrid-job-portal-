@@ -503,9 +503,18 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
     }
 
     const isEnabledFixedDepositAmount = activeFixedDepositAmounts.some((item) => item.amount === depositAmountInput);
-    const minAmount = pricingConfig.minDepositAmountPkr || 500;
+    const minAmount = selectedMethod.walletDepositMinimumAmount ?? (pricingConfig.minDepositAmountPkr || 500);
+    const maxAmount = selectedMethod.walletDepositMaximumAmount;
+    if (!Number.isSafeInteger(depositAmountInput) || depositAmountInput <= 0) {
+      setDepositError('Deposit amount must be a positive whole PKR amount.');
+      return;
+    }
     if (!isEnabledFixedDepositAmount && depositAmountInput < minAmount) {
-      setDepositError(`Minimum custom deposit amount is PKR ${minAmount.toLocaleString()}.`);
+      setDepositError(`Minimum custom deposit for ${selectedMethod.name} is PKR ${minAmount.toLocaleString()}.`);
+      return;
+    }
+    if (!isEnabledFixedDepositAmount && maxAmount !== undefined && depositAmountInput > maxAmount) {
+      setDepositError(`Maximum custom deposit for ${selectedMethod.name} is PKR ${maxAmount.toLocaleString()}.`);
       return;
     }
 
@@ -1930,12 +1939,18 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                           <label className="text-xs font-bold text-slate-300">{activeFixedDepositAmounts.length ? 'Or enter another amount (PKR)' : 'Deposit Amount (PKR) *'}</label>
                           <input
                             type="number"
-                            min={pricingConfig.minDepositAmountPkr || 500}
+                            min={selectedMethod?.walletDepositMinimumAmount ?? (pricingConfig.minDepositAmountPkr || 500)}
+                            max={selectedMethod?.walletDepositMaximumAmount}
                             step="1"
                             value={depositAmountInput}
                             onChange={(e) => setDepositAmountInput(parseInt(e.target.value, 10) || 0)}
                             className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm font-bold text-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
                           />
+                          <p className="text-[10px] text-slate-500">
+                            Custom deposit range: PKR {(selectedMethod?.walletDepositMinimumAmount ?? (pricingConfig.minDepositAmountPkr || 500)).toLocaleString()}
+                            {selectedMethod?.walletDepositMaximumAmount !== undefined ? ` – PKR ${selectedMethod.walletDepositMaximumAmount.toLocaleString()}` : ' and above'}.
+                            Fixed denominations must be paid exactly as listed.
+                          </p>
                         </div>
                       )}
 

@@ -107,6 +107,7 @@ jobRouter.get('/early-access', async (req: any, res: any) => {
 
     const user = req.user;
     const isAdmin = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(user.role));
+    const isPremium = isAdmin || await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
     const hasEarlyAccess = isAdmin || await hasActiveSubscriptionFeature(user?.userId || user?.id, 'early_access');
     const result = await JobRepository.getAll({ page: 1, limit: 1000 });
     const earlyJobs = result.jobs

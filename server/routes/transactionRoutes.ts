@@ -1293,6 +1293,7 @@ transactionRouter.post('/', async (req, res) => {
                 grantedAt: subscriptionActivatedAt,
                 expiresAt: new Date(Date.now() + featureDays * 24 * 60 * 60 * 1000).toISOString(),
                 includedSlots: Number.isInteger(Number(feature.includedSlots)) ? Math.max(0, Number(feature.includedSlots)) : 0,
+                remainingSlots: Number.isInteger(Number(feature.includedSlots)) ? Math.max(0, Number(feature.includedSlots)) : 0,
                 slotDurationDays: Number.isInteger(Number(feature.slotDurationDays)) ? Math.max(1, Number(feature.slotDurationDays)) : subDurationDays,
                 sourcePackageId: String(walletPackageSnapshot.id || '')
               };

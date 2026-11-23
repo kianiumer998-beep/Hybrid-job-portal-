@@ -223,6 +223,13 @@ export const api = {
     async getBySlug(slug: string) {
       return safeFetchJson(`${API_BASE}/jobs/slug/${slug}`);
     },
+    async redeemSubscriptionSlot(jobId: string, tier: 'urgent' | 'featured' | 'premium') {
+      return safeFetchJson(`${API_BASE}/jobs/${encodeURIComponent(jobId)}/redeem-subscription-slot`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ tier })
+      });
+    },
     async create(jobData: any) {
       return safeFetchJson(`${API_BASE}/jobs`, {
         method: 'POST',

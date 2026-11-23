@@ -181,7 +181,8 @@ function buildAuthoritativeDefaults(): any {
       heading: 'Premium Early Access',
       description: 'Explore selected jobs before they become available to other members.',
       displayFields: ['title', 'company', 'department', 'city', 'deadlineDate'],
-      showSource: true
+      showSource: true,
+      jobOverrides: []
     },
     cvBuilder: {
       standardPdfExportPkr: 0, pdfExportEnabled: true, pdfExportPkr: 0,
@@ -383,7 +384,14 @@ function deepMergePricing(base: any, incoming: any): any {
       displayFields: Array.isArray(src.earlyAccess?.displayFields)
         ? Array.from(new Set(src.earlyAccess.displayFields.filter((value: any) => ['title', 'company', 'department', 'city', 'province', 'jobType', 'deadlineDate', 'salary', 'totalVacancies', 'experienceLevel', 'jobCategory'].includes(value))))
         : (base.earlyAccess?.displayFields || ['title', 'company', 'department', 'city', 'deadlineDate']),
-      showSource: src.earlyAccess?.showSource === undefined ? base.earlyAccess?.showSource !== false : src.earlyAccess.showSource === true
+      showSource: src.earlyAccess?.showSource === undefined ? base.earlyAccess?.showSource !== false : src.earlyAccess.showSource === true,
+      jobOverrides: Array.isArray(src.earlyAccess?.jobOverrides)
+        ? src.earlyAccess.jobOverrides.slice(0, 1000).filter((item: any) => item && typeof item.jobId === 'string' && item.jobId.trim()).map((item: any) => ({
+            jobId: item.jobId.trim().slice(0, 200),
+            enabled: item.enabled !== false,
+            ...(typeof item.displayTitle === 'string' && item.displayTitle.trim() ? { displayTitle: item.displayTitle.trim().slice(0, 120) } : {})
+          }))
+        : (base.earlyAccess?.jobOverrides || [])
     },
     adPricingConfig: {
       ...(base.adPricingConfig || {}),
@@ -624,6 +632,17 @@ export class PricingRepository {
       }
       if (early.heading !== undefined && (typeof early.heading !== 'string' || early.heading.trim().length > 100)) throw new Error('earlyAccess.heading must be 100 characters or fewer.');
       if (early.description !== undefined && (typeof early.description !== 'string' || early.description.length > 300)) throw new Error('earlyAccess.description must be 300 characters or fewer.');
+      if (early.jobOverrides !== undefined) {
+        if (!Array.isArray(early.jobOverrides) || early.jobOverrides.length > 1000) throw new Error('earlyAccess.jobOverrides must contain no more than 1000 jobs.');
+        const seenJobIds = new Set<string>();
+        for (const item of early.jobOverrides) {
+          const jobId = typeof item?.jobId === 'string' ? item.jobId.trim() : '';
+          if (!jobId || jobId.length > 200 || seenJobIds.has(jobId)) throw new Error('earlyAccess.jobOverrides contains an invalid or duplicate job ID.');
+          seenJobIds.add(jobId);
+          if (item.enabled !== undefined && typeof item.enabled !== 'boolean') throw new Error(`earlyAccess.jobOverrides.${jobId}.enabled must be a boolean.`);
+          if (item.displayTitle !== undefined && (typeof item.displayTitle !== 'string' || item.displayTitle.trim().length > 120)) throw new Error(`earlyAccess.jobOverrides.${jobId}.displayTitle must be 120 characters or fewer.`);
+        }
+      }
     }
 
     if (Array.isArray(updates.subscriptionPackages)) {

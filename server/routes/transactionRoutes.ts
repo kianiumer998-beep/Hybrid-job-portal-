@@ -15,6 +15,7 @@ import {
 import type { PublicPaymentSettings, PublicPaymentMethodConfig, CustomProofField } from '../../src/types/adminPayment';
 import { Database } from '../db/database';
 import { requireAdminPermission, requireAuth } from '../auth/authManager';
+import { resolveSubscriptionPackage } from '../services/subscriptionEntitlements';
 
 export const transactionRouter = Router();
 
@@ -757,7 +758,10 @@ transactionRouter.post('/', async (req, res) => {
 
         safeSubscriptionPlan = targetPackage.name;
         authoritativeSubDuration = Number(targetPackage.durationDays);
-        enforcedAmount = Number(targetPackage.pricePkr);
+        let resolvedPackage: any;
+        try { resolvedPackage = resolveSubscriptionPackage(targetPackage, pricingConfig); }
+        catch (packageError: any) { return res.status(400).json({ success: false, message: packageError?.message || 'Invalid subscription feature configuration.' }); }
+        enforcedAmount = resolvedPackage.pricePkr;
 
         if (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0) {
           return res.status(400).json({
@@ -780,6 +784,11 @@ transactionRouter.post('/', async (req, res) => {
           name: targetPackage.name,
           pricePkr: targetPackage.pricePkr,
           durationDays: targetPackage.durationDays,
+          featureIds: resolvedPackage.featureIds,
+          featureSnapshots: resolvedPackage.featureSnapshots,
+          bundleDiscountPercent: resolvedPackage.bundleDiscountPercent,
+          undiscountedPricePkr: resolvedPackage.undiscountedPricePkr,
+          pricingMode: targetPackage.pricingMode === 'catalog' ? 'catalog' : 'fixed',
           timestamp: new Date().toISOString()
         };
       } else {

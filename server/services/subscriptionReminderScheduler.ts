@@ -1,4 +1,5 @@
 import cron from 'node-cron';
+import crypto from 'crypto';
 import { PaymentRepository, PricingRepository, UserRepository } from '../db/repositories';
 import { resolveSubscriptionPackage } from './subscriptionEntitlements';
 import { NotificationRepository } from '../db/repositories/NotificationRepository';
@@ -52,7 +53,7 @@ async function processConsentedAutoRenewals(users: any[], now: Date): Promise<nu
     const packagePrice = Number(resolved.pricePkr);
     if (!Number.isSafeInteger(packagePrice) || packagePrice <= 0) continue;
     const expiryIso = new Date(expiryMs).toISOString();
-    const operationKey = `subscription-auto-renew:${String(user.id)}:${expiryIso}:${String(pkg.id)}`;
+    const operationKey = `subrenew-${crypto.createHash('sha256').update(`${String(user.id)}:${expiryIso}:${String(pkg.id)}`).digest('hex').slice(0, 48)}`;
     let tx: any = await PaymentRepository.findByIdempotencyKeyAsync(operationKey);
     if (!tx) {
       try {

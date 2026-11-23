@@ -321,21 +321,25 @@ userRouter.post('/cv/export/:format', requireAuth, async (req: any, res) => {
     const templates = Array.isArray(settings.templates) ? settings.templates : [];
     const template = templates.find((item: any) => String(item?.id || '') === templateId);
     const ownsDesign = (Array.isArray(user.cvDesignEntitlements) ? user.cvDesignEntitlements : []).some((item: any) => String(item?.templateId || '') === templateId);
+    const inactive = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled', 'Revoked']);
+    const premium = !inactive.has(String(user.membershipStatus || '')) && ((user.membershipStatus === 'Active' && Boolean(user.membershipTier) && String(user.membershipTier).toLowerCase() !== 'free') || user.plan === 'Premium' || (user.paymentStatus === 'Paid' && user.membershipStatus === 'Active'));
     if (!template || (template.enabled === false && !ownsDesign)) return res.status(403).json({ success: false, message: 'This CV design is not currently available.' });
+    if (template.free !== true && !ownsDesign && !premium) return res.status(403).json({ success: false, message: 'This premium CV design must be purchased or unlocked by an active subscription.' });
     if ((action === 'pdf' && (settings.pdfExportEnabled === false || template.pdfExportEnabled === false)) || (action === 'ats' && (settings.atsTextExportEnabled === false || template.atsExportEnabled === false))) {
       return res.status(403).json({ success: false, message: 'This CV export format is disabled by the administrator.' });
     }
-    const inactive = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled', 'Revoked']);
-    const premium = !inactive.has(String(user.membershipStatus || '')) && ((user.membershipStatus === 'Active' && Boolean(user.membershipTier) && String(user.membershipTier).toLowerCase() !== 'free') || user.plan === 'Premium' || (user.paymentStatus === 'Paid' && user.membershipStatus === 'Active'));
     const activeGrants = (Array.isArray(user.cvPackageEntitlements) ? user.cvPackageEntitlements : []).filter((item: any) => Date.parse(String(item?.expiresAt || '')) > Date.now()).sort((a: any, b: any) => Date.parse(String(a.expiresAt)) - Date.parse(String(b.expiresAt)));
     const selectedGrant = activeGrants.find((grant: any) => Number(grant?.limits?.[usageField] || 0) > Number(grant?.usage?.[usageField] || 0)) || null;
+    const hasConfiguredPackageQuota = activeGrants.some((grant: any) => Number(grant?.limits?.[usageField] || 0) > 0);
     const designLimit = Math.max(0, Math.min(10000, Math.floor(Number(template?.[usageField] || 0))));
     const noWatermark = template.exportWatermarkMode === 'always' ? false : template.exportWatermarkMode === 'never' ? true : (selectedGrant?.noWatermark === true || settings.watermarkEnabled === false || (premium && settings.watermarkFreeOnly !== false));
     if (selectedGrant || designLimit > 0) {
       const packageGrant = selectedGrant ? { transactionId: String(selectedGrant.transactionId), limit: Number(selectedGrant.limits[usageField]) } : null;
       const consumed = await UserRepository.consumeCvActionQuotasAsync(userId, templateId, usageField as any, packageGrant, designLimit);
       if (!consumed) return res.status(403).json({ success: false, message: 'Your CV export quota has been used up.' });
-    } else return res.status(403).json({ success: false, message: 'No active CV export allowance is configured for this account or design.' });
+    } else if (hasConfiguredPackageQuota) {
+      return res.status(403).json({ success: false, message: 'Your active CV package export quota has been used up.' });
+    }
     const watermark = noWatermark ? undefined : String(template.watermarkText || settings.watermarkText || 'Hybrid Job Portal');
     const safeName = String(cvData.personalInfo?.fullName || 'candidate-cv').replace(/[^a-z0-9-_]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'candidate-cv';
     if (action === 'ats') {

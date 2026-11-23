@@ -23,6 +23,7 @@ import {
   DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG
 } from '../../../src/types/job';
 import { getMongoDb, isMongoConfigured, withMongoTimeout } from '../mongodb';
+import { normalizeSubscriptionFeatureCatalog, SUBSCRIPTION_FEATURES } from '../../services/subscriptionEntitlements';
 
 export interface JobPriceCalculationRequest {
   jobPlan?: 'Standard' | 'Urgent' | 'Featured' | 'Top' | 'Future' | 'VIP Bundle' | string;
@@ -170,6 +171,9 @@ function buildAuthoritativeDefaults(): any {
       govtAlertsWeeklyPkr: 400
     },
     subscriptionPackages: [],
+    subscriptionFeatureCatalog: SUBSCRIPTION_FEATURES.map((feature) => ({ id: feature.id, label: feature.label, enabled: false, pricePkr: 0, durationDays: 30, includedSlots: 0, slotDurationDays: 30 })),
+    subscriptionBundleDiscountPercent: 0,
+    subscriptionReminderSettings: { enabled: false, daysBefore: 3 },
     earlyAccess: {
       enabled: false,
       sourceTypes: ['scraped', 'user_posted', 'admin_created'],
@@ -645,7 +649,7 @@ export class PricingRepository {
       }
     }
 
-    if (Array.isArray(updates.subscriptionPackages)) {
+    if (updates.subscriptionBundleDiscountPercent !== undefined) validateNonNegativeNumber(updates.subscriptionBundleDiscountPercent, 'subscriptionBundleDiscountPercent', 100);\n    if (updates.subscriptionReminderSettings !== undefined) {\n      const reminder = updates.subscriptionReminderSettings;\n      if (!reminder || typeof reminder !== 'object' || Array.isArray(reminder)) throw new Error('subscriptionReminderSettings must be an object.');\n      if (reminder.enabled !== undefined && typeof reminder.enabled !== 'boolean') throw new Error('subscriptionReminderSettings.enabled must be a boolean.');\n      if (reminder.daysBefore !== undefined && (!Number.isInteger(Number(reminder.daysBefore)) || Number(reminder.daysBefore) < 1 || Number(reminder.daysBefore) > 30)) throw new Error('subscriptionReminderSettings.daysBefore must be a whole number between 1 and 30.');\n    }\n    if (updates.subscriptionFeatureCatalog !== undefined) {\n      if (!Array.isArray(updates.subscriptionFeatureCatalog) || updates.subscriptionFeatureCatalog.length > 8) throw new Error('subscriptionFeatureCatalog must contain no more than 8 features.');\n      const normalized = normalizeSubscriptionFeatureCatalog(updates.subscriptionFeatureCatalog);\n      if (normalized.length !== updates.subscriptionFeatureCatalog.length) throw new Error('subscriptionFeatureCatalog contains an unsupported or duplicate feature ID.');\n      for (const feature of normalized) {\n        if (!feature.label || !feature.label.trim()) throw new Error('Every subscription feature requires a label.');\n        validateNonNegativeNumber(feature.pricePkr, `subscriptionFeatureCatalog.${feature.id}.pricePkr`, 10000000);\n      }\n      updates.subscriptionFeatureCatalog = normalized;\n    }\n    if (Array.isArray(updates.subscriptionPackages)) {
       for (const pkg of updates.subscriptionPackages) {
         if (!pkg.id || typeof pkg.id !== 'string') {
           throw new Error('Each subscription package must have a valid string "id"');

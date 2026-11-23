@@ -808,6 +808,150 @@ export class UserRepository {
     return updated ? { ok: true, user: updated } : { ok: false, reason: 'not_found' };
   }
 
+  /** Atomically saves CV documents and consumes package creation/edit quotas. */
+  static async saveCvDocumentsWithPackageUsageAsync(
+    userId: string,
+    documents: any[],
+    activeCvData: any,
+    transactionId: string,
+    createCount: number,
+    editCount: number
+  ): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanTransactionId = String(transactionId || '').trim();
+    if (!cleanUserId || !cleanTransactionId || !Array.isArray(documents) ||
+      !Number.isInteger(createCount) || createCount < 0 || !Number.isInteger(editCount) || editCount < 0) {
+      throw new Error('Invalid CV save or quota usage request.');
+    }
+    const now = new Date().toISOString();
+    const updatedAt = now;
+    const quotaConditions: Record<string, any> = {};
+    const arrayConditions: Record<string, any> = { 'grant.transactionId': cleanTransactionId, 'grant.expiresAt': { $gt: now } };
+    const increments: Record<string, number> = {};
+    if (createCount > 0) {
+      quotaConditions['limits.cvCreateLimit'] = { $gte: createCount };
+      quotaConditions['usage.cvCreateLimit'] = { $lte: undefined };
+      increments['cvPackageEntitlements.$[grant].usage.cvCreateLimit'] = createCount;
+    }
+    if (editCount > 0) {
+      quotaConditions['limits.editLimit'] = { $gte: editCount };
+      increments['cvPackageEntitlements.$[grant].usage.editLimit'] = editCount;
+    }
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+      const grant = list.find((item: any) => {
+        if (item?.transactionId !== cleanTransactionId || !item.expiresAt || Date.parse(item.expiresAt) <= Date.now()) return false;
+        const limits = item.limits || {};
+        const usage = item.usage || {};
+        return createCount <= Math.max(0, Number(limits.cvCreateLimit || 0) - Number(usage.cvCreateLimit || 0)) &&
+          editCount <= Math.max(0, Number(limits.editLimit || 0) - Number(usage.editLimit || 0));
+      });
+      if (!grant) return null;
+      const updatedGrant = { ...grant, usage: {
+        ...(grant.usage || {}),
+        cvCreateLimit: Number(grant.usage?.cvCreateLimit || 0) + createCount,
+        editLimit: Number(grant.usage?.editLimit || 0) + editCount
+      }};
+      const updatedList = list.map((item: any) => item?.transactionId === cleanTransactionId ? updatedGrant : item);
+      const updated = { ...existing, cvDocuments: documents, cvData: activeCvData, cvPackageEntitlements: updatedList, updatedAt };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const elemMatch: Record<string, any> = { transactionId: cleanTransactionId, expiresAt: { $gt: now } };
+      if (createCount > 0) {
+        elemMatch['limits.cvCreateLimit'] = { $gte: createCount };
+        elemMatch['$expr'] = undefined;
+      }
+      if (editCount > 0) elemMatch['limits.editLimit'] = { $gte: editCount };
+      const filter: Record<string, any> = { id: cleanUserId, cvPackageEntitlements: { $elemMatch: elemMatch } };
+      const arrayFilter: Record<string, any> = { 'grant.transactionId': cleanTransactionId, 'grant.expiresAt': { $gt: now } };
+      const update: any = { $set: { cvDocuments: documents, cvData: activeCvData, updatedAt } };
+      if (Object.keys(increments).length) {
+        update.$inc = increments;
+        if (createCount > 0) arrayFilter['grant.usage.cvCreateLimit'] = { $lte: Number.MAX_SAFE_INTEGER - createCount };
+        if (editCount > 0) arrayFilter['grant.usage.editLimit'] = { $lte: Number.MAX_SAFE_INTEGER - editCount };
+      }
+      const updatedDoc = await coll.findOneAndUpdate(filter, update, { returnDocument: 'after', ...(Object.keys(increments).length ? { arrayFilters: [arrayFilter] } : {}) });
+      if (!updatedDoc) return null;
+      const { _id, ...safe } = updatedDoc;
+      return safe;
+    }
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+    const grant = list.find((item: any) => item?.transactionId === cleanTransactionId &&
+      Date.parse(String(item?.expiresAt || '')) > Date.now() &&
+      createCount <= Math.max(0, Number(item?.limits?.cvCreateLimit || 0) - Number(item?.usage?.cvCreateLimit || 0)) &&
+      editCount <= Math.max(0, Number(item?.limits?.editLimit || 0) - Number(item?.usage?.editLimit || 0)));
+    if (!grant) return null;
+    const updatedList = list.map((item: any) => item?.transactionId === cleanTransactionId ? {
+      ...item, usage: { ...(item.usage || {}),
+        cvCreateLimit: Number(item.usage?.cvCreateLimit || 0) + createCount,
+        editLimit: Number(item.usage?.editLimit || 0) + editCount
+      }
+    } : item);
+    return Database.updateUser(cleanUserId, { cvDocuments: documents, cvData: activeCvData, cvPackageEntitlements: updatedList, updatedAt });
+  }
+
+  /** Atomically consumes a single export/share quota from an active CV package. */
+  static async consumeCvPackageQuotaAsync(userId: string, transactionId: string, action: 'pdfExportLimit' | 'atsExportLimit' | 'shareLimit'): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanTransactionId = String(transactionId || '').trim();
+    if (!cleanUserId || !cleanTransactionId || !['pdfExportLimit', 'atsExportLimit', 'shareLimit'].includes(action)) throw new Error('Invalid CV package quota request.');
+    const now = new Date().toISOString();
+    const updatedAt = now;
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+      const grant = list.find((item: any) => item?.transactionId === cleanTransactionId &&
+        Date.parse(String(item?.expiresAt || '')) > Date.now() &&
+        Number(item?.usage?.[action] || 0) < Number(item?.limits?.[action] || 0));
+      if (!grant) return null;
+      const updatedList = list.map((item: any) => item?.transactionId === cleanTransactionId ? {
+        ...item, usage: { ...(item.usage || {}), [action]: Number(item.usage?.[action] || 0) + 1 }
+      } : item);
+      const updated = { ...existing, cvPackageEntitlements: updatedList, updatedAt };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const filter: Record<string, any> = {
+        id: cleanUserId,
+        cvPackageEntitlements: { $elemMatch: { transactionId: cleanTransactionId, expiresAt: { $gt: now }, [`limits.${action}`]: { $gt: 0 } } }
+      };
+      const arrayFilter: Record<string, any> = {
+        'grant.transactionId': cleanTransactionId,
+        'grant.expiresAt': { $gt: now },
+        [`grant.limits.${action}`]: { $gt: 0 },
+        [`grant.usage.${action}`]: { $lt: Number.MAX_SAFE_INTEGER }
+      };
+      const updatedDoc = await coll.findOneAndUpdate(filter, {
+        $inc: { [`cvPackageEntitlements.$[grant].usage.${action}`]: 1 },
+        $set: { updatedAt }
+      }, { returnDocument: 'after', arrayFilters: [arrayFilter] });
+      if (!updatedDoc) return null;
+      const { _id, ...safe } = updatedDoc;
+      return safe;
+    }
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+    const grant = list.find((item: any) => item?.transactionId === cleanTransactionId &&
+      Date.parse(String(item?.expiresAt || '')) > Date.now() &&
+      Number(item?.usage?.[action] || 0) < Number(item?.limits?.[action] || 0));
+    if (!grant) return null;
+    const updatedList = list.map((item: any) => item?.transactionId === cleanTransactionId ? {
+      ...item, usage: { ...(item.usage || {}), [action]: Number(item.usage?.[action] || 0) + 1 }
+    } : item);
+    return Database.updateUser(cleanUserId, { cvPackageEntitlements: updatedList, updatedAt });
+  }
+
   static update(id: string, updates: any): any | null {
     if (isMongoActive()) {
       throw new Error('MongoDB is configured. Synchronous update is prohibited to ensure authoritative persistence; use updateAsync.');

@@ -2035,6 +2035,15 @@ export default function App() {
     setIsSubscribed(isAuthoritativeUserSubscribed(currentUser));
   }, [currentUser]);
 
+  const isCvBuilderEntitled = (() => {
+    if (!isSubscribed) return false;
+    const featureIds = (currentUser as any)?.subscriptionFeatureIds;
+    if (!Array.isArray(featureIds) || featureIds.length === 0) return true;
+    const entitlement = (currentUser as any)?.subscriptionEntitlements?.cv_builder;
+    const expiry = Date.parse(String(entitlement?.expiresAt || ''));
+    return featureIds.includes('cv_builder') && entitlement?.enabled === true && Number.isFinite(expiry) && expiry > Date.now();
+  })();
+
   const loadBackendUserResources = useCallback(async (activeUserId?: string) => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('hybrid_auth_token') : null;
     const targetUserId = activeUserId ?? currentUser?.id;
@@ -4610,7 +4619,7 @@ export default function App() {
             {/* AUTOMATED CV BUILDER TAB */}
             {activeTab === 'cv' && (
               <CvBuilder
-                isSubscribed={isSubscribed}
+                isSubscribed={isCvBuilderEntitled}
                 initialCvData={currentUser?.cvData}
                 initialCvDocuments={currentUser?.cvDocuments}
                 cvDesignEntitlements={currentUser?.cvDesignEntitlements || []}

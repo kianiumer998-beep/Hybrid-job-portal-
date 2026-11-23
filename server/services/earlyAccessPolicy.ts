@@ -12,6 +12,7 @@ export interface EarlyAccessConfig {
   description?: string;
   displayFields?: string[];
   showSource?: boolean;
+  jobOverrides?: Array<{ jobId: string; enabled?: boolean; displayTitle?: string }>;
 }
 
 const ALLOWED_DISPLAY_FIELDS = new Set([
@@ -25,6 +26,9 @@ export function isEarlyAccessJobLocked(
   now: number = Date.now()
 ): boolean {
   if (!job || config?.enabled !== true) return false;
+
+  const jobOverride = Array.isArray(config.jobOverrides) ? config.jobOverrides.find((item) => item && item.jobId === String(job.id || '')) : undefined;
+  if (jobOverride?.enabled === false) return false;
 
   const source: JobSourceType = JobVisibilityRepository.deriveJobSource(job);
   const selectedSources = Array.isArray(config.sourceTypes) ? config.sourceTypes : [];
@@ -48,10 +52,11 @@ export function buildEarlyAccessDisplayJob(job: any, config: EarlyAccessConfig):
     ? config.displayFields.filter((field) => ALLOWED_DISPLAY_FIELDS.has(field))
     : ['title', 'company', 'department', 'city', 'deadlineDate'];
 
+  const jobOverride = Array.isArray(config.jobOverrides) ? config.jobOverrides.find((item) => item && item.jobId === String(job.id || '')) : undefined;
   const display: Record<string, any> = { id: String(job.id || '') };
   for (const field of fields) {
     const value = job[field];
-    if (value !== undefined && value !== null && value !== '') display[field] = value;
+    if (value !== undefined && value !== null && value !== '') display[field] = field === 'title' && jobOverride?.displayTitle ? jobOverride.displayTitle : value;
   }
 
   if (config.showSource === true) {

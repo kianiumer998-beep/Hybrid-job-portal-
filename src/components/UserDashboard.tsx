@@ -1934,6 +1934,33 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 </div>
                 {renewalPreferenceMessage && <p className="text-[10px] text-emerald-300">{renewalPreferenceMessage}</p>}
               </div>
+              <div className="p-3 sm:p-4 bg-slate-950/80 rounded-xl sm:rounded-2xl border border-slate-800/90 space-y-3">
+                <div>
+                  <span className="font-bold text-white text-xs sm:text-sm">Premium Alert Channels</span>
+                  <p className="text-[10px] sm:text-xs text-slate-400 mt-1">Turn on channels you want to receive. Actual email, WhatsApp or SMS delivery requires the matching active subscription feature and configured portal provider.</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {[
+                    { field: 'emailAlertsEnabled', label: 'Email alerts' },
+                    { field: 'whatsappAlertsEnabled', label: 'WhatsApp alerts' },
+                    { field: 'smsAlertsEnabled', label: 'SMS alerts' }
+                  ].map((channel: any) => (
+                    <label key={channel.field} className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-300">
+                      <span>{channel.label}</span>
+                      <input type="checkbox" checked={(currentUser as any)[channel.field] === true} onChange={async (e) => {
+                        const enabled = e.target.checked;
+                        try {
+                          const result: any = await api.users.updateProfile(currentUser.id, { [channel.field]: enabled });
+                          if (!result?.success) throw new Error(result?.message || 'Could not save alert preference.');
+                          window.location.reload();
+                        } catch (error: any) {
+                          window.alert(error?.message || 'Could not save alert preference.');
+                        }
+                      }} />
+                    </label>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
 

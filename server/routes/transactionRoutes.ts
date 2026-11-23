@@ -982,13 +982,13 @@ transactionRouter.post('/', async (req, res) => {
           if (customAmountAllowed && (!Number.isSafeInteger(enforcedAmount) || enforcedAmount <= 0)) {
             return res.status(400).json({ success: false, message: 'Wallet deposit amount must be a positive whole PKR amount.' });
           }
-          if (customAmountAllowed && methodConfig.walletDepositMinimumAmount !== undefined && enforcedAmount < methodConfig.walletDepositMinimumAmount) {
+          if (customAmountAllowed && !isConfiguredFixedAmount && methodConfig.walletDepositMinimumAmount !== undefined && enforcedAmount < methodConfig.walletDepositMinimumAmount) {
             return res.status(400).json({
               success: false,
               message: `Minimum wallet deposit for ${methodConfig.name} is PKR ${Number(methodConfig.walletDepositMinimumAmount).toLocaleString()}.`
             });
           }
-          if (customAmountAllowed && methodConfig.walletDepositMaximumAmount !== undefined && enforcedAmount > methodConfig.walletDepositMaximumAmount) {
+          if (customAmountAllowed && !isConfiguredFixedAmount && methodConfig.walletDepositMaximumAmount !== undefined && enforcedAmount > methodConfig.walletDepositMaximumAmount) {
             return res.status(400).json({
               success: false,
               message: `Maximum wallet deposit for ${methodConfig.name} is PKR ${Number(methodConfig.walletDepositMaximumAmount).toLocaleString()}.`

@@ -1287,10 +1287,11 @@ transactionRouter.post('/', async (req, res) => {
             for (const feature of walletFeatureSnapshots) {
               const featureId = String(feature?.id || '');
               if (!featureId) continue;
+              const featureDays = Number.isInteger(Number(feature.durationDays)) && Number(feature.durationDays) > 0 ? Math.min(subDurationDays, Number(feature.durationDays)) : subDurationDays;
               walletEntitlements[featureId] = {
                 enabled: true,
                 grantedAt: subscriptionActivatedAt,
-                expiresAt: subscriptionExpiresAt,
+                expiresAt: new Date(Date.now() + featureDays * 24 * 60 * 60 * 1000).toISOString(),
                 includedSlots: Number.isInteger(Number(feature.includedSlots)) ? Math.max(0, Number(feature.includedSlots)) : 0,
                 slotDurationDays: Number.isInteger(Number(feature.slotDurationDays)) ? Math.max(1, Number(feature.slotDurationDays)) : subDurationDays,
                 sourcePackageId: String(walletPackageSnapshot.id || '')

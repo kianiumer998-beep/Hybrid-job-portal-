@@ -215,6 +215,68 @@ function isUserAdmin(user: any): boolean {
   return hasAdminPermission(user?.role, 'users.manage');
 }
 
+// CV export/share authorization. Quota is consumed server-side before the client starts the action.
+userRouter.post('/cv/consume', requireAuth, async (req: any, res) => {
+  try {
+    const userId = String(req.user?.userId || req.user?.id || '').trim();
+    const action = String(req.body?.action || '').trim();
+    const templateId = String(req.body?.templateId || '').trim();
+    const usageField = action === 'pdf' ? 'pdfExportLimit' : action === 'ats' ? 'atsExportLimit' : action === 'share' ? 'shareLimit' : '';
+    if (!userId || !usageField || !templateId || templateId.length > 80) {
+      return res.status(400).json({ success: false, message: 'A valid CV action and template are required.' });
+    }
+    const user = await UserRepository.getByIdAsync(userId);
+    if (!user) return res.status(404).json({ success: false, message: 'User account not found.' });
+    const pricing = (await PricingRepository.get()) || {};
+    const settings = pricing.cvBuilder || {};
+    const templates = Array.isArray(settings.templates) ? settings.templates : [];
+    const template = templates.find((item: any) => String(item?.id || '') === templateId);
+    if (!template || template.enabled === false) return res.status(403).json({ success: false, message: 'This CV design is not currently available.' });
+    if (action === 'pdf' && (settings.pdfExportEnabled === false || template.pdfExportEnabled === false)) {
+      return res.status(403).json({ success: false, message: 'PDF export is disabled by the administrator for this CV design.' });
+    }
+    if (action === 'ats' && (settings.atsTextExportEnabled === false || template.atsExportEnabled === false)) {
+      return res.status(403).json({ success: false, message: 'ATS text export is disabled by the administrator for this CV design.' });
+    }
+    const activeGrants = (Array.isArray(user.cvPackageEntitlements) ? user.cvPackageEntitlements : [])
+      .filter((item: any) => Date.parse(String(item?.expiresAt || '')) > Date.now())
+      .sort((a: any, b: any) => Date.parse(String(a.expiresAt)) - Date.parse(String(b.expiresAt)));
+    if (activeGrants.length) {
+      for (const grant of activeGrants) {
+        const limit = Number(grant?.limits?.[usageField] || 0);
+        const used = Number(grant?.usage?.[usageField] || 0);
+        if (limit <= used) continue;
+        const updated = await UserRepository.consumeCvPackageQuotaAsync(userId, String(grant.transactionId), usageField as any, limit);
+        if (updated) {
+          return res.json({
+            success: true,
+            action,
+            remaining: Math.max(0, limit - used - 1),
+            packageName: grant.packageName,
+            packageExpiresAt: grant.expiresAt,
+            noWatermark: grant.noWatermark === true
+          });
+        }
+      }
+      return res.status(403).json({ success: false, message: 'Your active CV package has no remaining quota for this action.' });
+    }
+    const inactive = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled', 'Revoked']);
+    const premium = !inactive.has(String(user.membershipStatus || '')) && (
+      (user.membershipStatus === 'Active' && Boolean(user.membershipTier) && String(user.membershipTier).toLowerCase() !== 'free') ||
+      user.plan === 'Premium' ||
+      (user.paymentStatus === 'Paid' && user.membershipStatus === 'Active')
+    );
+    return res.json({
+      success: true,
+      action,
+      remaining: null,
+      noWatermark: premium ? settings.watermarkFreeOnly === true : false
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Unable to authorize CV action.' });
+  }
+});
+
 // 1. Get All Users (Admin Only - Requires users.manage)
 userRouter.get('/', requireAdminPermission('users.manage'), async (req, res) => {
   try {

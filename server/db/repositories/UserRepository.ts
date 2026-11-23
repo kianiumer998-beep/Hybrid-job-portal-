@@ -293,7 +293,7 @@ export class UserRepository {
       throw new Error('Valid user, posting feature and job references are required.');
     }
     const markerKey = ('slot-' + cleanFeatureId + '-' + cleanJobId).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
-    const marker = 'walletEscrowOperations.' + markerKey;
+    const marker = 'subscriptionSlotOperations.' + markerKey;
     const slotsPath = 'subscriptionEntitlements.' + cleanFeatureId + '.remainingSlots';
     const enabledPath = 'subscriptionEntitlements.' + cleanFeatureId + '.enabled';
     const expiryPath = 'subscriptionEntitlements.' + cleanFeatureId + '.expiresAt';
@@ -302,7 +302,7 @@ export class UserRepository {
     if (isTest()) {
       const existing = inMemoryUsers.get(cleanUserId);
       if (!existing) return null;
-      const operations = existing.walletEscrowOperations || {};
+      const operations = existing.subscriptionSlotOperations || {};
       if (operations[markerKey] === 'CONSUMED') return existing;
       const entitlement = existing.subscriptionEntitlements?.[cleanFeatureId];
       const membershipExpiry = Date.parse(String(existing.subscriptionExpiresAt || ''));
@@ -316,7 +316,7 @@ export class UserRepository {
           ...existing.subscriptionEntitlements,
           [cleanFeatureId]: { ...entitlement, remainingSlots: Number(entitlement.remainingSlots) - 1 }
         },
-        walletEscrowOperations: { ...operations, [markerKey]: 'CONSUMED' },
+        subscriptionSlotOperations: { ...operations, [markerKey]: 'CONSUMED' },
         updatedAt: now
       };
       inMemoryUsers.set(cleanUserId, updated);
@@ -352,7 +352,7 @@ export class UserRepository {
 
     const existing = Database.getUserById(cleanUserId);
     if (!existing) return null;
-    const operations = existing.walletEscrowOperations || {};
+    const operations = existing.subscriptionSlotOperations || {};
     if (operations[markerKey] === 'CONSUMED') return existing;
     const entitlement = existing.subscriptionEntitlements?.[cleanFeatureId];
     const membershipExpiry = Date.parse(String(existing.subscriptionExpiresAt || ''));
@@ -365,7 +365,7 @@ export class UserRepository {
         ...existing.subscriptionEntitlements,
         [cleanFeatureId]: { ...entitlement, remainingSlots: Number(entitlement.remainingSlots) - 1 }
       },
-      walletEscrowOperations: { ...operations, [markerKey]: 'CONSUMED' },
+      subscriptionSlotOperations: { ...operations, [markerKey]: 'CONSUMED' },
       updatedAt: now
     });
   }
@@ -378,14 +378,14 @@ export class UserRepository {
     const allowed = new Set(['urgent_job_posting', 'featured_job_posting', 'premium_job_posting']);
     if (!cleanUserId || !allowed.has(cleanFeatureId) || !cleanJobId) throw new Error('Valid slot restoration references are required.');
     const markerKey = ('slot-' + cleanFeatureId + '-' + cleanJobId).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
-    const marker = 'walletEscrowOperations.' + markerKey;
+    const marker = 'subscriptionSlotOperations.' + markerKey;
     const slotsPath = 'subscriptionEntitlements.' + cleanFeatureId + '.remainingSlots';
     const now = new Date().toISOString();
 
     if (isTest()) {
       const existing = inMemoryUsers.get(cleanUserId);
       if (!existing) return null;
-      const operations = existing.walletEscrowOperations || {};
+      const operations = existing.subscriptionSlotOperations || {};
       if (operations[markerKey] === 'REFUNDED') return existing;
       if (operations[markerKey] !== 'CONSUMED') return null;
       const entitlement = existing.subscriptionEntitlements?.[cleanFeatureId];
@@ -396,7 +396,7 @@ export class UserRepository {
           ...existing.subscriptionEntitlements,
           [cleanFeatureId]: { ...entitlement, remainingSlots: Math.max(0, Number(entitlement.remainingSlots) || 0) + 1 }
         },
-        walletEscrowOperations: { ...operations, [markerKey]: 'REFUNDED' },
+        subscriptionSlotOperations: { ...operations, [markerKey]: 'REFUNDED' },
         updatedAt: now
       };
       inMemoryUsers.set(cleanUserId, updated);
@@ -424,7 +424,7 @@ export class UserRepository {
 
     const existing = Database.getUserById(cleanUserId);
     if (!existing) return null;
-    const operations = existing.walletEscrowOperations || {};
+    const operations = existing.subscriptionSlotOperations || {};
     if (operations[markerKey] === 'REFUNDED') return existing;
     if (operations[markerKey] !== 'CONSUMED') return null;
     const entitlement = existing.subscriptionEntitlements?.[cleanFeatureId];
@@ -434,7 +434,7 @@ export class UserRepository {
         ...existing.subscriptionEntitlements,
         [cleanFeatureId]: { ...entitlement, remainingSlots: Math.max(0, Number(entitlement.remainingSlots) || 0) + 1 }
       },
-      walletEscrowOperations: { ...operations, [markerKey]: 'REFUNDED' },
+      subscriptionSlotOperations: { ...operations, [markerKey]: 'REFUNDED' },
       updatedAt: now
     });
   }
@@ -464,7 +464,7 @@ export class UserRepository {
       const existing = inMemoryUsers.get(cleanUserId);
       if (!existing) return null;
       if (expectedState && Object.entries(expectedState).some(([key, value]) => existing[key] !== value)) return null;
-      const operations = existing.walletEscrowOperations || {};
+      const operations = existing.subscriptionSlotOperations || {};
       if (operations[cleanKey] === 'DEDUCTED') return existing;
       const balance = Number(existing.walletBalance || 0);
       if (!Number.isFinite(balance) || balance < amount) return null;
@@ -499,7 +499,7 @@ export class UserRepository {
     const existing = Database.getUserById(cleanUserId);
     if (!existing) return null;
     if (expectedState && Object.entries(expectedState).some(([key, value]) => existing[key] !== value)) return null;
-    const operations = existing.walletEscrowOperations || {};
+    const operations = existing.subscriptionSlotOperations || {};
     if (operations[cleanKey] === 'DEDUCTED') return existing;
     const balance = Number(existing.walletBalance || 0);
     if (!Number.isFinite(balance) || balance < amount) return null;
@@ -604,7 +604,7 @@ export class UserRepository {
     if (isTest()) {
       const existing = inMemoryUsers.get(cleanUserId);
       if (!existing) return null;
-      const operations = existing.walletEscrowOperations || {};
+      const operations = existing.subscriptionSlotOperations || {};
       if (operations[cleanKey] === 'HELD') return existing;
       const balance = Number(existing.walletBalance || 0);
       if (!Number.isFinite(balance) || balance < amount) return null;
@@ -640,7 +640,7 @@ export class UserRepository {
 
     const existing = Database.getUserById(cleanUserId);
     if (!existing) return null;
-    const operations = existing.walletEscrowOperations || {};
+    const operations = existing.subscriptionSlotOperations || {};
     if (operations[cleanKey] === 'HELD') return existing;
     const balance = Number(existing.walletBalance || 0);
     if (!Number.isFinite(balance) || balance < amount) return null;
@@ -670,7 +670,7 @@ export class UserRepository {
     if (isTest()) {
       const existing = inMemoryUsers.get(cleanUserId);
       if (!existing) return null;
-      const operations = existing.walletEscrowOperations || {};
+      const operations = existing.subscriptionSlotOperations || {};
       if (operations[cleanKey] === resultState) return existing;
       if (operations[cleanKey] === 'CAPTURED' || operations[cleanKey] === 'RELEASED') {
         throw new Error(`Campaign escrow was already settled as ${operations[cleanKey]} and cannot be settled again.`);
@@ -714,7 +714,7 @@ export class UserRepository {
 
     const existing = Database.getUserById(cleanUserId);
     if (!existing) return null;
-    const operations = existing.walletEscrowOperations || {};
+    const operations = existing.subscriptionSlotOperations || {};
     if (operations[cleanKey] === resultState) return existing;
     if (operations[cleanKey] === 'CAPTURED' || operations[cleanKey] === 'RELEASED') {
       throw new Error(`Campaign escrow was already settled as ${operations[cleanKey]} and cannot be settled again.`);
@@ -741,7 +741,7 @@ export class UserRepository {
     if (isTest()) {
       const existing = inMemoryUsers.get(cleanUserId);
       if (!existing) return null;
-      const operations = existing.walletEscrowOperations || {};
+      const operations = existing.subscriptionSlotOperations || {};
       if (operations[cleanKey] === 'REFUNDED') return existing;
       const updated = {
         ...existing,
@@ -774,7 +774,7 @@ export class UserRepository {
 
     const existing = Database.getUserById(cleanUserId);
     if (!existing) return null;
-    const operations = existing.walletEscrowOperations || {};
+    const operations = existing.subscriptionSlotOperations || {};
     if (operations[cleanKey] === 'REFUNDED') return existing;
     return Database.updateUser(cleanUserId, {
       walletBalance: Number(existing.walletBalance || 0) + amount,

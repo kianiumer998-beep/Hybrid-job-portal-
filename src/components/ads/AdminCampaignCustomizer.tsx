@@ -1271,7 +1271,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
                       </button>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
+                  <div className="grid grid-cols-1 gap-3 pt-2 border-t border-slate-800">
                     <div>
                       <label className="text-[10px] text-slate-400 block mb-1 font-bold">Maximum Concurrent Slots</label>
                       <input type="number" min="1" max="50" step="1" value={placement.maxConcurrentSlots ?? ''} placeholder={placement.id === 'promo-discount-banner' || placement.id === 'dynamic-announcement-card' ? 'Required (1–50)' : 'No limit'}

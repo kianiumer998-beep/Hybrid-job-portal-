@@ -829,6 +829,54 @@ export class PaymentRepository {
   }
 
   static async verify(id: string, action: 'approve' | 'reject', note?: string, reason?: string): Promise<any | null> {
+    // Safe recovery for a previously approved CV package/subscription whose entitlement write or
+    // transaction finalization was uncertain. The transaction ID makes the grant idempotent.
+    if (action === 'approve') {
+      const recoverable = await this.getByIdAsync(id);
+      if (recoverable?.status === 'VerificationUncertain') {
+        const snapshot = recoverable.type === 'CV Design Purchase'
+          ? recoverable.cvPurchaseSnapshot
+          : recoverable.type === 'Subscription' ? recoverable.packageSnapshot : null;
+        const hasCvBenefitSnapshot = recoverable.type === 'CV Design Purchase'
+          ? snapshot?.kind === 'package'
+          : recoverable.type === 'Subscription' && snapshot?.cvBenefitsEnabled === true;
+        if (hasCvBenefitSnapshot) {
+          let owner: any = recoverable.userId ? await UserRepository.getByIdAsync(String(recoverable.userId)) : null;
+          if (!owner && recoverable.type === 'Subscription' && recoverable.userEmail) {
+            owner = await UserRepository.getByEmailAsync(String(recoverable.userEmail));
+          }
+          const subscriptionIsActive = recoverable.type !== 'Subscription' ||
+            (owner?.membershipStatus === 'Active' && String(owner?.membershipTier || '') === String(snapshot?.name || '') &&
+              Date.parse(String(owner?.subscriptionExpiresAt || '')) > Date.now());
+          if (!owner || !subscriptionIsActive) {
+            throw new Error('This uncertain payment requires administrator reconciliation. The linked account or subscription activation could not be confirmed.');
+          }
+          const grantSnapshot = recoverable.type === 'CV Design Purchase' ? snapshot : {
+            packageId: `subscription:${snapshot.id}`,
+            packageName: `${String(snapshot.name || snapshot.id)} CV Benefits`,
+            pricePkr: Number(snapshot.pricePkr),
+            durationDays: Number(snapshot.durationDays),
+            cvCreateLimit: Number(snapshot.cvBenefits?.cvCreateLimit ?? 0),
+            editLimit: Number(snapshot.cvBenefits?.editLimit ?? 0),
+            pdfExportLimit: Number(snapshot.cvBenefits?.pdfExportLimit ?? 0),
+            atsExportLimit: Number(snapshot.cvBenefits?.atsExportLimit ?? 0),
+            shareLimit: Number(snapshot.cvBenefits?.shareLimit ?? 0),
+            noWatermark: snapshot.cvBenefits?.noWatermark === true
+          };
+          const granted = await UserRepository.grantCvPackageEntitlementAsync(owner.id, grantSnapshot, String(recoverable.id));
+          if (!granted) throw new Error('CV entitlement recovery could not be confirmed. The transaction remains under reconciliation.');
+          return await this.updateAsync(id, {
+            status: 'Success',
+            ...(recoverable.type === 'CV Design Purchase' ? { cvPackageEntitlementGranted: true } : { cvPackageEntitlementGranted: true }),
+            userId: owner.id,
+            verifiedAt: recoverable.verifiedAt || new Date().toISOString(),
+            adminNote: note || 'Previously uncertain CV entitlement was reconciled and activated.',
+            rejectionReason: undefined,
+            updatedAt: new Date().toISOString()
+          });
+        }
+      }
+    }
     if (isPureInMemoryTest()) {
       const tx = inMemoryTransactions.get(id);
       if (!tx) return null;
@@ -1043,34 +1091,12 @@ export class PaymentRepository {
         durationDays = snapDuration;
         membershipTier = snapshot.name;
 
-        const subscriptionActivatedAt = new Date().toISOString();
-        const subscriptionExpiresAt = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString();
-        const featureSnapshots = Array.isArray(snapshot.featureSnapshots) ? snapshot.featureSnapshots : [];
-        const nextEntitlements = { ...(user.subscriptionEntitlements || {}) };
-        for (const feature of featureSnapshots) {
-          const featureId = String(feature?.id || '');
-          if (!featureId) continue;
-          const featureDays = Number.isInteger(Number(feature.durationDays)) && Number(feature.durationDays) > 0 ? Math.min(durationDays, Number(feature.durationDays)) : durationDays;
-          nextEntitlements[featureId] = {
-            enabled: true,
-            grantedAt: subscriptionActivatedAt,
-            expiresAt: new Date(Date.now() + featureDays * 24 * 60 * 60 * 1000).toISOString(),
-            includedSlots: Number.isInteger(Number(feature.includedSlots)) ? Math.max(0, Number(feature.includedSlots)) : 0,
-            remainingSlots: Number.isInteger(Number(feature.includedSlots)) ? Math.max(0, Number(feature.includedSlots)) : 0,
-            slotDurationDays: Number.isInteger(Number(feature.slotDurationDays)) ? Math.max(1, Number(feature.slotDurationDays)) : durationDays,
-            sourcePackageId: String(snapshot.id)
-          };
-        }
         let updatedUser: any = null;
         try {
           updatedUser = await UserRepository.updateAsync(user.id, {
             membershipTier: membershipTier,
             membershipStatus: 'Active',
-            subscriptionExpiresAt,
-            ...(featureSnapshots.length ? {
-              subscriptionEntitlements: nextEntitlements,
-              subscriptionFeatureIds: featureSnapshots.map((feature: any) => String(feature.id))
-            } : {})
+            subscriptionExpiresAt: new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString()
           });
         } catch (subErr: any) {
           await this.updateAsync(id, {
@@ -1090,14 +1116,75 @@ export class PaymentRepository {
           throw new Error('Cannot approve Subscription: failed to activate user membership.');
         }
 
+        if (snapshot.cvBenefitsEnabled === true) {
+          const benefits = snapshot.cvBenefits || {};
+          try {
+            const cvGrant = await UserRepository.grantCvPackageEntitlementAsync(user.id, {
+              packageId: `subscription:${snapshot.id}`,
+              packageName: `${membershipTier} CV Benefits`,
+              pricePkr: snapPrice,
+              durationDays,
+              cvCreateLimit: Number(benefits.cvCreateLimit ?? 0),
+              editLimit: Number(benefits.editLimit ?? 0),
+              pdfExportLimit: Number(benefits.pdfExportLimit ?? 0),
+              atsExportLimit: Number(benefits.atsExportLimit ?? 0),
+              shareLimit: Number(benefits.shareLimit ?? 0),
+              noWatermark: benefits.noWatermark === true
+            }, String(tx.id));
+            if (!cvGrant) throw new Error('Subscription activated, but its CV benefits could not be saved to the account.');
+          } catch (cvBenefitErr: any) {
+            await this.updateAsync(id, {
+              status: 'VerificationUncertain',
+              rejectionReason: cvBenefitErr?.message || 'Subscription CV benefit activation is uncertain; manual reconciliation is required.',
+              updatedAt: new Date().toISOString()
+            });
+            throw cvBenefitErr;
+          }
+        }
+
         await this.updateAsync(id, {
           userId: user.id,
           status: 'Success',
+          ...(snapshot.cvBenefitsEnabled === true ? { cvPackageEntitlementGranted: true } : {}),
           verifiedAt: new Date().toISOString(),
           adminNote: note || 'Verified and approved by administrator'
         });
       } else if (tx.type === 'CV Design Purchase') {
         const snapshot = tx.cvPurchaseSnapshot;
+        if (snapshot?.kind === 'package') {
+          const packageId = String(snapshot.packageId || '').trim();
+          const snapshotPrice = Number(snapshot.pricePkr);
+          const transactionAmount = Number(tx.amount);
+          const durationDays = Number(snapshot.durationDays);
+          const quotaFields = ['cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit'];
+          const validQuotas = quotaFields.every((field) => Number.isInteger(Number(snapshot[field])) && Number(snapshot[field]) >= 0 && Number(snapshot[field]) <= 10000);
+          if (!tx.userId || !packageId || String(tx.cvTemplateId || '') !== `cvpkg:${packageId}` || !Number.isInteger(durationDays) || durationDays <= 0 || durationDays > 3650 ||
+            !Number.isFinite(snapshotPrice) || snapshotPrice <= 0 || !Number.isFinite(transactionAmount) ||
+            Math.abs(snapshotPrice - transactionAmount) > 0.01 || !validQuotas) {
+            await this.updateAsync(id, { status: 'VerificationUncertain', rejectionReason: 'CV package purchase details or server price/quota snapshot are missing or inconsistent.', updatedAt: new Date().toISOString() });
+            throw new Error('Cannot approve CV package purchase: its server-verified package and price details are invalid.');
+          }
+          try {
+            const user = await UserRepository.getByIdAsync(String(tx.userId));
+            if (!user) throw new Error('The purchasing user account could not be found.');
+            const updatedUser = await UserRepository.grantCvPackageEntitlementAsync(user.id, snapshot, String(tx.id));
+            if (!updatedUser) throw new Error('The CV package entitlement could not be saved to the user account.');
+            await this.updateAsync(id, {
+              status: 'Success',
+              cvPackageEntitlementGranted: true,
+              verifiedAt: new Date().toISOString(),
+              adminNote: note || 'CV package payment verified and quota package activated.'
+            });
+          } catch (packageErr: any) {
+            await this.updateAsync(id, {
+              status: 'VerificationUncertain',
+              rejectionReason: packageErr?.message || 'CV package entitlement update is uncertain; manual reconciliation is required.',
+              updatedAt: new Date().toISOString()
+            });
+            throw packageErr;
+          }
+        } else {
+
         const templateId = String(snapshot?.templateId || tx.cvTemplateId || '').trim();
         const templateName = String(snapshot?.templateName || '').trim();
         const snapshotPrice = Number(snapshot?.pricePkr);
@@ -1138,6 +1225,7 @@ export class PaymentRepository {
             updatedAt: new Date().toISOString()
           });
           throw purchaseErr;
+        }
         }
       } else if (tx.type === 'Job Posting Fee' || tx.type === 'Job Posting') {
         if (!tx.jobIdRef) {

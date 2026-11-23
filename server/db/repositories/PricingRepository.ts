@@ -623,6 +623,12 @@ export class PricingRepository {
             throw new Error(`Subscription package "${pkg.id}" durationDays must be a positive integer`);
           }
         }
+        if (pkg.cvBenefitsEnabled !== undefined && typeof pkg.cvBenefitsEnabled !== 'boolean') {
+          throw new Error(`Subscription package "${pkg.id}" cvBenefitsEnabled must be a boolean`);
+        }
+        if (pkg.cvBenefitsDescription !== undefined && (typeof pkg.cvBenefitsDescription !== 'string' || pkg.cvBenefitsDescription.length > 240)) {
+          throw new Error(`Subscription package "${pkg.id}" cvBenefitsDescription must be text up to 240 characters`);
+        }
         if (pkg.cvBenefitsEnabled === true) {
           const benefits = pkg.cvBenefits || {};
           for (const field of ['cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit']) {

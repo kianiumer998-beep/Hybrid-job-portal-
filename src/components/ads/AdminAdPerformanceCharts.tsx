@@ -105,7 +105,9 @@ export const AdminAdPerformanceCharts: React.FC<AdminAdPerformanceChartsProps> =
       'popup-modal': { name: 'Popup Modal', impressions: 0, clicks: 0, count: 0, spend: 0 },
       'toast-float': { name: 'Toast Alert', impressions: 0, clicks: 0, count: 0, spend: 0 },
       'sidebar': { name: 'Sidebar Card', impressions: 0, clicks: 0, count: 0, spend: 0 },
-      'sms-broadcast': { name: 'SMS Broadcast', impressions: 0, clicks: 0, count: 0, spend: 0 }
+      'sms-broadcast': { name: 'SMS Broadcast', impressions: 0, clicks: 0, count: 0, spend: 0 },
+      'promo-discount-banner': { name: 'Promo Discount Banner', impressions: 0, clicks: 0, count: 0, spend: 0 },
+      'dynamic-announcement-card': { name: 'Dynamic Announcement Card', impressions: 0, clicks: 0, count: 0, spend: 0 }
     };
 
     ads.forEach((ad) => {

@@ -2,6 +2,8 @@ import { Database } from '../db/database';
 import { NotificationRepository, UserRepository } from '../db/repositories';
 import { hasActiveSubscriptionFeature } from './subscriptionEntitlements';
 import { sendConfiguredPremiumAlert } from './communicationDeliveryService';
+import { JobRepository, PricingRepository } from '../db/repositories';
+import { isEarlyAccessJobLocked } from './earlyAccessPolicy';
 
 function matchesAlert(alert: any, job: any): boolean {
   const keyword = String(alert?.keyword || '').trim().toLowerCase();
@@ -58,4 +60,66 @@ export async function dispatchPremiumInstantJobAlerts(job: any): Promise<{ match
     }
   }
   return { matchedUsers, deliveredChannels };
+}
+
+export async function dispatchPremiumJobAlertDigests(now = new Date()): Promise<number> {
+  let digestCount = 0;
+  const nowMs = now.getTime();
+  const [users, jobsResult, pricing] = await Promise.all([
+    UserRepository.getAllAsync(),
+    JobRepository.getAll({ page: 1, limit: 1000, status: 'Approved' }),
+    PricingRepository.get()
+  ]);
+  const jobs = jobsResult?.jobs || [];
+  for (const user of users || []) {
+    if (!user?.id) continue;
+    const alerts = Database.getJobAlerts(String(user.id)) || [];
+    for (const frequency of ['daily', 'weekly'] as const) {
+      const dueAlerts = alerts.filter((alert: any) => String(alert?.frequency || 'daily').toLowerCase() === frequency);
+      if (!dueAlerts.length) continue;
+      const lastSentField = frequency === 'daily' ? 'lastDailyJobAlertDigestAt' : 'lastWeeklyJobAlertDigestAt';
+      const lastSent = Date.parse(String(user[lastSentField] || ''));
+      const intervalMs = frequency === 'daily' ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+      if (Number.isFinite(lastSent) && nowMs - lastSent < intervalMs) continue;
+      const cutoff = Number.isFinite(lastSent) ? lastSent : nowMs - intervalMs;
+      const hasEarlyAccess = await hasActiveSubscriptionFeature(String(user.id), 'early_access');
+      const matchedJobs = jobs.filter((job: any) => {
+        const postedAt = Date.parse(String(job.createdAt || job.postedAt || job.datePosted || ''));
+        if (!Number.isFinite(postedAt) || postedAt < cutoff) return false;
+        if (!hasEarlyAccess && isEarlyAccessJobLocked(job, pricing?.earlyAccess, nowMs)) return false;
+        return dueAlerts.some((alert: any) => matchesAlert(alert, job));
+      }).slice(0, 20);
+      await UserRepository.updateAsync(String(user.id), { [lastSentField]: now.toISOString() });
+      if (!matchedJobs.length) continue;
+
+      const dateKey = now.toISOString().slice(0, 10);
+      const jobLines = matchedJobs.slice(0, 10).map((job: any, index: number) =>
+        (index + 1) + '. ' + String(job.title || 'Job') + ' — ' + String(job.company || 'Company') + ' (' + String(job.city || job.location || 'Pakistan') + ')'
+      );
+      const message = frequency === 'daily'
+        ? 'Your daily job-alert digest contains ' + matchedJobs.length + ' new matching job(s):\n' + jobLines.join('\n')
+        : 'Your weekly job-alert roundup contains ' + matchedJobs.length + ' new matching job(s):\n' + jobLines.join('\n');
+      const eventId = 'job-alert-digest:' + String(user.id) + ':' + frequency + ':' + dateKey;
+      await NotificationRepository.createAsync({
+        userId: String(user.id),
+        title: frequency === 'daily' ? 'Your Daily Job Alert Digest' : 'Your Weekly Job Round-up',
+        message,
+        type: 'info',
+        channel: 'in-app',
+        eventId,
+        metadata: { frequency, matchedJobCount: matchedJobs.length, jobIds: matchedJobs.map((job: any) => String(job.id)) }
+      });
+      if (user.emailAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'email_alerts')) {
+        await sendConfiguredPremiumAlert(user, 'email', frequency === 'daily' ? 'Your Daily Job Alert Digest' : 'Your Weekly Job Round-up', message);
+      }
+      if (user.whatsappAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'whatsapp_alerts')) {
+        await sendConfiguredPremiumAlert(user, 'whatsapp', 'Your job alert digest', message);
+      }
+      if (user.smsAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'sms_alerts')) {
+        await sendConfiguredPremiumAlert(user, 'sms', 'Your job alert digest', message);
+      }
+      digestCount += 1;
+    }
+  }
+  return digestCount;
 }

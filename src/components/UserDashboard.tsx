@@ -2986,6 +2986,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                           onChange={(e) => setAlertFrequency(e.target.value)}
                           className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white text-xs"
                         >
+                          <option value="instant">Instant Alerts</option>
                           <option value="daily">Daily Digest</option>
                           <option value="weekly">Weekly Round-up</option>
                         </select>

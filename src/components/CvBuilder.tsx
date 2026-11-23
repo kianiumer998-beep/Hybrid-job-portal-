@@ -260,7 +260,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
       return;
     }
     const ownsSelectedDesignForExport = cvDesignEntitlements.some((item) => item.templateId === cvData.templateStyle);
-    if ((!isSubscribed && !ownsSelectedDesignForExport && cvBuilderSettings.atsTextExportEnabled === false) || selectedTemplateConfig.atsExportEnabled === false) { onOpenPaywall(); return; }
+    if (cvBuilderSettings.atsTextExportEnabled === false || selectedTemplateConfig.atsExportEnabled === false) { onOpenPaywall(); return; }
     let shouldApplyExportWatermark = exportWatermarkVisible;
     try {
       const authorization = onConsumeCvAction ? await onConsumeCvAction('ats', cvData.templateStyle) : { success: true };
@@ -317,7 +317,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
       return;
     }
     const ownsSelectedDesignForExport = cvDesignEntitlements.some((item) => item.templateId === cvData.templateStyle);
-    if ((!isSubscribed && !ownsSelectedDesignForExport && cvBuilderSettings.pdfExportEnabled === false) || selectedTemplateConfig.pdfExportEnabled === false) { onOpenPaywall(); return; }
+    if (cvBuilderSettings.pdfExportEnabled === false || selectedTemplateConfig.pdfExportEnabled === false) { onOpenPaywall(); return; }
     try {
       const authorization = onConsumeCvAction ? await onConsumeCvAction('pdf', cvData.templateStyle) : { success: true };
       if (!authorization?.success) {

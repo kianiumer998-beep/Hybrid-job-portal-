@@ -635,7 +635,7 @@ export class PricingRepository {
           const slots = Number(option.maxConcurrentSlots);
           if (!Number.isInteger(slots) || slots < 1 || slots > 50) throw new Error(`Placement ${option.id} maxConcurrentSlots must be an integer between 1 and 50.`);
         }
-        if (option.fixedPriceOverridePkr !== undefined) validateNonNegativeNumber(option.fixedPriceOverridePkr, `campaignPlacement.${option.id}.fixedPriceOverridePkr`);
+        if (option.fixedPriceOverridePkr !== undefined) validateNonNegativeNumber(option.fixedPriceOverridePkr, `campaignPlacement.${option.id}.fixedPriceOverridePkr`, 10000000);
         if (option.minDurationHours !== undefined) {
           const minHours = Number(option.minDurationHours);
           if (!Number.isInteger(minHours) || minHours < 1 || minHours > 2160) throw new Error(`Placement ${option.id} minDurationHours must be an integer between 1 and 2160.`);
@@ -1258,6 +1258,7 @@ export class PricingRepository {
     smsFee: number;
     isFreeOverride?: boolean;
     fixedPriceOverridePkr?: number;
+    percentageUpliftPercent?: number;
     totalCostPkr: number;
     finalPrice: number;
     currency: string;
@@ -1416,7 +1417,7 @@ export class PricingRepository {
       });
     } else {
       breakdown.push({
-        name: `${placementLabel} (${calc.durationDisplay} @ ${calc.placementMultiplier}x placement, ${calc.pageMultiplier}x pages)`,
+        name: `${placementLabel} (${calc.durationDisplay} @ ${calc.placementMultiplier}x placement, ${calc.pageMultiplier}x pages, ${calc.percentageUpliftPercent || 0}% uplift)`,
         amount: subtotal
       });
     }
@@ -1444,6 +1445,7 @@ export class PricingRepository {
       smsFee: calc.smsFee,
       isFreeOverride: calc.isFreeOverride,
       fixedPriceOverridePkr: calc.fixedPriceOverridePkr,
+      percentageUpliftPercent: calc.percentageUpliftPercent,
       totalCostPkr: calc.totalCostPkr,
       finalPrice: calc.totalCostPkr,
       currency,

@@ -365,6 +365,20 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
       cvBuilderSettings.watermarkEnabled !== false &&
       (!isSubscribed || cvBuilderSettings.watermarkFreeOnly === false));
 
+  // A transparent completeness guide helps candidates spot missing CV basics; it does not claim to be an ATS score.
+  const cvQualityChecks = [
+    { label: 'Full name', complete: Boolean(cvData.personalInfo.fullName.trim()) },
+    { label: 'Target job title', complete: Boolean(cvData.personalInfo.jobTitle.trim()) },
+    { label: 'Email address', complete: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cvData.personalInfo.email.trim()) },
+    { label: 'Phone number or location', complete: Boolean(cvData.personalInfo.phone.trim() || cvData.personalInfo.location.trim()) },
+    { label: 'Professional summary (at least 60 characters)', complete: cvData.personalInfo.summary.trim().length >= 60 },
+    { label: 'Work experience with role and employer', complete: cvData.experience.some((item) => item.position.trim() && item.company.trim()) },
+    { label: 'Education with qualification and institute', complete: cvData.education.some((item) => item.degree.trim() && item.institution.trim()) },
+    { label: 'At least 3 skills', complete: [...cvData.skills.technical, ...cvData.skills.soft, ...cvData.skills.languages].filter((item) => item.trim()).length >= 3 }
+  ];
+  const cvCompletionScore = Math.round((cvQualityChecks.filter((item) => item.complete).length / cvQualityChecks.length) * 100);
+  const cvNextSteps = cvQualityChecks.filter((item) => !item.complete).slice(0, 3);
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       
@@ -410,6 +424,19 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
           </button>
         </div>
       </div>
+
+
+      <section className="mb-6 rounded-2xl border border-slate-800 bg-slate-900/90 p-4 sm:p-5" aria-label="CV completeness guide">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-bold text-white"><CheckCircle2 className="h-4 w-4 text-emerald-400" /> CV Completeness</div>
+            <p className="mt-1 text-xs text-slate-400">A practical checklist for essential CV information — this is not an ATS compatibility score.</p>
+          </div>
+          <div className="text-left sm:text-right"><span className="text-2xl font-black text-emerald-300">{cvCompletionScore}%</span><span className="ml-2 text-xs text-slate-400">{cvQualityChecks.filter((item) => item.complete).length}/{cvQualityChecks.length} essentials</span></div>
+        </div>
+        <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-800" role="progressbar" aria-label="CV completeness" aria-valuemin={0} aria-valuemax={100} aria-valuenow={cvCompletionScore}><div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all" style={{ width: `${cvCompletionScore}%` }} /></div>
+        {cvNextSteps.length > 0 ? <div className="mt-3 flex flex-wrap gap-2">{cvNextSteps.map((item) => <span key={item.label} className="rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-[11px] text-amber-200">Add: {item.label}</span>)}</div> : <p className="mt-3 text-xs font-semibold text-emerald-300">Great work — all essential checklist items are complete.</p>}
+      </section>
 
       {/* Main Builder Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">

@@ -1043,12 +1043,32 @@ export class PaymentRepository {
         durationDays = snapDuration;
         membershipTier = snapshot.name;
 
+        const subscriptionActivatedAt = new Date().toISOString();
+        const subscriptionExpiresAt = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString();
+        const featureSnapshots = Array.isArray(snapshot.featureSnapshots) ? snapshot.featureSnapshots : [];
+        const nextEntitlements = { ...(user.subscriptionEntitlements || {}) };
+        for (const feature of featureSnapshots) {
+          const featureId = String(feature?.id || '');
+          if (!featureId) continue;
+          nextEntitlements[featureId] = {
+            enabled: true,
+            grantedAt: subscriptionActivatedAt,
+            expiresAt: subscriptionExpiresAt,
+            includedSlots: Number.isInteger(Number(feature.includedSlots)) ? Math.max(0, Number(feature.includedSlots)) : 0,
+            slotDurationDays: Number.isInteger(Number(feature.slotDurationDays)) ? Math.max(1, Number(feature.slotDurationDays)) : durationDays,
+            sourcePackageId: String(snapshot.id)
+          };
+        }
         let updatedUser: any = null;
         try {
           updatedUser = await UserRepository.updateAsync(user.id, {
             membershipTier: membershipTier,
             membershipStatus: 'Active',
-            subscriptionExpiresAt: new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString()
+            subscriptionExpiresAt,
+            ...(featureSnapshots.length ? {
+              subscriptionEntitlements: nextEntitlements,
+              subscriptionFeatureIds: featureSnapshots.map((feature: any) => String(feature.id))
+            } : {})
           });
         } catch (subErr: any) {
           await this.updateAsync(id, {

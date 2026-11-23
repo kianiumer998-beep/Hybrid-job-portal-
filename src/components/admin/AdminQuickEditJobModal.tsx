@@ -441,7 +441,6 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
 
               {/* Changing moderation status from scraper review could bypass approval workflow. */}
               {allowBulkStatusChange && (
-                {/* Status */}
                 <div className={`p-4 rounded-xl border transition-all ${bulkFields.applyStatus ? 'bg-slate-950 border-amber-500/60' : 'bg-slate-950/50 border-slate-800'}`}>
                   <label className="flex items-center space-x-2 cursor-pointer mb-2">
                     <input

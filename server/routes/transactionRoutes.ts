@@ -697,7 +697,22 @@ transactionRouter.post('/', async (req, res) => {
           if (!cvOwner) return res.status(404).json({ success: false, message: 'Your account could not be found.' });
           const existingPackageTransactions = await PaymentRepository.getAllAsync(effectiveUserId);
           const pendingPackagePurchase = existingPackageTransactions.find((item: any) => item && item.type === 'CV Design Purchase' && item.cvTemplateId === purchaseId && ['Pending', 'Verifying', 'VerificationUncertain'].includes(String(item.status)));
-          if (pendingPackagePurchase) return res.status(409).json({ success: false, transaction: pendingPackagePurchase, message: 'A payment for this CV package is already awaiting verification.' });
+          if (pendingPackagePurchase) {
+            const alreadyGranted = (Array.isArray(cvOwner.cvPackageEntitlements) ? cvOwner.cvPackageEntitlements : [])
+              .some((entry: any) => String(entry?.transactionId || '') === String(pendingPackagePurchase.id));
+            if (alreadyGranted && pendingPackagePurchase.paymentMethod === 'Wallet Balance' &&
+              ['Pending', 'VerificationUncertain'].includes(String(pendingPackagePurchase.status))) {
+              const reconciled = await PaymentRepository.updateAsync(pendingPackagePurchase.id, {
+                status: 'Success',
+                walletMutationState: 'DEDUCTED',
+                cvPackageEntitlementGranted: true,
+                verifiedAt: pendingPackagePurchase.verifiedAt || new Date().toISOString(),
+                adminNote: pendingPackagePurchase.adminNote || 'Wallet CV package purchase reconciled from the confirmed account entitlement.'
+              });
+              if (reconciled) return res.json({ success: true, transaction: reconciled, message: 'Your previous wallet CV package purchase has been reconciled and activated.' });
+            }
+            return res.status(409).json({ success: false, transaction: pendingPackagePurchase, message: 'A payment for this CV package is already awaiting verification.' });
+          }
           const packageName = String(selectedPackage.name || packageId).slice(0, 80);
           (req as any).cvPurchaseSnapshot = {
             kind: 'package',

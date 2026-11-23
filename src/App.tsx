@@ -4326,6 +4326,7 @@ export default function App() {
                             }}
                             onCv={() => setActiveTab('cv')}
                             onPostJob={handlePostJobClick}
+                            onPremiumClick={() => { setSelectedJobTitleForSub(''); setSelectedGate({ title: 'Premium Early Access', message: 'Unlock selected jobs before they become available to other members.' }); setPremiumUpgradeModalOpen(true); }}
                             filters={filters}
                             onFiltersChange={handleFiltersChange}
                           />
@@ -4343,6 +4344,7 @@ export default function App() {
                           }}
                           onCvClick={() => setActiveTab('cv')}
                           onPostJobClick={handlePostJobClick}
+                          onPremiumClick={() => { setSelectedJobTitleForSub(''); setSelectedGate({ title: 'Premium Early Access', message: 'Unlock selected jobs before they become available to other members.' }); setPremiumUpgradeModalOpen(true); }}
                         />
                       );
                     }

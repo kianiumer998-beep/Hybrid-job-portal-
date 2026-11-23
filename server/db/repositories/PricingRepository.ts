@@ -176,6 +176,7 @@ function buildAuthoritativeDefaults(): any {
       premiumAiOptimizerPkr: 500, unlimitedTemplatesPkr: 1000,
       freeDesignLimit: 2, freeCvLimit: 1, premiumCvLimit: 10, watermarkEnabled: true, watermarkFreeOnly: true,
       watermarkText: 'Hybrid Job Portal', watermarkOpacity: 0.16,
+      atsCompatibilityEnabled: true, aiWritingAssistantEnabled: false,
       templates: [
         { id: 'modern', name: 'Modern Clean', enabled: true, free: true, pricePkr: 0 },
         { id: 'executive', name: 'Executive Dark Sidebar', enabled: true, free: false, pricePkr: 300 },
@@ -290,6 +291,8 @@ function deepMergePricing(base: any, incoming: any): any {
     pdfExportPkr: Math.min(10000000, Math.max(0, Number(srcCvBuilder.pdfExportPkr ?? srcCvBuilder.standardPdfExportPkr ?? baseCvBuilder.pdfExportPkr ?? 0) || 0)),
     atsTextExportEnabled: srcCvBuilder.atsTextExportEnabled === undefined ? baseCvBuilder.atsTextExportEnabled !== false : srcCvBuilder.atsTextExportEnabled === true,
     atsTextExportPkr: Math.min(10000000, Math.max(0, Number(srcCvBuilder.atsTextExportPkr ?? baseCvBuilder.atsTextExportPkr ?? 0) || 0)),
+    atsCompatibilityEnabled: srcCvBuilder.atsCompatibilityEnabled === undefined ? baseCvBuilder.atsCompatibilityEnabled !== false : srcCvBuilder.atsCompatibilityEnabled === true,
+    aiWritingAssistantEnabled: srcCvBuilder.aiWritingAssistantEnabled === true,
     watermarkEnabled: srcCvBuilder.watermarkEnabled === undefined ? baseCvBuilder.watermarkEnabled !== false : srcCvBuilder.watermarkEnabled === true,
     watermarkFreeOnly: srcCvBuilder.watermarkFreeOnly === undefined ? baseCvBuilder.watermarkFreeOnly !== false : srcCvBuilder.watermarkFreeOnly === true,
     watermarkText: typeof srcCvBuilder.watermarkText === 'string'
@@ -671,7 +674,7 @@ export class PricingRepository {
       if (cv.watermarkText !== undefined && (typeof cv.watermarkText !== 'string' || cv.watermarkText.length > 80)) {
         throw new Error('cvBuilder.watermarkText must be text with a maximum of 80 characters.');
       }
-      for (const field of ['pdfExportEnabled', 'atsTextExportEnabled', 'watermarkEnabled', 'watermarkFreeOnly'] as const) {
+      for (const field of ['atsCompatibilityEnabled', 'aiWritingAssistantEnabled', 'pdfExportEnabled', 'atsTextExportEnabled', 'watermarkEnabled', 'watermarkFreeOnly'] as const) {
         if (cv[field] !== undefined && typeof cv[field] !== 'boolean') {
           throw new Error(`cvBuilder.${field} must be a boolean.`);
         }

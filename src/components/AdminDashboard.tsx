@@ -6278,7 +6278,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           };
           const mode = jobsSortBy.startsWith('scraped_') ? 'scraped' : jobsSortBy.startsWith('updated_') ? 'updated' : 'posted';
           const delta = dateValue(a, mode) - dateValue(b, mode);
-          return jobsSortBy === 'oldest' || jobsSortBy.endsWith('_oldest') ? delta : -delta;
+          return jobsSortBy.endsWith('_oldest') ? delta : -delta;
         });
 
         const allSelected = filteredLiveJobs.length > 0 && filteredLiveJobs.every(j => selectedJobIds.includes(j.id));

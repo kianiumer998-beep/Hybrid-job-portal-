@@ -1190,7 +1190,7 @@ export const AdminProfessionalSidebar: React.FC<AdminProfessionalSidebarProps> =
                   }`}
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <CatIcon className={`w-3.5 h-3.5 shrink-0 ${hasActiveChild ? 'text-amber-400' : 'text-slate-400'}`} />
+                    <CatIcon className={`w-4 h-4 shrink-0 ${hasActiveChild ? 'text-amber-400' : 'text-slate-400'}`} />
                     <div className="min-w-0">
                       <span className="block truncate">{cat.label}</span>
                       <span className="block text-[9px] leading-tight text-slate-500 truncate">{cat.description}</span>
@@ -1431,7 +1431,7 @@ export const AdminProfessionalMobileDrawer: React.FC<AdminProfessionalMobileDraw
                             <div className="min-w-0">
                               <span className="block text-[11px] font-bold truncate">{item.label}</span>
                               <span
-                                className={`block text-[10px] truncate ${
+                                className={`hidden sm:block text-[9px] truncate ${
                                   isCurrent ? 'text-slate-900' : 'text-slate-400'
                                 }`}
                               >

@@ -2,6 +2,15 @@ import { CommunicationProviderRepository } from '../db/repositories/Communicatio
 
 type DeliveryChannel = 'email' | 'whatsapp' | 'sms';
 
+function normalizePhoneNumber(value: unknown): string {
+  let phone = String(value || '').trim().replace(/[^0-9+]/g, '');
+  if (phone.startsWith('00')) phone = '+' + phone.slice(2);
+  if (/^03[0-9]{9}$/.test(phone)) phone = '+92' + phone.slice(1);
+  else if (/^3[0-9]{9}$/.test(phone)) phone = '+92' + phone;
+  else if (/^92[0-9]{10}$/.test(phone)) phone = '+' + phone;
+  return phone;
+}
+
 function basicAuth(value: string): string {
   return Buffer.from(value, 'utf8').toString('base64');
 }
@@ -41,7 +50,7 @@ export async function sendConfiguredPremiumAlert(user: any, channel: DeliveryCha
       return false;
     }
 
-    const rawPhone = String(user?.phone || user?.phoneNumber || '').replace(/[^0-9+]/g, '');
+    const rawPhone = normalizePhoneNumber(user?.phone || user?.phoneNumber);
     if (!rawPhone) return false;
     if (channel === 'whatsapp' && config.whatsappProvider === 'meta-cloud') {
       const token = await CommunicationProviderRepository.getDecryptedSecret('whatsappCloudApiToken');

@@ -260,13 +260,14 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     }
     const ownsSelectedDesignForExport = cvDesignEntitlements.some((item) => item.templateId === cvData.templateStyle);
     if ((!isSubscribed && !ownsSelectedDesignForExport && cvBuilderSettings.atsTextExportEnabled === false) || selectedTemplateConfig.atsExportEnabled === false) { onOpenPaywall(); return; }
+    let shouldApplyExportWatermark = exportWatermarkVisible;
     try {
       const authorization = onConsumeCvAction ? await onConsumeCvAction('ats', cvData.templateStyle) : { success: true };
       if (!authorization?.success) {
         setCvSaveMessage({ type: 'error', text: authorization?.message || 'ATS export is not available under your current CV entitlement.' });
         return;
       }
-      setExportNoWatermarkOverride(authorization.noWatermark === true);
+      shouldApplyExportWatermark = exportWatermarkVisible && authorization.noWatermark !== true;
     } catch (error: any) {
       setCvSaveMessage({ type: 'error', text: error?.message || 'ATS export authorization failed. Please try again.' });
       return;
@@ -293,7 +294,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     add('Research & Publications', extra.publications || []);
     add('References', extra.references || []);
     add('Additional Information', [extra.careerGapExplanation, extra.preferredEmploymentType, extra.noticePeriod, extra.domicile, extra.professionalRegistration].filter(Boolean) as string[]);
-    if (exportWatermarkVisible && !exportNoWatermarkOverride) lines.push('', String(selectedTemplateConfig.watermarkText || cvBuilderSettings.watermarkText || 'Hybrid Job Portal'));
+    if (shouldApplyExportWatermark) lines.push('', String(selectedTemplateConfig.watermarkText || cvBuilderSettings.watermarkText || 'Hybrid Job Portal'));
     const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -323,7 +324,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
         return;
       }
       setExportNoWatermarkOverride(authorization.noWatermark === true);
-      window.print();
+      window.setTimeout(() => window.print(), 80);
     } catch (error: any) {
       setCvSaveMessage({ type: 'error', text: error?.message || 'PDF export authorization failed. Please try again.' });
     }
@@ -978,7 +979,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
               }}
             >
               {previewWatermarkVisible && <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center overflow-hidden print:hidden"><span className="whitespace-nowrap text-3xl font-black uppercase tracking-widest text-slate-500" style={{ transform: "rotate(-35deg)", opacity: Math.min(0.35, Math.max(0.05, Number(selectedTemplateConfig.watermarkOpacity ?? cvBuilderSettings.watermarkOpacity ?? 0.16))) }}>{String(selectedTemplateConfig.watermarkText || cvBuilderSettings.watermarkText || 'Hybrid Job Portal')} · PREVIEW</span></div>}
-              {exportWatermarkVisible && <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 hidden print:flex items-center justify-center overflow-hidden"><span className="whitespace-nowrap text-3xl font-black uppercase tracking-widest text-slate-500" style={{ transform: "rotate(-35deg)", opacity: Math.min(0.35, Math.max(0.05, Number(selectedTemplateConfig.watermarkOpacity ?? cvBuilderSettings.watermarkOpacity ?? 0.16))) }}>{String(selectedTemplateConfig.watermarkText || cvBuilderSettings.watermarkText || 'Hybrid Job Portal')}</span></div>}
+              {exportWatermarkVisible && !exportNoWatermarkOverride && <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 hidden print:flex items-center justify-center overflow-hidden"><span className="whitespace-nowrap text-3xl font-black uppercase tracking-widest text-slate-500" style={{ transform: "rotate(-35deg)", opacity: Math.min(0.35, Math.max(0.05, Number(selectedTemplateConfig.watermarkOpacity ?? cvBuilderSettings.watermarkOpacity ?? 0.16))) }}>{String(selectedTemplateConfig.watermarkText || cvBuilderSettings.watermarkText || 'Hybrid Job Portal')}</span></div>}
               {/* CV Header */}
               <div className="border-b-2 pb-3 flex items-start justify-between gap-4" style={{ borderColor: cvData.themeColor }}>
                 <div className="flex-1">

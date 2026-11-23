@@ -64,7 +64,7 @@ export function buildEarlyAccessDisplayJob(job: any, config: EarlyAccessConfig):
     display.sourceLabel = String(job.scraperSourceName || job.sourcePortal || job.sourceWebsite || display.sourceType);
   }
 
-  const rawStart = job.approvedAt || job.publishedAt || job.createdAt || job.postedAt || job.datePosted;
+  const rawStart = job.approvedAt || job.verifiedDate || job.publishedAt || job.createdAt || job.postedAt || job.datePosted;
   const start = rawStart ? new Date(rawStart).getTime() : Number.NaN;
   const durationHours = Math.min(8760, Math.max(1, Number(config.durationHours) || 24));
   display.earlyAccessEndsAt = Number.isFinite(start) ? new Date(start + durationHours * 60 * 60 * 1000).toISOString() : null;

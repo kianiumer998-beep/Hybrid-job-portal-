@@ -3394,14 +3394,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             {/* PROFESSIONAL MOBILE BAR (VISIBLE ALL MODULES & DRAWER TRIGGER, NO HIDDEN TRIGGER) */}
             {navMode === 'professional' && (
-              <div className="lg:hidden flex flex-wrap items-center justify-between gap-2 bg-slate-900 border border-slate-800 rounded-xl p-2.5">
+              <div className="lg:hidden flex flex-wrap items-center justify-between gap-1.5 bg-slate-900 border border-slate-800 rounded-lg p-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <button
                     type="button"
                     onClick={() => setIsProMobileDrawerOpen(true)}
                     aria-expanded={isProMobileDrawerOpen}
                     aria-label="Open Professional Navigation Drawer"
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-950 hover:bg-slate-800 text-amber-400 border border-amber-500/30 text-xs font-bold whitespace-nowrap cursor-pointer"
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-slate-950 hover:bg-slate-800 text-amber-400 border border-amber-500/30 text-[11px] font-bold whitespace-nowrap cursor-pointer"
                   >
                     <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
                     <span>Categories &amp; Menu</span>
@@ -3410,7 +3410,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     type="button"
                     onClick={() => setShowAllModulesMenu(true)}
                     aria-label="Open all modules menu"
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black whitespace-nowrap cursor-pointer"
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-black whitespace-nowrap cursor-pointer"
                   >
                     <MoreVertical className="w-3.5 h-3.5 shrink-0" />
                     <span>All Modules</span>
@@ -3426,10 +3426,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             {/* 3-DOT ALL MODULES QUICK MODAL OVERLAY */}
             {showAllModulesMenu && (
-              <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-2.5 sm:p-4">
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl max-w-4xl w-full p-3.5 sm:p-6 shadow-2xl space-y-3 sm:space-y-5 text-white max-h-[92vh] flex flex-col animate-fadeIn">
+              <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-start sm:items-center justify-center p-1.5 sm:p-4">
+                <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-3xl max-w-4xl w-full p-2.5 sm:p-6 shadow-2xl space-y-2.5 sm:space-y-5 text-white max-h-[calc(100dvh-0.75rem)] sm:max-h-[92vh] flex flex-col animate-fadeIn">
                   {/* Modal Header */}
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2.5 sm:pb-4">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2 sm:pb-4">
                     <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
                       <div className="p-1.5 sm:p-2.5 rounded-xl sm:rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
                         <MoreVertical className="w-4 h-4 sm:w-6 sm:h-6" />
@@ -3441,7 +3441,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             Switcher
                           </span>
                         </h3>
-                        <p className="text-[10px] sm:text-xs text-slate-400 truncate">
+                        <p className="hidden sm:block text-[10px] sm:text-xs text-slate-400 truncate">
                           Filter by module name or purpose to jump instantly without horizontal scrolling.
                         </p>
                       </div>
@@ -3465,13 +3465,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       value={moduleSearchQuery}
                       onChange={(e) => setModuleSearchQuery(e.target.value)}
                       placeholder="Search any module by English, Urdu, ID, keyword or category (e.g. 'jazzcash', 'scraper', 'seo', 'cities')..."
-                      className="w-full pl-8 sm:pl-10 pr-3 sm:pr-4 py-2 sm:py-2.5 bg-slate-950 border border-slate-800 rounded-xl sm:rounded-2xl text-[11px] sm:text-xs text-white placeholder-slate-500 outline-none focus:border-amber-500 shadow-inner"
+                      className="w-full pl-8 sm:pl-10 pr-3 sm:pr-4 py-1.5 sm:py-2.5 bg-slate-950 border border-slate-800 rounded-lg sm:rounded-2xl text-[11px] sm:text-xs text-white placeholder-slate-500 outline-none focus:border-amber-500 shadow-inner"
                       autoFocus
                     />
                   </div>
 
                   {/* Modules Grid */}
-                  <div className="flex-1 overflow-y-auto pr-1 space-y-5">
+                  <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-3 sm:space-y-5">
                     {(navMode === 'professional'
                       ? buildProfessionalAllModulesMenuGroups(navCounts)
                       : buildAllModulesMenuGroups(navCounts)
@@ -3494,11 +3494,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       if (filteredItems.length === 0) return null;
 
                       return (
-                        <div key={idx} className="space-y-2.5">
+                        <div key={idx} className="space-y-1.5 sm:space-y-2.5">
                           <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">
                             {cat.catTitle}
                           </h4>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 sm:gap-2.5">
                             {filteredItems.map((item) => {
                               const Icon = item.icon;
                               const isCurrent = activeCanonicalTab === item.id;
@@ -3511,13 +3511,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                       setShowAllModulesMenu(false);
                                     }
                                   }}
-                                  className={`p-2 sm:p-3 rounded-xl sm:rounded-2xl border text-left flex items-start space-x-2 sm:space-x-3 transition-all cursor-pointer ${
+                                  className={`p-1.5 sm:p-3 rounded-lg sm:rounded-2xl border text-left flex items-center sm:items-start space-x-2 sm:space-x-3 transition-all cursor-pointer ${
                                     isCurrent
                                       ? 'bg-amber-500/20 border-amber-500 text-white shadow-md sm:shadow-lg shadow-amber-500/10'
                                       : 'bg-slate-950/80 border-slate-800 hover:border-slate-700 hover:bg-slate-900 text-slate-300'
                                   }`}
                                 >
-                                  <div className={`p-1.5 sm:p-2 rounded-lg sm:rounded-xl shrink-0 ${isCurrent ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 text-amber-400 border border-slate-800'}`}>
+                                  <div className={`p-1 sm:p-2 rounded-md sm:rounded-xl shrink-0 ${isCurrent ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 text-amber-400 border border-slate-800'}`}>
                                     <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                                   </div>
                                   <div className="min-w-0 flex-1">
@@ -3529,7 +3529,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                         </span>
                                       )}
                                     </div>
-                                    <span className="text-[9px] sm:text-[10px] text-slate-400 block mt-0.5 truncate">{item.description || item.urdu}</span>
+                                    <span className="hidden sm:block text-[9px] sm:text-[10px] text-slate-400 mt-0.5 truncate">{item.description || item.urdu}</span>
                                   </div>
                                 </button>
                               );
@@ -3541,12 +3541,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
 
                   {/* Modal Footer */}
-                  <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs text-slate-400">
-                    <span>💡 Tip: Click any module card to navigate immediately.</span>
+                  <div className="flex items-center justify-between pt-2 sm:pt-3 border-t border-slate-800 text-[10px] sm:text-xs text-slate-400">
+                    <span className="hidden sm:inline">💡 Tip: Click any module card to navigate immediately.</span>
                     <button
                       type="button"
                       onClick={() => setShowAllModulesMenu(false)}
-                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl cursor-pointer"
+                      className="px-3 py-1.5 sm:px-4 sm:py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-[11px] sm:text-xs rounded-lg sm:rounded-xl cursor-pointer"
                     >
                       Close Menu
                     </button>

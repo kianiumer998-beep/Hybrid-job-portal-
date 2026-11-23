@@ -1168,6 +1168,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
                         <input type="number" min="1" max="2160" step="1" value={placement.minDurationHours ?? 1}
                           onChange={(e) => handleUpdatePlacementRate(placement.id, { minDurationHours: Math.min(2160, Math.max(1, Math.floor(Number(e.target.value) || 1))) })}
                           className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-xs font-mono text-white" />
+                        <span className="mt-1 block text-[9px] font-normal text-slate-500">1 = one hour; 24 = one day; custom hours allowed</span>
                       </label>
                       <label className="text-[10px] font-bold text-slate-400">
                         Percentage Uplift (% Extra)
@@ -1181,13 +1182,14 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
                           placeholder="Leave blank to use multiplier + uplift"
                           onChange={(e) => {
                             const raw = e.target.value;
-                            handleUpdatePlacementRate(placement.id, { fixedPriceOverridePkr: raw === '' ? undefined : Math.min(10000000, Math.max(0, Number(raw) || 0)) });
+                            const amount = raw === '' ? 0 : Number(raw);
+                            handleUpdatePlacementRate(placement.id, { fixedPriceOverridePkr: !Number.isFinite(amount) || amount <= 0 ? undefined : Math.min(10000000, amount) });
                           }}
                           className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-xs font-mono text-white" />
                       </label>
                     </div>
                     <div className="rounded-lg bg-teal-500/5 px-2.5 py-2 text-[10px] text-slate-300">
-                      Summary: min {Math.max(1, Number(placement.minDurationHours) || 1)}h · {Number(editablePricing.placementMultipliers?.[placement.id] ?? placement.multiplier ?? 1).toFixed(2)}x multiplier · {Number(placement.percentageUpliftPercent || 0)}% extra · {Number(placement.fixedPriceOverridePkr || 0) > 0 ? `PKR ${Number(placement.fixedPriceOverridePkr).toLocaleString()} fixed` : 'dynamic rate'}
+                      Summary: min {Math.max(1, Number(placement.minDurationHours) || 1)}h · {Number(placement.fixedPriceOverridePkr || 0) > 0 ? `PKR ${Number(placement.fixedPriceOverridePkr).toLocaleString()} flat (overrides multiplier/uplift)` : `${Number(editablePricing.placementMultipliers?.[placement.id] ?? placement.multiplier ?? 1).toFixed(2)}x + ${Number(placement.percentageUpliftPercent || 0)}% extra`}
                     </div>
                   </div>
                 ))}

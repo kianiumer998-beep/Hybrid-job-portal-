@@ -1076,6 +1076,40 @@ export class PaymentRepository {
         });
       } else if (tx.type === 'CV Design Purchase') {
         const snapshot = tx.cvPurchaseSnapshot;
+        if (snapshot?.kind === 'package') {
+          const packageId = String(snapshot.packageId || '').trim();
+          const snapshotPrice = Number(snapshot.pricePkr);
+          const transactionAmount = Number(tx.amount);
+          const durationDays = Number(snapshot.durationDays);
+          const quotaFields = ['cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit'];
+          const validQuotas = quotaFields.every((field) => Number.isInteger(Number(snapshot[field])) && Number(snapshot[field]) >= 0 && Number(snapshot[field]) <= 10000);
+          if (!tx.userId || !packageId || !Number.isInteger(durationDays) || durationDays <= 0 || durationDays > 3650 ||
+            !Number.isFinite(snapshotPrice) || snapshotPrice <= 0 || !Number.isFinite(transactionAmount) ||
+            Math.abs(snapshotPrice - transactionAmount) > 0.01 || !validQuotas) {
+            await this.updateAsync(id, { status: 'VerificationUncertain', rejectionReason: 'CV package purchase details or server price/quota snapshot are missing or inconsistent.', updatedAt: new Date().toISOString() });
+            throw new Error('Cannot approve CV package purchase: its server-verified package and price details are invalid.');
+          }
+          try {
+            const user = await UserRepository.getByIdAsync(String(tx.userId));
+            if (!user) throw new Error('The purchasing user account could not be found.');
+            const updatedUser = await UserRepository.grantCvPackageEntitlementAsync(user.id, snapshot, String(tx.id));
+            if (!updatedUser) throw new Error('The CV package entitlement could not be saved to the user account.');
+            await this.updateAsync(id, {
+              status: 'Success',
+              cvPackageEntitlementGranted: true,
+              verifiedAt: new Date().toISOString(),
+              adminNote: note || 'CV package payment verified and quota package activated.'
+            });
+          } catch (packageErr: any) {
+            await this.updateAsync(id, {
+              status: 'VerificationUncertain',
+              rejectionReason: packageErr?.message || 'CV package entitlement update is uncertain; manual reconciliation is required.',
+              updatedAt: new Date().toISOString()
+            });
+            throw packageErr;
+          }
+        } else {
+
         const templateId = String(snapshot?.templateId || tx.cvTemplateId || '').trim();
         const templateName = String(snapshot?.templateName || '').trim();
         const snapshotPrice = Number(snapshot?.pricePkr);
@@ -1116,6 +1150,7 @@ export class PaymentRepository {
             updatedAt: new Date().toISOString()
           });
           throw purchaseErr;
+        }
         }
       } else if (tx.type === 'Job Posting Fee' || tx.type === 'Job Posting') {
         if (!tx.jobIdRef) {

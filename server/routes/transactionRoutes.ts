@@ -782,7 +782,7 @@ transactionRouter.post('/', async (req, res) => {
         (req as any).packageSnapshot = {
           id: targetPackage.id,
           name: targetPackage.name,
-          pricePkr: targetPackage.pricePkr,
+          pricePkr: resolvedPackage.pricePkr,
           durationDays: targetPackage.durationDays,
           featureIds: resolvedPackage.featureIds,
           featureSnapshots: resolvedPackage.featureSnapshots,

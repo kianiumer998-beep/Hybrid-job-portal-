@@ -284,6 +284,75 @@ export class UserRepository {
   }
 
   /**
+   * Idempotently deducts wallet funds for a durable operation such as subscription auto-renewal.
+   * The operation marker and wallet debit are written atomically in MongoDB.
+   */
+  static async deductWalletBalanceOnceAsync(
+    userId: string,
+    amount: number,
+    operationKey: string,
+    extraUpdates?: Record<string, any>
+  ): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanKey = String(operationKey || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+    if (!cleanUserId || !cleanKey) throw new Error('Valid user and wallet operation references are required.');
+    if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('Wallet deduction must be a positive whole PKR amount.');
+    const marker = `walletEscrowOperations.${cleanKey}`;
+    const updatedAt = new Date().toISOString();
+    const setPayload: Record<string, any> = { ...(extraUpdates || {}), [marker]: 'DEDUCTED', updatedAt };
+    delete setPayload._id;
+    delete setPayload.id;
+    delete setPayload.walletBalance;
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const operations = existing.walletEscrowOperations || {};
+      if (operations[cleanKey] === 'DEDUCTED') return existing;
+      const balance = Number(existing.walletBalance || 0);
+      if (!Number.isFinite(balance) || balance < amount) return null;
+      const updated = {
+        ...existing,
+        ...extraUpdates,
+        walletBalance: balance - amount,
+        walletEscrowOperations: { ...operations, [cleanKey]: 'DEDUCTED' },
+        updatedAt
+      };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        { id: cleanUserId, walletBalance: { $gte: amount }, [marker]: { $ne: 'DEDUCTED' } },
+        { $inc: { walletBalance: -amount }, $set: setPayload },
+        { returnDocument: 'after' }
+      );
+      if (updatedDoc) {
+        const { _id, ...safe } = updatedDoc;
+        return safe;
+      }
+      const existing = await coll.findOne({ id: cleanUserId, [marker]: 'DEDUCTED' });
+      if (existing) {
+        const { _id, ...safe } = existing;
+        return safe;
+      }
+      return null;
+    }
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    const operations = existing.walletEscrowOperations || {};
+    if (operations[cleanKey] === 'DEDUCTED') return existing;
+    const balance = Number(existing.walletBalance || 0);
+    if (!Number.isFinite(balance) || balance < amount) return null;
+    return Database.updateUser(cleanUserId, {
+      ...extraUpdates,
+      walletBalance: balance - amount,
+      walletEscrowOperations: { ...operations, [cleanKey]: 'DEDUCTED' },
+      updatedAt
+    });
+  }
+
+  /**
    * Atomically credits a positive amount to a user's walletBalance.
    * Mutates balance via atomic MongoDB $inc: { walletBalance: amount }.
    * Returns the updated user (without _id), or null if user does not exist.

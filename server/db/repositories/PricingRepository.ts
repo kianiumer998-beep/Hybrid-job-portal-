@@ -400,7 +400,19 @@ function deepMergePricing(base: any, incoming: any): any {
       exemptUserEmails: syncedExemptEmails
     },
     subscriptionPackages: Array.isArray(src.subscriptionPackages)
-      ? src.subscriptionPackages
+      ? src.subscriptionPackages.map((pkg: any) => ({
+          ...pkg,
+          cvBenefitsEnabled: pkg?.cvBenefitsEnabled === true,
+          cvBenefits: {
+            cvCreateLimit: Math.min(10000, Math.max(0, Math.floor(Number(pkg?.cvBenefits?.cvCreateLimit) || 0))),
+            editLimit: Math.min(10000, Math.max(0, Math.floor(Number(pkg?.cvBenefits?.editLimit) || 0))),
+            pdfExportLimit: Math.min(10000, Math.max(0, Math.floor(Number(pkg?.cvBenefits?.pdfExportLimit) || 0))),
+            atsExportLimit: Math.min(10000, Math.max(0, Math.floor(Number(pkg?.cvBenefits?.atsExportLimit) || 0))),
+            shareLimit: Math.min(10000, Math.max(0, Math.floor(Number(pkg?.cvBenefits?.shareLimit) || 0))),
+            noWatermark: pkg?.cvBenefits?.noWatermark === true,
+            premiumDesignIds: Array.isArray(pkg?.cvBenefits?.premiumDesignIds) ? Array.from(new Set(pkg.cvBenefits.premiumDesignIds.filter((id: any) => typeof id === 'string').map((id: string) => id.trim()).filter(Boolean))).slice(0, 30) : []
+          }
+        }))
       : (base.subscriptionPackages || []),
     earlyAccess: {
       ...(base.earlyAccess || {}),
@@ -745,6 +757,9 @@ export class PricingRepository {
             if (!Number.isInteger(value) || value < 0 || value > 10000) {
               throw new Error(`Subscription package "${pkg.id}" CV benefit ${field} must be a whole number from 0 to 10000`);
             }
+          }
+          if (benefits.premiumDesignIds !== undefined && (!Array.isArray(benefits.premiumDesignIds) || benefits.premiumDesignIds.length > 30 || benefits.premiumDesignIds.some((id: any) => typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(id)))) {
+            throw new Error(`Subscription package "${pkg.id}" CV premiumDesignIds must be up to 30 valid design IDs.`);
           }
           if (benefits.noWatermark !== undefined && typeof benefits.noWatermark !== 'boolean') {
             throw new Error(`Subscription package "${pkg.id}" CV noWatermark must be a boolean`);

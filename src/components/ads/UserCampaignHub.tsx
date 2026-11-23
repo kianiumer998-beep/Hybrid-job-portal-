@@ -312,6 +312,11 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       alert('This campaign placement is currently disabled by the administrator. Please select an available placement.');
       return;
     }
+    const minimumDurationHours = Math.max(1, Math.floor(Number(selectedPlacementOpt.minDurationHours) || 1));
+    if (costCalculation.durationHours < minimumDurationHours) {
+      alert(`The minimum campaign duration for this placement is ${minimumDurationHours} hour(s). Please choose a longer duration.`);
+      return;
+    }
     if (isAtCapacity) {
       alert('All slots for this placement are currently reserved. Please try again after a slot becomes available.');
       return;

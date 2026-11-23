@@ -132,7 +132,7 @@ export const AdminSeoSettings: React.FC<AdminSeoSettingsProps> = ({
   };
 
   return (
-    <form onSubmit={handleSave} className="space-y-6 text-white">
+    <form onSubmit={handleSave} className="admin-settings-mobile-compact space-y-6 text-white">
       {/* Header Banner */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>

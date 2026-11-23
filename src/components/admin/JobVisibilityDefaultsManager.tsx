@@ -402,7 +402,7 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="admin-settings-mobile-compact space-y-6">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
         <div>

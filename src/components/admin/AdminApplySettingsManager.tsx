@@ -130,7 +130,7 @@ export const AdminApplySettingsManager: React.FC = () => {
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-300">
+    <div className="admin-settings-mobile-compact space-y-8 animate-in fade-in duration-300">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-6">
         <div>

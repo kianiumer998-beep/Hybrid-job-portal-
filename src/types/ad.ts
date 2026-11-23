@@ -215,6 +215,8 @@ export interface CampaignPlacementOption {
   isEnabled: boolean;
   isFreeOverride?: boolean; // Admin can make this specific placement completely free
   fixedPriceOverridePkr?: number; // Override dynamic calculation with flat fee
+  minDurationHours?: number; // Minimum bookable duration for this placement
+  percentageUpliftPercent?: number; // Additional percentage on top of the existing multiplier
   maxConcurrentSlots?: number; // e.g. 3 simultaneous banners
   allowedPageIds?: string[];
 }
@@ -1059,6 +1061,7 @@ export function calculateCampaignCost(
   durationDisplay: string;
   isFreeOverride?: boolean;
   fixedPriceOverridePkr?: number;
+  percentageUpliftPercent?: number;
 } {
   const effectivePricing: AdPricingConfig = pricing || DEFAULT_AD_PRICING_CONFIG;
   const campaignConfig: CampaignCustomizationConfig | undefined =
@@ -1159,6 +1162,7 @@ export function calculateCampaignCost(
     matchedPlacementOption.fixedPriceOverridePkr > 0
       ? matchedPlacementOption.fixedPriceOverridePkr
       : undefined;
+  const percentageUpliftPercent = Math.min(1000, Math.max(0, Number(matchedPlacementOption?.percentageUpliftPercent) || 0));
 
   let totalCostPkr: number;
   if (isFreeOverride) {
@@ -1166,7 +1170,7 @@ export function calculateCampaignCost(
   } else if (fixedPriceOverridePkr !== undefined) {
     totalCostPkr = Math.round(fixedPriceOverridePkr) + smsFee;
   } else {
-    const calculatedSubtotal = Math.round(baseRate * pMultiplier * pageMultiplier);
+    const calculatedSubtotal = Math.round(baseRate * pMultiplier * pageMultiplier * (1 + percentageUpliftPercent / 100));
     totalCostPkr = Math.max(effectivePricing.hourlyRatePkr, calculatedSubtotal + smsFee);
   }
 
@@ -1179,7 +1183,8 @@ export function calculateCampaignCost(
     durationHours,
     durationDisplay,
     isFreeOverride,
-    fixedPriceOverridePkr
+    fixedPriceOverridePkr,
+    percentageUpliftPercent
   };
 }
 

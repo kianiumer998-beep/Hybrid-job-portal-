@@ -1329,12 +1329,12 @@ export const AdminProfessionalMobileDrawer: React.FC<AdminProfessionalMobileDraw
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className="relative z-10 w-80 max-w-[88vw] h-full bg-slate-900 border-r border-slate-800 flex flex-col shadow-2xl overflow-x-hidden">
+      <div className="relative z-10 w-[min(19rem,88vw)] max-w-[88vw] h-full bg-slate-900 border-r border-slate-800 flex flex-col shadow-2xl overflow-x-hidden">
         {/* Drawer Header */}
-        <div className="p-3.5 border-b border-slate-800 flex items-center justify-between gap-2">
+        <div className="p-2.5 border-b border-slate-800 flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="text-sm font-black text-white truncate">Professional Admin Menu</h3>
-            <p className="text-[11px] text-slate-400 truncate">Choose a category, then a module</p>
+            <h3 className="text-xs font-black text-white truncate">Professional Admin Menu</h3>
+            <p className="text-[10px] text-slate-400 truncate">Choose a category, then a module</p>
           </div>
           <button
             type="button"
@@ -1347,7 +1347,7 @@ export const AdminProfessionalMobileDrawer: React.FC<AdminProfessionalMobileDraw
         </div>
 
         {/* Searchable Module Input */}
-        <div className="p-3 border-b border-slate-800">
+        <div className="p-2 border-b border-slate-800">
           <div className="relative">
             <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
@@ -1356,7 +1356,7 @@ export const AdminProfessionalMobileDrawer: React.FC<AdminProfessionalMobileDraw
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search modules, purpose or category..."
               aria-label="Search modules in mobile drawer"
-              className="w-full pl-9 pr-8 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+              className="w-full pl-9 pr-8 py-2 bg-slate-950 border border-slate-800 rounded-lg text-[11px] text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
             />
             {searchQuery && (
               <button
@@ -1372,7 +1372,7 @@ export const AdminProfessionalMobileDrawer: React.FC<AdminProfessionalMobileDraw
         </div>
 
         {/* Categories & Modules */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3">
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-2 space-y-2">
           {categories.length === 0 ? (
             <div className="text-center py-8 text-xs text-slate-400">
               No matching modules found.
@@ -1386,24 +1386,24 @@ export const AdminProfessionalMobileDrawer: React.FC<AdminProfessionalMobileDraw
                     type="button"
                     onClick={() => setExpandedCategoryId((prev) => (prev === cat.id ? null : cat.id))}
                     aria-expanded={searchQuery.trim().length > 0 || expandedCategoryId === cat.id}
-                    className="w-full flex items-center justify-between gap-2 px-3 py-3 text-left bg-slate-950/70"
+                    className="w-full flex items-center justify-between gap-2 px-2.5 py-2 text-left bg-slate-950/70"
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <CatIcon className="w-4 h-4 text-amber-400 shrink-0" />
+                      <CatIcon className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                       <div className="min-w-0">
-                        <span className="block text-xs font-black text-amber-300 truncate">{cat.label}</span>
-                        <span className="block text-[10px] text-slate-500 line-clamp-2">{cat.description}</span>
+                        <span className="block text-[11px] font-black text-amber-300 truncate">{cat.label}</span>
+                        <span className="hidden sm:block text-[9px] text-slate-500 truncate">{cat.description}</span>
                       </div>
                     </div>
                     <span className="flex items-center gap-1.5 shrink-0 text-[10px] text-slate-400 tabular-nums">
-                      {cat.items.length} modules
+                      {cat.items.length}
                       {(searchQuery.trim().length > 0 || expandedCategoryId === cat.id)
                         ? <ChevronDown className="w-3.5 h-3.5" />
                         : <ChevronRight className="w-3.5 h-3.5" />}
                     </span>
                   </button>
                   {(searchQuery.trim().length > 0 || expandedCategoryId === cat.id) && (
-                  <div className="p-2 space-y-1">
+                  <div className="p-1.5 space-y-1">
                     {cat.items.map((item) => {
                       const ItemIcon = item.icon;
                       const isCurrent = item.id === canonicalTab;
@@ -1416,22 +1416,22 @@ export const AdminProfessionalMobileDrawer: React.FC<AdminProfessionalMobileDraw
                             onClose();
                           }}
                           aria-current={isCurrent ? 'page' : undefined}
-                          className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-left border transition-all cursor-pointer ${
+                          className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg text-left border transition-all cursor-pointer ${
                             isCurrent
                               ? 'bg-amber-500 text-slate-950 border-amber-400 font-black'
                               : 'bg-slate-950/70 text-slate-200 border-slate-800 hover:bg-slate-800'
                           }`}
                         >
-                          <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="flex items-center gap-2 min-w-0">
                             <ItemIcon
                               className={`w-4 h-4 shrink-0 ${
                                 isCurrent ? 'text-slate-950' : 'text-amber-400'
                               }`}
                             />
                             <div className="min-w-0">
-                              <span className="block text-xs font-bold truncate">{item.label}</span>
+                              <span className="block text-[11px] font-bold truncate">{item.label}</span>
                               <span
-                                className={`block text-[10px] truncate ${
+                                className={`hidden sm:block text-[9px] truncate ${
                                   isCurrent ? 'text-slate-900' : 'text-slate-400'
                                 }`}
                               >
@@ -1441,7 +1441,7 @@ export const AdminProfessionalMobileDrawer: React.FC<AdminProfessionalMobileDraw
                           </div>
                           {item.badge && (
                             <span
-                              className={`text-[10px] font-mono tabular-nums px-1.5 py-0.5 rounded shrink-0 font-bold ${
+                              className={`text-[9px] font-mono tabular-nums px-1 py-0.5 rounded shrink-0 font-bold ${
                                 isCurrent
                                   ? 'bg-slate-950 text-amber-300'
                                   : 'bg-slate-900 text-amber-300 border border-slate-800'
@@ -1462,14 +1462,14 @@ export const AdminProfessionalMobileDrawer: React.FC<AdminProfessionalMobileDraw
         </div>
 
         {/* Footer */}
-        <div className="p-3 border-t border-slate-800 bg-slate-950/80 flex items-center gap-2">
+        <div className="p-2 border-t border-slate-800 bg-slate-950/80 flex items-center gap-2">
           <button
             type="button"
             onClick={() => {
               onClose();
               onOpenAllModules();
             }}
-            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-amber-500 text-slate-950 font-black text-xs cursor-pointer"
+            className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg bg-amber-500 text-slate-950 font-black text-[11px] cursor-pointer"
           >
             <MoreVertical className="w-3.5 h-3.5" />
             <span>All Modules</span>

@@ -517,7 +517,7 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
   };
 
   return (
-    <div className="space-y-6 text-slate-100 animate-fade-in">
+    <div className="admin-settings-mobile-compact space-y-6 text-slate-100 animate-fade-in">
       {/* Top Banner */}
       <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center space-x-3">

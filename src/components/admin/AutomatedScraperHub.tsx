@@ -2464,7 +2464,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   ];
 
   return (
-    <div className="space-y-6 text-slate-100">
+    <div className="admin-settings-mobile-compact space-y-6 text-slate-100">
       {/* TOP HEADER & REAL-TIME SCHEDULER BANNER */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

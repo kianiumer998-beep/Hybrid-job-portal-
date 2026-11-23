@@ -122,12 +122,46 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
   // Pricing Matrix Form State
   const [editablePricing, setEditablePricing] = useState<AdPricingConfig>(pricingConfig);
+  const [editableCampaignConfig, setEditableCampaignConfig] = useState<CampaignCustomizationConfig>(campaignConfig);
+  const [isPlacementRatesSaving, setIsPlacementRatesSaving] = useState(false);
+  const [isPlacementRatesSaved, setIsPlacementRatesSaved] = useState(false);
 
   useEffect(() => {
     setEditablePricing(pricingConfig);
   }, [pricingConfig]);
+  useEffect(() => {
+    setEditableCampaignConfig(campaignConfig);
+  }, [campaignConfig]);
   const [isPricingSaved, setIsPricingSaved] = useState<boolean>(false);
   const [isPricingSaving, setIsPricingSaving] = useState<boolean>(false);
+
+  const handleSavePlacementRates = async () => {
+    if (!onUpdateCampaignConfig) {
+      alert('Placement rate settings save is unavailable. Please contact the administrator.');
+      return;
+    }
+    setIsPlacementRatesSaving(true);
+    setIsPlacementRatesSaved(false);
+    try {
+      await onUpdateCampaignConfig(editableCampaignConfig);
+      setIsPlacementRatesSaved(true);
+      setTimeout(() => setIsPlacementRatesSaved(false), 3000);
+    } catch (error: any) {
+      console.error('[AdminAdHub] Failed to save placement rate settings:', error);
+      alert(error?.message || 'Placement rate settings could not be saved. Please try again.');
+    } finally {
+      setIsPlacementRatesSaving(false);
+    }
+  };
+
+  const handleUpdatePlacementRate = (placementId: AdPlacement, updates: Partial<CampaignCustomizationConfig['placementOptions'][number]>) => {
+    setEditableCampaignConfig((previous) => ({
+      ...previous,
+      placementOptions: previous.placementOptions.map((option) =>
+        option.id === placementId ? { ...option, ...updates } : option
+      )
+    }));
+  };
 
   // Form State for Create/Edit
   const [formTitle, setFormTitle] = useState('');
@@ -407,10 +441,10 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
   });
 
   return (
-    <div className="space-y-6 text-white">
+    <div className="admin-settings-mobile-compact space-y-6 text-white">
       
       {/* Top Metrics Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-4">
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg flex items-center space-x-3.5">
           <div className="w-11 h-11 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
             <Clock className="w-5 h-5" />
@@ -463,10 +497,10 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
       </div>
 
       {/* Main Admin Sub-Tabs Navigation */}
-      <div className="flex items-center space-x-2 border-b border-slate-800 pb-3 overflow-x-auto text-xs font-bold">
+      <div className="flex flex-nowrap items-center space-x-2 border-b border-slate-800 pb-3 overflow-x-auto overscroll-x-contain touch-pan-x text-xs font-bold">
         <button
           onClick={() => setActiveTab('approvals')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 whitespace-nowrap ${
             activeTab === 'approvals'
               ? 'bg-amber-500 text-slate-950 font-extrabold shadow-lg shadow-amber-500/20'
               : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
@@ -478,7 +512,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
         <button
           onClick={() => setActiveTab('slots')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 whitespace-nowrap ${
             activeTab === 'slots'
               ? 'bg-emerald-500 text-slate-950 font-extrabold shadow-lg shadow-emerald-500/20'
               : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
@@ -490,7 +524,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
         {canManageAdConfiguration && isPricingReady && <button
           onClick={() => setActiveTab('customizer')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 whitespace-nowrap ${
             activeTab === 'customizer'
               ? 'bg-indigo-500 text-white font-extrabold shadow-lg shadow-indigo-500/20'
               : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
@@ -502,7 +536,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
         <button
           onClick={() => setActiveTab('directory')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 whitespace-nowrap ${
             activeTab === 'directory'
               ? 'bg-emerald-500 text-slate-950 font-extrabold shadow-lg shadow-emerald-500/20'
               : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
@@ -514,7 +548,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
         {canManageAdConfiguration && isPricingReady && <button
           onClick={() => setActiveTab('pricing')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 whitespace-nowrap ${
             activeTab === 'pricing'
               ? 'bg-emerald-500 text-slate-950 font-extrabold shadow-lg shadow-emerald-500/20'
               : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
@@ -526,7 +560,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
         <button
           onClick={() => setActiveTab('performance')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 whitespace-nowrap ${
             activeTab === 'performance'
               ? 'bg-gradient-to-r from-teal-500 to-indigo-500 text-white font-extrabold shadow-lg shadow-teal-500/20'
               : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
@@ -1098,6 +1132,64 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
                         }}
                         className="w-full px-2.5 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs font-bold text-emerald-400 text-right font-mono"
                       />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Placement-specific minimum duration and rate overrides */}
+            <div className="space-y-3 pt-4 border-t border-slate-800">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-300">Placement Rate Card & Minimum Duration</h4>
+                  <p className="mt-1 text-[10px] text-slate-500">Multiplier remains active. Fixed PKR overrides the calculated campaign fee; percentage uplift adds extra after the multiplier.</p>
+                </div>
+                <button type="button" onClick={handleSavePlacementRates} disabled={isPlacementRatesSaving || !onUpdateCampaignConfig}
+                  className="shrink-0 rounded-xl bg-teal-500 px-4 py-2 text-xs font-black text-slate-950 disabled:opacity-50">
+                  {isPlacementRatesSaving ? 'Saving placement rates…' : isPlacementRatesSaved ? 'Placement rates saved' : 'Save Placement Rates'}
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {editableCampaignConfig.placementOptions.map((placement) => (
+                  <div key={placement.id} className="rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-white">{placement.name}</div>
+                        <div className="text-[10px] text-slate-500">{placement.id}</div>
+                      </div>
+                      <span className="shrink-0 rounded-lg bg-slate-800 px-2 py-1 text-[10px] font-bold text-teal-300">
+                        {Number(editablePricing.placementMultipliers?.[placement.id] ?? placement.multiplier ?? 1).toFixed(2)}x
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="text-[10px] font-bold text-slate-400">
+                        Minimum Duration (Hours)
+                        <input type="number" min="1" max="2160" step="1" value={placement.minDurationHours ?? 1}
+                          onChange={(e) => handleUpdatePlacementRate(placement.id, { minDurationHours: Math.min(2160, Math.max(1, Math.floor(Number(e.target.value) || 1))) })}
+                          className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-xs font-mono text-white" />
+                        <span className="mt-1 block text-[9px] font-normal text-slate-500">1 = one hour; 24 = one day; custom hours allowed</span>
+                      </label>
+                      <label className="text-[10px] font-bold text-slate-400">
+                        Percentage Uplift (% Extra)
+                        <input type="number" min="0" max="1000" step="1" value={placement.percentageUpliftPercent ?? 0}
+                          onChange={(e) => handleUpdatePlacementRate(placement.id, { percentageUpliftPercent: Math.min(1000, Math.max(0, Number(e.target.value) || 0)) })}
+                          className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-xs font-mono text-white" />
+                      </label>
+                      <label className="col-span-2 text-[10px] font-bold text-slate-400">
+                        Manual Fixed Campaign Rate (PKR)
+                        <input type="number" min="0" max="10000000" step="1" value={placement.fixedPriceOverridePkr ?? ''}
+                          placeholder="Leave blank to use multiplier + uplift"
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const amount = raw === '' ? 0 : Number(raw);
+                            handleUpdatePlacementRate(placement.id, { fixedPriceOverridePkr: !Number.isFinite(amount) || amount <= 0 ? undefined : Math.min(10000000, amount) });
+                          }}
+                          className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-xs font-mono text-white" />
+                      </label>
+                    </div>
+                    <div className="rounded-lg bg-teal-500/5 px-2.5 py-2 text-[10px] text-slate-300">
+                      Summary: min {Math.max(1, Number(placement.minDurationHours) || 1)}h · {Number(placement.fixedPriceOverridePkr || 0) > 0 ? `PKR ${Number(placement.fixedPriceOverridePkr).toLocaleString()} flat (overrides multiplier/uplift)` : `${Number(editablePricing.placementMultipliers?.[placement.id] ?? placement.multiplier ?? 1).toFixed(2)}x + ${Number(placement.percentageUpliftPercent || 0)}% extra`}
                     </div>
                   </div>
                 ))}

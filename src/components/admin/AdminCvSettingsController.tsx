@@ -79,7 +79,7 @@ export const AdminCvSettingsController: React.FC<{ onPricingSaved?: (pricing: an
   if (loading) return <div className="p-8 text-slate-300">Loading CV settings…</div>;
   if (!pricing) return <div className="m-6 rounded-xl border border-rose-500/30 p-5 text-rose-300">{error || 'CV settings unavailable.'}<button onClick={load} className="ml-3 underline">Retry</button></div>;
   const cv = pricing.cvBuilder;
-  return <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6 text-white">
+  return <div className="admin-settings-mobile-compact mx-auto max-w-6xl space-y-6 p-4 md:p-6 text-white">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-2xl font-black">CV Management & Entitlements</h2><p className="mt-1 text-sm text-slate-400">One place for CV designs, quotas, packages, export rules, watermark and subscription benefits.</p></div><div className="flex gap-2"><button onClick={load} className="rounded-lg border border-slate-700 px-3 py-2 text-sm"><RefreshCw className="mr-1 inline h-4 w-4"/>Reload</button><button disabled={saving} onClick={save} className="rounded-lg bg-emerald-500 px-4 py-2 font-bold text-slate-950 disabled:opacity-50"><Save className="mr-1 inline h-4 w-4"/>{saving ? 'Saving…' : 'Save CV Settings'}</button></div></div>
     {error && <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300"><AlertCircle className="mr-2 inline h-4 w-4"/>{error}</div>}
     {notice && <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300">{notice}</div>}

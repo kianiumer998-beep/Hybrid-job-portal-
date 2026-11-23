@@ -5565,7 +5565,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* TAB 6: FORM CUSTOMIZER */}
       {effectiveAdminTab === 'form-customizer' && canAccessAdminTab('form-customizer') && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 text-white">
+        <div className="admin-settings-mobile-compact grid grid-cols-1 lg:grid-cols-12 gap-6 text-white">
           <form onSubmit={handleCreateCustomField} className="lg:col-span-6 bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl">
             <h3 className="text-base font-bold border-b border-slate-800 pb-2">
               Add New Custom Registration Field
@@ -7114,7 +7114,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* TAB: GLOBAL FEATURE CONTROLS */}
       {effectiveAdminTab === 'settings' && (
         canAccessAdminTab('settings') && (
-        <div className="space-y-6 text-white">
+        <div className="admin-settings-mobile-compact space-y-6 text-white">
           
           {/* MASTER FEATURE SWITCHES PANEL */}
           <div className="md:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white space-y-5 shadow-xl">

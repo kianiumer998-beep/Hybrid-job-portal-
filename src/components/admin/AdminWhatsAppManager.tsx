@@ -619,7 +619,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
+    <div className="admin-settings-mobile-compact space-y-6 animate-in fade-in duration-300">
       {/* Header Banner */}
       <div className="bg-gradient-to-r from-emerald-950/80 via-slate-900 to-slate-900 border border-emerald-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />

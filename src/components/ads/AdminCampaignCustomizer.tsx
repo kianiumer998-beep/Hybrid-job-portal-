@@ -413,7 +413,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
       )}
 
       {/* Navigation Sub-Tabs */}
-      <div className="flex flex-wrap gap-2 p-1.5 bg-slate-900/80 border border-slate-800 rounded-2xl">
+      <div className="flex flex-nowrap gap-2 p-1.5 bg-slate-900/80 border border-slate-800 rounded-2xl overflow-x-auto overscroll-x-contain touch-pan-x max-w-full">
         {[
           { id: 'popup-modes', label: 'Centered Popup Lightbox', icon: Sparkles, badge: localConfig.popupSettings.displayMode },
           { id: 'feed-positioning', label: 'Job Feed & Ad Frequency', icon: Layers, badge: localConfig.feedInlineSettings.insertionMode === 'cadence' ? `Every ${localConfig.feedInlineSettings.repeatEveryNJobs || 3}` : `${(localConfig.feedInlineSettings.customIndices || []).length} slots` },
@@ -430,7 +430,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center space-x-2 transition-all cursor-pointer ${
+              className={`px-3 sm:px-4 py-2.5 rounded-xl text-xs font-bold flex items-center space-x-2 transition-all cursor-pointer shrink-0 whitespace-nowrap ${
                 isActive
                   ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
@@ -1271,7 +1271,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
                       </button>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
+                  <div className="grid grid-cols-1 gap-3 pt-2 border-t border-slate-800">
                     <div>
                       <label className="text-[10px] text-slate-400 block mb-1 font-bold">Maximum Concurrent Slots</label>
                       <input type="number" min="1" max="50" step="1" value={placement.maxConcurrentSlots ?? ''} placeholder={placement.id === 'promo-discount-banner' || placement.id === 'dynamic-announcement-card' ? 'Required (1–50)' : 'No limit'}
@@ -1284,16 +1284,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
                         className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-1.5 font-mono focus:outline-none focus:border-teal-500"
                       />
                     </div>
-                    <div>
-                      <label className="text-[10px] text-slate-400 block mb-1 font-bold">Fixed Campaign Price (PKR)</label>
-                      <input type="number" min="0" step="1" value={placement.fixedPriceOverridePkr ?? ''} placeholder="Use rate card"
-                        onChange={(e) => {
-                          const raw = e.target.value;
-                          handleUpdatePlacement(placement.id, { fixedPriceOverridePkr: raw === '' ? undefined : Math.max(0, Number(raw) || 0) });
-                        }}
-                        className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-1.5 font-mono focus:outline-none focus:border-teal-500"
-                      />
-                    </div>
+
                   </div>
                 </div>
               ))}

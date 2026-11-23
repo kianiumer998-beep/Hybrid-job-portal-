@@ -219,7 +219,6 @@ authRouter.post('/login', async (req, res) => {
     const ip = req.ip || req.socket.remoteAddress || 'unknown-client';
     const rateCheck = checkRateLimit(ip);
     if (rateCheck.blocked) {
-      await recordFailedLoginAudit(req, 'Login Rate Limit Triggered', '', 'Authentication rate limit exceeded');
       return res.status(429).json({
         success: false,
         message: `Too many failed login attempts. Please try again in ${rateCheck.retryAfterSeconds || 60} seconds.`
@@ -290,7 +289,6 @@ authRouter.post('/admin-login', async (req, res) => {
     const ip = req.ip || req.socket.remoteAddress || 'unknown-client';
     const rateCheck = checkRateLimit(ip);
     if (rateCheck.blocked) {
-      await recordFailedLoginAudit(req, 'Admin Login Rate Limit Triggered', '', 'Administrative authentication rate limit exceeded');
       return res.status(429).json({
         success: false,
         message: `Too many failed login attempts. Please try again in ${rateCheck.retryAfterSeconds || 60} seconds.`

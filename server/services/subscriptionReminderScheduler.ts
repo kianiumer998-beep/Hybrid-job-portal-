@@ -178,15 +178,17 @@ export async function runSubscriptionReminderTick(now = new Date()): Promise<{ s
   try {
     const pricing = await PricingRepository.get();
     const settings = pricing?.subscriptionReminderSettings || {};
-    if (settings.enabled !== true) return { scanned: 0, notified: 0, skipped: false };
-    const daysBefore = Number(settings.daysBefore);
-    if (!Number.isInteger(daysBefore) || daysBefore < 1 || daysBefore > 30) {
-      console.warn('[Subscription Reminder] Invalid reminder lead time; tick skipped.');
-      return { scanned: 0, notified: 0, skipped: true };
-    }
-
     const users = await UserRepository.getAllAsync();
     const autoRenewed = await processConsentedAutoRenewals(users || [], now);
+    if (settings.enabled !== true) {
+      return { scanned: (users || []).length, notified: autoRenewed, skipped: false };
+    }
+    const daysBefore = Number(settings.daysBefore);
+    if (!Number.isInteger(daysBefore) || daysBefore < 1 || daysBefore > 30) {
+      console.warn('[Subscription Reminder] Invalid reminder lead time; reminder delivery skipped (auto-renewal still processed).');
+      return { scanned: (users || []).length, notified: autoRenewed, skipped: true };
+    }
+
     const targetStart = now.getTime() + Math.max(0, daysBefore - 1) * 24 * 60 * 60 * 1000;
     const targetEnd = now.getTime() + daysBefore * 24 * 60 * 60 * 1000;
     for (const user of users || []) {

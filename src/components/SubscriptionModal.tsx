@@ -528,10 +528,19 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                       <div className="text-xl font-black text-emerald-400">
                         PKR {pkg.pricePkr} <span className="text-xs font-normal text-slate-400">/ {pkg.durationDays} days</span>
                       </div>
-                      {pkg.features && pkg.features.length > 0 && (
+                      {Number(pkg.bundleDiscountPercent || 0) > 0 && Number(pkg.undiscountedPricePkr || 0) > Number(pkg.pricePkr || 0) && (
+                        <p className="text-[10px] text-emerald-300 mt-1">Bundle saving: PKR {(Number(pkg.undiscountedPricePkr) - Number(pkg.pricePkr)).toLocaleString()} ({Number(pkg.bundleDiscountPercent)}% off)</p>
+                      )}
+                      {(pkg.features?.length > 0 || pkg.featureLabels?.length > 0) && (
                         <ul className="mt-2 text-[10px] space-y-1 text-slate-300">
                           {pkg.features.map((f: string, i: number) => (
                             <li key={i} className="flex items-center space-x-1">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                              <span className="truncate">{f}</span>
+                            </li>
+                          ))}
+                          {(pkg.featureLabels || []).map((f: string, i: number) => (
+                            <li key={`catalog-${i}`} className="flex items-center space-x-1">
                               <CheckCircle2 className="w-3 h-3 text-emerald-400" />
                               <span className="truncate">{f}</span>
                             </li>

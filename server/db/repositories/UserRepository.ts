@@ -682,6 +682,132 @@ export class UserRepository {
     return updated ? { ok: true, user: updated } : { ok: false, reason: 'not_found' };
   }
 
+  /** Grants a purchased CV quota package once per payment transaction. */
+  static async grantCvPackageEntitlementAsync(userId: string, packageSnapshot: Record<string, any>, transactionId: string): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanTransactionId = String(transactionId || '').trim();
+    const packageId = String(packageSnapshot?.packageId || packageSnapshot?.id || '').trim();
+    const durationDays = Number(packageSnapshot?.durationDays);
+    if (!cleanUserId || !cleanTransactionId || !packageId || !Number.isInteger(durationDays) || durationDays <= 0 || durationDays > 3650) {
+      throw new Error('Valid user, CV package, transaction and package duration are required.');
+    }
+    const numericFields = ['cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit'];
+    const limits: Record<string, number> = {};
+    for (const field of numericFields) {
+      const value = Number(packageSnapshot[field]);
+      if (!Number.isInteger(value) || value < 0 || value > 10000) throw new Error(`Invalid CV package quota: ${field}.`);
+      limits[field] = value;
+    }
+    const grantedAt = new Date().toISOString();
+    const entitlement = {
+      packageId,
+      packageName: String(packageSnapshot.packageName || packageSnapshot.name || packageId).slice(0, 80),
+      transactionId: cleanTransactionId,
+      pricePkr: Number(packageSnapshot.pricePkr),
+      grantedAt,
+      expiresAt: new Date(Date.now() + durationDays * 86400000).toISOString(),
+      durationDays,
+      limits,
+      usage: { cvCreateLimit: 0, editLimit: 0, pdfExportLimit: 0, atsExportLimit: 0, shareLimit: 0 },
+      noWatermark: packageSnapshot.noWatermark === true
+    };
+    if (!Number.isFinite(entitlement.pricePkr) || entitlement.pricePkr <= 0) throw new Error('CV package price is invalid.');
+    const updatedAt = grantedAt;
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+      if (list.some((item: any) => item?.transactionId === cleanTransactionId)) return existing;
+      const updated = { ...existing, cvPackageEntitlements: [...list, entitlement], updatedAt };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        { id: cleanUserId, 'cvPackageEntitlements.transactionId': { $ne: cleanTransactionId } },
+        { $push: { cvPackageEntitlements: entitlement }, $set: { updatedAt } },
+        { returnDocument: 'after' }
+      );
+      if (updatedDoc) { const { _id, ...safe } = updatedDoc; return safe; }
+      const existing = await coll.findOne({ id: cleanUserId });
+      if (!existing) return null;
+      if ((Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : []).some((item: any) => item?.transactionId === cleanTransactionId)) {
+        const { _id, ...safe } = existing; return safe;
+      }
+      return null;
+    }
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+    if (list.some((item: any) => item?.transactionId === cleanTransactionId)) return existing;
+    return Database.updateUser(cleanUserId, { cvPackageEntitlements: [...list, entitlement], updatedAt });
+  }
+
+  /** Atomically deducts wallet funds and grants a CV package, idempotently tied to its transaction. */
+  static async purchaseCvPackageWithWalletAsync(userId: string, amount: number, packageSnapshot: Record<string, any>, transactionId: string): Promise<{ ok: boolean; user?: any; reason?: 'not_found' | 'insufficient' }> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanTransactionId = String(transactionId || '').trim();
+    if (!cleanUserId || !cleanTransactionId || !Number.isFinite(amount) || amount <= 0) throw new Error('Valid user, transaction and positive payment amount are required.');
+    const durationDays = Number(packageSnapshot?.durationDays);
+    const packageId = String(packageSnapshot?.packageId || packageSnapshot?.id || '').trim();
+    if (!packageId || !Number.isInteger(durationDays) || durationDays <= 0 || durationDays > 3650) throw new Error('CV package snapshot is invalid.');
+    const limits: Record<string, number> = {};
+    for (const field of ['cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit']) {
+      const value = Number(packageSnapshot[field]);
+      if (!Number.isInteger(value) || value < 0 || value > 10000) throw new Error(`Invalid CV package quota: ${field}.`);
+      limits[field] = value;
+    }
+    const grantedAt = new Date().toISOString();
+    const entitlement = {
+      packageId,
+      packageName: String(packageSnapshot.packageName || packageSnapshot.name || packageId).slice(0, 80),
+      transactionId: cleanTransactionId,
+      pricePkr: amount,
+      grantedAt,
+      expiresAt: new Date(Date.now() + durationDays * 86400000).toISOString(),
+      durationDays,
+      limits,
+      usage: { cvCreateLimit: 0, editLimit: 0, pdfExportLimit: 0, atsExportLimit: 0, shareLimit: 0 },
+      noWatermark: packageSnapshot.noWatermark === true
+    };
+    const updatedAt = grantedAt;
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return { ok: false, reason: 'not_found' };
+      const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+      if (list.some((item: any) => item?.transactionId === cleanTransactionId)) return { ok: true, user: existing };
+      const balance = Number(existing.walletBalance || 0);
+      if (!Number.isFinite(balance) || balance < amount) return { ok: false, reason: 'insufficient' };
+      const updated = { ...existing, walletBalance: balance - amount, cvPackageEntitlements: [...list, entitlement], updatedAt };
+      inMemoryUsers.set(cleanUserId, updated);
+      return { ok: true, user: updated };
+    }
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        { id: cleanUserId, walletBalance: { $gte: amount }, 'cvPackageEntitlements.transactionId': { $ne: cleanTransactionId } },
+        { $inc: { walletBalance: -amount }, $push: { cvPackageEntitlements: entitlement }, $set: { updatedAt } },
+        { returnDocument: 'after' }
+      );
+      if (updatedDoc) { const { _id, ...safe } = updatedDoc; return { ok: true, user: safe }; }
+      const existing = await coll.findOne({ id: cleanUserId });
+      if (!existing) return { ok: false, reason: 'not_found' };
+      if ((Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : []).some((item: any) => item?.transactionId === cleanTransactionId)) {
+        const { _id, ...safe } = existing; return { ok: true, user: safe };
+      }
+      return { ok: false, reason: 'insufficient' };
+    }
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return { ok: false, reason: 'not_found' };
+    const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+    if (list.some((item: any) => item?.transactionId === cleanTransactionId)) return { ok: true, user: existing };
+    const balance = Number(existing.walletBalance || 0);
+    if (!Number.isFinite(balance) || balance < amount) return { ok: false, reason: 'insufficient' };
+    const updated = Database.updateUser(cleanUserId, { walletBalance: balance - amount, cvPackageEntitlements: [...list, entitlement], updatedAt });
+    return updated ? { ok: true, user: updated } : { ok: false, reason: 'not_found' };
+  }
+
   static update(id: string, updates: any): any | null {
     if (isMongoActive()) {
       throw new Error('MongoDB is configured. Synchronous update is prohibited to ensure authoritative persistence; use updateAsync.');

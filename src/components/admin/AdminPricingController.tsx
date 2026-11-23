@@ -793,7 +793,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
           </div>
           <div className="space-y-3 rounded-xl border border-emerald-500/20 bg-slate-950 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div><h4 className="text-sm font-bold text-white">Individual CV Packages</h4><p className="text-[11px] text-slate-400">Create one-time CV packages with validity and separate usage limits. Payment activation is not enabled until the package purchase flow is connected.</p></div>
+              <div><h4 className="text-sm font-bold text-white">Individual CV Packages</h4><p className="text-[11px] text-slate-400">Create one-time CV packages with validity and separate usage limits. Packages are activated after successful wallet payment or administrator approval of manual payment proof.</p></div>
               <button type="button" onClick={() => { const packages = [...(pricing.cvBuilder?.packages || []), { id: `cv-package-${Date.now()}`, name: 'New CV Package', enabled: true, pricePkr: 100, durationDays: 30, cvCreateLimit: 1, editLimit: 10, pdfExportLimit: 3, atsExportLimit: 3, shareLimit: 3, noWatermark: false }]; updateNested('cvBuilder', 'packages', packages); }} className="rounded-lg border border-emerald-500/30 px-3 py-2 text-xs font-bold text-emerald-300">+ Add CV Package</button>
             </div>
             {(pricing.cvBuilder?.packages || []).map((pkg: any, index: number) => <div key={pkg.id} className="grid grid-cols-2 gap-2 rounded-lg border border-slate-800 p-3 md:grid-cols-4">

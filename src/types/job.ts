@@ -132,6 +132,7 @@ export interface UserAccount {
   cvDocuments?: CvDocument[];
   cvDesignEntitlements?: CvDesignEntitlement[];
   cvPackageEntitlements?: CvPackageEntitlement[];
+  cvTemplateUsage?: Record<string, Record<string, number>>;
   socialLinks?: Record<string, any>;
   notificationsEnabled?: boolean;
   whatsappAlertsEnabled?: boolean;

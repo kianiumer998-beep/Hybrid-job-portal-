@@ -9,6 +9,7 @@ import { evaluateApplyAccess } from '../services/applyAccessPolicy';
 import { JobVisibilityRepository } from '../db/repositories/JobVisibilityRepository';
 import { PricingRepository } from '../db/repositories/PricingRepository';
 import { isEarlyAccessJobLocked } from '../services/earlyAccessPolicy';
+import { hasActiveSubscriptionFeature } from '../services/subscriptionEntitlements';
 
 export const applicationRouter = Router();
 
@@ -360,8 +361,9 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
 
     const applicantIsPrivileged = Boolean(authUser && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(authUser.role));
     const applicantIsPremium = applicantIsPrivileged || await JobVisibilityRepository.isUserPremiumAuthoritative(effectiveApplicantId);
+    const applicantHasEarlyAccess = applicantIsPrivileged || await hasActiveSubscriptionFeature(effectiveApplicantId, 'early_access');
     const currentPricing = await PricingRepository.get();
-    if (!applicantIsPremium && isEarlyAccessJobLocked(job, currentPricing?.earlyAccess)) {
+    if (!applicantHasEarlyAccess && isEarlyAccessJobLocked(job, currentPricing?.earlyAccess)) {
       return res.status(403).json({
         success: false,
         message: 'PREMIUM_EARLY_ACCESS_REQUIRED',

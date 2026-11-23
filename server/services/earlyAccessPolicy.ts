@@ -40,7 +40,7 @@ export function isEarlyAccessJobLocked(
     return true;
   }
 
-  const rawStart = job.approvedAt || job.publishedAt || job.createdAt || job.postedAt || job.datePosted;
+  const rawStart = job.approvedAt || job.verifiedDate || job.publishedAt || job.createdAt || job.postedAt || job.datePosted;
   const start = rawStart ? new Date(rawStart).getTime() : Number.NaN;
   if (!Number.isFinite(start)) return true;
 

@@ -604,6 +604,13 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                           ))}
                         </ul>
                       )}
+                      {pkg.cvBenefitsEnabled === true && (
+                        <div className="mt-2 rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-2 text-[10px] text-indigo-200">
+                          <strong className="block mb-1">Included CV benefits</strong>
+                          <span>{String(pkg.cvBenefitsDescription || '').trim() || `CVs: ${pkg.cvBenefits?.cvCreateLimit ?? 0} · Edits: ${pkg.cvBenefits?.editLimit ?? 0} · PDF: ${pkg.cvBenefits?.pdfExportLimit ?? 0} · ATS: ${pkg.cvBenefits?.atsExportLimit ?? 0} · Shares: ${pkg.cvBenefits?.shareLimit ?? 0}`}</span>
+                          <span className="block mt-1 text-slate-400">CV quotas are valid for this subscription's duration.</span>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

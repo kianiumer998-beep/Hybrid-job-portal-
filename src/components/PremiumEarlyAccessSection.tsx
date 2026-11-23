@@ -42,12 +42,19 @@ export const PremiumEarlyAccessSection: React.FC<Props> = ({ onUpgrade, onExplor
 
   useEffect(() => {
     let active = true;
-    api.jobs.getEarlyAccess().then((result: any) => {
-      if (active && result?.success) setPayload(result);
-    }).catch(() => {
-      if (active) setPayload(null);
-    });
-    return () => { active = false; };
+    const load = () => {
+      api.jobs.getEarlyAccess().then((result: any) => {
+        if (active && result?.success) setPayload(result);
+      }).catch(() => {
+        if (active) setPayload(null);
+      });
+    };
+    load();
+    window.addEventListener('focus', load);
+    return () => {
+      active = false;
+      window.removeEventListener('focus', load);
+    };
   }, []);
 
   useEffect(() => {

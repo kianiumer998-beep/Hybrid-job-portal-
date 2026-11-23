@@ -371,7 +371,10 @@ userRouter.post('/cv/consume', requireAuth, async (req: any, res) => {
     const templates = Array.isArray(settings.templates) ? settings.templates : [];
     const template = templates.find((item: any) => String(item?.id || '') === templateId);
     const ownsDesign = (Array.isArray(user.cvDesignEntitlements) ? user.cvDesignEntitlements : []).some((item: any) => String(item?.templateId || '') === templateId);
+    const inactive = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled', 'Revoked']);
+    const premium = !inactive.has(String(user.membershipStatus || '')) && ((user.membershipStatus === 'Active' && Boolean(user.membershipTier) && String(user.membershipTier).toLowerCase() !== 'free') || user.plan === 'Premium' || (user.paymentStatus === 'Paid' && user.membershipStatus === 'Active'));
     if (!template || (template.enabled === false && !ownsDesign)) return res.status(403).json({ success: false, message: 'This CV design is not currently available.' });
+    if (template.free !== true && !ownsDesign && !premium) return res.status(403).json({ success: false, message: 'This premium CV design must be purchased or unlocked by an active subscription.' });
     if (action === 'pdf' && (settings.pdfExportEnabled === false || template.pdfExportEnabled === false)) {
       return res.status(403).json({ success: false, message: 'PDF export is disabled by the administrator for this CV design.' });
     }

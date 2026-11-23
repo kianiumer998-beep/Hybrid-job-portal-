@@ -11,6 +11,7 @@ interface CvBuilderProps {
   onPurchaseTemplate: (templateId: string, templateName: string, pricePkr: number) => void;
   onSaveCvDocuments?: (documents: CvDocument[], activeData: CvData) => Promise<boolean> | boolean;
   onSaveCv: (data: CvData) => Promise<boolean> | boolean;
+  onConsumeCvAction?: (action: 'pdf' | 'ats' | 'share', templateId: string) => Promise<any>;
   onOpenPaywall: () => void;
   cvBuilderSettings?: any;
 }
@@ -94,9 +95,10 @@ const normalizeCvData = (value?: CvData): CvData => {
   };
 };
 
-export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, initialCvDocuments, cvDesignEntitlements = [], cvPackageEntitlements = [], onPurchaseTemplate, onSaveCvDocuments, onSaveCv, onOpenPaywall, cvBuilderSettings = {} }) => {
+export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, initialCvDocuments, cvDesignEntitlements = [], cvPackageEntitlements = [], onPurchaseTemplate, onSaveCvDocuments, onSaveCv, onConsumeCvAction, onOpenPaywall, cvBuilderSettings = {} }) => {
   const [step, setStep] = useState<number>(1);
   const [isSavingCv, setIsSavingCv] = useState(false);
+  const [exportNoWatermarkOverride, setExportNoWatermarkOverride] = useState(false);
   const [cvSaveMessage, setCvSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const makeDocument = (data: CvData, title = ''): CvDocument => ({
     id: `cv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -246,7 +248,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     }
   };
 
-  const handleDownloadAtsText = () => {
+  const handleDownloadAtsText = async () => {
     if (!isTemplateEnabled(cvData.templateStyle) || (!isSubscribed && !isTemplateFree(cvData.templateStyle))) {
       const selected = configuredTemplates.find((item: any) => item.id === cvData.templateStyle);
       const price = Math.max(0, Number(selected?.pricePkr || 0));
@@ -256,6 +258,17 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     }
     const ownsSelectedDesignForExport = cvDesignEntitlements.some((item) => item.templateId === cvData.templateStyle);
     if ((!isSubscribed && !ownsSelectedDesignForExport && cvBuilderSettings.atsTextExportEnabled === false) || selectedTemplateConfig.atsExportEnabled === false) { onOpenPaywall(); return; }
+    try {
+      const authorization = onConsumeCvAction ? await onConsumeCvAction('ats', cvData.templateStyle) : { success: true };
+      if (!authorization?.success) {
+        setCvSaveMessage({ type: 'error', text: authorization?.message || 'ATS export is not available under your current CV entitlement.' });
+        return;
+      }
+      setExportNoWatermarkOverride(authorization.noWatermark === true);
+    } catch (error: any) {
+      setCvSaveMessage({ type: 'error', text: error?.message || 'ATS export authorization failed. Please try again.' });
+      return;
+    }
     const lines: string[] = [];
     const p = cvData.personalInfo;
     const extra: NonNullable<CvData['additionalSections']> = cvData.additionalSections || {};
@@ -278,7 +291,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     add('Research & Publications', extra.publications || []);
     add('References', extra.references || []);
     add('Additional Information', [extra.careerGapExplanation, extra.preferredEmploymentType, extra.noticePeriod, extra.domicile, extra.professionalRegistration].filter(Boolean) as string[]);
-    if (exportWatermarkVisible) lines.push('', String(selectedTemplateConfig.watermarkText || cvBuilderSettings.watermarkText || 'Hybrid Job Portal'));
+    if (exportWatermarkVisible && !exportNoWatermarkOverride) lines.push('', String(selectedTemplateConfig.watermarkText || cvBuilderSettings.watermarkText || 'Hybrid Job Portal'));
     const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -291,7 +304,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
   };
 
   // Trigger Print Engine
-  const handleDownloadPdf = () => {
+  const handleDownloadPdf = async () => {
     if (!isTemplateEnabled(cvData.templateStyle) || (!isSubscribed && !isTemplateFree(cvData.templateStyle))) {
       const selected = configuredTemplates.find((item: any) => item.id === cvData.templateStyle);
       const price = Math.max(0, Number(selected?.pricePkr || 0));
@@ -301,7 +314,39 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     }
     const ownsSelectedDesignForExport = cvDesignEntitlements.some((item) => item.templateId === cvData.templateStyle);
     if ((!isSubscribed && !ownsSelectedDesignForExport && cvBuilderSettings.pdfExportEnabled === false) || selectedTemplateConfig.pdfExportEnabled === false) { onOpenPaywall(); return; }
-    window.print();
+    try {
+      const authorization = onConsumeCvAction ? await onConsumeCvAction('pdf', cvData.templateStyle) : { success: true };
+      if (!authorization?.success) {
+        setCvSaveMessage({ type: 'error', text: authorization?.message || 'PDF export is not available under your current CV entitlement.' });
+        return;
+      }
+      setExportNoWatermarkOverride(authorization.noWatermark === true);
+      window.print();
+    } catch (error: any) {
+      setCvSaveMessage({ type: 'error', text: error?.message || 'PDF export authorization failed. Please try again.' });
+    }
+  };
+
+  const handleShareCv = async () => {
+    if (typeof navigator === 'undefined' || typeof navigator.share !== 'function') {
+      setCvSaveMessage({ type: 'error', text: 'Native sharing is not supported by this browser.' });
+      return;
+    }
+    try {
+      const authorization = onConsumeCvAction ? await onConsumeCvAction('share', cvData.templateStyle) : { success: true };
+      if (!authorization?.success) {
+        setCvSaveMessage({ type: 'error', text: authorization?.message || 'Sharing is not available under your current CV entitlement.' });
+        return;
+      }
+      await navigator.share({
+        title: cvData.personalInfo.fullName ? `${cvData.personalInfo.fullName} — CV` : 'Professional CV',
+        text: 'Please review my professional CV.',
+        url: window.location.href
+      });
+      setCvSaveMessage({ type: 'success', text: 'CV share action completed.' });
+    } catch (error: any) {
+      if (error?.name !== 'AbortError') setCvSaveMessage({ type: 'error', text: error?.message || 'Unable to share this CV.' });
+    }
   };
 
   const templateCatalog = [
@@ -359,6 +404,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
             <span>{isSavingCv ? 'Saving...' : 'Save CV Draft'}</span>
           </button>
           <button type="button" onClick={handleDownloadAtsText} className="px-3 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs">{!isSubscribed && cvBuilderSettings.atsTextExportEnabled === false ? 'ATS Text · Premium' : 'Download ATS Text'}</button>
+          <button type="button" onClick={handleShareCv} className="px-3 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs">Share CV</button>
 
           <button
             onClick={handleDownloadPdf}

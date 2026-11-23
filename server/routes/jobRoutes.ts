@@ -15,6 +15,8 @@ import { getProvinceForCity } from '../../src/utils/locationCatalog';
 export const jobRouter = Router();
 
 import { JobVisibilityRepository } from '../db/repositories/JobVisibilityRepository';
+import { PricingRepository } from '../db/repositories/PricingRepository';
+import { buildEarlyAccessDisplayJob, getEarlyAccessLandingConfig, isEarlyAccessJobLocked } from '../services/earlyAccessPolicy';
 import { evaluateApplyAccess } from '../services/applyAccessPolicy';
 
 // 1. Get Live Approved Jobs with Query Filters & Pagination
@@ -37,7 +39,12 @@ jobRouter.get('/', async (req, res) => {
       limit = '10000'
     } = req.query as Record<string, string>;
 
+    const user = (req as any).user;
+    const pricing = await PricingRepository.get();
+    const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+
     const result = await JobRepository.getAll({
+      earlyAccessPolicy: { config: pricing.earlyAccess, isPremium },
       search,
       jobType,
       region,
@@ -53,9 +60,6 @@ jobRouter.get('/', async (req, res) => {
       page: parseInt(page, 10),
       limit: parseInt(limit, 10)
     });
-
-    const user = (req as any).user;
-    const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
 
     let sanitizedJobs = result.jobs;
     const applySettings = Database.getApplySettings();
@@ -88,6 +92,53 @@ jobRouter.get('/', async (req, res) => {
   }
 });
 
+// 1a. Premium Early Access landing data. Job titles/details are returned only to active Premium members.
+jobRouter.get('/early-access', async (req: any, res: any) => {
+  try {
+    const pricing = await PricingRepository.get();
+    const config = pricing?.earlyAccess || {};
+    const landingConfig = getEarlyAccessLandingConfig(config);
+    if (config.enabled !== true || config.showOnLanding === false) {
+      return res.json({ success: true, enabled: false, config: landingConfig, count: 0, jobs: [] });
+    }
+
+    const user = req.user;
+    const isAdmin = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(user.role));
+    const isPremium = isAdmin || await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    const result = await JobRepository.getAll({ page: 1, limit: 1000 });
+    const earlyJobs = result.jobs
+      .filter((job: any) => isEarlyAccessJobLocked(job, config))
+      .sort((a: any, b: any) => {
+        const aStart = new Date(a.approvedAt || a.publishedAt || a.createdAt || a.postedAt || 0).getTime();
+        const bStart = new Date(b.approvedAt || b.publishedAt || b.createdAt || b.postedAt || 0).getTime();
+        return bStart - aStart;
+      });
+    const maxJobs = landingConfig.maxJobs;
+    const jobs = isPremium
+      ? await Promise.all(earlyJobs.slice(0, maxJobs).map(async (job: any) => {
+          const policyApplied = await JobVisibilityRepository.applyPolicyToJob(job);
+          const filtered = JobVisibilityRepository.filterJobForUser(policyApplied, user, true);
+          return buildEarlyAccessDisplayJob(filtered, config);
+        }))
+      : [];
+
+    return res.json({
+      success: true,
+      enabled: true,
+      isPremium,
+      config: landingConfig,
+      count: earlyJobs.length,
+      jobs
+    });
+  } catch (err: any) {
+    console.error('[EarlyAccess] Failed to load landing data:', err);
+    return res.status(503).json({
+      success: false,
+      message: 'Early access information is temporarily unavailable.'
+    });
+  }
+});
+
 // 1b. Get Priority Placement Jobs (VIP, Pinned, Featured, Urgent)
 jobRouter.get('/priority', async (req, res) => {
   try {
@@ -103,7 +154,12 @@ jobRouter.get('/priority', async (req, res) => {
       isGovt
     } = req.query as Record<string, string>;
 
+    const user = (req as any).user;
+    const pricing = await PricingRepository.get();
+    const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+
     const result = await JobRepository.getPriorityPlacementJobs({
+      earlyAccessPolicy: { config: pricing.earlyAccess, isPremium },
       search,
       jobType,
       region,
@@ -114,9 +170,6 @@ jobRouter.get('/priority', async (req, res) => {
       sortBy,
       isGovt: isGovt === 'true'
     });
-
-    const user = (req as any).user;
-    const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
 
     let sanitizedJobs = result.jobs;
     const applySettings = Database.getApplySettings();

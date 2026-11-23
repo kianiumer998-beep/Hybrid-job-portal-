@@ -48,6 +48,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   const [proofScreenshotUrl, setProofScreenshotUrl] = useState('');
   const [proofNote, setProofNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isWalletPurchasing, setIsWalletPurchasing] = useState(false);
   const [submittedTx, setSubmittedTx] = useState<any | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [syncError, setSyncError] = useState('');
@@ -209,6 +210,46 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     } catch (err: any) {
       setSyncError(err?.message || 'Subscriber synchronization retry error. Payment remains logged in Pending status.');
       setIsRetryingSync(false);
+    }
+  };
+
+  const handleWalletPurchase = async () => {
+    if (!currentUser?.id || !activePackage || !Number.isSafeInteger(amountPaid) || amountPaid <= 0) {
+      setErrorMessage('Please sign in and select a valid paid package.');
+      return;
+    }
+    const balance = Number((currentUser as any).walletBalance || 0);
+    if (!Number.isFinite(balance) || balance < amountPaid) {
+      setErrorMessage(`Insufficient wallet balance. Required PKR ${amountPaid.toLocaleString()}, available PKR ${Math.max(0, balance).toLocaleString()}.`);
+      return;
+    }
+    const confirmed = window.confirm(`Confirm purchase of "${planName}" for PKR ${amountPaid.toLocaleString()} from your wallet? Remaining balance will be PKR ${(balance - amountPaid).toLocaleString()}. The package will activate immediately after the server confirms the wallet deduction.`);
+    if (!confirmed) return;
+    setIsWalletPurchasing(true);
+    setErrorMessage('');
+    try {
+      const result: any = await api.transactions.submit({
+        amount: amountPaid,
+        currency: 'PKR',
+        type: 'Subscription',
+        plan,
+        paymentMethod: 'Wallet Balance',
+        userId: currentUser.id,
+        userEmail: currentUser.email,
+        userName: currentUser.name,
+        idempotencyKey: 'sub-wallet-' + currentUser.id + '-' + plan + '-' + Date.now()
+      });
+      if (!result?.success || result?.transaction?.status !== 'Success') {
+        throw new Error(result?.message || 'Wallet purchase could not be confirmed. No successful activation was reported.');
+      }
+      const updatedBalance = Number(result.transaction.balanceAfter);
+      window.alert(`Subscription activated successfully. PKR ${amountPaid.toLocaleString()} deducted. Remaining wallet balance: PKR ${(Number.isFinite(updatedBalance) ? updatedBalance : balance - amountPaid).toLocaleString()}.`);
+      onClose();
+      window.location.reload();
+    } catch (error: any) {
+      setErrorMessage(error?.message || 'Wallet purchase failed. Please try again or use manual payment.');
+    } finally {
+      setIsWalletPurchasing(false);
     }
   };
 
@@ -858,6 +899,16 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                   </div>
                 </div>
 
+                {currentUser?.id && (
+                  <button
+                    type="button"
+                    onClick={handleWalletPurchase}
+                    disabled={isWalletPurchasing || isSubmitting || !activePackage || amountPaid <= 0 || Number((currentUser as any).walletBalance || 0) < amountPaid}
+                    className="w-full mb-3 py-3 rounded-2xl bg-slate-800 border border-emerald-500/40 text-emerald-300 font-black text-sm hover:bg-slate-700 transition-all disabled:opacity-40"
+                  >
+                    {isWalletPurchasing ? 'Processing secure wallet purchase…' : `Buy with Wallet Balance — PKR ${amountPaid.toLocaleString()} (Balance: PKR ${Number((currentUser as any).walletBalance || 0).toLocaleString()})`}
+                  </button>
+                )}
                 {/* Submit Button */}
                 <button
                   type="submit"

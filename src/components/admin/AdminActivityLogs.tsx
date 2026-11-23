@@ -295,7 +295,7 @@ function mapBackendAuditLog(raw: any, index: number): ActivityLogItem {
     details,
     actorName: String(raw?.actorName || raw?.user || 'System'),
     actorRole,
-    ipAddress: raw?.ipAddress || raw?.details?.ipAddress || raw?.metadata?.ipAddress || undefined,
+    ipAddress: raw?.ipAddress || raw?.ip || raw?.details?.ipAddress || raw?.metadata?.ipAddress || undefined,
     metadata
   };
 }

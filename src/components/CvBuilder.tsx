@@ -342,11 +342,30 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
         setCvSaveMessage({ type: 'error', text: authorization?.message || 'Sharing is not available under your current CV entitlement.' });
         return;
       }
-      await navigator.share({
-        title: cvData.personalInfo.fullName ? `${cvData.personalInfo.fullName} — CV` : 'Professional CV',
-        text: 'Please review my professional CV.',
-        url: window.location.href
-      });
+      const p = cvData.personalInfo;
+      const shareText = [
+        p.fullName || 'Professional CV',
+        p.jobTitle || '',
+        [p.email, p.phone, p.location, p.website, p.linkedin, p.github].filter(Boolean).join(' · '),
+        '',
+        'PROFESSIONAL SUMMARY',
+        p.summary || '',
+        '',
+        'EXPERIENCE',
+        ...cvData.experience.flatMap((item) => [`${item.position} — ${item.company}`, `${item.startDate} – ${item.current ? 'Present' : item.endDate}`, item.location || '', ...(item.bullets || []).map((bullet) => `• ${bullet}`), '']),
+        'EDUCATION',
+        ...cvData.education.flatMap((item) => [`${item.degree} — ${item.institution}`, item.fieldOfStudy || '', `${item.startDate} – ${item.endDate}`, '']),
+        'SKILLS',
+        [...cvData.skills.technical, ...cvData.skills.soft, ...cvData.skills.languages].filter(Boolean).join(', ')
+      ].filter((line) => line !== undefined).join('\n');
+      const shareTitle = p.fullName ? `${p.fullName} — CV` : 'Professional CV';
+      const shareFile = new File([shareText], `${(p.fullName || 'professional-cv').replace(/[^a-z0-9-_]+/gi, '-').toLowerCase()}.txt`, { type: 'text/plain' });
+      const shareData: any = { title: shareTitle, text: shareText };
+      if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [shareFile] })) {
+        shareData.files = [shareFile];
+        delete shareData.text;
+      }
+      await navigator.share(shareData);
       setCvSaveMessage({ type: 'success', text: 'CV share action completed.' });
     } catch (error: any) {
       if (error?.name !== 'AbortError') setCvSaveMessage({ type: 'error', text: error?.message || 'Unable to share this CV.' });

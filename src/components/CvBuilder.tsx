@@ -899,8 +899,11 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                   {cvPackageEntitlements.filter((entry: any) => Date.parse(String(entry?.expiresAt || '')) > Date.now()).map((entry: any) => (
                     <p key={entry.transactionId} className="mt-1 text-[10px] text-slate-300">
                       {entry.packageName} · expires {new Date(entry.expiresAt).toLocaleDateString()} ·
-                      CVs {Math.max(0, Number(entry.limits?.cvCreateLimit || 0) - Number(entry.usage?.cvCreateLimit || 0))} remaining ·
-                      edits {Math.max(0, Number(entry.limits?.editLimit || 0) - Number(entry.usage?.editLimit || 0))} remaining
+                      CVs {Math.max(0, Number(entry.limits?.cvCreateLimit || 0) - Number(entry.usage?.cvCreateLimit || 0))} ·
+                      edits {Math.max(0, Number(entry.limits?.editLimit || 0) - Number(entry.usage?.editLimit || 0))} ·
+                      PDF {Math.max(0, Number(entry.limits?.pdfExportLimit || 0) - Number(entry.usage?.pdfExportLimit || 0))} ·
+                      ATS {Math.max(0, Number(entry.limits?.atsExportLimit || 0) - Number(entry.usage?.atsExportLimit || 0))} ·
+                      shares {Math.max(0, Number(entry.limits?.shareLimit || 0) - Number(entry.usage?.shareLimit || 0))}
                     </p>
                   ))}
                 </div>

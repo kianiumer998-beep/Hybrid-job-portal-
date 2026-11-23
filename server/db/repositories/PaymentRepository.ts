@@ -1050,10 +1050,11 @@ export class PaymentRepository {
         for (const feature of featureSnapshots) {
           const featureId = String(feature?.id || '');
           if (!featureId) continue;
+          const featureDays = Number.isInteger(Number(feature.durationDays)) && Number(feature.durationDays) > 0 ? Math.min(durationDays, Number(feature.durationDays)) : durationDays;
           nextEntitlements[featureId] = {
             enabled: true,
             grantedAt: subscriptionActivatedAt,
-            expiresAt: subscriptionExpiresAt,
+            expiresAt: new Date(Date.now() + featureDays * 24 * 60 * 60 * 1000).toISOString(),
             includedSlots: Number.isInteger(Number(feature.includedSlots)) ? Math.max(0, Number(feature.includedSlots)) : 0,
             slotDurationDays: Number.isInteger(Number(feature.slotDurationDays)) ? Math.max(1, Number(feature.slotDurationDays)) : durationDays,
             sourcePackageId: String(snapshot.id)

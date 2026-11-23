@@ -2388,6 +2388,7 @@ export default function App() {
                   }
                 : null
             );
+            await loadBackendUserProfile(currentUser.id);
           }
         }
         // If this is a Job Posting transaction, update corresponding fee log to Paid

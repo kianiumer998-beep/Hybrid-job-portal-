@@ -817,7 +817,7 @@ export class UserRepository {
       const updatedDoc = await coll.findOneAndUpdate(
         { id: cleanUserId, 'cvDesignEntitlements.templateId': { $ne: templateId } },
         { $push: { cvDesignEntitlements: safeEntitlement }, $set: { updatedAt } },
-        { returnDocument: 'after' }
+        { returnDocument: 'after', includeResultMetadata: false }
       );
       if (updatedDoc) {
         const { _id, ...safe } = updatedDoc;
@@ -880,7 +880,7 @@ export class UserRepository {
       const updatedDoc = await coll.findOneAndUpdate(
         { id: cleanUserId, walletBalance: { $gte: amount }, 'cvDesignEntitlements.templateId': { $ne: templateId } },
         { $inc: { walletBalance: -amount }, $push: { cvDesignEntitlements: safeEntitlement }, $set: { updatedAt } },
-        { returnDocument: 'after' }
+        { returnDocument: 'after', includeResultMetadata: false }
       );
       if (updatedDoc) {
         if (typeof updatedDoc.walletBalance !== 'number' || !Number.isFinite(updatedDoc.walletBalance) || updatedDoc.walletBalance < 0) {

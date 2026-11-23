@@ -3791,7 +3791,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <AdminPricingController onPricingSaved={onSyncAuthoritativePricing} hideCvSettings />
       )}
       {effectiveAdminTab === 'cv-settings' && canAccessAdminTab('cv-settings') && (
-        <AdminCvSettingsController />
+        <AdminCvSettingsController onPricingSaved={onSyncAuthoritativePricing} />
       )}
 
       {/* TAB: APPLICATION FLOW & BUTTON CUSTOMIZER */}

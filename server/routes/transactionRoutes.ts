@@ -1591,7 +1591,7 @@ transactionRouter.post('/', async (req, res) => {
             userId: effectiveUserId,
             title: finalStatus === 'Success' && effectiveType === 'Subscription' ? 'Subscription Purchased' : (finalStatus === 'Success' ? 'Payment Approved' : 'Payment Submitted'),
             message: finalStatus === 'Success' && effectiveType === 'Subscription' && paymentMethod === 'Wallet Balance'
-              ? `Your ${safeSubscriptionPlan || 'subscription'} package has been activated. PKR ${enforcedAmount.toLocaleString()} was deducted from your wallet; remaining balance: PKR ${effectiveBalanceAfter.toLocaleString()}.`
+              ? `Your ${safeSubscriptionPlan || 'subscription'} package has been activated. PKR ${enforcedAmount.toLocaleString()} was deducted from your wallet; remaining balance: PKR ${Number(newTx.balanceAfter || 0).toLocaleString()}.`
               : finalStatus === 'Success'
                 ? `Your payment of ${enforcedAmount} ${effectiveCurrency} for ${effectiveType} via ${resolvedPaymentMethodName} has been processed.`
                 : `Your payment of ${enforcedAmount} ${effectiveCurrency} for ${effectiveType} via ${resolvedPaymentMethodName} has been submitted for review.`,

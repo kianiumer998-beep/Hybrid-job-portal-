@@ -54,6 +54,19 @@ async function processConsentedAutoRenewals(users: any[], now: Date): Promise<nu
 
     const packagePrice = Number(resolved.pricePkr);
     if (!Number.isSafeInteger(packagePrice) || packagePrice <= 0) continue;
+    const consentedMaxAmount = Number(user.autoRenewMaxAmountPkr);
+    if (!Number.isSafeInteger(consentedMaxAmount) || consentedMaxAmount <= 0 || packagePrice > consentedMaxAmount) {
+      await NotificationRepository.createAsync({
+        userId: String(user.id),
+        title: 'Auto-renewal Needs Your Approval',
+        message: 'The selected package price is now higher than the maximum amount you approved. No wallet deduction was made. Please review the new price and enable auto-renewal again.',
+        type: 'warning',
+        channel: 'in-app',
+        eventId: `subscription-auto-renew-price-change:${String(user.id)}:${String(user.subscriptionExpiresAt)}:${String(pkg.id)}`
+      });
+      await UserRepository.updateAsync(String(user.id), { autoRenew: false, autoRenewDisabledAt: now.toISOString() });
+      continue;
+    }
     const expiryIso = new Date(expiryMs).toISOString();
     const operationKey = `subrenew-${crypto.createHash('sha256').update(`${String(user.id)}:${expiryIso}:${String(pkg.id)}`).digest('hex').slice(0, 48)}`;
     let tx: any = await PaymentRepository.findByIdempotencyKeyAsync(operationKey);

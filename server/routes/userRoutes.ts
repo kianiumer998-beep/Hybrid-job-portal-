@@ -537,6 +537,50 @@ userRouter.get('/:id/wallet', requireAuth, async (req: any, res) => {
   }
 });
 
+// Explicit user-controlled wallet auto-renewal consent. Admin settings cannot opt a user in.
+userRouter.post('/subscription/renewal-preference', requireAuth, async (req: any, res) => {
+  try {
+    const userId = String(req.user?.userId || req.user?.id || '').trim();
+    const enabled = req.body?.enabled;
+    if (!userId || typeof enabled !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'A valid account and explicit enabled/disabled choice are required.' });
+    }
+    if (enabled) {
+      const packageId = typeof req.body?.packageId === 'string' ? req.body.packageId.trim() : '';
+      const consent = req.body?.consent === true;
+      if (!packageId || packageId.length > 128 || !consent) {
+        return res.status(400).json({ success: false, message: 'Select a renewal package and explicitly confirm wallet auto-renewal consent.' });
+      }
+      const pricing = await PricingRepository.get();
+      const pkg = (pricing?.subscriptionPackages || []).find((item: any) => item?.id === packageId && item.enabled === true);
+      if (!pkg) return res.status(400).json({ success: false, message: 'The selected renewal package is unavailable.' });
+      const user = await UserRepository.getByIdAsync(userId);
+      if (!user) return res.status(404).json({ success: false, message: 'User account not found.' });
+      if (user.membershipStatus !== 'Active' || !user.subscriptionExpiresAt || Date.parse(String(user.subscriptionExpiresAt)) <= Date.now()) {
+        return res.status(409).json({ success: false, message: 'Only an active subscription can enable auto-renewal.' });
+      }
+      const updated = await UserRepository.updateAsync(userId, {
+        autoRenew: true,
+        autoRenewPackageId: packageId,
+        autoRenewPaymentMethod: 'Wallet Balance',
+        autoRenewConsentAt: new Date().toISOString(),
+        autoRenewConsentVersion: 'wallet-auto-renew-v1'
+      });
+      if (!updated) return res.status(500).json({ success: false, message: 'Could not save renewal preference.' });
+      return res.json({ success: true, autoRenew: true, packageId, message: 'Wallet auto-renewal enabled with your explicit consent.' });
+    }
+
+    const updated = await UserRepository.updateAsync(userId, {
+      autoRenew: false,
+      autoRenewDisabledAt: new Date().toISOString()
+    });
+    if (!updated) return res.status(500).json({ success: false, message: 'Could not update renewal preference.' });
+    return res.json({ success: true, autoRenew: false, message: 'Wallet auto-renewal disabled. Your current subscription remains active until expiry.' });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error?.message || 'Could not update renewal preference.' });
+  }
+});
+
 // 1b. Get Single User Profile (Self or Admin)
 userRouter.get('/:id', requireAuth, async (req: any, res) => {
   try {

@@ -72,9 +72,24 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     api.pricing.get().then((res) => {
       if (res && res.success && res.pricing && Array.isArray(res.pricing.subscriptionPackages)) {
         const enabledPkgs = res.pricing.subscriptionPackages.filter((p: any) => p.enabled);
-        setPackages(enabledPkgs);
-        if (enabledPkgs.length > 0) {
-          setSelectedPackageId(enabledPkgs[0].id);
+        const individualFeatures = (Array.isArray(res.pricing.subscriptionFeatureCatalog) ? res.pricing.subscriptionFeatureCatalog : [])
+          .filter((feature: any) => feature?.enabled === true)
+          .map((feature: any) => ({
+            id: `feature:${feature.id}`,
+            name: feature.label,
+            pricePkr: Number(feature.pricePkr || 0),
+            durationDays: Number(feature.durationDays || 30),
+            featureIds: [feature.id],
+            featureLabels: [feature.label],
+            features: [],
+            isIndividualFeature: true,
+            enabled: true
+          }))
+          .filter((feature: any) => Number.isSafeInteger(feature.pricePkr) && feature.pricePkr > 0);
+        const availablePackages = [...enabledPkgs, ...individualFeatures];
+        setPackages(availablePackages);
+        if (availablePackages.length > 0) {
+          setSelectedPackageId((previous) => availablePackages.some((pkg: any) => pkg.id === previous) ? previous : availablePackages[0].id);
         }
       }
     }).finally(() => {
@@ -517,6 +532,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="font-bold text-sm">{pkg.name}</span>
+                        {pkg.isIndividualFeature && <span className="text-[9px] rounded bg-sky-500/15 text-sky-300 px-2 py-0.5 font-bold">ONE FEATURE</span>}
                         {pkg.badge && (
                           <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
                             pkg.id === 'pro-alerts' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-indigo-500/20 text-indigo-300'

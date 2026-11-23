@@ -401,12 +401,6 @@ export class PaymentSettingsRepository {
           return { amount: fixedAmount, enabled: PaymentSettingsRepository.parseStrictBoolean(item?.enabled, true) };
         });
       }
-      if (walletDepositFixedAmounts.some((item) =>
-        (walletDepositMinimumAmount !== undefined && item.amount < walletDepositMinimumAmount) ||
-        (walletDepositMaximumAmount !== undefined && item.amount > walletDepositMaximumAmount)
-      )) {
-        throw new Error(`Validation Error for "${name}": Every fixed wallet deposit amount must be within the configured minimum and maximum.`);
-      }
       if (enabled && !walletDepositAllowCustomAmount && !walletDepositFixedAmounts.some((item) => item.enabled)) {
         throw new Error(`Validation Error for "${name}": Enable at least one fixed wallet deposit amount or allow custom amounts.`);
       }

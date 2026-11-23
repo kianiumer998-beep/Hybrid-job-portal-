@@ -4612,6 +4612,7 @@ export default function App() {
                 initialCvData={currentUser?.cvData}
                 initialCvDocuments={currentUser?.cvDocuments}
                 cvDesignEntitlements={currentUser?.cvDesignEntitlements || []}
+                cvPackageEntitlements={currentUser?.cvPackageEntitlements || []}
                 onPurchaseTemplate={(templateId, templateName, pricePkr) => {
                   if (!currentUser?.id) { setAuthModalOpen(true); return; }
                   setCvDesignCheckout({ templateId, templateName, pricePkr });

@@ -1331,10 +1331,12 @@ transactionRouter.post('/', async (req, res) => {
                 walletMutationState: 'DEDUCTED',
                 balanceBefore: effectiveBalanceBefore,
                 balanceAfter: effectiveBalanceAfter,
+                ...(effectiveType === 'Subscription' && (req as any).packageSnapshot?.cvBenefitsEnabled === true ? { cvPackageEntitlementGranted: true } : {}),
                 updatedAt: new Date().toISOString()
               }
             );
             newTx.walletMutationState = 'DEDUCTED';
+            if (effectiveType === 'Subscription' && (req as any).packageSnapshot?.cvBenefitsEnabled === true) newTx.cvPackageEntitlementGranted = true;
           } else {
             if (effectiveType === 'Advertisement' && enforcedAmount > 0) {
               await persistTransactionState(

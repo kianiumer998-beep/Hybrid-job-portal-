@@ -196,6 +196,11 @@ export interface Job {
   isFutureJob?: boolean; // Future job opportunity
   futureIntakeDate?: string; // Target start or batch intake date (e.g. '2026-10-01' or 'Fall 2026')
   priorityTier?: 'standard' | 'urgent' | 'featured_top' | 'vip_bundle';
+  subscriptionSlotFeatureId?: string;
+  subscriptionSlotExpiresAt?: string;
+  subscriptionSlotUsedAt?: string;
+  subscriptionSlotExpired?: boolean;
+  vipBundle?: boolean;
   applicationsCount: number;
   status?: JobStatus;
   createdAt?: string;

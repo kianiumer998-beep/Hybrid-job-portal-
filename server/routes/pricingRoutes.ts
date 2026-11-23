@@ -154,6 +154,11 @@ pricingRouter.post('/cv-ai/generate', requireAuth, async (req: any, res) => {
     if (recent.length >= 8) return res.status(429).json({ success: false, message: 'AI request limit reached. Please wait a minute before trying again.' });
     recent.push(now);
     cvAiRecentRequests.set(userKey, recent);
+    if (cvAiRecentRequests.size > 5000) {
+      for (const [key, timestamps] of cvAiRecentRequests) {
+        if (!timestamps.some((timestamp) => now - timestamp < 60000)) cvAiRecentRequests.delete(key);
+      }
+    }
     const pricing = await PricingRepository.get();
     const cv = pricing?.cvBuilder || {};
     if (cv.aiWritingAssistantEnabled !== true) return res.status(403).json({ success: false, message: 'The AI Writing Assistant is currently disabled by the administrator.' });

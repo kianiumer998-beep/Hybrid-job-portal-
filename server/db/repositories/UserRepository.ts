@@ -1258,10 +1258,10 @@ export class UserRepository {
           [`grant.usage.${action}`]: { $lt: packageGrant.limit }
         }];
       }
-      const updatedDoc = await (await getUsersCollection()).findOneAndUpdate(filter, {
+      const updatedDoc: any = await (await getUsersCollection()).findOneAndUpdate(filter, {
         ...(Object.keys(increment).length ? { $inc: increment } : {}),
         $set: { updatedAt }
-      }, options);
+      } as any, options);
       if (!updatedDoc) return null;
       const { _id, ...safe } = updatedDoc;
       return safe;

@@ -77,3 +77,20 @@ export function resolveSubscriptionPackage(pkg: any, pricing: any): {
     undiscountedPricePkr
   };
 }
+
+export async function hasActiveSubscriptionFeature(userId: string | undefined, featureId: SubscriptionFeatureId, now = Date.now()): Promise<boolean> {
+  const cleanUserId = String(userId || '').trim();
+  if (!cleanUserId) return false;
+  const { UserRepository } = await import('../db/repositories/UserRepository');
+  const user = await UserRepository.getByIdAsync(cleanUserId);
+  if (!user || user.membershipStatus !== 'Active') return false;
+  const expiry = Date.parse(String(user.subscriptionExpiresAt || ''));
+  if (!Number.isFinite(expiry) || expiry <= now) return false;
+  // Existing members and older package records without a feature snapshot retain legacy Premium access.
+  if (!Array.isArray(user.subscriptionFeatureIds) || user.subscriptionFeatureIds.length === 0) return true;
+  if (!user.subscriptionFeatureIds.includes(featureId)) return false;
+  const entitlement = user.subscriptionEntitlements?.[featureId];
+  if (!entitlement || entitlement.enabled !== true) return false;
+  const featureExpiry = Date.parse(String(entitlement.expiresAt || ''));
+  return Number.isFinite(featureExpiry) && featureExpiry > now;
+}

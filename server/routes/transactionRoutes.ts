@@ -1544,14 +1544,16 @@ transactionRouter.post('/', async (req, res) => {
         try {
           await NotificationRepository.createAsync({
             userId: effectiveUserId,
-            title: finalStatus === 'Success' ? 'Payment Approved' : 'Payment Submitted',
-            message: finalStatus === 'Success'
-              ? `Your payment of ${enforcedAmount} ${effectiveCurrency} for ${effectiveType} via ${resolvedPaymentMethodName} has been processed.`
-              : `Your payment of ${enforcedAmount} ${effectiveCurrency} for ${effectiveType} via ${resolvedPaymentMethodName} has been submitted for review.`,
+            title: finalStatus === 'Success' && effectiveType === 'Subscription' ? 'Subscription Purchased' : (finalStatus === 'Success' ? 'Payment Approved' : 'Payment Submitted'),
+            message: finalStatus === 'Success' && effectiveType === 'Subscription' && paymentMethod === 'Wallet Balance'
+              ? `Your ${safeSubscriptionPlan || 'subscription'} package has been activated. PKR ${enforcedAmount.toLocaleString()} was deducted from your wallet; remaining balance: PKR ${effectiveBalanceAfter.toLocaleString()}.`
+              : finalStatus === 'Success'
+                ? `Your payment of ${enforcedAmount} ${effectiveCurrency} for ${effectiveType} via ${resolvedPaymentMethodName} has been processed.`
+                : `Your payment of ${enforcedAmount} ${effectiveCurrency} for ${effectiveType} via ${resolvedPaymentMethodName} has been submitted for review.`,
             type: finalStatus === 'Success' ? 'success' : 'info',
             eventId: finalStatus === 'Success' ? `payment-approved-${newTx.id}` : `payment-submitted-${newTx.id}`,
             idempotencyKey: finalStatus === 'Success' ? `payment-approved-${newTx.id}` : `payment-submitted-${newTx.id}`,
-            metadata: { transactionId: newTx.id, amount: enforcedAmount, type: effectiveType }
+            metadata: { transactionId: newTx.id, amount: enforcedAmount, type: effectiveType, ...(paymentMethod === 'Wallet Balance' ? { balanceAfter: effectiveBalanceAfter } : {}) }
           });
         } catch (notifErr) {
           console.error('[Notification Submission Trigger Error]:', notifErr);
@@ -1621,14 +1623,16 @@ transactionRouter.patch('/:id/verify', requireAdminPermission('payments.manage')
           const rejReason = reason || note || tx.rejectionReason || 'No reason specified';
           await NotificationRepository.createAsync({
             userId: tx.userId,
-            title: isApprove ? 'Payment Approved' : 'Payment Rejected',
-            message: isApprove
-              ? `Your payment of ${tx.amount} ${tx.currency || 'PKR'} for ${tx.type} has been approved.`
-              : `Your payment of ${tx.amount} ${tx.currency || 'PKR'} for ${tx.type} was rejected. Reason: ${rejReason}`,
+            title: isApprove && tx.type === 'Wallet Deposit' ? 'Wallet Balance Credited' : (isApprove ? 'Payment Approved' : 'Payment Rejected'),
+            message: isApprove && tx.type === 'Wallet Deposit'
+              ? `Your wallet deposit of PKR ${Number(tx.amount).toLocaleString()} has been verified and credited. ${Number.isFinite(Number(tx.balanceAfter)) ? `Your new wallet balance is PKR ${Number(tx.balanceAfter).toLocaleString()}. ` : ''}You can now use your wallet balance to purchase available subscriptions and packages.`
+              : isApprove
+                ? `Your payment of ${tx.amount} ${tx.currency || 'PKR'} for ${tx.type} has been approved.`
+                : `Your payment of ${tx.amount} ${tx.currency || 'PKR'} for ${tx.type} was rejected. Reason: ${rejReason}`,
             type: isApprove ? 'success' : 'warning',
             eventId: isApprove ? `payment-approved-${tx.id}` : `payment-rejected-${tx.id}`,
             idempotencyKey: isApprove ? `payment-approved-${tx.id}` : `payment-rejected-${tx.id}`,
-            metadata: { transactionId: tx.id, amount: tx.amount, type: tx.type, action, reason: rejReason }
+            metadata: { transactionId: tx.id, amount: tx.amount, type: tx.type, action, reason: rejReason, ...(tx.type === 'Wallet Deposit' ? { balanceAfter: tx.balanceAfter } : {}) }
           });
         } catch (notifErr) {
           console.error('[Notification Verification Trigger Error]:', notifErr);

@@ -762,6 +762,72 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
           </div>
         </div>
 
+        {/* Subscription Feature Catalog & Renewal Reminders */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 lg:col-span-2">
+          <div className="border-b border-slate-800 pb-3">
+            <h3 className="font-bold text-white text-base">Subscription Feature Catalog</h3>
+            <p className="text-xs text-slate-400 mt-1">Admin-defined feature prices, durations and posting slots. Prices are not hardcoded; disabled features cannot be added to new packages.</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {(pricing.subscriptionFeatureCatalog || []).map((feature: any, index: number) => (
+              <div key={feature.id} className="rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-2">
+                <label className="flex items-center justify-between gap-2 text-xs font-bold text-white">
+                  <span>{feature.label}</span>
+                  <input type="checkbox" checked={feature.enabled === true} onChange={(e) => {
+                    const next = [...(pricing.subscriptionFeatureCatalog || [])];
+                    next[index] = { ...next[index], enabled: e.target.checked };
+                    setPricing((prev: any) => ({ ...prev, subscriptionFeatureCatalog: next }));
+                  }} />
+                </label>
+                <label className="block text-[10px] text-slate-400">Price (PKR)
+                  <input type="number" min="0" value={feature.pricePkr ?? 0} onChange={(e) => {
+                    const next = [...(pricing.subscriptionFeatureCatalog || [])];
+                    next[index] = { ...next[index], pricePkr: Math.max(0, Math.floor(Number(e.target.value) || 0)) };
+                    setPricing((prev: any) => ({ ...prev, subscriptionFeatureCatalog: next }));
+                  }} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white" />
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-[10px] text-slate-400">Duration (days)
+                    <input type="number" min="1" max="3650" value={feature.durationDays ?? 30} onChange={(e) => {
+                      const next = [...(pricing.subscriptionFeatureCatalog || [])];
+                      next[index] = { ...next[index], durationDays: Math.max(1, Math.min(3650, Math.floor(Number(e.target.value) || 30))) };
+                      setPricing((prev: any) => ({ ...prev, subscriptionFeatureCatalog: next }));
+                    }} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white" />
+                  </label>
+                  <label className="text-[10px] text-slate-400">Included slots
+                    <input type="number" min="0" max="1000" value={feature.includedSlots ?? 0} onChange={(e) => {
+                      const next = [...(pricing.subscriptionFeatureCatalog || [])];
+                      next[index] = { ...next[index], includedSlots: Math.max(0, Math.min(1000, Math.floor(Number(e.target.value) || 0))) };
+                      setPricing((prev: any) => ({ ...prev, subscriptionFeatureCatalog: next }));
+                    }} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white" />
+                  </label>
+                </div>
+                <label className="block text-[10px] text-slate-400">Each slot duration (days)
+                  <input type="number" min="1" max="3650" value={feature.slotDurationDays ?? 30} onChange={(e) => {
+                    const next = [...(pricing.subscriptionFeatureCatalog || [])];
+                    next[index] = { ...next[index], slotDurationDays: Math.max(1, Math.min(3650, Math.floor(Number(e.target.value) || 30))) };
+                    setPricing((prev: any) => ({ ...prev, subscriptionFeatureCatalog: next }));
+                  }} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white" />
+                </label>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="text-xs text-slate-300">Combined package discount (%)
+              <input type="number" min="0" max="100" value={pricing.subscriptionBundleDiscountPercent ?? 0} onChange={(e) => setPricing((prev: any) => ({ ...prev, subscriptionBundleDiscountPercent: Math.max(0, Math.min(100, Number(e.target.value) || 0)) }))} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white" />
+            </label>
+            <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+              <label className="flex items-center justify-between gap-2 text-xs text-slate-300">Enable in-app expiry reminders
+                <input type="checkbox" checked={pricing.subscriptionReminderSettings?.enabled === true} onChange={(e) => setPricing((prev: any) => ({ ...prev, subscriptionReminderSettings: { ...(prev.subscriptionReminderSettings || {}), enabled: e.target.checked } }))} />
+              </label>
+              <label className="mt-2 block text-[10px] text-slate-400">Remind this many days before expiry
+                <input type="number" min="1" max="30" value={pricing.subscriptionReminderSettings?.daysBefore ?? 3} onChange={(e) => setPricing((prev: any) => ({ ...prev, subscriptionReminderSettings: { ...(prev.subscriptionReminderSettings || {}), daysBefore: Math.max(1, Math.min(30, Math.floor(Number(e.target.value) || 3)) } }))} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white" />
+              </label>
+              <p className="mt-2 text-[10px] text-slate-500">This scheduler sends in-app notifications only. External channels require configured delivery providers.</p>
+            </div>
+          </div>
+        </div>
+
         {/* 3. Subscriptions & Candidate Plans */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 lg:col-span-2">
           <div className="flex items-center justify-between border-b border-slate-800 pb-4">
@@ -777,6 +843,8 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                   pricePkr: 500,
                   durationDays: 30,
                   features: ['Feature 1'],
+                  featureIds: [],
+                  pricingMode: 'fixed',
                   enabled: true
                 };
                 setPricing((prev: any) => ({
@@ -847,6 +915,34 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                       className="w-full px-2 py-1 bg-slate-900 border border-slate-800 rounded text-white text-xs font-mono"
                     />
                   </div>
+                </div>
+
+                <div className="space-y-2 mb-3">
+                  <label className="text-[10px] text-slate-500 font-bold uppercase block">Package pricing mode</label>
+                  <select value={pkg.pricingMode === 'catalog' ? 'catalog' : 'fixed'} onChange={(e) => {
+                    const newList = [...pricing.subscriptionPackages];
+                    newList[idx] = { ...newList[idx], pricingMode: e.target.value };
+                    setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
+                  }} className="w-full px-2 py-2 bg-slate-900 border border-slate-800 rounded text-white text-xs">
+                    <option value="fixed">Use manually configured package price</option>
+                    <option value="catalog">Calculate from selected feature prices + bundle discount</option>
+                  </select>
+                  <label className="text-[10px] text-slate-500 font-bold uppercase block">Included paid features</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {(pricing.subscriptionFeatureCatalog || []).filter((feature: any) => feature.enabled === true).map((feature: any) => (
+                      <label key={feature.id} className="flex items-center gap-2 text-[11px] text-slate-300">
+                        <input type="checkbox" checked={(pkg.featureIds || []).includes(feature.id)} onChange={(e) => {
+                          const newList = [...pricing.subscriptionPackages];
+                          const selected = new Set(newList[idx].featureIds || []);
+                          if (e.target.checked) selected.add(feature.id); else selected.delete(feature.id);
+                          newList[idx] = { ...newList[idx], featureIds: Array.from(selected) };
+                          setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
+                        }} />
+                        <span>{feature.label} — Rs. {Number(feature.pricePkr || 0).toLocaleString()}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {pkg.pricingMode === 'catalog' && <p className="text-[10px] text-emerald-300">Calculated before checkout from selected feature prices and the configured bundle discount.</p>}
                 </div>
 
                 <div className="space-y-2">

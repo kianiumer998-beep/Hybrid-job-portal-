@@ -3,7 +3,7 @@ import path from 'path';
 import { Router } from 'express';
 import { Database, generateJobSlug } from '../db/database';
 import { detectJobDuplicate, mergeJobRecords } from '../services/duplicateEngine';
-import { requireAdminPermission } from '../auth/authManager';
+import { requireAdminPermission, requireAuth } from '../auth/authManager';
 import { JobRepository, AuditRepository, NotificationRepository, UserRepository } from '../db/repositories';
 import { calculateJobMissingFields, isScrapedJob, deriveJobSourceType, isNonJobRecord, isNeedsReviewRecord } from '../services/jobValidation';
 import { withMongoRetry, isTransientMongoError } from '../db/repositories/ScraperRepository';
@@ -15,6 +15,10 @@ import { getProvinceForCity } from '../../src/utils/locationCatalog';
 export const jobRouter = Router();
 
 import { JobVisibilityRepository } from '../db/repositories/JobVisibilityRepository';
+import { PricingRepository } from '../db/repositories/PricingRepository';
+import { buildEarlyAccessDisplayJob, getEarlyAccessLandingConfig, isEarlyAccessJobLocked } from '../services/earlyAccessPolicy';
+import { hasActiveSubscriptionFeature } from '../services/subscriptionEntitlements';
+import { dispatchPremiumInstantJobAlerts } from '../services/premiumJobAlertService';
 import { evaluateApplyAccess } from '../services/applyAccessPolicy';
 
 // 1. Get Live Approved Jobs with Query Filters & Pagination
@@ -37,7 +41,14 @@ jobRouter.get('/', async (req, res) => {
       limit = '10000'
     } = req.query as Record<string, string>;
 
+    const user = (req as any).user;
+    const pricing = await PricingRepository.get();
+    const isPrivilegedUser = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(user.role));
+    const isPremium = isPrivilegedUser || await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    const hasEarlyAccess = isPrivilegedUser || await hasActiveSubscriptionFeature(user?.userId || user?.id, 'early_access');
+
     const result = await JobRepository.getAll({
+      earlyAccessPolicy: { config: pricing.earlyAccess, isPremium: hasEarlyAccess },
       search,
       jobType,
       region,
@@ -53,9 +64,6 @@ jobRouter.get('/', async (req, res) => {
       page: parseInt(page, 10),
       limit: parseInt(limit, 10)
     });
-
-    const user = (req as any).user;
-    const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
 
     let sanitizedJobs = result.jobs;
     const applySettings = Database.getApplySettings();
@@ -88,6 +96,63 @@ jobRouter.get('/', async (req, res) => {
   }
 });
 
+// 1a. Premium Early Access landing data. Job titles/details are returned only to active Premium members.
+jobRouter.get('/early-access', async (req: any, res: any) => {
+  try {
+    const pricing = await PricingRepository.get();
+    const config = pricing?.earlyAccess || {};
+    const landingConfig = getEarlyAccessLandingConfig(config);
+    if (config.enabled !== true || config.showOnLanding === false) {
+      return res.json({ success: true, enabled: false, config: landingConfig, count: 0, jobs: [] });
+    }
+
+    const user = req.user;
+    const isAdmin = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(user.role));
+    const isPremium = isAdmin || await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    const hasEarlyAccess = isAdmin || await hasActiveSubscriptionFeature(user?.userId || user?.id, 'early_access');
+    const result = await JobRepository.getAll({ page: 1, limit: 1000 });
+    const earlyJobs = result.jobs
+      .filter((job: any) => isEarlyAccessJobLocked(job, config))
+      .sort((a: any, b: any) => {
+        const aStart = new Date(a.approvedAt || a.publishedAt || a.createdAt || a.postedAt || 0).getTime();
+        const bStart = new Date(b.approvedAt || b.publishedAt || b.createdAt || b.postedAt || 0).getTime();
+        return bStart - aStart;
+      });
+    const maxJobs = landingConfig.maxJobs;
+    const nextReleaseAt = earlyJobs
+      .map((job: any) => {
+        const rawStart = job.approvedAt || job.verifiedDate || job.publishedAt || job.createdAt || job.postedAt || job.datePosted;
+        const start = rawStart ? new Date(rawStart).getTime() : Number.NaN;
+        return Number.isFinite(start) ? start + landingConfig.durationHours * 60 * 60 * 1000 : Number.NaN;
+      })
+      .filter((value: number) => Number.isFinite(value) && value > Date.now())
+      .sort((a: number, b: number) => a - b)[0];
+    const jobs = hasEarlyAccess
+      ? await Promise.all(earlyJobs.slice(0, maxJobs).map(async (job: any) => {
+          const policyApplied = await JobVisibilityRepository.applyPolicyToJob(job);
+          const filtered = JobVisibilityRepository.filterJobForUser(policyApplied, user, true);
+          return buildEarlyAccessDisplayJob(filtered, config);
+        }))
+      : [];
+
+    return res.json({
+      success: true,
+      enabled: true,
+      isPremium,
+      config: landingConfig,
+      count: earlyJobs.length,
+      nextReleaseAt: typeof nextReleaseAt === 'number' && Number.isFinite(nextReleaseAt) ? new Date(nextReleaseAt).toISOString() : null,
+      jobs
+    });
+  } catch (err: any) {
+    console.error('[EarlyAccess] Failed to load landing data:', err);
+    return res.status(503).json({
+      success: false,
+      message: 'Early access information is temporarily unavailable.'
+    });
+  }
+});
+
 // 1b. Get Priority Placement Jobs (VIP, Pinned, Featured, Urgent)
 jobRouter.get('/priority', async (req, res) => {
   try {
@@ -103,7 +168,14 @@ jobRouter.get('/priority', async (req, res) => {
       isGovt
     } = req.query as Record<string, string>;
 
+    const user = (req as any).user;
+    const pricing = await PricingRepository.get();
+    const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    const isPrivilegedUser = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(user.role));
+    const hasEarlyAccess = isPrivilegedUser || await hasActiveSubscriptionFeature(user?.userId || user?.id, 'early_access');
+
     const result = await JobRepository.getPriorityPlacementJobs({
+      earlyAccessPolicy: { config: pricing.earlyAccess, isPremium: hasEarlyAccess },
       search,
       jobType,
       region,
@@ -114,9 +186,6 @@ jobRouter.get('/priority', async (req, res) => {
       sortBy,
       isGovt: isGovt === 'true'
     });
-
-    const user = (req as any).user;
-    const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
 
     let sanitizedJobs = result.jobs;
     const applySettings = Database.getApplySettings();
@@ -254,6 +323,7 @@ jobRouter.post('/queue/pending/:id/approve', requireAdminPermission('jobs.manage
     if (!approved) {
       return res.status(404).json({ success: false, message: 'Pending job not found.' });
     }
+    try { await dispatchPremiumInstantJobAlerts(approved); } catch (alertError: any) { console.error('[Premium Job Alerts] Single approval dispatch failed:', alertError?.message || alertError); }
     const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Job Moderator',
@@ -502,6 +572,9 @@ jobRouter.post('/bulk-approve', requireAdminPermission('jobs.manage'), async (re
     }
 
     const result = await JobRepository.bulkApprovePending(idsToApprove);
+    for (const approvedJob of (result.approvedJobs || [])) {
+      try { await dispatchPremiumInstantJobAlerts(approvedJob); } catch (alertError: any) { console.error('[Premium Job Alerts] Bulk approval dispatch failed:', alertError?.message || alertError); }
+    }
     const combinedErrors = [...unresolvedErrors, ...result.errors];
     const totalFailureCount = combinedErrors.length;
     const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
@@ -1741,7 +1814,13 @@ jobRouter.get('/slug/:slug', async (req, res) => {
     }
 
     const user = (req as any).user;
-    const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    const isPrivilegedUser = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(user.role));
+    const isPremium = isPrivilegedUser || await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    const hasEarlyAccess = isPrivilegedUser || await hasActiveSubscriptionFeature(user?.userId || user?.id, 'early_access');
+    const pricing = await PricingRepository.get();
+    if (!hasEarlyAccess && isEarlyAccessJobLocked(job, pricing?.earlyAccess)) {
+      return res.status(404).json({ success: false, message: 'This job is reserved for Premium Early Access and is not yet publicly available.' });
+    }
     const policyAppliedJob = await JobVisibilityRepository.applyPolicyToJob(job);
     let filteredJob = JobVisibilityRepository.filterJobForUser(policyAppliedJob, user, isPremium);
 
@@ -2046,7 +2125,13 @@ jobRouter.get('/:idOrSlug', async (req, res) => {
     }
 
     const user = (req as any).user;
-    const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    const isPrivilegedUser = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(user.role));
+    const isPremium = isPrivilegedUser || await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    const hasEarlyAccess = isPrivilegedUser || await hasActiveSubscriptionFeature(user?.userId || user?.id, 'early_access');
+    const pricing = await PricingRepository.get();
+    if (!hasEarlyAccess && isEarlyAccessJobLocked(job, pricing?.earlyAccess)) {
+      return res.status(404).json({ success: false, message: 'This job is reserved for Premium Early Access and is not yet publicly available.' });
+    }
     const policyAppliedJob = await JobVisibilityRepository.applyPolicyToJob(job);
     let filteredJob = JobVisibilityRepository.filterJobForUser(policyAppliedJob, user, isPremium);
 
@@ -2184,6 +2269,87 @@ jobRouter.post('/', async (req, res) => {
   } catch (err: any) {
     console.error('Error in POST /api/jobs:', err);
     res.status(500).json({ success: false, message: err.message || 'Error creating job' });
+  }
+});
+
+// Redeem an included subscription posting slot against the user's own pending job.
+jobRouter.post('/:id/redeem-subscription-slot', requireAuth, async (req: any, res) => {
+  try {
+    const userId = String(req.user?.userId || req.user?.id || '').trim();
+    const tier = String(req.body?.tier || '').trim().toLowerCase();
+    const tierMap: Record<string, { featureId: string; priorityTier: string; flags: Record<string, boolean> }> = {
+      urgent: { featureId: 'urgent_job_posting', priorityTier: 'urgent', flags: { urgent: true } },
+      featured: { featureId: 'featured_job_posting', priorityTier: 'featured_top', flags: { featured: true, isPinnedTop: true } },
+      premium: { featureId: 'premium_job_posting', priorityTier: 'vip_bundle', flags: { urgent: true, featured: true, isPinnedTop: true, vipBundle: true } }
+    };
+    const selected = tierMap[tier];
+    if (!userId || !selected) return res.status(400).json({ success: false, message: 'Select a valid urgent, featured or premium posting slot.' });
+
+    const job = await JobRepository.getPendingById(String(req.params.id));
+    if (!job || job.status !== 'Pending') return res.status(404).json({ success: false, message: 'Only your own pending job can use a subscription posting slot.' });
+    const ownerId = job.submittedByUserId || job.postedByUserId || job.userId;
+    if (!ownerId || String(ownerId) !== userId) return res.status(403).json({ success: false, message: 'You can only redeem a posting slot for your own job.' });
+    if (job.subscriptionSlotFeatureId) return res.status(409).json({ success: false, message: 'A subscription posting slot has already been applied to this job.' });
+
+    const user = await UserRepository.consumeSubscriptionFeatureSlotAsync(userId, selected.featureId, String(job.id));
+    if (!user) return res.status(409).json({ success: false, message: 'No active subscription posting slot is available for this feature.' });
+    const entitlement = user.subscriptionEntitlements?.[selected.featureId] || {};
+    const slotDays = Number.isInteger(Number(entitlement.slotDurationDays)) && Number(entitlement.slotDurationDays) > 0 ? Math.min(3650, Number(entitlement.slotDurationDays)) : 30;
+    const entitlementExpiry = Date.parse(String(entitlement.expiresAt || ''));
+    const priorityExpiresAt = new Date(Math.min(Date.now() + slotDays * 24 * 60 * 60 * 1000, Number.isFinite(entitlementExpiry) ? entitlementExpiry : Date.now())).toISOString();
+    const updates = {
+      priorityTier: selected.priorityTier,
+      ...selected.flags,
+      subscriptionSlotFeatureId: selected.featureId,
+      subscriptionSlotUsedAt: new Date().toISOString(),
+      subscriptionSlotExpiresAt: priorityExpiresAt,
+      subscriptionSlotTransactionSource: String(entitlement.sourcePackageId || 'subscription')
+    };
+    let updated: any = null;
+    try {
+      updated = await JobRepository.update(String(job.id), updates);
+    } catch (updateError) {
+      let verifiedJob: any = null;
+      try {
+        verifiedJob = await JobRepository.getPendingById(String(job.id));
+      } catch {
+        // The write outcome is uncertain; keep the slot reserved rather than risk issuing a duplicate credit.
+        throw new Error('Posting-slot update outcome is uncertain. Your slot remains reserved while the job record is checked.');
+      }
+      if (verifiedJob?.subscriptionSlotFeatureId === selected.featureId) {
+        updated = verifiedJob;
+      } else {
+        await UserRepository.restoreSubscriptionFeatureSlotAsync(userId, selected.featureId, String(job.id));
+        throw updateError;
+      }
+    }
+    if (!updated) {
+      await UserRepository.restoreSubscriptionFeatureSlotAsync(userId, selected.featureId, String(job.id));
+      return res.status(500).json({ success: false, message: 'The posting slot could not be applied. Its credit was restored where possible.' });
+    }
+    try {
+      await NotificationRepository.createAsync({
+        userId,
+        title: 'Subscription Posting Slot Applied',
+        message: `Your ${tier} posting slot has been applied to "${String(job.title || 'your job')}". It remains active until ${priorityExpiresAt} or subscription expiry, whichever comes first.`,
+        type: 'success',
+        channel: 'in-app',
+        eventId: `subscription-slot-applied:${userId}:${String(job.id)}:${selected.featureId}`,
+        metadata: { jobId: String(job.id), featureId: selected.featureId, priorityExpiresAt }
+      });
+    } catch (notificationError: any) {
+      console.error('[Subscription Posting Slot] Applied but notification could not be saved:', notificationError?.message || notificationError);
+    }
+    return res.json({
+      success: true,
+      job: updated,
+      remainingSlots: Number(user.subscriptionEntitlements?.[selected.featureId]?.remainingSlots || 0),
+      priorityExpiresAt,
+      message: 'Subscription posting slot applied. Your job remains pending admin review.'
+    });
+  } catch (error: any) {
+    console.error('[Subscription Posting Slot] Redemption failed:', error?.message || error);
+    return res.status(500).json({ success: false, message: error?.message || 'Could not redeem subscription posting slot.' });
   }
 });
 

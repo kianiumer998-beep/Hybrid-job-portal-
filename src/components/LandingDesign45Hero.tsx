@@ -1,6 +1,7 @@
 import React from 'react';
 import { LandingHeroConfig, LandingDesignId, SUPPORTED_COUNTRIES } from '../types/landing';
 import { JobFilters } from '../types/job';
+import { PremiumEarlyAccessSection } from './PremiumEarlyAccessSection';
 
 interface Props {
   designId: LandingDesignId;
@@ -11,6 +12,7 @@ interface Props {
   onPostJob: () => void;
   filters: JobFilters;
   onFiltersChange: (filters: JobFilters) => void;
+  onPremiumClick?: () => void;
 }
 
 const DEFAULT_SEEKER_IMAGE = 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=1400&q=85';
@@ -19,7 +21,7 @@ const DEFAULT_DESIGN4_IMAGE = 'https://images.unsplash.com/photo-1521737711867-e
 const safeImage = (value: string | undefined, fallback: string) =>
   value && (/^https:\/\//i.test(value.trim()) || (/^\/(?!\/)/.test(value.trim()))) ? value.trim() : fallback;
 
-export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJobsCount, onExplore, onCv, onPostJob, filters, onFiltersChange }) => {
+export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJobsCount, onExplore, onCv, onPostJob, filters, onFiltersChange, onPremiumClick }) => {
   const runConfiguredLink = (value: string | undefined, fallback: () => void) => {
     const target = (value || '').trim();
     if (!target) { fallback(); return; }
@@ -39,6 +41,7 @@ export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJo
   const employerImage = safeImage(config.design5EmployerImageUrl, DEFAULT_EMPLOYER_IMAGE);
   if (designId === 'design-5') {
     return (
+      <>
       <section className="mx-auto w-full max-w-[1440px] px-3 sm:px-6 pt-3 sm:pt-6">
         <div className="grid grid-cols-1 md:grid-cols-2 overflow-hidden rounded-[28px] border border-slate-200 shadow-2xl">
           <article className="relative min-h-[430px] sm:min-h-[500px] flex items-end bg-slate-900">
@@ -68,11 +71,14 @@ export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJo
           <span className="text-sm font-black text-emerald-700">{totalJobsCount.toLocaleString()}+ opportunities on the platform</span>
         </div>
       </section>
+      <PremiumEarlyAccessSection onUpgrade={() => onPremiumClick?.()} onExplore={onExplore} />
+      </>
     );
   }
   const heroImage = safeImage(config.design4HeroImageUrl, DEFAULT_DESIGN4_IMAGE);
   const overlay = Math.max(35, Math.min(90, Number(config.design45HeroOverlay ?? 68)));
   return (
+    <>
     <section className="mx-auto w-full max-w-[1440px] px-3 sm:px-6 pt-3 sm:pt-6">
       <div className="relative isolate min-h-[520px] sm:min-h-[590px] overflow-hidden rounded-[28px] bg-slate-950 shadow-2xl">
         <img src={heroImage} alt="Professionals collaborating in a modern workplace" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = DEFAULT_DESIGN4_IMAGE; }} className="absolute inset-0 z-0 h-full w-full object-cover" />
@@ -104,5 +110,7 @@ export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJo
         </div>
       </div>
     </section>
+    <PremiumEarlyAccessSection onUpgrade={() => onPremiumClick?.()} onExplore={onExplore} />
+    </>
   );
 };

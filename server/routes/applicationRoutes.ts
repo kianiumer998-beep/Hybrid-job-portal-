@@ -7,6 +7,9 @@ import { ADMIN_ROLES, hasAdminPermission, requireAdminPermission, requireAuth } 
 import { cvStorage, validateCvMagicBytes, generateCvDownloadToken, verifyCvDownloadToken } from '../services/cvStorage';
 import { evaluateApplyAccess } from '../services/applyAccessPolicy';
 import { JobVisibilityRepository } from '../db/repositories/JobVisibilityRepository';
+import { PricingRepository } from '../db/repositories/PricingRepository';
+import { isEarlyAccessJobLocked } from '../services/earlyAccessPolicy';
+import { hasActiveSubscriptionFeature } from '../services/subscriptionEntitlements';
 
 export const applicationRouter = Router();
 
@@ -354,6 +357,21 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
     const job = await JobRepository.getById(jobId);
     if (!job) {
       return res.status(404).json({ success: false, message: 'Job not found.' });
+    }
+
+    const applicantIsPrivileged = Boolean(authUser && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(authUser.role));
+    const applicantIsPremium = applicantIsPrivileged || await JobVisibilityRepository.isUserPremiumAuthoritative(effectiveApplicantId);
+    const applicantHasEarlyAccess = applicantIsPrivileged || await hasActiveSubscriptionFeature(effectiveApplicantId, 'early_access');
+    const currentPricing = await PricingRepository.get();
+    if (!applicantHasEarlyAccess && isEarlyAccessJobLocked(job, currentPricing?.earlyAccess)) {
+      return res.status(403).json({
+        success: false,
+        message: 'PREMIUM_EARLY_ACCESS_REQUIRED',
+        gate: {
+          title: 'Premium Early Access',
+          message: 'This job is currently available to active Premium members before its public release.'
+        }
+      });
     }
 
     const applySettings = Database.getApplySettings();

@@ -32,6 +32,8 @@ const ALLOWED_NORMAL_USER_FIELDS = new Set([
   'cvDocuments',
   'socialLinks',
   'notificationsEnabled',
+  'emailAlertsEnabled',
+  'smsAlertsEnabled',
   'whatsappAlertsEnabled'
 ]);
 
@@ -334,7 +336,10 @@ userRouter.post('/cv/export/:format', requireAuth, async (req: any, res) => {
     const templateId = String(cvData.templateStyle || '');
     const templates = Array.isArray(settings.templates) ? settings.templates : [];
     const template = templates.find((item: any) => String(item?.id || '') === templateId);
-    const ownsDesign = (Array.isArray(user.cvDesignEntitlements) ? user.cvDesignEntitlements : []).some((item: any) => String(item?.templateId || '') === templateId);
+    const activePackageDesignIds = (Array.isArray(user.cvPackageEntitlements) ? user.cvPackageEntitlements : [])
+      .filter((grant: any) => Date.parse(String(grant?.expiresAt || '')) > Date.now())
+      .flatMap((grant: any) => Array.isArray(grant?.premiumDesignIds) ? grant.premiumDesignIds.map(String) : []);
+    const ownsDesign = (Array.isArray(user.cvDesignEntitlements) ? user.cvDesignEntitlements : []).some((item: any) => String(item?.templateId || '') === templateId) || activePackageDesignIds.includes(templateId);
     const inactive = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled', 'Revoked']);
     const premium = !inactive.has(String(user.membershipStatus || '')) && ((user.membershipStatus === 'Active' && Boolean(user.membershipTier) && String(user.membershipTier).toLowerCase() !== 'free') || user.plan === 'Premium' || (user.paymentStatus === 'Paid' && user.membershipStatus === 'Active'));
     const freeDesignLimit = Math.min(5, Math.max(0, Math.floor(Number(settings.freeDesignLimit ?? 2))));
@@ -387,7 +392,10 @@ userRouter.post('/cv/consume', requireAuth, async (req: any, res) => {
     const settings = pricing.cvBuilder || {};
     const templates = Array.isArray(settings.templates) ? settings.templates : [];
     const template = templates.find((item: any) => String(item?.id || '') === templateId);
-    const ownsDesign = (Array.isArray(user.cvDesignEntitlements) ? user.cvDesignEntitlements : []).some((item: any) => String(item?.templateId || '') === templateId);
+    const activePackageDesignIds = (Array.isArray(user.cvPackageEntitlements) ? user.cvPackageEntitlements : [])
+      .filter((grant: any) => Date.parse(String(grant?.expiresAt || '')) > Date.now())
+      .flatMap((grant: any) => Array.isArray(grant?.premiumDesignIds) ? grant.premiumDesignIds.map(String) : []);
+    const ownsDesign = (Array.isArray(user.cvDesignEntitlements) ? user.cvDesignEntitlements : []).some((item: any) => String(item?.templateId || '') === templateId) || activePackageDesignIds.includes(templateId);
     const inactive = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled', 'Revoked']);
     const premium = !inactive.has(String(user.membershipStatus || '')) && ((user.membershipStatus === 'Active' && Boolean(user.membershipTier) && String(user.membershipTier).toLowerCase() !== 'free') || user.plan === 'Premium' || (user.paymentStatus === 'Paid' && user.membershipStatus === 'Active'));
     const freeDesignLimit = Math.min(5, Math.max(0, Math.floor(Number(settings.freeDesignLimit ?? 2))));
@@ -772,6 +780,55 @@ userRouter.get('/:id/wallet', requireAuth, async (req: any, res) => {
   }
 });
 
+// Explicit user-controlled wallet auto-renewal consent. Admin settings cannot opt a user in.
+userRouter.post('/subscription/renewal-preference', requireAuth, async (req: any, res) => {
+  try {
+    const userId = String(req.user?.userId || req.user?.id || '').trim();
+    const enabled = req.body?.enabled;
+    if (!userId || typeof enabled !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'A valid account and explicit enabled/disabled choice are required.' });
+    }
+    if (enabled) {
+      const packageId = typeof req.body?.packageId === 'string' ? req.body.packageId.trim() : '';
+      const consent = req.body?.consent === true;
+      if (!packageId || packageId.length > 128 || !consent) {
+        return res.status(400).json({ success: false, message: 'Select a renewal package and explicitly confirm wallet auto-renewal consent.' });
+      }
+      const pricing = await PricingRepository.get();
+      const pkg = (pricing?.subscriptionPackages || []).find((item: any) => item?.id === packageId && item.enabled === true);
+      if (!pkg) return res.status(400).json({ success: false, message: 'The selected renewal package is unavailable.' });
+      const consentedMaxAmount = Number(pkg.pricePkr);
+      if (!Number.isSafeInteger(consentedMaxAmount) || consentedMaxAmount <= 0) {
+        return res.status(400).json({ success: false, message: 'The selected package does not have a valid positive PKR price for auto-renewal.' });
+      }
+      const user = await UserRepository.getByIdAsync(userId);
+      if (!user) return res.status(404).json({ success: false, message: 'User account not found.' });
+      if (user.membershipStatus !== 'Active' || !user.subscriptionExpiresAt || Date.parse(String(user.subscriptionExpiresAt)) <= Date.now()) {
+        return res.status(409).json({ success: false, message: 'Only an active subscription can enable auto-renewal.' });
+      }
+      const updated = await UserRepository.updateAsync(userId, {
+        autoRenew: true,
+        autoRenewPackageId: packageId,
+        autoRenewPaymentMethod: 'Wallet Balance',
+        autoRenewMaxAmountPkr: consentedMaxAmount,
+        autoRenewConsentAt: new Date().toISOString(),
+        autoRenewConsentVersion: 'wallet-auto-renew-v1'
+      });
+      if (!updated) return res.status(500).json({ success: false, message: 'Could not save renewal preference.' });
+      return res.json({ success: true, autoRenew: true, packageId, message: 'Wallet auto-renewal enabled with your explicit consent.' });
+    }
+
+    const updated = await UserRepository.updateAsync(userId, {
+      autoRenew: false,
+      autoRenewDisabledAt: new Date().toISOString()
+    });
+    if (!updated) return res.status(500).json({ success: false, message: 'Could not update renewal preference.' });
+    return res.json({ success: true, autoRenew: false, message: 'Wallet auto-renewal disabled. Your current subscription remains active until expiry.' });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error?.message || 'Could not update renewal preference.' });
+  }
+});
+
 // 1b. Get Single User Profile (Self or Admin)
 userRouter.get('/:id', requireAuth, async (req: any, res) => {
   try {
@@ -790,6 +847,7 @@ userRouter.get('/:id', requireAuth, async (req: any, res) => {
 
     const { passwordHash, salt, password, cvData, cvDocuments, ...safeUser } = user;
     delete safeUser.walletEscrowOperations;
+    delete safeUser.subscriptionSlotOperations;
     // CV drafts and saved CV documents are private to their owner, not exposed to administrators viewing another account.
     if (String(id) === String(currentUserId)) {
       if (cvData !== undefined) safeUser.cvData = cvData;
@@ -886,7 +944,7 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
             });
           }
           finalUpdates[key] = value;
-        } else if (key === 'autoRenew' || key === 'notificationsEnabled' || key === 'whatsappAlertsEnabled') {
+        } else if (key === 'autoRenew' || key === 'notificationsEnabled' || key === 'emailAlertsEnabled' || key === 'smsAlertsEnabled' || key === 'whatsappAlertsEnabled') {
           if (typeof value !== 'boolean') {
             return res.status(400).json({ success: false, message: `Field '${key}' must be a boolean.` });
           }
@@ -990,8 +1048,13 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
           .filter((item: any) => item && item.enabled !== false && item.free === true)
           .slice(0, freeDesignLimit)
           .map((item: any) => String(item.id)));
-        const purchasedTemplateIds = new Set((Array.isArray(cvOwner.cvDesignEntitlements) ? cvOwner.cvDesignEntitlements : [])
-          .map((item: any) => String(item?.templateId || '')));
+        const activePackageDesignIds = (Array.isArray(cvOwner.cvPackageEntitlements) ? cvOwner.cvPackageEntitlements : [])
+          .filter((grant: any) => Date.parse(String(grant?.expiresAt || '')) > Date.now())
+          .flatMap((grant: any) => Array.isArray(grant?.premiumDesignIds) ? grant.premiumDesignIds.map(String) : []);
+        const purchasedTemplateIds = new Set([
+          ...(Array.isArray(cvOwner.cvDesignEntitlements) ? cvOwner.cvDesignEntitlements : []).map((item: any) => String(item?.templateId || '')),
+          ...activePackageDesignIds
+        ]);
         const membershipStatusForAccess = String(cvOwner.membershipStatus || '').trim();
         const membershipTierForAccess = String(cvOwner.membershipTier || '').trim();
         const inactiveStatusesForAccess = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled']);

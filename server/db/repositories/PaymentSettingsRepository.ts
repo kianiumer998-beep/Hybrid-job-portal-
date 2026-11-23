@@ -113,6 +113,8 @@ export class PaymentSettingsRepository {
         proofNoteLabel: m.proofNoteLabel ? String(m.proofNoteLabel).trim().slice(0, 100) : undefined,
         proofNotePlaceholder: m.proofNotePlaceholder ? String(m.proofNotePlaceholder).trim().slice(0, 100) : undefined,
         walletDepositAllowCustomAmount: parseStrictBoolean(m.walletDepositAllowCustomAmount, true),
+        walletDepositMinimumAmount: Number.isSafeInteger(Number(m.walletDepositMinimumAmount)) && Number(m.walletDepositMinimumAmount) > 0 ? Number(m.walletDepositMinimumAmount) : undefined,
+        walletDepositMaximumAmount: Number.isSafeInteger(Number(m.walletDepositMaximumAmount)) && Number(m.walletDepositMaximumAmount) > 0 ? Number(m.walletDepositMaximumAmount) : undefined,
         walletDepositFixedAmounts: Array.isArray(m.walletDepositFixedAmounts)
           ? m.walletDepositFixedAmounts.slice(0, 50).map((item: any) => ({
               amount: Number(item?.amount),
@@ -369,6 +371,18 @@ export class PaymentSettingsRepository {
       }
 
       const walletDepositAllowCustomAmount = PaymentSettingsRepository.parseStrictBoolean(m.walletDepositAllowCustomAmount, true);
+      const walletDepositMinimumAmount = m.walletDepositMinimumAmount === undefined || m.walletDepositMinimumAmount === null || m.walletDepositMinimumAmount === ''
+        ? undefined : Number(m.walletDepositMinimumAmount);
+      const walletDepositMaximumAmount = m.walletDepositMaximumAmount === undefined || m.walletDepositMaximumAmount === null || m.walletDepositMaximumAmount === ''
+        ? undefined : Number(m.walletDepositMaximumAmount);
+      for (const [field, value] of [['minimum', walletDepositMinimumAmount], ['maximum', walletDepositMaximumAmount]] as const) {
+        if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0 || value > 100000000)) {
+          throw new Error(`Validation Error for "${name}": Wallet deposit ${field} must be a positive whole PKR amount.`);
+        }
+      }
+      if (walletDepositMinimumAmount !== undefined && walletDepositMaximumAmount !== undefined && walletDepositMinimumAmount > walletDepositMaximumAmount) {
+        throw new Error(`Validation Error for "${name}": Wallet deposit minimum cannot exceed maximum.`);
+      }
       let walletDepositFixedAmounts: Array<{ amount: number; enabled: boolean }> = [];
       if (Array.isArray(m.walletDepositFixedAmounts)) {
         if (m.walletDepositFixedAmounts.length > 50) {
@@ -420,6 +434,8 @@ export class PaymentSettingsRepository {
         proofNoteLabel: m.proofNoteLabel ? String(m.proofNoteLabel).trim().slice(0, 100) : undefined,
         proofNotePlaceholder: m.proofNotePlaceholder ? String(m.proofNotePlaceholder).trim().slice(0, 100) : undefined,
         walletDepositAllowCustomAmount,
+        walletDepositMinimumAmount,
+        walletDepositMaximumAmount,
         walletDepositFixedAmounts,
         customFields
       };

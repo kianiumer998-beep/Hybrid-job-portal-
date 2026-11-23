@@ -111,6 +111,8 @@ export interface PublicPaymentMethodConfig {
   // Wallet Deposit-only amount controls. Missing values preserve legacy custom-amount behavior.
   walletDepositAllowCustomAmount?: boolean;
   walletDepositFixedAmounts?: Array<{ amount: number; enabled: boolean }>;
+  walletDepositMinimumAmount?: number;
+  walletDepositMaximumAmount?: number;
 
   // Configurable arbitrary proof fields (e.g. CNIC, Branch Code, Reference Code)
   customFields?: CustomProofField[];

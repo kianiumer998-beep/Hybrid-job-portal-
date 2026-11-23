@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { initScraperScheduler } from './server/services/scraperScheduler';
+import { initSubscriptionReminderScheduler } from './server/services/subscriptionReminderScheduler';
 import { featureFlags, updateFeatureFlags, setFeatureFlags } from './server/config/featureFlags';
 import { FeatureFlagsRepository } from './server/db/repositories/FeatureFlagsRepository';
 import { isMongoConfigured } from './server/db/mongodb';
@@ -177,6 +178,7 @@ async function startServer() {
 
   // Initialize dynamic interval-aware scraper scheduler
   initScraperScheduler();
+  initSubscriptionReminderScheduler();
 
   // Catch-all 404 handler for unhandled /api/* routes so they NEVER return HTML / index.html
   app.all('/api/*', (req, res) => {

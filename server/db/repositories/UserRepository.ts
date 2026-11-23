@@ -283,6 +283,234 @@ export class UserRepository {
     });
   }
 
+  /** Atomically consumes one purchased posting slot and records the job redemption key. */
+  static async consumeSubscriptionFeatureSlotAsync(userId: string, featureId: string, jobId: string): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanFeatureId = String(featureId || '').trim();
+    const cleanJobId = String(jobId || '').trim();
+    const allowed = new Set(['urgent_job_posting', 'featured_job_posting', 'premium_job_posting']);
+    if (!cleanUserId || !allowed.has(cleanFeatureId) || !cleanJobId || cleanJobId.length > 200) {
+      throw new Error('Valid user, posting feature and job references are required.');
+    }
+    const markerKey = ('slot-' + cleanFeatureId + '-' + cleanJobId).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+    const marker = 'subscriptionSlotOperations.' + markerKey;
+    const slotsPath = 'subscriptionEntitlements.' + cleanFeatureId + '.remainingSlots';
+    const enabledPath = 'subscriptionEntitlements.' + cleanFeatureId + '.enabled';
+    const expiryPath = 'subscriptionEntitlements.' + cleanFeatureId + '.expiresAt';
+    const now = new Date().toISOString();
+
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const operations = existing.subscriptionSlotOperations || {};
+      if (operations[markerKey] === 'CONSUMED') return existing;
+      const entitlement = existing.subscriptionEntitlements?.[cleanFeatureId];
+      const membershipExpiry = Date.parse(String(existing.subscriptionExpiresAt || ''));
+      const featureExpiry = Date.parse(String(entitlement?.expiresAt || ''));
+      if (existing.membershipStatus !== 'Active' || !Number.isFinite(membershipExpiry) || membershipExpiry <= Date.now() ||
+          entitlement?.enabled !== true || !Number.isFinite(featureExpiry) || featureExpiry <= Date.now() ||
+          !Number.isInteger(Number(entitlement.remainingSlots)) || Number(entitlement.remainingSlots) <= 0) return null;
+      const updated = {
+        ...existing,
+        subscriptionEntitlements: {
+          ...existing.subscriptionEntitlements,
+          [cleanFeatureId]: { ...entitlement, remainingSlots: Number(entitlement.remainingSlots) - 1 }
+        },
+        subscriptionSlotOperations: { ...operations, [markerKey]: 'CONSUMED' },
+        updatedAt: now
+      };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        {
+          id: cleanUserId,
+          membershipStatus: 'Active',
+          subscriptionExpiresAt: { $gt: now },
+          [enabledPath]: true,
+          [expiryPath]: { $gt: now },
+          [slotsPath]: { $gt: 0 },
+          [marker]: { $ne: 'CONSUMED' }
+        },
+        { $inc: { [slotsPath]: -1 }, $set: { [marker]: 'CONSUMED', updatedAt: now } },
+        { returnDocument: 'after' }
+      );
+      if (updatedDoc) {
+        const { _id, ...safe } = updatedDoc;
+        return safe;
+      }
+      const existing = await coll.findOne({ id: cleanUserId, [marker]: 'CONSUMED' });
+      if (existing) {
+        const { _id, ...safe } = existing;
+        return safe;
+      }
+      return null;
+    }
+
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    const operations = existing.subscriptionSlotOperations || {};
+    if (operations[markerKey] === 'CONSUMED') return existing;
+    const entitlement = existing.subscriptionEntitlements?.[cleanFeatureId];
+    const membershipExpiry = Date.parse(String(existing.subscriptionExpiresAt || ''));
+    const featureExpiry = Date.parse(String(entitlement?.expiresAt || ''));
+    if (existing.membershipStatus !== 'Active' || !Number.isFinite(membershipExpiry) || membershipExpiry <= Date.now() ||
+        entitlement?.enabled !== true || !Number.isFinite(featureExpiry) || featureExpiry <= Date.now() ||
+        !Number.isInteger(Number(entitlement.remainingSlots)) || Number(entitlement.remainingSlots) <= 0) return null;
+    return Database.updateUser(cleanUserId, {
+      subscriptionEntitlements: {
+        ...existing.subscriptionEntitlements,
+        [cleanFeatureId]: { ...entitlement, remainingSlots: Number(entitlement.remainingSlots) - 1 }
+      },
+      subscriptionSlotOperations: { ...operations, [markerKey]: 'CONSUMED' },
+      updatedAt: now
+    });
+  }
+
+  /** Compensates a slot redemption if the pending job update fails. */
+  static async restoreSubscriptionFeatureSlotAsync(userId: string, featureId: string, jobId: string): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanFeatureId = String(featureId || '').trim();
+    const cleanJobId = String(jobId || '').trim();
+    const allowed = new Set(['urgent_job_posting', 'featured_job_posting', 'premium_job_posting']);
+    if (!cleanUserId || !allowed.has(cleanFeatureId) || !cleanJobId) throw new Error('Valid slot restoration references are required.');
+    const markerKey = ('slot-' + cleanFeatureId + '-' + cleanJobId).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+    const marker = 'subscriptionSlotOperations.' + markerKey;
+    const slotsPath = 'subscriptionEntitlements.' + cleanFeatureId + '.remainingSlots';
+    const now = new Date().toISOString();
+
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const operations = existing.subscriptionSlotOperations || {};
+      if (operations[markerKey] === 'REFUNDED') return existing;
+      if (operations[markerKey] !== 'CONSUMED') return null;
+      const entitlement = existing.subscriptionEntitlements?.[cleanFeatureId];
+      if (!entitlement) return null;
+      const updated = {
+        ...existing,
+        subscriptionEntitlements: {
+          ...existing.subscriptionEntitlements,
+          [cleanFeatureId]: { ...entitlement, remainingSlots: Math.max(0, Number(entitlement.remainingSlots) || 0) + 1 }
+        },
+        subscriptionSlotOperations: { ...operations, [markerKey]: 'REFUNDED' },
+        updatedAt: now
+      };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        { id: cleanUserId, [marker]: 'CONSUMED' },
+        { $inc: { [slotsPath]: 1 }, $set: { [marker]: 'REFUNDED', updatedAt: now } },
+        { returnDocument: 'after' }
+      );
+      if (updatedDoc) {
+        const { _id, ...safe } = updatedDoc;
+        return safe;
+      }
+      const existing = await coll.findOne({ id: cleanUserId, [marker]: 'REFUNDED' });
+      if (existing) {
+        const { _id, ...safe } = existing;
+        return safe;
+      }
+      return null;
+    }
+
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    const operations = existing.subscriptionSlotOperations || {};
+    if (operations[markerKey] === 'REFUNDED') return existing;
+    if (operations[markerKey] !== 'CONSUMED') return null;
+    const entitlement = existing.subscriptionEntitlements?.[cleanFeatureId];
+    if (!entitlement) return null;
+    return Database.updateUser(cleanUserId, {
+      subscriptionEntitlements: {
+        ...existing.subscriptionEntitlements,
+        [cleanFeatureId]: { ...entitlement, remainingSlots: Math.max(0, Number(entitlement.remainingSlots) || 0) + 1 }
+      },
+      subscriptionSlotOperations: { ...operations, [markerKey]: 'REFUNDED' },
+      updatedAt: now
+    });
+  }
+
+  /**
+   * Idempotently deducts wallet funds for a durable operation such as subscription auto-renewal.
+   * The operation marker and wallet debit are written atomically in MongoDB.
+   */
+  static async deductWalletBalanceOnceAsync(
+    userId: string,
+    amount: number,
+    operationKey: string,
+    extraUpdates?: Record<string, any>,
+    expectedState?: Record<string, any>
+  ): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanKey = String(operationKey || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+    if (!cleanUserId || !cleanKey) throw new Error('Valid user and wallet operation references are required.');
+    if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('Wallet deduction must be a positive whole PKR amount.');
+    const marker = `walletEscrowOperations.${cleanKey}`;
+    const updatedAt = new Date().toISOString();
+    const setPayload: Record<string, any> = { ...(extraUpdates || {}), [marker]: 'DEDUCTED', updatedAt };
+    delete setPayload._id;
+    delete setPayload.id;
+    delete setPayload.walletBalance;
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      if (expectedState && Object.entries(expectedState).some(([key, value]) => existing[key] !== value)) return null;
+      const operations = existing.walletEscrowOperations || {};
+      if (operations[cleanKey] === 'DEDUCTED') return existing;
+      const balance = Number(existing.walletBalance || 0);
+      if (!Number.isFinite(balance) || balance < amount) return null;
+      const updated = {
+        ...existing,
+        ...extraUpdates,
+        walletBalance: balance - amount,
+        walletEscrowOperations: { ...operations, [cleanKey]: 'DEDUCTED' },
+        updatedAt
+      };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        { id: cleanUserId, walletBalance: { $gte: amount }, ...(expectedState || {}), [marker]: { $ne: 'DEDUCTED' } },
+        { $inc: { walletBalance: -amount }, $set: setPayload },
+        { returnDocument: 'after' }
+      );
+      if (updatedDoc) {
+        const { _id, ...safe } = updatedDoc;
+        return safe;
+      }
+      const existing = await coll.findOne({ id: cleanUserId, [marker]: 'DEDUCTED' });
+      if (existing) {
+        const { _id, ...safe } = existing;
+        return safe;
+      }
+      return null;
+    }
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    if (expectedState && Object.entries(expectedState).some(([key, value]) => existing[key] !== value)) return null;
+    const operations = existing.walletEscrowOperations || {};
+    if (operations[cleanKey] === 'DEDUCTED') return existing;
+    const balance = Number(existing.walletBalance || 0);
+    if (!Number.isFinite(balance) || balance < amount) return null;
+    return Database.updateUser(cleanUserId, {
+      ...extraUpdates,
+      walletBalance: balance - amount,
+      walletEscrowOperations: { ...operations, [cleanKey]: 'DEDUCTED' },
+      updatedAt
+    });
+  }
+
   /**
    * Atomically credits a positive amount to a user's walletBalance.
    * Mutates balance via atomic MongoDB $inc: { walletBalance: amount }.
@@ -586,10 +814,10 @@ export class UserRepository {
 
     if (isMongoActive()) {
       const coll = await getUsersCollection();
-      const updatedDoc = await coll.findOneAndUpdate(
+      const updatedDoc = await (coll as any).findOneAndUpdate(
         { id: cleanUserId, 'cvDesignEntitlements.templateId': { $ne: templateId } },
         { $push: { cvDesignEntitlements: safeEntitlement }, $set: { updatedAt } },
-        { returnDocument: 'after' }
+        { returnDocument: 'after', includeResultMetadata: false }
       );
       if (updatedDoc) {
         const { _id, ...safe } = updatedDoc;
@@ -649,10 +877,10 @@ export class UserRepository {
 
     if (isMongoActive()) {
       const coll = await getUsersCollection();
-      const updatedDoc = await coll.findOneAndUpdate(
+      const updatedDoc = await (coll as any).findOneAndUpdate(
         { id: cleanUserId, walletBalance: { $gte: amount }, 'cvDesignEntitlements.templateId': { $ne: templateId } },
         { $inc: { walletBalance: -amount }, $push: { cvDesignEntitlements: safeEntitlement }, $set: { updatedAt } },
-        { returnDocument: 'after' }
+        { returnDocument: 'after', includeResultMetadata: false }
       );
       if (updatedDoc) {
         if (typeof updatedDoc.walletBalance !== 'number' || !Number.isFinite(updatedDoc.walletBalance) || updatedDoc.walletBalance < 0) {
@@ -709,7 +937,8 @@ export class UserRepository {
       durationDays,
       limits,
       usage: { cvCreateLimit: 0, editLimit: 0, pdfExportLimit: 0, atsExportLimit: 0, shareLimit: 0 },
-      noWatermark: packageSnapshot.noWatermark === true
+      noWatermark: packageSnapshot.noWatermark === true,
+      premiumDesignIds: Array.isArray(packageSnapshot.premiumDesignIds) ? Array.from(new Set(packageSnapshot.premiumDesignIds.filter((id: any) => typeof id === 'string').map((id: string) => id.trim()).filter((id: string) => /^[a-zA-Z0-9_-]{1,80}$/.test(id)))).slice(0, 30) : []
     };
     if (!Number.isFinite(entitlement.pricePkr) || entitlement.pricePkr <= 0) throw new Error('CV package price is invalid.');
     const updatedAt = grantedAt;
@@ -726,8 +955,8 @@ export class UserRepository {
       const coll = await getUsersCollection();
       const updatedDoc = await coll.findOneAndUpdate(
         { id: cleanUserId, 'cvPackageEntitlements.transactionId': { $ne: cleanTransactionId } },
-        { $push: { cvPackageEntitlements: entitlement }, $set: { updatedAt } },
-        { returnDocument: 'after' }
+        { $push: { cvPackageEntitlements: entitlement }, $set: { updatedAt } } as any,
+        { returnDocument: 'after', includeResultMetadata: false }
       );
       if (updatedDoc) { const { _id, ...safe } = updatedDoc; return safe; }
       const existing = await coll.findOne({ id: cleanUserId });
@@ -787,8 +1016,8 @@ export class UserRepository {
       const coll = await getUsersCollection();
       const updatedDoc = await coll.findOneAndUpdate(
         { id: cleanUserId, walletBalance: { $gte: amount }, 'cvPackageEntitlements.transactionId': { $ne: cleanTransactionId } },
-        { $inc: { walletBalance: -amount }, $push: { cvPackageEntitlements: entitlement }, $set: { updatedAt } },
-        { returnDocument: 'after' }
+        { $inc: { walletBalance: -amount }, $push: { cvPackageEntitlements: entitlement }, $set: { updatedAt } } as any,
+        { returnDocument: 'after', includeResultMetadata: false }
       );
       if (updatedDoc) { const { _id, ...safe } = updatedDoc; return { ok: true, user: safe }; }
       const existing = await coll.findOne({ id: cleanUserId });
@@ -1020,7 +1249,7 @@ export class UserRepository {
           { [designPath]: { $exists: false } }
         ];
       }
-      const options: any = { returnDocument: 'after' };
+      const options: any = { returnDocument: 'after', includeResultMetadata: false };
       if (packageGrant) {
         options.arrayFilters = [{
           'grant.transactionId': packageGrant.transactionId,
@@ -1029,10 +1258,10 @@ export class UserRepository {
           [`grant.usage.${action}`]: { $lt: packageGrant.limit }
         }];
       }
-      const updatedDoc = await (await getUsersCollection()).findOneAndUpdate(filter, {
+      const updatedDoc: any = await (await getUsersCollection()).findOneAndUpdate(filter, {
         ...(Object.keys(increment).length ? { $inc: increment } : {}),
         $set: { updatedAt }
-      }, options);
+      } as any, options);
       if (!updatedDoc) return null;
       const { _id, ...safe } = updatedDoc;
       return safe;
@@ -1172,8 +1401,8 @@ export class UserRepository {
       const coll = await getUsersCollection();
       const updatedDoc = await coll.findOneAndUpdate(
         { id: cleanUserId, walletBalance: { $gte: amount }, 'cvPackageEntitlements.transactionId': { $ne: cleanTransactionId } },
-        { $inc: { walletBalance: -amount }, $set: setPayload, $push: { cvPackageEntitlements: entitlement } },
-        { returnDocument: 'after' }
+        { $inc: { walletBalance: -amount }, $set: setPayload, $push: { cvPackageEntitlements: entitlement } } as any,
+        { returnDocument: 'after', includeResultMetadata: false }
       );
       if (updatedDoc) { const { _id, ...safe } = updatedDoc; return safe; }
       const existing = await coll.findOne({ id: cleanUserId });

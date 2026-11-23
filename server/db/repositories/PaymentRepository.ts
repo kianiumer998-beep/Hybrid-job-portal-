@@ -861,7 +861,8 @@ export class PaymentRepository {
             pdfExportLimit: Number(snapshot.cvBenefits?.pdfExportLimit ?? 0),
             atsExportLimit: Number(snapshot.cvBenefits?.atsExportLimit ?? 0),
             shareLimit: Number(snapshot.cvBenefits?.shareLimit ?? 0),
-            noWatermark: snapshot.cvBenefits?.noWatermark === true
+            noWatermark: snapshot.cvBenefits?.noWatermark === true,
+            premiumDesignIds: Array.isArray(snapshot.cvBenefits?.premiumDesignIds) ? snapshot.cvBenefits.premiumDesignIds : []
           };
           const granted = await UserRepository.grantCvPackageEntitlementAsync(owner.id, grantSnapshot, String(recoverable.id));
           if (!granted) throw new Error('CV entitlement recovery could not be confirmed. The transaction remains under reconciliation.');
@@ -1129,7 +1130,8 @@ export class PaymentRepository {
               pdfExportLimit: Number(benefits.pdfExportLimit ?? 0),
               atsExportLimit: Number(benefits.atsExportLimit ?? 0),
               shareLimit: Number(benefits.shareLimit ?? 0),
-              noWatermark: benefits.noWatermark === true
+              noWatermark: benefits.noWatermark === true,
+              premiumDesignIds: Array.isArray(benefits.premiumDesignIds) ? benefits.premiumDesignIds : []
             }, String(tx.id));
             if (!cvGrant) throw new Error('Subscription activated, but its CV benefits could not be saved to the account.');
           } catch (cvBenefitErr: any) {

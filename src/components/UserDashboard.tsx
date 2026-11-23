@@ -168,6 +168,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   );
   const [selectedPaymentTransaction, setSelectedPaymentTransaction] = useState<PaymentTransaction | null>(null);
   const [openDepositModalTrigger, setOpenDepositModalTrigger] = useState<boolean>(false);
+  const [renewalPackages, setRenewalPackages] = useState<any[]>([]);
+  const [renewalPackageId, setRenewalPackageId] = useState<string>(String((currentUser as any).autoRenewPackageId || ''));
+  const [renewalPreferenceBusy, setRenewalPreferenceBusy] = useState(false);
+  const [renewalPreferenceMessage, setRenewalPreferenceMessage] = useState('');
+  const [postingSlotBusyJobId, setPostingSlotBusyJobId] = useState<string | null>(null);
+
   const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => 
     safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_${currentUser.id}`, 'classic')
   );
@@ -188,6 +194,24 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   useEffect(() => {
     safeLocalStorageSet(`dashboard_nav_mode_${currentUser.id}`, navigationMode);
   }, [navigationMode, currentUser.id]);
+
+  useEffect(() => {
+    let active = true;
+    api.pricing.get().then((res: any) => {
+      if (!active || !res?.success || !Array.isArray(res?.pricing?.subscriptionPackages)) return;
+      const available = res.pricing.subscriptionPackages.filter((pkg: any) => pkg?.enabled === true && pkg?.id);
+      setRenewalPackages(available);
+      setRenewalPackageId((previous) =>
+        available.some((pkg: any) => pkg.id === previous)
+          ? previous
+          : (available.some((pkg: any) => pkg.id === (currentUser as any).autoRenewPackageId)
+            ? String((currentUser as any).autoRenewPackageId)
+            : String(available[0]?.id || ''))
+      );
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [currentUser.id]);
+
 
   useEffect(() => {
     safeLocalStorageSet(`dashboard_active_nav_id_${currentUser.id}`, activeNavId);
@@ -1869,20 +1893,74 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 </div>
               </div>
 
-              {/* Auto-renew is displayed as an account setting; users cannot change it here because the normal-user API does not permit that field. */}
-              <div className="p-3 sm:p-4 bg-slate-950/80 rounded-xl sm:rounded-2xl border border-slate-800/90 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-bold text-white text-xs sm:text-sm">Subscription Renewal Setting</span>
-                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${currentUser.autoRenew === true ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : currentUser.autoRenew === false ? 'bg-slate-800 text-slate-400 border-slate-700' : 'bg-amber-500/10 text-amber-300 border-amber-500/30'}`}>
-                      {typeof currentUser.autoRenew === 'boolean' ? (currentUser.autoRenew ? 'Enabled flag (no auto-charge)' : 'Manual renewal') : 'Not recorded'}
-                    </span>
-                  </div>
-                  <p className="text-[10px] sm:text-xs text-slate-400">
-                    This setting is managed by the portal administrator. Contact support if you need it changed. No automatic charge is initiated from this screen.
-                  </p>
+              <div className="p-3 sm:p-4 bg-slate-950/80 rounded-xl sm:rounded-2xl border border-slate-800/90 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-bold text-white text-xs sm:text-sm">Subscription Renewal Setting</span>
+                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${currentUser.autoRenew === true ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>
+                    {currentUser.autoRenew === true ? 'Wallet auto-renew ON' : 'Manual renewal'}
+                  </span>
                 </div>
-                <Lock className="w-5 h-5 text-slate-500 shrink-0" />
+                <p className="text-[10px] sm:text-xs text-slate-400">
+                  Optional: choose a package and explicitly allow the portal to deduct its configured price from your wallet when your current subscription is due. You can turn this off any time.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <select value={renewalPackageId} onChange={(e) => setRenewalPackageId(e.target.value)} disabled={renewalPreferenceBusy || renewalPackages.length === 0} className="flex-1 min-w-0 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white">
+                    {renewalPackages.length === 0 ? <option value="">No active packages available</option> : renewalPackages.map((pkg: any) => <option key={pkg.id} value={pkg.id}>{pkg.name} — PKR {Number(pkg.pricePkr || 0).toLocaleString()} / {pkg.durationDays} days</option>)}
+                  </select>
+                  {currentUser.autoRenew === true ? (
+                    <button type="button" disabled={renewalPreferenceBusy} onClick={async () => {
+                      setRenewalPreferenceBusy(true); setRenewalPreferenceMessage('');
+                      try {
+                        const result: any = await api.users.updateRenewalPreference({ enabled: false });
+                        if (!result?.success) throw new Error(result?.message || 'Could not disable auto-renewal.');
+                        setRenewalPreferenceMessage('Auto-renewal disabled. Your current plan remains active until expiry.');
+                        window.location.reload();
+                      } catch (error: any) { setRenewalPreferenceMessage(error?.message || 'Could not update setting.'); }
+                      finally { setRenewalPreferenceBusy(false); }
+                    }} className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{renewalPreferenceBusy ? 'Saving…' : 'Turn Off'}</button>
+                  ) : (
+                    <button type="button" disabled={renewalPreferenceBusy || !renewalPackageId || isPlanExpired} onClick={async () => {
+                      const accepted = window.confirm('I authorize Hybrid Job Portal to automatically deduct the selected package price from my available wallet balance when my current subscription is due. If my balance is insufficient, renewal will fail and I will be notified. I can disable auto-renewal at any time.');
+                      if (!accepted) return;
+                      setRenewalPreferenceBusy(true); setRenewalPreferenceMessage('');
+                      try {
+                        const result: any = await api.users.updateRenewalPreference({ enabled: true, packageId: renewalPackageId, consent: true });
+                        if (!result?.success) throw new Error(result?.message || 'Could not enable auto-renewal.');
+                        setRenewalPreferenceMessage('Auto-renewal enabled with your consent.');
+                        window.location.reload();
+                      } catch (error: any) { setRenewalPreferenceMessage(error?.message || 'Could not update setting.'); }
+                      finally { setRenewalPreferenceBusy(false); }
+                    }} className="rounded-lg bg-emerald-500 px-4 py-2 text-xs font-black text-slate-950 disabled:opacity-50">{renewalPreferenceBusy ? 'Saving…' : 'Enable Auto-renew'}</button>
+                  )}
+                </div>
+                {renewalPreferenceMessage && <p className="text-[10px] text-emerald-300">{renewalPreferenceMessage}</p>}
+              </div>
+              <div className="p-3 sm:p-4 bg-slate-950/80 rounded-xl sm:rounded-2xl border border-slate-800/90 space-y-3">
+                <div>
+                  <span className="font-bold text-white text-xs sm:text-sm">Premium Alert Channels</span>
+                  <p className="text-[10px] sm:text-xs text-slate-400 mt-1">Turn on channels you want to receive. Actual email, WhatsApp or SMS delivery requires the matching active subscription feature and configured portal provider.</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {[
+                    { field: 'emailAlertsEnabled', label: 'Email alerts' },
+                    { field: 'whatsappAlertsEnabled', label: 'WhatsApp alerts' },
+                    { field: 'smsAlertsEnabled', label: 'SMS alerts' }
+                  ].map((channel: any) => (
+                    <label key={channel.field} className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-300">
+                      <span>{channel.label}</span>
+                      <input type="checkbox" checked={(currentUser as any)[channel.field] === true} onChange={async (e) => {
+                        const enabled = e.target.checked;
+                        try {
+                          const result: any = await api.users.updateProfile(currentUser.id, { [channel.field]: enabled });
+                          if (!result?.success) throw new Error(result?.message || 'Could not save alert preference.');
+                          window.location.reload();
+                        } catch (error: any) {
+                          window.alert(error?.message || 'Could not save alert preference.');
+                        }
+                      }} />
+                    </label>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -2908,6 +2986,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                           onChange={(e) => setAlertFrequency(e.target.value)}
                           className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white text-xs"
                         >
+                          <option value="instant">Instant Alerts</option>
                           <option value="daily">Daily Digest</option>
                           <option value="weekly">Weekly Round-up</option>
                         </select>
@@ -3809,6 +3888,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 const appsError = jobApplicationsError[jobId];
                 const jobApps = jobApplicationsByJobId[jobId] || [];
                 const statusNotice = jobApplicationStatusNotice[jobId];
+                const postingEntitlements = (currentUser as any).subscriptionEntitlements || {};
+                const hasPostingSlot = (featureId: string) => {
+                  const entitlement = postingEntitlements[featureId];
+                  const expiry = Date.parse(String(entitlement?.expiresAt || ''));
+                  return entitlement?.enabled === true && Number.isFinite(expiry) && expiry > Date.now() && Number(entitlement?.remainingSlots || 0) > 0;
+                };
 
                 return (
                   <div key={j.id} className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
@@ -3867,6 +3952,42 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                       </div>
                     </div>
 
+                    {j.status === 'Pending' && !j.subscriptionSlotFeatureId && (
+                      <div className="pt-3 border-t border-slate-800 space-y-2">
+                        <p className="text-[10px] text-slate-400">Use an included subscription posting slot on this pending job. The job will still require normal admin approval.</p>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { tier: 'urgent' as const, featureId: 'urgent_job_posting', label: 'Use Urgent Slot' },
+                            { tier: 'featured' as const, featureId: 'featured_job_posting', label: 'Use Featured Slot' },
+                            { tier: 'premium' as const, featureId: 'premium_job_posting', label: 'Use Premium Slot' }
+                          ].filter((option) => hasPostingSlot(option.featureId)).map((option) => (
+                            <button key={option.tier} type="button" disabled={postingSlotBusyJobId === jobId} onClick={async () => {
+                              const accepted = window.confirm(`Apply one ${option.tier} posting slot to "${j.title}"? One included slot will be used. The job remains pending until admin approval.`);
+                              if (!accepted) return;
+                              setPostingSlotBusyJobId(jobId);
+                              try {
+                                const result: any = await api.jobs.redeemSubscriptionSlot(jobId, option.tier);
+                                if (!result?.success) throw new Error(result?.message || 'Could not apply posting slot.');
+                                window.alert(`Posting slot applied. Remaining slots: ${Number(result.remainingSlots || 0)}. Priority is valid until ${new Date(result.priorityExpiresAt).toLocaleString()} or subscription expiry.`);
+                                window.location.reload();
+                              } catch (error: any) {
+                                window.alert(error?.message || 'Could not apply posting slot.');
+                              } finally {
+                                setPostingSlotBusyJobId(null);
+                              }
+                            }} className="px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-[10px] font-bold disabled:opacity-50">
+                              {postingSlotBusyJobId === jobId ? 'Applying…' : option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {j.subscriptionSlotFeatureId && (
+                      <p className="text-[10px] text-slate-400 border-t border-slate-800 pt-2">
+                        Subscription posting slot: <span className="text-emerald-300 font-bold">{String(j.subscriptionSlotFeatureId).replace(/_job_posting/g, '').replace(/_/g, ' ')}</span>
+                        {j.subscriptionSlotExpiresAt ? ` • Priority expires ${new Date(j.subscriptionSlotExpiresAt).toLocaleString()}` : ''}
+                      </p>
+                    )}
                     {isExpanded && (
                       <div className="pt-3 border-t border-slate-800 space-y-3">
                         {statusNotice && (

@@ -15,6 +15,7 @@ import {
 import type { PublicPaymentSettings, PublicPaymentMethodConfig, CustomProofField } from '../../src/types/adminPayment';
 import { Database } from '../db/database';
 import { requireAdminPermission, requireAuth } from '../auth/authManager';
+import { resolveSubscriptionPackage } from '../services/subscriptionEntitlements';
 
 export const transactionRouter = Router();
 
@@ -783,20 +784,36 @@ transactionRouter.post('/', async (req, res) => {
         const rawPlan = typeof plan === 'string' ? plan.trim() : '';
         const pricingConfig = (await PricingRepository.get()) || {};
         const packages = pricingConfig.subscriptionPackages || [];
-        
-        // Find package by exact ID only (No name or legacy alias fallbacks allowed)
-        const targetPackage = packages.find((p: any) => p.id === rawPlan);
+        let targetPackage: any = packages.find((p: any) => p.id === rawPlan && p.enabled === true);
+        if (!targetPackage && rawPlan.startsWith('feature:')) {
+          const featureId = rawPlan.slice('feature:'.length);
+          const feature = (pricingConfig.subscriptionFeatureCatalog || []).find((item: any) => item?.id === featureId && item.enabled === true);
+          if (feature) {
+            targetPackage = {
+              id: `feature-${feature.id}`,
+              name: feature.label,
+              enabled: true,
+              pricingMode: 'catalog',
+              durationDays: feature.durationDays,
+              featureIds: [feature.id],
+              bundleDiscountPercent: 0
+            };
+          }
+        }
 
         if (!targetPackage || !targetPackage.enabled) {
           return res.status(400).json({
             success: false,
-            message: `The selected subscription plan "${rawPlan}" is no longer available or is disabled.`
+            message: `The selected subscription plan or feature "${rawPlan}" is no longer available or is disabled.`
           });
         }
 
         safeSubscriptionPlan = targetPackage.name;
         authoritativeSubDuration = Number(targetPackage.durationDays);
-        enforcedAmount = Number(targetPackage.pricePkr);
+        let resolvedPackage: any;
+        try { resolvedPackage = resolveSubscriptionPackage(targetPackage, pricingConfig); }
+        catch (packageError: any) { return res.status(400).json({ success: false, message: packageError?.message || 'Invalid subscription feature configuration.' }); }
+        enforcedAmount = resolvedPackage.pricePkr;
 
         if (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0) {
           return res.status(400).json({
@@ -817,10 +834,15 @@ transactionRouter.post('/', async (req, res) => {
         (req as any).packageSnapshot = {
           id: targetPackage.id,
           name: targetPackage.name,
-          pricePkr: targetPackage.pricePkr,
+          pricePkr: resolvedPackage.pricePkr,
           durationDays: targetPackage.durationDays,
+          featureIds: resolvedPackage.featureIds,
+          featureSnapshots: resolvedPackage.featureSnapshots,
+          bundleDiscountPercent: resolvedPackage.bundleDiscountPercent,
           cvBenefitsEnabled: targetPackage.cvBenefitsEnabled === true,
           ...(targetPackage.cvBenefitsEnabled === true ? { cvBenefits: targetPackage.cvBenefits || {}, cvBenefitsDescription: String(targetPackage.cvBenefitsDescription || '').slice(0, 240) } : {}),
+          undiscountedPricePkr: resolvedPackage.undiscountedPricePkr,
+          pricingMode: targetPackage.pricingMode === 'catalog' ? 'catalog' : 'fixed',
           timestamp: new Date().toISOString()
         };
       } else {
@@ -1020,8 +1042,20 @@ transactionRouter.post('/', async (req, res) => {
                 : `Wallet deposits are not currently configured for ${methodConfig.name}. Please contact support.`
             });
           }
-          if (customAmountAllowed && (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0)) {
+          if (customAmountAllowed && (!Number.isSafeInteger(enforcedAmount) || enforcedAmount <= 0)) {
             return res.status(400).json({ success: false, message: 'Wallet deposit amount must be a positive whole PKR amount.' });
+          }
+          if (customAmountAllowed && !isConfiguredFixedAmount && methodConfig.walletDepositMinimumAmount !== undefined && enforcedAmount < methodConfig.walletDepositMinimumAmount) {
+            return res.status(400).json({
+              success: false,
+              message: `Minimum wallet deposit for ${methodConfig.name} is PKR ${Number(methodConfig.walletDepositMinimumAmount).toLocaleString()}.`
+            });
+          }
+          if (customAmountAllowed && !isConfiguredFixedAmount && methodConfig.walletDepositMaximumAmount !== undefined && enforcedAmount > methodConfig.walletDepositMaximumAmount) {
+            return res.status(400).json({
+              success: false,
+              message: `Maximum wallet deposit for ${methodConfig.name} is PKR ${Number(methodConfig.walletDepositMaximumAmount).toLocaleString()}.`
+            });
           }
         }
 
@@ -1302,31 +1336,41 @@ transactionRouter.post('/', async (req, res) => {
             newTx.walletMutationState = 'DEDUCTING';
 
             const subDurationDays = authoritativeSubDuration;
+            const subscriptionActivatedAt = new Date().toISOString();
             const subscriptionExpiresAt = new Date(Date.now() + subDurationDays * 24 * 60 * 60 * 1000).toISOString();
+            const walletPackageSnapshot = (req as any).packageSnapshot || {};
+            const walletFeatureSnapshots = Array.isArray(walletPackageSnapshot.featureSnapshots) ? walletPackageSnapshot.featureSnapshots : [];
+            const walletUserBeforePurchase = await UserRepository.getByIdAsync(effectiveUserId);
+            const walletEntitlements = { ...(walletUserBeforePurchase?.subscriptionEntitlements || {}) };
+            for (const feature of walletFeatureSnapshots) {
+              const featureId = String(feature?.id || '');
+              if (!featureId) continue;
+              const featureDays = Number.isInteger(Number(feature.durationDays)) && Number(feature.durationDays) > 0 ? Math.min(subDurationDays, Number(feature.durationDays)) : subDurationDays;
+              walletEntitlements[featureId] = {
+                enabled: true,
+                grantedAt: subscriptionActivatedAt,
+                expiresAt: new Date(Date.now() + featureDays * 24 * 60 * 60 * 1000).toISOString(),
+                includedSlots: Number.isInteger(Number(feature.includedSlots)) ? Math.max(0, Number(feature.includedSlots)) : 0,
+                remainingSlots: Number.isInteger(Number(feature.includedSlots)) ? Math.max(0, Number(feature.includedSlots)) : 0,
+                slotDurationDays: Number.isInteger(Number(feature.slotDurationDays)) ? Math.max(1, Number(feature.slotDurationDays)) : subDurationDays,
+                sourcePackageId: String(walletPackageSnapshot.id || '')
+              };
+            }
             let updatedUser: any = null;
             try {
-              const packageSnapshot = (req as any).packageSnapshot;
-              updatedUser = packageSnapshot?.cvBenefitsEnabled === true
-                ? await UserRepository.purchaseSubscriptionWithCvBenefitsAsync(
-                    effectiveUserId,
-                    enforcedAmount,
-                    {
-                      membershipTier: safeSubscriptionPlan || 'Pro Alerts',
-                      membershipStatus: 'Active',
-                      subscriptionExpiresAt
-                    },
-                    packageSnapshot,
-                    newTx.id
-                  )
-                : await UserRepository.deductWalletBalanceAsync(
-                    effectiveUserId,
-                    enforcedAmount,
-                    {
-                      membershipTier: safeSubscriptionPlan || 'Pro Alerts',
-                      membershipStatus: 'Active',
-                      subscriptionExpiresAt
-                    }
-                  );
+              updatedUser = await UserRepository.deductWalletBalanceAsync(
+                effectiveUserId,
+                enforcedAmount,
+                {
+                  membershipTier: safeSubscriptionPlan || 'Pro Alerts',
+                  membershipStatus: 'Active',
+                  subscriptionExpiresAt,
+                  ...(walletFeatureSnapshots.length ? {
+                    subscriptionEntitlements: walletEntitlements,
+                    subscriptionFeatureIds: walletFeatureSnapshots.map((feature: any) => String(feature.id))
+                  } : {})
+                }
+              );
             } catch (deductErr) {
               walletMutationState = 'UNCERTAIN';
               throw deductErr;
@@ -1335,6 +1379,29 @@ transactionRouter.post('/', async (req, res) => {
             if (!updatedUser) {
               walletMutationState = 'NONE';
               throw new Error('Failed to deduct wallet balance and activate subscription.');
+            }
+
+            if (walletPackageSnapshot.cvBenefitsEnabled === true) {
+              try {
+                const benefits = walletPackageSnapshot.cvBenefits || {};
+                const cvGrant = await UserRepository.grantCvPackageEntitlementAsync(effectiveUserId, {
+                  packageId: `subscription:${walletPackageSnapshot.id}`,
+                  packageName: `${String(walletPackageSnapshot.name || safeSubscriptionPlan || 'Subscription')} CV Benefits`,
+                  pricePkr: enforcedAmount,
+                  durationDays: subDurationDays,
+                  cvCreateLimit: Number(benefits.cvCreateLimit ?? 0),
+                  editLimit: Number(benefits.editLimit ?? 0),
+                  pdfExportLimit: Number(benefits.pdfExportLimit ?? 0),
+                  atsExportLimit: Number(benefits.atsExportLimit ?? 0),
+                  shareLimit: Number(benefits.shareLimit ?? 0),
+                  noWatermark: benefits.noWatermark === true,
+                  premiumDesignIds: Array.isArray(benefits.premiumDesignIds) ? benefits.premiumDesignIds : []
+                }, String(newTx.id));
+                if (!cvGrant) throw new Error('Subscription was charged, but its CV benefits could not be saved.');
+              } catch (cvBenefitError) {
+                walletMutationState = 'UNCERTAIN';
+                throw cvBenefitError;
+              }
             }
 
             walletMutationState = 'DEDUCTED';
@@ -1346,12 +1413,12 @@ transactionRouter.post('/', async (req, res) => {
                 walletMutationState: 'DEDUCTED',
                 balanceBefore: effectiveBalanceBefore,
                 balanceAfter: effectiveBalanceAfter,
-                ...(effectiveType === 'Subscription' && (req as any).packageSnapshot?.cvBenefitsEnabled === true ? { cvPackageEntitlementGranted: true } : {}),
+                ...(walletPackageSnapshot.cvBenefitsEnabled === true ? { cvPackageEntitlementGranted: true } : {}),
                 updatedAt: new Date().toISOString()
               }
             );
             newTx.walletMutationState = 'DEDUCTED';
-            if (effectiveType === 'Subscription' && (req as any).packageSnapshot?.cvBenefitsEnabled === true) newTx.cvPackageEntitlementGranted = true;
+            if (walletPackageSnapshot.cvBenefitsEnabled === true) newTx.cvPackageEntitlementGranted = true;
           } else {
             if (effectiveType === 'Advertisement' && enforcedAmount > 0) {
               await persistTransactionState(
@@ -1592,14 +1659,16 @@ transactionRouter.post('/', async (req, res) => {
         try {
           await NotificationRepository.createAsync({
             userId: effectiveUserId,
-            title: finalStatus === 'Success' ? 'Payment Approved' : 'Payment Submitted',
-            message: finalStatus === 'Success'
-              ? `Your payment of ${enforcedAmount} ${effectiveCurrency} for ${effectiveType} via ${resolvedPaymentMethodName} has been processed.`
-              : `Your payment of ${enforcedAmount} ${effectiveCurrency} for ${effectiveType} via ${resolvedPaymentMethodName} has been submitted for review.`,
+            title: finalStatus === 'Success' && effectiveType === 'Subscription' ? 'Subscription Purchased' : (finalStatus === 'Success' ? 'Payment Approved' : 'Payment Submitted'),
+            message: finalStatus === 'Success' && effectiveType === 'Subscription' && paymentMethod === 'Wallet Balance'
+              ? `Your ${safeSubscriptionPlan || 'subscription'} package has been activated. PKR ${enforcedAmount.toLocaleString()} was deducted from your wallet; remaining balance: PKR ${Number(newTx.balanceAfter || 0).toLocaleString()}.`
+              : finalStatus === 'Success'
+                ? `Your payment of ${enforcedAmount} ${effectiveCurrency} for ${effectiveType} via ${resolvedPaymentMethodName} has been processed.`
+                : `Your payment of ${enforcedAmount} ${effectiveCurrency} for ${effectiveType} via ${resolvedPaymentMethodName} has been submitted for review.`,
             type: finalStatus === 'Success' ? 'success' : 'info',
             eventId: finalStatus === 'Success' ? `payment-approved-${newTx.id}` : `payment-submitted-${newTx.id}`,
             idempotencyKey: finalStatus === 'Success' ? `payment-approved-${newTx.id}` : `payment-submitted-${newTx.id}`,
-            metadata: { transactionId: newTx.id, amount: enforcedAmount, type: effectiveType }
+            metadata: { transactionId: newTx.id, amount: enforcedAmount, type: effectiveType, ...(paymentMethod === 'Wallet Balance' ? { balanceAfter: Number(newTx.balanceAfter || 0) } : {}) }
           });
         } catch (notifErr) {
           console.error('[Notification Submission Trigger Error]:', notifErr);
@@ -1669,14 +1738,16 @@ transactionRouter.patch('/:id/verify', requireAdminPermission('payments.manage')
           const rejReason = reason || note || tx.rejectionReason || 'No reason specified';
           await NotificationRepository.createAsync({
             userId: tx.userId,
-            title: isApprove ? 'Payment Approved' : 'Payment Rejected',
-            message: isApprove
-              ? `Your payment of ${tx.amount} ${tx.currency || 'PKR'} for ${tx.type} has been approved.`
-              : `Your payment of ${tx.amount} ${tx.currency || 'PKR'} for ${tx.type} was rejected. Reason: ${rejReason}`,
+            title: isApprove && tx.type === 'Wallet Deposit' ? 'Wallet Balance Credited' : (isApprove ? 'Payment Approved' : 'Payment Rejected'),
+            message: isApprove && tx.type === 'Wallet Deposit'
+              ? `Your wallet deposit of PKR ${Number(tx.amount).toLocaleString()} has been verified and credited. ${Number.isFinite(Number(tx.balanceAfter)) ? `Your new wallet balance is PKR ${Number(tx.balanceAfter).toLocaleString()}. ` : ''}You can now use your wallet balance to purchase available subscriptions and packages.`
+              : isApprove
+                ? `Your payment of ${tx.amount} ${tx.currency || 'PKR'} for ${tx.type} has been approved.`
+                : `Your payment of ${tx.amount} ${tx.currency || 'PKR'} for ${tx.type} was rejected. Reason: ${rejReason}`,
             type: isApprove ? 'success' : 'warning',
             eventId: isApprove ? `payment-approved-${tx.id}` : `payment-rejected-${tx.id}`,
             idempotencyKey: isApprove ? `payment-approved-${tx.id}` : `payment-rejected-${tx.id}`,
-            metadata: { transactionId: tx.id, amount: tx.amount, type: tx.type, action, reason: rejReason }
+            metadata: { transactionId: tx.id, amount: tx.amount, type: tx.type, action, reason: rejReason, ...(tx.type === 'Wallet Deposit' ? { balanceAfter: tx.balanceAfter } : {}) }
           });
         } catch (notifErr) {
           console.error('[Notification Verification Trigger Error]:', notifErr);

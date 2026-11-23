@@ -199,6 +199,9 @@ export const api = {
       const qs = params ? new URLSearchParams(params).toString() : '';
       return safeFetchJson(`${API_BASE}/jobs/priority${qs ? `?${qs}` : ''}`, { headers: getAuthHeader() });
     },
+    async getEarlyAccess() {
+      return safeFetchJson(`${API_BASE}/jobs/early-access`, { headers: getAuthHeader() });
+    },
     async getAdminAll(params?: { page?: number; limit?: number; livePage?: number; pendingPage?: number; status?: string; source?: string; owner?: string; scraper?: string; search?: string; visibility?: string }) {
       const queryObj: Record<string, string> = {};
       if (params?.page) queryObj.page = String(params.page);
@@ -219,6 +222,13 @@ export const api = {
     },
     async getBySlug(slug: string) {
       return safeFetchJson(`${API_BASE}/jobs/slug/${slug}`);
+    },
+    async redeemSubscriptionSlot(jobId: string, tier: 'urgent' | 'featured' | 'premium') {
+      return safeFetchJson(`${API_BASE}/jobs/${encodeURIComponent(jobId)}/redeem-subscription-slot`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ tier })
+      });
     },
     async create(jobData: any) {
       return safeFetchJson(`${API_BASE}/jobs`, {
@@ -1030,6 +1040,13 @@ export const api = {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify({ cvData })
+      });
+    },
+    async updateRenewalPreference(data: { enabled: boolean; packageId?: string; consent?: boolean }) {
+      return safeFetchJson(`${API_BASE}/users/subscription/renewal-preference`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(data)
       });
     },
     async updateRole(userId: string, role: string) {

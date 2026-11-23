@@ -14,6 +14,7 @@ import { generateJobSlug } from '../../utils/slugify';
 import { JobVisibilityRepository } from './JobVisibilityRepository';
 import { PricingRepository } from './PricingRepository';
 import { DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG } from '../../../src/types/job';
+import { isEarlyAccessJobLocked } from '../../services/earlyAccessPolicy';
 import {
   normalizeExactJobUrl,
   isGenericApplicationPortalUrl
@@ -40,6 +41,22 @@ export interface JobFilterOptions {
   scraperSourceId?: string;
   status?: string;
   visibility?: string;
+  earlyAccessPolicy?: { config: any; isPremium: boolean; now?: number };
+}
+
+function applySubscriptionPostingSlotExpiry(job: any, now = Date.now()): any {
+  if (!job || !job.subscriptionSlotFeatureId || !job.subscriptionSlotExpiresAt) return job;
+  const expiresAt = Date.parse(String(job.subscriptionSlotExpiresAt));
+  if (!Number.isFinite(expiresAt) || expiresAt > now) return job;
+  return {
+    ...job,
+    priorityTier: 'standard',
+    urgent: false,
+    featured: false,
+    isPinnedTop: false,
+    vipBundle: false,
+    subscriptionSlotExpired: true
+  };
 }
 
 export function parseDeadlineTimestamp(deadlineStr?: string): number | null {
@@ -261,7 +278,7 @@ export class JobRepository {
 
     // Isolated in-memory test execution path
     if (process.env.IS_TEST === 'true') {
-      let allJobs = Database.getJobs().map(normalizeMongoJob);
+      let allJobs = Database.getJobs().map((job: any) => applySubscriptionPostingSlotExpiry(normalizeMongoJob(job)));
 
       if (filter.submittedByUserId && filter.submittedByUserId.trim()) {
         const uStr = filter.submittedByUserId.trim().toLowerCase();
@@ -288,6 +305,9 @@ export class JobRepository {
           if (filter.status === 'Expired') matchesStatus = evaluated.isExpired === true;
           else if (filter.status === 'Approved') matchesStatus = evaluated.isExpired !== true && (evaluated.status === 'Approved' || !evaluated.status);
           else if (!filter.includeExpired) matchesStatus = evaluated.isExpired !== true;
+          if (matchesStatus && filter.earlyAccessPolicy && filter.earlyAccessPolicy.isPremium !== true) {
+            matchesStatus = !isEarlyAccessJobLocked(evaluated, filter.earlyAccessPolicy.config, filter.earlyAccessPolicy.now);
+          }
           return matchesStatus;
         });
 
@@ -516,7 +536,7 @@ export class JobRepository {
       processed += batch.length;
 
       for (const doc of batch) {
-        const normalized = normalizeMongoJob(doc);
+        const normalized = applySubscriptionPostingSlotExpiry(normalizeMongoJob(doc));
         const isExpired = checkJobExpired(normalized);
         const evaluated = {
           ...normalized,
@@ -528,6 +548,10 @@ export class JobRepository {
         if (filter.status === 'Expired') matchesStatus = evaluated.isExpired === true;
         else if (filter.status === 'Approved') matchesStatus = evaluated.isExpired !== true && (evaluated.status === 'Approved' || !evaluated.status);
         else if (!filter.includeExpired) matchesStatus = evaluated.isExpired !== true;
+
+        if (matchesStatus && filter.earlyAccessPolicy && filter.earlyAccessPolicy.isPremium !== true) {
+          matchesStatus = !isEarlyAccessJobLocked(evaluated, filter.earlyAccessPolicy.config, filter.earlyAccessPolicy.now);
+        }
 
         if (matchesStatus) {
           const currentIndex = total;
@@ -755,6 +779,12 @@ export class JobRepository {
       });
     }
 
+    candidateJobs = candidateJobs.map((job) => applySubscriptionPostingSlotExpiry(job));
+
+    if (filter.earlyAccessPolicy && filter.earlyAccessPolicy.isPremium !== true) {
+      candidateJobs = candidateJobs.filter((job) => !isEarlyAccessJobLocked(job, filter.earlyAccessPolicy?.config, filter.earlyAccessPolicy?.now));
+    }
+
     const vipJobs: any[] = [];
     const pinnedJobs: any[] = [];
     const featuredJobs: any[] = [];
@@ -818,9 +848,9 @@ export class JobRepository {
   static async getById(id: string): Promise<any | null> {
     if (process.env.IS_TEST === 'true' || !isMongoConfigured()) {
       const live = Database.getJobById(id);
-      if (live) return live;
+      if (live) return applySubscriptionPostingSlotExpiry(live);
       const pending = Database.getPendingJobs().find((j: any) => j.id === id);
-      if (pending) return pending;
+      if (pending) return applySubscriptionPostingSlotExpiry(pending);
       return null;
     }
     assertMongoAvailable();
@@ -828,7 +858,7 @@ export class JobRepository {
     const doc = await jobsColl.findOne({ id });
     if (!doc) return null;
 
-    const normalized = normalizeMongoJob(doc);
+    const normalized = applySubscriptionPostingSlotExpiry(normalizeMongoJob(doc));
     const isExpired = checkJobExpired(normalized);
     return {
       ...normalized,
@@ -843,9 +873,9 @@ export class JobRepository {
   static async getBySlug(slug: string): Promise<any | null> {
     if (process.env.IS_TEST === 'true' || !isMongoConfigured()) {
       const live = Database.getJobs().find((j: any) => j.slug === slug);
-      if (live) return live;
+      if (live) return applySubscriptionPostingSlotExpiry(live);
       const pending = Database.getPendingJobs().find((j: any) => j.slug === slug);
-      if (pending) return pending;
+      if (pending) return applySubscriptionPostingSlotExpiry(pending);
       return null;
     }
     assertMongoAvailable();
@@ -853,7 +883,7 @@ export class JobRepository {
     const doc = await jobsColl.findOne({ slug });
     if (!doc) return null;
 
-    const normalized = normalizeMongoJob(doc);
+    const normalized = applySubscriptionPostingSlotExpiry(normalizeMongoJob(doc));
     const isExpired = checkJobExpired(normalized);
     return {
       ...normalized,

@@ -63,6 +63,12 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
       minCampaignDurationDays: 3,
       maxCampaignDurationDays: 90
     },
+    earlyAccess: {
+      enabled: false, sourceTypes: ['scraped', 'user_posted', 'admin_created'], durationHours: 24,
+      showOnLanding: true, showJobCount: true, showCountdown: true, maxJobs: 10,
+      heading: 'Premium Early Access', description: 'Explore selected jobs before they become available to other members.',
+      displayFields: ['title', 'company', 'department', 'city', 'deadlineDate'], showSource: true, jobOverrides: []
+    },
     subscriptions: {
       freeTierPrice: 0,
       proMonthlyPkr: 1200,
@@ -84,6 +90,9 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
       ]
     }
   });
+
+  const [earlyAccessJobs, setEarlyAccessJobs] = useState<any[]>([]);
+  const [selectedEarlyAccessJobId, setSelectedEarlyAccessJobId] = useState('');
 
   const [priorityMetrics, setPriorityMetrics] = useState<{
     tierCounts: { vip: number; pinned: number; featured: number; urgent: number };
@@ -109,10 +118,15 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
           jobPosting: { ...prev.jobPosting, ...(data.pricing.jobPosting || {}) },
           advertisements: { ...prev.advertisements, ...(data.pricing.advertisements || {}) },
           subscriptions: { ...prev.subscriptions, ...(data.pricing.subscriptions || {}) },
+          earlyAccess: { ...prev.earlyAccess, ...(data.pricing.earlyAccess || {}) },
           cvBuilder: { ...prev.cvBuilder, ...(data.pricing.cvBuilder || {}), templates: Array.isArray(data.pricing.cvBuilder?.templates) ? data.pricing.cvBuilder.templates : prev.cvBuilder.templates }
         }));
       } else {
         setLoadError(data?.message || 'Failed to load authoritative pricing configuration.');
+      }
+      const earlyJobsRes = await api.jobs.getAll({ limit: '1000' });
+      if (earlyJobsRes && earlyJobsRes.success && Array.isArray(earlyJobsRes.jobs)) {
+        setEarlyAccessJobs(earlyJobsRes.jobs);
       }
       const priorityRes = await api.jobs.getPriority();
       if (priorityRes && priorityRes.success && priorityRes.tierCounts) {
@@ -620,6 +634,204 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
           </p>
         </div>
 
+        {/* Premium Early Job Access — persisted through the existing authoritative pricing configuration. */}
+        <div className="bg-slate-900 border border-emerald-500/30 rounded-2xl p-6 space-y-4 lg:col-span-2">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
+            <div className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-emerald-400" />
+              <div>
+                <h3 className="font-bold text-white text-base">Premium Early Job Access</h3>
+                <p className="text-[11px] text-slate-400">Give active Premium members a configurable time advantage.</p>
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-xs font-bold text-slate-300">
+              Enable Early Access
+              <input type="checkbox" checked={pricing.earlyAccess?.enabled === true} onChange={(e) => setPricing((prev: any) => ({ ...prev, earlyAccess: { ...prev.earlyAccess, enabled: e.target.checked } }))} />
+            </label>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="block text-xs text-slate-300 font-semibold">Early access duration (hours)</label>
+              <input type="number" min="1" max="8760" step="1" value={pricing.earlyAccess?.durationHours ?? 24} onChange={(e) => setPricing((prev: any) => ({ ...prev, earlyAccess: { ...prev.earlyAccess, durationHours: Math.max(1, Math.min(8760, Math.floor(Number(e.target.value) || 1))) } }))} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white" />
+              <p className="text-[10px] text-slate-500">24 hours = 1 day; 48 hours = 2 days.</p>
+            </div>
+            <div className="space-y-2">
+              <label className="block text-xs text-slate-300 font-semibold">Maximum landing-page jobs</label>
+              <input type="number" min="1" max="100" value={pricing.earlyAccess?.maxJobs ?? 10} onChange={(e) => setPricing((prev: any) => ({ ...prev, earlyAccess: { ...prev.earlyAccess, maxJobs: Math.max(1, Math.min(100, Math.floor(Number(e.target.value) || 1))) } }))} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <span className="block text-xs text-slate-300 font-semibold">Apply Early Access to job sources (multiple selection allowed)</span>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {[
+                { id: 'scraped', label: 'Scraper jobs' },
+                { id: 'user_posted', label: 'User-posted jobs' },
+                { id: 'admin_created', label: 'Admin-posted jobs' }
+              ].map((source) => (
+                <label key={source.id} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200">
+                  <input type="checkbox" checked={(pricing.earlyAccess?.sourceTypes || []).includes(source.id)} onChange={(e) => setPricing((prev: any) => {
+                    const current = prev.earlyAccess?.sourceTypes || [];
+                    const next = e.target.checked ? [...current, source.id] : current.filter((item: string) => item !== source.id);
+                    return { ...prev, earlyAccess: { ...prev.earlyAccess, sourceTypes: next } };
+                  })} />
+                  {source.label}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {[
+              { key: 'showOnLanding', label: 'Show Early Access section on landing page' },
+              { key: 'showJobCount', label: 'Show available job count' },
+              { key: 'showCountdown', label: 'Show countdown timer' },
+              { key: 'showSource', label: 'Show job source / department label' }
+            ].map((item) => (
+              <label key={item.key} className="flex items-center gap-2 text-xs text-slate-300">
+                <input type="checkbox" checked={pricing.earlyAccess?.[item.key] !== false} onChange={(e) => setPricing((prev: any) => ({ ...prev, earlyAccess: { ...prev.earlyAccess, [item.key]: e.target.checked } }))} />
+                {item.label}
+              </label>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-slate-300 mb-1">Landing section heading</label>
+              <input type="text" maxLength={100} value={pricing.earlyAccess?.heading || ''} onChange={(e) => setPricing((prev: any) => ({ ...prev, earlyAccess: { ...prev.earlyAccess, heading: e.target.value } }))} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-300 mb-1">Landing section description</label>
+              <input type="text" maxLength={300} value={pricing.earlyAccess?.description || ''} onChange={(e) => setPricing((prev: any) => ({ ...prev, earlyAccess: { ...prev.earlyAccess, description: e.target.value } }))} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white text-sm" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <span className="block text-xs text-slate-300 font-semibold">Fields visible in the Premium Early Access dropdown</span>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {[
+                ['title', 'Job title'], ['company', 'Company'], ['department', 'Department'],
+                ['city', 'City'], ['province', 'Province'], ['jobType', 'Job type'],
+                ['deadlineDate', 'Deadline'], ['salary', 'Salary'], ['totalVacancies', 'Vacancies'],
+                ['experienceLevel', 'Experience'], ['jobCategory', 'Job category']
+              ].map(([field, label]) => (
+                <label key={field} className="flex items-center gap-2 text-[11px] text-slate-300">
+                  <input type="checkbox" checked={(pricing.earlyAccess?.displayFields || []).includes(field)} onChange={(e) => setPricing((prev: any) => {
+                    const current = prev.earlyAccess?.displayFields || [];
+                    const next = e.target.checked ? [...current, field] : current.filter((item: string) => item !== field);
+                    return { ...prev, earlyAccess: { ...prev.earlyAccess, displayFields: next } };
+                  })} />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <p className="text-[10px] text-slate-500">Sensitive internal moderation, payment and scraper-control fields are never selectable here.</p>
+          </div>
+          <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+            <div>
+              <span className="block text-xs font-bold text-slate-200">Individual job controls</span>
+              <p className="text-[10px] text-slate-500">Select a job to hide it from Early Access or set a custom title for the Premium dropdown. Source selection above remains the master eligibility rule.</p>
+            </div>
+            <select value={selectedEarlyAccessJobId} onChange={(e) => setSelectedEarlyAccessJobId(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white">
+              <option value="">Select a live job...</option>
+              {earlyAccessJobs.map((job: any) => {
+                const source = job.isScraped || job.isPdfScraped || job.sourceType === 'scraped' || job.sourceType === 'pdf_scraped' || job.scraperSourceId ? 'Scraper' : (job.isAdminCreated || job.sourceType === 'admin_created' || job.createdByRole === 'Admin' || job.createdByRole === 'Super Admin' ? 'Admin' : 'User');
+                return <option key={job.id} value={String(job.id)}>{job.title || 'Untitled job'} — {source}</option>;
+              })}
+            </select>
+            {selectedEarlyAccessJobId && (() => {
+              const selectedJob = earlyAccessJobs.find((job: any) => String(job.id) === selectedEarlyAccessJobId);
+              const overrides = pricing.earlyAccess?.jobOverrides || [];
+              const currentOverride = overrides.find((item: any) => item.jobId === selectedEarlyAccessJobId);
+              const selectedSource = selectedJob?.isScraped || selectedJob?.isPdfScraped || selectedJob?.sourceType === 'scraped' || selectedJob?.sourceType === 'pdf_scraped' || selectedJob?.scraperSourceId
+                ? 'scraped'
+                : (selectedJob?.isAdminCreated || selectedJob?.sourceType === 'admin_created' || selectedJob?.createdByRole === 'Admin' || selectedJob?.createdByRole === 'Super Admin' ? 'admin_created' : 'user_posted');
+              const sourceEligible = (pricing.earlyAccess?.sourceTypes || []).includes(selectedSource);
+              const enabled = currentOverride ? currentOverride.enabled !== false : sourceEligible;
+              const updateOverride = (patch: any) => setPricing((prev: any) => {
+                const current = prev.earlyAccess?.jobOverrides || [];
+                const existingIndex = current.findIndex((item: any) => item.jobId === selectedEarlyAccessJobId);
+                const nextItem = { ...(existingIndex >= 0 ? current[existingIndex] : { jobId: selectedEarlyAccessJobId, enabled }), ...patch };
+                const next = existingIndex >= 0 ? current.map((item: any, index: number) => index === existingIndex ? nextItem : item) : [...current, nextItem];
+                return { ...prev, earlyAccess: { ...prev.earlyAccess, jobOverrides: next } };
+              });
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <label className="flex items-center gap-2 text-xs text-slate-300">
+                    <input type="checkbox" checked={enabled} onChange={(e) => updateOverride({ enabled: e.target.checked })} />
+                    Include this job in Premium Early Access
+                  </label>
+                  <label className="text-[11px] text-slate-400">Custom display title (optional)
+                    <input type="text" maxLength={120} value={currentOverride?.displayTitle || ''} onChange={(e) => updateOverride({ displayTitle: e.target.value })} placeholder={selectedJob?.title || 'Use original job title'} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white" />
+                  </label>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+
+        {/* Subscription Feature Catalog & Renewal Reminders */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 lg:col-span-2">
+          <div className="border-b border-slate-800 pb-3">
+            <h3 className="font-bold text-white text-base">Subscription Feature Catalog</h3>
+            <p className="text-xs text-slate-400 mt-1">Admin-defined feature prices, durations and posting slots. Prices are not hardcoded; disabled features cannot be added to new packages.</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {(pricing.subscriptionFeatureCatalog || []).map((feature: any, index: number) => (
+              <div key={feature.id} className="rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-2">
+                <label className="flex items-center justify-between gap-2 text-xs font-bold text-white">
+                  <span>{feature.label}</span>
+                  <input type="checkbox" checked={feature.enabled === true} onChange={(e) => {
+                    const next = [...(pricing.subscriptionFeatureCatalog || [])];
+                    next[index] = { ...next[index], enabled: e.target.checked };
+                    setPricing((prev: any) => ({ ...prev, subscriptionFeatureCatalog: next }));
+                  }} />
+                </label>
+                <label className="block text-[10px] text-slate-400">Price (PKR)
+                  <input type="number" min="0" value={feature.pricePkr ?? 0} onChange={(e) => {
+                    const next = [...(pricing.subscriptionFeatureCatalog || [])];
+                    next[index] = { ...next[index], pricePkr: Math.max(0, Math.floor(Number(e.target.value) || 0)) };
+                    setPricing((prev: any) => ({ ...prev, subscriptionFeatureCatalog: next }));
+                  }} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white" />
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-[10px] text-slate-400">Duration (days)
+                    <input type="number" min="1" max="3650" value={feature.durationDays ?? 30} onChange={(e) => {
+                      const next = [...(pricing.subscriptionFeatureCatalog || [])];
+                      next[index] = { ...next[index], durationDays: Math.max(1, Math.min(3650, Math.floor(Number(e.target.value) || 30))) };
+                      setPricing((prev: any) => ({ ...prev, subscriptionFeatureCatalog: next }));
+                    }} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white" />
+                  </label>
+                  <label className="text-[10px] text-slate-400">Included slots
+                    <input type="number" min="0" max="1000" value={feature.includedSlots ?? 0} onChange={(e) => {
+                      const next = [...(pricing.subscriptionFeatureCatalog || [])];
+                      next[index] = { ...next[index], includedSlots: Math.max(0, Math.min(1000, Math.floor(Number(e.target.value) || 0))) };
+                      setPricing((prev: any) => ({ ...prev, subscriptionFeatureCatalog: next }));
+                    }} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white" />
+                  </label>
+                </div>
+                <label className="block text-[10px] text-slate-400">Each slot duration (days)
+                  <input type="number" min="1" max="3650" value={feature.slotDurationDays ?? 30} onChange={(e) => {
+                    const next = [...(pricing.subscriptionFeatureCatalog || [])];
+                    next[index] = { ...next[index], slotDurationDays: Math.max(1, Math.min(3650, Math.floor(Number(e.target.value) || 30))) };
+                    setPricing((prev: any) => ({ ...prev, subscriptionFeatureCatalog: next }));
+                  }} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white" />
+                </label>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="text-xs text-slate-300">Combined package discount (%)
+              <input type="number" min="0" max="100" value={pricing.subscriptionBundleDiscountPercent ?? 0} onChange={(e) => setPricing((prev: any) => ({ ...prev, subscriptionBundleDiscountPercent: Math.max(0, Math.min(100, Number(e.target.value) || 0)) }))} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white" />
+            </label>
+            <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+              <label className="flex items-center justify-between gap-2 text-xs text-slate-300">Enable in-app expiry reminders
+                <input type="checkbox" checked={pricing.subscriptionReminderSettings?.enabled === true} onChange={(e) => setPricing((prev: any) => ({ ...prev, subscriptionReminderSettings: { ...(prev.subscriptionReminderSettings || {}), enabled: e.target.checked } }))} />
+              </label>
+              <label className="mt-2 block text-[10px] text-slate-400">Remind this many days before expiry
+                <input type="number" min="1" max="30" value={pricing.subscriptionReminderSettings?.daysBefore ?? 3} onChange={(e) => setPricing((prev: any) => ({ ...prev, subscriptionReminderSettings: { ...(prev.subscriptionReminderSettings || {}), daysBefore: Math.max(1, Math.min(30, Math.floor(Number(e.target.value) || 3))) } }))} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white" />
+              </label>
+              <p className="mt-2 text-[10px] text-slate-500">This scheduler sends in-app notifications only. External channels require configured delivery providers.</p>
+            </div>
+          </div>
+        </div>
+
         {/* 3. Subscriptions & Candidate Plans */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 lg:col-span-2">
           <div className="flex items-center justify-between border-b border-slate-800 pb-4">
@@ -633,12 +845,15 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                   id: `pkg-${Date.now()}`,
                   name: 'New Package',
                   pricePkr: 500,
+                  configuredPricePkr: 500,
                   durationDays: 30,
-                  features: ['Feature 1'],
+                  features: [],
+                  featureIds: [],
+                  pricingMode: 'fixed',
                   enabled: true,
                   cvBenefitsEnabled: false,
                   cvBenefitsDescription: '',
-                  cvBenefits: { cvCreateLimit: 0, editLimit: 0, pdfExportLimit: 0, atsExportLimit: 0, shareLimit: 0, noWatermark: false }
+                  cvBenefits: { cvCreateLimit: 0, editLimit: 0, pdfExportLimit: 0, atsExportLimit: 0, shareLimit: 0, noWatermark: false, premiumDesignIds: [] }
                 };
                 setPricing((prev: any) => ({
                   ...prev,
@@ -686,10 +901,10 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                     <label className="text-[10px] text-slate-500 font-bold uppercase block mb-1">Price (PKR)</label>
                     <input
                       type="number"
-                      value={pkg.pricePkr}
+                      value={pkg.configuredPricePkr ?? pkg.pricePkr}
                       onChange={(e) => {
                         const newList = [...pricing.subscriptionPackages];
-                        newList[idx] = { ...newList[idx], pricePkr: Number(e.target.value) };
+                        newList[idx] = { ...newList[idx], pricePkr: Number(e.target.value), configuredPricePkr: Number(e.target.value) };
                         setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
                       }}
                       className="w-full px-2 py-1 bg-slate-900 border border-slate-800 rounded text-white text-xs font-mono"
@@ -710,6 +925,85 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                   </div>
                 </div>
 
+                <div className="space-y-2 mb-3">
+                  <label className="text-[10px] text-slate-500 font-bold uppercase block">Package pricing mode</label>
+                  <select value={pkg.pricingMode === 'catalog' ? 'catalog' : 'fixed'} onChange={(e) => {
+                    const newList = [...pricing.subscriptionPackages];
+                    newList[idx] = { ...newList[idx], pricingMode: e.target.value };
+                    setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
+                  }} className="w-full px-2 py-2 bg-slate-900 border border-slate-800 rounded text-white text-xs">
+                    <option value="fixed">Use manually configured package price</option>
+                    <option value="catalog">Calculate from selected feature prices + bundle discount</option>
+                  </select>
+                  <label className="text-[10px] text-slate-500 font-bold uppercase block">Included paid features</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {(pricing.subscriptionFeatureCatalog || []).filter((feature: any) => feature.enabled === true).map((feature: any) => (
+                      <label key={feature.id} className="flex items-center gap-2 text-[11px] text-slate-300">
+                        <input type="checkbox" checked={(pkg.featureIds || []).includes(feature.id)} onChange={(e) => {
+                          const newList = [...pricing.subscriptionPackages];
+                          const selected = new Set(newList[idx].featureIds || []);
+                          if (e.target.checked) selected.add(feature.id); else selected.delete(feature.id);
+                          newList[idx] = { ...newList[idx], featureIds: Array.from(selected) };
+                          setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
+                        }} />
+                        <span>{feature.label} — Rs. {Number(feature.pricePkr || 0).toLocaleString()}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {pkg.pricingMode === 'catalog' && <p className="text-[10px] text-emerald-300">Calculated before checkout from selected feature prices and the configured bundle discount.</p>}
+                </div>
+
+                <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-3 space-y-2">
+                  <label className="flex items-center gap-2 text-[11px] font-bold text-indigo-200">
+                    <input type="checkbox" checked={pkg.cvBenefitsEnabled === true} onChange={(e) => {
+                      const list = [...pricing.subscriptionPackages];
+                      list[idx] = { ...list[idx], cvBenefitsEnabled: e.target.checked, cvBenefits: { cvCreateLimit: 0, editLimit: 0, pdfExportLimit: 0, atsExportLimit: 0, shareLimit: 0, noWatermark: false, premiumDesignIds: [], ...(list[idx].cvBenefits || {}) } };
+                      setPricing((prev: any) => ({ ...prev, subscriptionPackages: list }));
+                    }} />
+                    Include CV Builder benefits in this plan
+                  </label>
+                  {pkg.cvBenefitsEnabled === true && <>
+                    <label className="block text-[10px] text-slate-400">CV benefits description
+                      <textarea rows={2} maxLength={240} value={pkg.cvBenefitsDescription || ''} onChange={(e) => {
+                        const list = [...pricing.subscriptionPackages]; list[idx] = { ...list[idx], cvBenefitsDescription: e.target.value.slice(0, 240) };
+                        setPricing((prev: any) => ({ ...prev, subscriptionPackages: list }));
+                      }} className="mt-1 w-full rounded bg-slate-900 p-2 text-white" placeholder="e.g. 2 CVs, 10 edits, 5 PDF downloads and premium designs." />
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {([{field:'cvCreateLimit',label:'CV creations'},{field:'editLimit',label:'CV edits'},{field:'pdfExportLimit',label:'PDF downloads'},{field:'atsExportLimit',label:'ATS exports'},{field:'shareLimit',label:'CV shares'}] as const).map(item => (
+                        <label key={item.field} className="text-[10px] text-slate-400">{item.label}
+                          <input type="number" min="0" max="10000" value={pkg.cvBenefits?.[item.field] ?? 0} onChange={(e) => {
+                            const list = [...pricing.subscriptionPackages];
+                            list[idx] = { ...list[idx], cvBenefits: { ...(list[idx].cvBenefits || {}), [item.field]: Math.max(0, Math.min(10000, Math.floor(Number(e.target.value) || 0))) } };
+                            setPricing((prev: any) => ({ ...prev, subscriptionPackages: list }));
+                          }} className="mt-1 w-full rounded bg-slate-900 p-2 text-white" />
+                        </label>
+                      ))}
+                    </div>
+                    <label className="flex items-center gap-2 text-[10px] text-slate-300">
+                      <input type="checkbox" checked={pkg.cvBenefits?.noWatermark === true} onChange={(e) => {
+                        const list = [...pricing.subscriptionPackages]; list[idx] = { ...list[idx], cvBenefits: { ...(list[idx].cvBenefits || {}), noWatermark: e.target.checked } };
+                        setPricing((prev: any) => ({ ...prev, subscriptionPackages: list }));
+                      }} />
+                      CV exports without watermark
+                    </label>
+                    <div className="space-y-1">
+                      <span className="block text-[10px] text-slate-400">Premium designs included in this plan</span>
+                      {(pricing.cvBuilder?.templates || []).filter((template: any) => template.free !== true).map((template: any) => (
+                        <label key={template.id} className="flex items-center gap-2 text-[10px] text-slate-300">
+                          <input type="checkbox" checked={(pkg.cvBenefits?.premiumDesignIds || []).includes(template.id)} onChange={(e) => {
+                            const list = [...pricing.subscriptionPackages]; const selected = new Set(list[idx].cvBenefits?.premiumDesignIds || []);
+                            if (e.target.checked) selected.add(template.id); else selected.delete(template.id);
+                            list[idx] = { ...list[idx], cvBenefits: { ...(list[idx].cvBenefits || {}), premiumDesignIds: Array.from(selected) } };
+                            setPricing((prev: any) => ({ ...prev, subscriptionPackages: list }));
+                          }} />
+                          {template.name || template.id}
+                        </label>
+                      ))}
+                    </div>
+                  </>}
+                </div>
+
                 <div className="space-y-2">
                   <label className="text-[10px] text-slate-500 font-bold uppercase block">Features List (Comma Separated)</label>
                   <textarea
@@ -723,48 +1017,6 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                     className="w-full px-2 py-1.5 bg-slate-900 border border-slate-800 rounded text-white text-[11px] leading-tight outline-none focus:border-emerald-500 transition-colors"
                     placeholder="e.g. Instant WhatsApp Alerts, Priority Apply..."
                   />
-                </div>
-
-                <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-3 space-y-2">
-                  <label className="flex items-center gap-2 text-[11px] font-bold text-indigo-200">
-                    <input type="checkbox" checked={pkg.cvBenefitsEnabled === true} onChange={(e) => {
-                      const newList = [...pricing.subscriptionPackages];
-                      newList[idx] = { ...newList[idx], cvBenefitsEnabled: e.target.checked, cvBenefits: { cvCreateLimit: 0, editLimit: 0, pdfExportLimit: 0, atsExportLimit: 0, shareLimit: 0, noWatermark: false, ...(newList[idx].cvBenefits || {}) } };
-                      setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
-                    }} />
-                    Include CV benefits in this subscription
-                  </label>
-                  {pkg.cvBenefitsEnabled === true && (
-                    <>
-                      <p className="text-[10px] text-slate-400">CV benefit quota follows this subscription's validity period ({Number(pkg.durationDays || 0)} days).</p>
-                      <label className="block text-[10px] text-slate-400">CV benefit description shown to candidates
-                        <textarea rows={2} maxLength={240} value={pkg.cvBenefitsDescription || ''} onChange={e => {
-                          const newList = [...pricing.subscriptionPackages];
-                          newList[idx] = { ...newList[idx], cvBenefitsDescription: e.target.value.slice(0, 240) };
-                          setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
-                        }} className="mt-1 w-full rounded bg-slate-900 p-2 text-white" placeholder="e.g. Includes 2 CVs, 5 edits and 2 PDF downloads." />
-                      </label>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {([{field:'cvCreateLimit',label:'CV creations'},{field:'editLimit',label:'CV edits'},{field:'pdfExportLimit',label:'PDF exports'},{field:'atsExportLimit',label:'ATS exports'},{field:'shareLimit',label:'Shares'}] as const).map(item => (
-                          <label key={item.field} className="text-[10px] text-slate-400">{item.label}
-                            <input type="number" min="0" max="10000" value={pkg.cvBenefits?.[item.field] ?? 0} onChange={e => {
-                              const newList = [...pricing.subscriptionPackages];
-                              newList[idx] = { ...newList[idx], cvBenefits: { ...(newList[idx].cvBenefits || {}), [item.field]: Math.max(0, Math.min(10000, Math.floor(Number(e.target.value) || 0))) } };
-                              setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
-                            }} className="mt-1 w-full rounded bg-slate-900 p-2 text-white" />
-                          </label>
-                        ))}
-                      </div>
-                      <label className="flex items-center gap-2 text-[10px] text-slate-300">
-                        <input type="checkbox" checked={pkg.cvBenefits?.noWatermark === true} onChange={e => {
-                          const newList = [...pricing.subscriptionPackages];
-                          newList[idx] = { ...newList[idx], cvBenefits: { ...(newList[idx].cvBenefits || {}), noWatermark: e.target.checked } };
-                          setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
-                        }} />
-                        CV exports without watermark
-                      </label>
-                    </>
-                  )}
                 </div>
 
                 <div className="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/50">
@@ -806,6 +1058,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
           </div>
         </div>
 
+        {/* 4. CV Builder Access, Designs & Export Policy */}
         {!hideCvSettings && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 lg:col-span-2">
           <div className="border-b border-slate-800 pb-4"><h3 className="font-bold text-white text-base">CV Builder Access & Monetization</h3><p className="text-xs text-slate-400 mt-1">Control free designs, one-time Premium design prices, export availability and website watermark. A purchased design remains unlocked on the member account.</p></div>
@@ -831,35 +1084,8 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
               {(pricing.cvBuilder?.templates || []).map((template: any, index: number) => <div key={template.id} className="rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-3">
                 <div className="flex items-center justify-between gap-2"><input aria-label={`CV design ${index + 1} name`} type="text" maxLength={80} value={template.name || ''} onChange={(e) => { const templates = [...(pricing.cvBuilder?.templates || [])]; templates[index] = { ...templates[index], name: e.target.value }; updateNested('cvBuilder', 'templates', templates); }} className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm font-bold text-white" /><label className="flex items-center gap-2 text-[11px] text-slate-400">Available<input type="checkbox" checked={template.enabled !== false} onChange={(e) => { const templates = [...(pricing.cvBuilder?.templates || [])]; templates[index] = { ...templates[index], enabled: e.target.checked }; updateNested('cvBuilder', 'templates', templates); }} /></label></div>
                 <div className="flex items-center justify-between gap-3"><label className="flex items-center gap-2 text-xs text-slate-300">Free for free members<input type="checkbox" checked={template.free === true} onChange={(e) => { const templates = [...(pricing.cvBuilder?.templates || [])]; templates[index] = { ...templates[index], free: e.target.checked }; updateNested('cvBuilder', 'templates', templates); }} /></label><label className="text-[11px] text-slate-400">Price (PKR)<input type="number" min="0" value={template.pricePkr ?? 0} onChange={(e) => { const templates = [...(pricing.cvBuilder?.templates || [])]; templates[index] = { ...templates[index], pricePkr: Math.max(0, Number(e.target.value) || 0) }; updateNested('cvBuilder', 'templates', templates); }} className="ml-2 w-24 px-2 py-1.5 rounded bg-slate-900 border border-slate-700 text-white" /></label></div>
-                <div className="grid grid-cols-2 gap-2 text-[11px]">
-                  {([{field:'pdfExportEnabled',label:'PDF export'},{field:'atsExportEnabled',label:'ATS export'}] as const).map((item) => <label key={item.field} className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 p-2 text-slate-300">{item.label}<input type="checkbox" checked={template[item.field] !== false} onChange={(e) => { const templates = [...(pricing.cvBuilder?.templates || [])]; templates[index] = { ...templates[index], [item.field]: e.target.checked }; updateNested('cvBuilder', 'templates', templates); }} /></label>)}
-                </div>
-                <label className="block text-[11px] text-slate-400">Export watermark policy<select value={template.exportWatermarkMode || 'inherit'} onChange={(e) => { const templates = [...(pricing.cvBuilder?.templates || [])]; templates[index] = { ...templates[index], exportWatermarkMode: e.target.value }; updateNested('cvBuilder', 'templates', templates); }} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-white"><option value="inherit">Use global watermark policy</option><option value="always">Always watermark exported files</option><option value="never">No watermark in exported files</option></select></label>
-                <div className="grid grid-cols-2 gap-2"><label className="text-[11px] text-slate-400">Watermark text<input type="text" maxLength={80} value={template.watermarkText || ''} placeholder={pricing.cvBuilder?.watermarkText || 'Hybrid Job Portal'} onChange={(e) => { const templates = [...(pricing.cvBuilder?.templates || [])]; templates[index] = { ...templates[index], watermarkText: e.target.value }; updateNested('cvBuilder', 'templates', templates); }} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-white" /></label><label className="text-[11px] text-slate-400">Watermark opacity<input type="number" min="0.05" max="0.35" step="0.01" value={template.watermarkOpacity ?? pricing.cvBuilder?.watermarkOpacity ?? 0.16} onChange={(e) => { const templates = [...(pricing.cvBuilder?.templates || [])]; templates[index] = { ...templates[index], watermarkOpacity: Math.max(0.05, Math.min(0.35, Number(e.target.value) || 0.16)) }; updateNested('cvBuilder', 'templates', templates); }} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-white" /></label></div>
-                <p className="text-[10px] text-amber-300">The on-screen CV preview always displays a watermark. This policy controls the exported PDF/ATS file only.</p>
               </div>)}
             </div>
-          </div>
-          <div className="space-y-3 rounded-xl border border-emerald-500/20 bg-slate-950 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div><h4 className="text-sm font-bold text-white">Individual CV Packages</h4><p className="text-[11px] text-slate-400">Create one-time CV packages with validity and separate usage limits. Packages are activated after successful wallet payment or administrator approval of manual payment proof.</p></div>
-              <button type="button" onClick={() => { const packages = [...(pricing.cvBuilder?.packages || []), { id: `cv-package-${Date.now()}`, name: 'New CV Package', enabled: true, pricePkr: 100, durationDays: 30, cvCreateLimit: 1, editLimit: 10, pdfExportLimit: 3, atsExportLimit: 3, shareLimit: 3, noWatermark: false }]; updateNested('cvBuilder', 'packages', packages); }} className="rounded-lg border border-emerald-500/30 px-3 py-2 text-xs font-bold text-emerald-300">+ Add CV Package</button>
-            </div>
-            {(pricing.cvBuilder?.packages || []).map((pkg: any, index: number) => <div key={pkg.id} className="grid grid-cols-2 gap-2 rounded-lg border border-slate-800 p-3 md:grid-cols-4">
-              <label className="col-span-2 text-[11px] text-slate-400">Package name<input value={pkg.name || ''} maxLength={80} onChange={e => { const list=[...(pricing.cvBuilder?.packages || [])]; list[index]={...list[index],name:e.target.value}; updateNested('cvBuilder','packages',list); }} className="mt-1 w-full rounded bg-slate-900 p-2 text-white"/></label>
-              <label className="text-[11px] text-slate-400">Price (PKR)<input type="number" min="0" value={pkg.pricePkr ?? 0} onChange={e=>{const list=[...(pricing.cvBuilder?.packages || [])];list[index]={...list[index],pricePkr:Math.max(0,Math.floor(Number(e.target.value)||0))};updateNested('cvBuilder','packages',list);}} className="mt-1 w-full rounded bg-slate-900 p-2 text-white"/></label>
-              <label className="text-[11px] text-slate-400">Validity (days)<input type="number" min="1" max="3650" value={pkg.durationDays ?? 30} onChange={e=>{const list=[...(pricing.cvBuilder?.packages || [])];list[index]={...list[index],durationDays:Math.max(1,Math.min(3650,Math.floor(Number(e.target.value)||1)))};updateNested('cvBuilder','packages',list);}} className="mt-1 w-full rounded bg-slate-900 p-2 text-white"/></label>
-              {([{field:'cvCreateLimit',label:'CV creations'},{field:'editLimit',label:'CV edits'},{field:'pdfExportLimit',label:'PDF exports'},{field:'atsExportLimit',label:'ATS exports'},{field:'shareLimit',label:'Shares'}] as const).map(item=><label key={item.field} className="text-[11px] text-slate-400">{item.label}<input type="number" min="0" max="1000" value={pkg[item.field] ?? 0} onChange={e=>{const list=[...(pricing.cvBuilder?.packages || [])];list[index]={...list[index],[item.field]:Math.max(0,Math.min(1000,Math.floor(Number(e.target.value)||0)))};updateNested('cvBuilder','packages',list);}} className="mt-1 w-full rounded bg-slate-900 p-2 text-white"/></label>)}
-              <label className="flex items-center gap-2 text-[11px] text-slate-300"><input type="checkbox" checked={pkg.noWatermark === true} onChange={e=>{const list=[...(pricing.cvBuilder?.packages || [])];list[index]={...list[index],noWatermark:e.target.checked};updateNested('cvBuilder','packages',list);}}/>No watermark</label>
-              <label className="flex items-center gap-2 text-[11px] text-slate-300"><input type="checkbox" checked={pkg.enabled !== false} onChange={e=>{const list=[...(pricing.cvBuilder?.packages || [])];list[index]={...list[index],enabled:e.target.checked};updateNested('cvBuilder','packages',list);}}/>Enabled</label>
-              <button type="button" onClick={()=>{const list=(pricing.cvBuilder?.packages || []).filter((_:any,i:number)=>i!==index);updateNested('cvBuilder','packages',list);}} className="text-left text-[11px] font-bold text-rose-400">Remove package</button>
-            </div>)}
-            {(pricing.cvBuilder?.templates || []).map((template:any,index:number)=><div key={template.id} className="grid grid-cols-2 gap-2 rounded-lg border border-slate-800 p-3 md:grid-cols-3">
-              <div className="col-span-2 text-xs font-bold text-white md:col-span-3">{template.name || template.id} — usage controls</div>
-              <label className="text-[11px] text-slate-400">Edit policy<select value={template.editMode || 'unlimited'} onChange={e=>{const list=[...(pricing.cvBuilder?.templates || [])];list[index]={...list[index],editMode:e.target.value};updateNested('cvBuilder','templates',list);}} className="mt-1 w-full rounded bg-slate-900 p-2 text-white"><option value="unlimited">Unlimited</option><option value="limited">Limited</option><option value="disabled">Disabled</option></select></label>
-              {([{field:'cvCreateLimit',label:'CV creation limit'},{field:'editLimit',label:'Edit limit'},{field:'pdfExportLimit',label:'PDF quota'},{field:'atsExportLimit',label:'ATS quota'},{field:'shareLimit',label:'Share quota'}] as const).map(item=><label key={item.field} className="text-[11px] text-slate-400">{item.label}<input type="number" min="0" max="1000" value={template[item.field] ?? 0} onChange={e=>{const list=[...(pricing.cvBuilder?.templates || [])];list[index]={...list[index],[item.field]:Math.max(0,Math.min(1000,Math.floor(Number(e.target.value)||0)))};updateNested('cvBuilder','templates',list);}} className="mt-1 w-full rounded bg-slate-900 p-2 text-white"/></label>)}
-              <label className="flex items-center gap-2 text-[11px] text-slate-300"><input type="checkbox" checked={template.shareEnabled === true} onChange={e=>{const list=[...(pricing.cvBuilder?.templates || [])];list[index]={...list[index],shareEnabled:e.target.checked};updateNested('cvBuilder','templates',list);}}/>Allow sharing</label>
-            </div>)}
           </div>
           <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/60 p-3">
             <div className="text-xs font-bold text-slate-300">Future AI CV Optimizer price (PKR)</div>

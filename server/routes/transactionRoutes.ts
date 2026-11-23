@@ -804,6 +804,8 @@ transactionRouter.post('/', async (req, res) => {
           name: targetPackage.name,
           pricePkr: targetPackage.pricePkr,
           durationDays: targetPackage.durationDays,
+          cvBenefitsEnabled: targetPackage.cvBenefitsEnabled === true,
+          ...(targetPackage.cvBenefitsEnabled === true ? { cvBenefits: targetPackage.cvBenefits || {} } : {}),
           timestamp: new Date().toISOString()
         };
       } else {
@@ -1288,15 +1290,28 @@ transactionRouter.post('/', async (req, res) => {
             const subscriptionExpiresAt = new Date(Date.now() + subDurationDays * 24 * 60 * 60 * 1000).toISOString();
             let updatedUser: any = null;
             try {
-              updatedUser = await UserRepository.deductWalletBalanceAsync(
-                effectiveUserId,
-                enforcedAmount,
-                {
-                  membershipTier: safeSubscriptionPlan || 'Pro Alerts',
-                  membershipStatus: 'Active',
-                  subscriptionExpiresAt
-                }
-              );
+              const packageSnapshot = (req as any).packageSnapshot;
+              updatedUser = packageSnapshot?.cvBenefitsEnabled === true
+                ? await UserRepository.purchaseSubscriptionWithCvBenefitsAsync(
+                    effectiveUserId,
+                    enforcedAmount,
+                    {
+                      membershipTier: safeSubscriptionPlan || 'Pro Alerts',
+                      membershipStatus: 'Active',
+                      subscriptionExpiresAt
+                    },
+                    packageSnapshot,
+                    newTx.id
+                  )
+                : await UserRepository.deductWalletBalanceAsync(
+                    effectiveUserId,
+                    enforcedAmount,
+                    {
+                      membershipTier: safeSubscriptionPlan || 'Pro Alerts',
+                      membershipStatus: 'Active',
+                      subscriptionExpiresAt
+                    }
+                  );
             } catch (deductErr) {
               walletMutationState = 'UNCERTAIN';
               throw deductErr;

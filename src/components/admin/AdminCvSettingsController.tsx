@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../services/api';
+import { cvAiApi } from '../../services/cvAiApi';
 import { Save, RefreshCw, AlertCircle, Plus, Trash2 } from 'lucide-react';
 
 const DEFAULT_CV = {
@@ -20,7 +21,7 @@ export const AdminCvSettingsController: React.FC<{ onPricingSaved?: (pricing: an
   const load = async () => {
     setLoading(true); setError('');
     try {
-      const [result, aiResult] = await Promise.all([api.pricing.get(), api.pricing.getCvAiConfig()]);
+      const [result, aiResult] = await Promise.all([api.pricing.get(), cvAiApi.getConfig()]);
       if (!result?.success || !result.pricing) throw new Error(result?.message || 'Unable to load CV settings.');
       if (aiResult?.success && aiResult.config) setAiConfig(aiResult.config);
       setPricing({ ...result.pricing, cvBuilder: { ...DEFAULT_CV, ...(result.pricing.cvBuilder || {}) }, subscriptionPackages: Array.isArray(result.pricing.subscriptionPackages) ? result.pricing.subscriptionPackages : [] });
@@ -46,7 +47,7 @@ export const AdminCvSettingsController: React.FC<{ onPricingSaved?: (pricing: an
   const saveAiConfig = async (clearApiKey = false) => {
     setSavingAi(true); setError(''); setNotice('');
     try {
-      const result = await api.pricing.updateCvAiConfig({
+      const result = await cvAiApi.updateConfig({
         provider: aiConfig.provider || 'openai',
         model: aiConfig.model || '',
         ...(aiApiKey.trim() ? { apiKey: aiApiKey.trim() } : {}),

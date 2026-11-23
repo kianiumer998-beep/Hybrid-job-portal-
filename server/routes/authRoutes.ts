@@ -239,6 +239,7 @@ authRouter.post('/login', async (req, res) => {
       recordFailedAttempt(ip);
       await recordFailedLoginAudit(req, 'Failed Login Attempt', cleanEmail, 'Invalid credentials');
       return res.status(401).json({ success: false, message: 'Invalid email address or password.' });
+    }
 
     let isValid = false;
     if (user.passwordHash && user.salt) {
@@ -249,6 +250,7 @@ authRouter.post('/login', async (req, res) => {
       recordFailedAttempt(ip);
       await recordFailedLoginAudit(req, 'Failed Login Attempt', cleanEmail, 'Invalid credentials');
       return res.status(401).json({ success: false, message: 'Invalid email address or password.' });
+    }
 
     clearAttempts(ip);
 

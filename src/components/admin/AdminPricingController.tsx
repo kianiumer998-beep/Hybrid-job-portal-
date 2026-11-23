@@ -846,7 +846,10 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                   features: [],
                   featureIds: [],
                   pricingMode: 'fixed',
-                  enabled: true
+                  enabled: true,
+                  cvBenefitsEnabled: false,
+                  cvBenefitsDescription: '',
+                  cvBenefits: { cvCreateLimit: 0, editLimit: 0, pdfExportLimit: 0, atsExportLimit: 0, shareLimit: 0, noWatermark: false, premiumDesignIds: [] }
                 };
                 setPricing((prev: any) => ({
                   ...prev,
@@ -944,6 +947,57 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                     ))}
                   </div>
                   {pkg.pricingMode === 'catalog' && <p className="text-[10px] text-emerald-300">Calculated before checkout from selected feature prices and the configured bundle discount.</p>}
+                </div>
+
+                <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-3 space-y-2">
+                  <label className="flex items-center gap-2 text-[11px] font-bold text-indigo-200">
+                    <input type="checkbox" checked={pkg.cvBenefitsEnabled === true} onChange={(e) => {
+                      const list = [...pricing.subscriptionPackages];
+                      list[idx] = { ...list[idx], cvBenefitsEnabled: e.target.checked, cvBenefits: { cvCreateLimit: 0, editLimit: 0, pdfExportLimit: 0, atsExportLimit: 0, shareLimit: 0, noWatermark: false, premiumDesignIds: [], ...(list[idx].cvBenefits || {}) } };
+                      setPricing((prev: any) => ({ ...prev, subscriptionPackages: list }));
+                    }} />
+                    Include CV Builder benefits in this plan
+                  </label>
+                  {pkg.cvBenefitsEnabled === true && <>
+                    <label className="block text-[10px] text-slate-400">CV benefits description
+                      <textarea rows={2} maxLength={240} value={pkg.cvBenefitsDescription || ''} onChange={(e) => {
+                        const list = [...pricing.subscriptionPackages]; list[idx] = { ...list[idx], cvBenefitsDescription: e.target.value.slice(0, 240) };
+                        setPricing((prev: any) => ({ ...prev, subscriptionPackages: list }));
+                      }} className="mt-1 w-full rounded bg-slate-900 p-2 text-white" placeholder="e.g. 2 CVs, 10 edits, 5 PDF downloads and premium designs." />
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {([{field:'cvCreateLimit',label:'CV creations'},{field:'editLimit',label:'CV edits'},{field:'pdfExportLimit',label:'PDF downloads'},{field:'atsExportLimit',label:'ATS exports'},{field:'shareLimit',label:'CV shares'}] as const).map(item => (
+                        <label key={item.field} className="text-[10px] text-slate-400">{item.label}
+                          <input type="number" min="0" max="10000" value={pkg.cvBenefits?.[item.field] ?? 0} onChange={(e) => {
+                            const list = [...pricing.subscriptionPackages];
+                            list[idx] = { ...list[idx], cvBenefits: { ...(list[idx].cvBenefits || {}), [item.field]: Math.max(0, Math.min(10000, Math.floor(Number(e.target.value) || 0))) } };
+                            setPricing((prev: any) => ({ ...prev, subscriptionPackages: list }));
+                          }} className="mt-1 w-full rounded bg-slate-900 p-2 text-white" />
+                        </label>
+                      ))}
+                    </div>
+                    <label className="flex items-center gap-2 text-[10px] text-slate-300">
+                      <input type="checkbox" checked={pkg.cvBenefits?.noWatermark === true} onChange={(e) => {
+                        const list = [...pricing.subscriptionPackages]; list[idx] = { ...list[idx], cvBenefits: { ...(list[idx].cvBenefits || {}), noWatermark: e.target.checked } };
+                        setPricing((prev: any) => ({ ...prev, subscriptionPackages: list }));
+                      }} />
+                      CV exports without watermark
+                    </label>
+                    <div className="space-y-1">
+                      <span className="block text-[10px] text-slate-400">Premium designs included in this plan</span>
+                      {(pricing.cvBuilder?.templates || []).filter((template: any) => template.free !== true).map((template: any) => (
+                        <label key={template.id} className="flex items-center gap-2 text-[10px] text-slate-300">
+                          <input type="checkbox" checked={(pkg.cvBenefits?.premiumDesignIds || []).includes(template.id)} onChange={(e) => {
+                            const list = [...pricing.subscriptionPackages]; const selected = new Set(list[idx].cvBenefits?.premiumDesignIds || []);
+                            if (e.target.checked) selected.add(template.id); else selected.delete(template.id);
+                            list[idx] = { ...list[idx], cvBenefits: { ...(list[idx].cvBenefits || {}), premiumDesignIds: Array.from(selected) } };
+                            setPricing((prev: any) => ({ ...prev, subscriptionPackages: list }));
+                          }} />
+                          {template.name || template.id}
+                        </label>
+                      ))}
+                    </div>
+                  </>}
                 </div>
 
                 <div className="space-y-2">

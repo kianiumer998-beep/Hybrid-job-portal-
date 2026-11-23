@@ -2,8 +2,9 @@ process.env.IS_TEST = 'true';
 
 import assert from 'node:assert/strict';
 import { normalizeSubscriptionFeatureCatalog, resolveSubscriptionPackage } from '../services/subscriptionEntitlements';
+import { UserRepository } from '../db/repositories/UserRepository';
 
-function run() {
+async function run() {
   const catalog = normalizeSubscriptionFeatureCatalog([
     { id: 'early_access', label: 'Early Access', enabled: true, pricePkr: 500, durationDays: 30, includedSlots: 0, slotDurationDays: 30 },
     { id: 'whatsapp_alerts', label: 'WhatsApp Alerts', enabled: true, pricePkr: 300, durationDays: 30, includedSlots: 0, slotDurationDays: 30 },
@@ -32,7 +33,28 @@ function run() {
 
   const fixed = resolveSubscriptionPackage({ id: 'fixed', pricingMode: 'fixed', pricePkr: 999, configuredPricePkr: 850, featureIds: [] }, pricing);
   assert.equal(fixed.pricePkr, 850, 'fixed packages keep their configured price');
-  console.log('Subscription entitlement tests passed (8 assertions).');
+  const slotUserId = 'subscription-slot-test-user';
+  await UserRepository.createAsync({
+    id: slotUserId,
+    walletBalance: 0,
+    membershipStatus: 'Active',
+    subscriptionExpiresAt: new Date(Date.now() + 86400000).toISOString(),
+    subscriptionEntitlements: {
+      urgent_job_posting: {
+        enabled: true,
+        expiresAt: new Date(Date.now() + 86400000).toISOString(),
+        includedSlots: 1,
+        remainingSlots: 1
+      }
+    }
+  });
+  const firstRedemption = await UserRepository.consumeSubscriptionFeatureSlotAsync(slotUserId, 'urgent_job_posting', 'job-123');
+  assert.equal(firstRedemption.subscriptionEntitlements.urgent_job_posting.remainingSlots, 0, 'a posting slot is consumed exactly once');
+  const repeatedRedemption = await UserRepository.consumeSubscriptionFeatureSlotAsync(slotUserId, 'urgent_job_posting', 'job-123');
+  assert.equal(repeatedRedemption.subscriptionEntitlements.urgent_job_posting.remainingSlots, 0, 'repeated redemption does not consume another slot');
+  const restored = await UserRepository.restoreSubscriptionFeatureSlotAsync(slotUserId, 'urgent_job_posting', 'job-123');
+  assert.equal(restored.subscriptionEntitlements.urgent_job_posting.remainingSlots, 1, 'failed job update compensation restores the consumed slot');
+  console.log('Subscription entitlement tests passed (11 assertions).');
 }
 
-run();
+run().catch((error) => { console.error(error); process.exitCode = 1; });

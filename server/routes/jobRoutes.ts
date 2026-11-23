@@ -2309,7 +2309,13 @@ jobRouter.post('/:id/redeem-subscription-slot', requireAuth, async (req: any, re
     try {
       updated = await JobRepository.update(String(job.id), updates);
     } catch (updateError) {
-      const verifiedJob = await JobRepository.getPendingById(String(job.id)).catch(() => null);
+      let verifiedJob: any = null;
+      try {
+        verifiedJob = await JobRepository.getPendingById(String(job.id));
+      } catch {
+        // The write outcome is uncertain; keep the slot reserved rather than risk issuing a duplicate credit.
+        throw new Error('Posting-slot update outcome is uncertain. Your slot remains reserved while the job record is checked.');
+      }
       if (verifiedJob?.subscriptionSlotFeatureId === selected.featureId) {
         updated = verifiedJob;
       } else {

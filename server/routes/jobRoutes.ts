@@ -2309,8 +2309,13 @@ jobRouter.post('/:id/redeem-subscription-slot', requireAuth, async (req: any, re
     try {
       updated = await JobRepository.update(String(job.id), updates);
     } catch (updateError) {
-      await UserRepository.restoreSubscriptionFeatureSlotAsync(userId, selected.featureId, String(job.id));
-      throw updateError;
+      const verifiedJob = await JobRepository.getPendingById(String(job.id)).catch(() => null);
+      if (verifiedJob?.subscriptionSlotFeatureId === selected.featureId) {
+        updated = verifiedJob;
+      } else {
+        await UserRepository.restoreSubscriptionFeatureSlotAsync(userId, selected.featureId, String(job.id));
+        throw updateError;
+      }
     }
     if (!updated) {
       await UserRepository.restoreSubscriptionFeatureSlotAsync(userId, selected.featureId, String(job.id));

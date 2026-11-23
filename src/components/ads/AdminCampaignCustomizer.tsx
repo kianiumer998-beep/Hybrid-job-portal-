@@ -1271,34 +1271,6 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
                       </button>
                     </div>
                   </div>
-                  <div className="rounded-xl border border-teal-500/20 bg-teal-500/5 px-3 py-2 text-[10px] text-slate-300">
-                    Rate summary: <span className="font-bold text-teal-300">{Number(placement.multiplier || 1).toFixed(2)}x multiplier</span>
-                    {' + '}<span className="font-bold text-teal-300">{Number(placement.percentageUpliftPercent || 0)}% uplift</span>
-                    {' • '}Minimum <span className="font-bold text-white">{Math.max(1, Number(placement.minDurationHours) || 1)}h</span>
-                    {' • '}Fixed <span className="font-bold text-white">{Number(placement.fixedPriceOverridePkr || 0).toLocaleString()} PKR</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
-                    <div>
-                      <label className="text-[10px] text-slate-400 block mb-1 font-bold">Minimum Campaign Duration (Hours)</label>
-                      <input type="number" min="1" max="2160" step="1" value={placement.minDurationHours ?? 1}
-                        onChange={(e) => {
-                          const raw = e.target.value;
-                          if (raw === '') return;
-                          handleUpdatePlacement(placement.id, { minDurationHours: Math.min(2160, Math.max(1, Math.floor(Number(raw) || 1))) });
-                        }}
-                        className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-1.5 font-mono focus:outline-none focus:border-teal-500"
-                      />
-                      <p className="mt-1 text-[9px] text-slate-500">24 hours = 1 day; maximum 90 days</p>
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-slate-400 block mb-1 font-bold">Percentage Uplift (% Extra)</label>
-                      <input type="number" min="0" max="1000" step="1" value={placement.percentageUpliftPercent ?? 0}
-                        onChange={(e) => handleUpdatePlacement(placement.id, { percentageUpliftPercent: Math.min(1000, Math.max(0, Number(e.target.value) || 0)) })}
-                        className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-1.5 font-mono focus:outline-none focus:border-teal-500"
-                      />
-                      <p className="mt-1 text-[9px] text-slate-500">25% extra adds 25% after the existing multiplier</p>
-                    </div>
-                  </div>
                   <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
                     <div>
                       <label className="text-[10px] text-slate-400 block mb-1 font-bold">Maximum Concurrent Slots</label>

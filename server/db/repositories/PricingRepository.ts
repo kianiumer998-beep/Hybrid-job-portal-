@@ -636,6 +636,11 @@ export class PricingRepository {
           if (!Number.isInteger(slots) || slots < 1 || slots > 50) throw new Error(`Placement ${option.id} maxConcurrentSlots must be an integer between 1 and 50.`);
         }
         if (option.fixedPriceOverridePkr !== undefined) validateNonNegativeNumber(option.fixedPriceOverridePkr, `campaignPlacement.${option.id}.fixedPriceOverridePkr`);
+        if (option.minDurationHours !== undefined) {
+          const minHours = Number(option.minDurationHours);
+          if (!Number.isInteger(minHours) || minHours < 1 || minHours > 2160) throw new Error(`Placement ${option.id} minDurationHours must be an integer between 1 and 2160.`);
+        }
+        if (option.percentageUpliftPercent !== undefined) validateNonNegativeNumber(option.percentageUpliftPercent, `campaignPlacement.${option.id}.percentageUpliftPercent`, 1000);
         if (option.multiplier !== undefined) validateNonNegativeNumber(option.multiplier, `campaignPlacement.${option.id}.multiplier`, 100);
         if (option.isEnabled !== undefined && typeof option.isEnabled !== 'boolean') throw new Error(`Placement ${option.id} isEnabled must be a boolean.`);
       }
@@ -1347,6 +1352,17 @@ export class PricingRepository {
         : 1;
 
     const resolvedDuration = resolveCampaignDuration(presetId, rawUnit, rawValue, campaignConfig);
+    const resolvedDurationHours =
+      resolvedDuration.unit === 'hours' ? resolvedDuration.value :
+      resolvedDuration.unit === 'days' ? resolvedDuration.value * 24 :
+      resolvedDuration.unit === 'weeks' ? resolvedDuration.value * 7 * 24 :
+      resolvedDuration.value * 30 * 24;
+    const minimumDurationHours = Math.max(1, Math.floor(Number(placementOption?.minDurationHours) || 1));
+    if (!Number.isFinite(resolvedDurationHours) || resolvedDurationHours < minimumDurationHours) {
+      const durationError: any = new Error(`The minimum campaign duration for this placement is ${minimumDurationHours} hour(s). Please choose a longer duration.`);
+      durationError.statusCode = 400;
+      throw durationError;
+    }
 
     const resolvedTargetPages: AdTargetPage[] =
       Array.isArray(req?.targetPages) && req.targetPages.length > 0

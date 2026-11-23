@@ -246,15 +246,16 @@ function buildCvExportLines(data: any, watermarkText?: string): string[] {
   return lines.map((line) => String(line ?? '').replace(/[\r\n\t]+/g, ' ').trim()).filter((line, index) => line || index === 0);
 }
 
-function createCvPdf(lines: string[], watermarkText?: string, watermarkOpacity: number = 0.16): Buffer {
+function createCvPdf(lines: string[], watermarkText?: string, watermarkOpacity: number = 0.16, templateStyle: string = 'modern', themeColor: string = '#10b981'): Buffer {
   const escapePdf = (value: string) => value.replace(/[^\x20-\x7E]/g, '?').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
   const wrapped: string[] = [];
+  const maxLineLength = templateStyle === 'executive' ? 70 : 92;
   for (const raw of lines) {
     let remaining = String(raw || '');
     if (!remaining) { wrapped.push(''); continue; }
-    while (remaining.length > 92) {
-      let split = remaining.lastIndexOf(' ', 92);
-      if (split < 30) split = 92;
+    while (remaining.length > maxLineLength) {
+      let split = remaining.lastIndexOf(' ', maxLineLength);
+      if (split < 30) split = maxLineLength;
       wrapped.push(remaining.slice(0, split));
       remaining = remaining.slice(split).trim();
     }
@@ -274,14 +275,27 @@ function createCvPdf(lines: string[], watermarkText?: string, watermarkOpacity: 
     const pageId = pageIds[index];
     const contentId = pageId + 1;
     const commands: string[] = [];
+    const hex = /^#[0-9a-f]{6}$/i.test(themeColor) ? themeColor.slice(1) : '10b981';
+    const red = parseInt(hex.slice(0, 2), 16) / 255;
+    const green = parseInt(hex.slice(2, 4), 16) / 255;
+    const blue = parseInt(hex.slice(4, 6), 16) / 255;
+    if (templateStyle === 'executive') commands.push('q', '0.94 g', '0 0 132 842 re f', 'Q');
+    if (templateStyle === 'tech') commands.push('q', red.toFixed(3) + ' ' + green.toFixed(3) + ' ' + blue.toFixed(3) + ' rg', '0 0 7 842 re f', 'Q');
+    if (templateStyle === 'modern' || templateStyle === 'classic') commands.push('q', red.toFixed(3) + ' ' + green.toFixed(3) + ' ' + blue.toFixed(3) + ' RG', '2 w', '45 818 m 550 818 l S', 'Q');
     if (watermarkText) {
       const gray = Math.max(0.65, Math.min(0.97, 1 - Math.max(0.05, Math.min(0.35, Number(watermarkOpacity) || 0.16))));
       commands.push('q', gray.toFixed(2) + ' g', 'BT', '/F1 30 Tf', '0.707 0.707 -0.707 0.707 125 360 Tm', '(' + escapePdf(watermarkText) + ') Tj', 'ET', 'Q');
     }
-    commands.push('BT', '/F1 10 Tf', '50 790 Td', '13 TL');
+    const textX = templateStyle === 'executive' ? 155 : 50;
+    commands.push('BT', '/F1 10 Tf', textX + ' 790 Td', '13 TL');
     page.forEach((line, lineIndex) => {
-      if (lineIndex === 0 || (line && line === line.toUpperCase() && line.length < 80)) commands.push('/F2 10 Tf');
-      else commands.push('/F1 10 Tf');
+      if (lineIndex === 0) {
+        commands.push('0.08 0.12 0.18 rg', '/F2 18 Tf');
+      } else if (line && line === line.toUpperCase() && line.length < 80) {
+        commands.push(red.toFixed(3) + ' ' + green.toFixed(3) + ' ' + blue.toFixed(3) + ' rg', '/F2 11 Tf');
+      } else {
+        commands.push('0.12 0.16 0.22 rg', '/F1 10 Tf');
+      }
       commands.push('(' + escapePdf(line) + ') Tj', 'T*');
     });
     commands.push('ET');
@@ -348,7 +362,7 @@ userRouter.post('/cv/export/:format', requireAuth, async (req: any, res) => {
       return res.json({ success: true, filename: safeName + '-ats.txt', mimeType: 'text/plain;charset=utf-8', contentBase64: Buffer.from(lines.join('\n'), 'utf8').toString('base64') });
     }
     const lines = buildCvExportLines(cvData);
-    const pdf = createCvPdf(lines, watermark, Number(template.watermarkOpacity ?? settings.watermarkOpacity ?? 0.16));
+    const pdf = createCvPdf(lines, watermark, Number(template.watermarkOpacity ?? settings.watermarkOpacity ?? 0.16), templateId, String(cvData.themeColor || '#10b981'));
     return res.json({ success: true, filename: safeName + '.pdf', mimeType: 'application/pdf', contentBase64: pdf.toString('base64') });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err?.message || 'Unable to generate CV export.' });

@@ -239,6 +239,9 @@ userRouter.post('/cv/consume', requireAuth, async (req: any, res) => {
     if (action === 'ats' && (settings.atsTextExportEnabled === false || template.atsExportEnabled === false)) {
       return res.status(403).json({ success: false, message: 'ATS text export is disabled by the administrator for this CV design.' });
     }
+    if (action === 'share' && template.shareEnabled === false) {
+      return res.status(403).json({ success: false, message: 'Sharing is disabled by the administrator for this CV design.' });
+    }
     const inactive = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled', 'Revoked']);
     const premium = !inactive.has(String(user.membershipStatus || '')) && (
       (user.membershipStatus === 'Active' && Boolean(user.membershipTier) && String(user.membershipTier).toLowerCase() !== 'free') ||
@@ -248,29 +251,38 @@ userRouter.post('/cv/consume', requireAuth, async (req: any, res) => {
     const activeGrants = (Array.isArray(user.cvPackageEntitlements) ? user.cvPackageEntitlements : [])
       .filter((item: any) => Date.parse(String(item?.expiresAt || '')) > Date.now())
       .sort((a: any, b: any) => Date.parse(String(a.expiresAt)) - Date.parse(String(b.expiresAt)));
+    const templateLimit = Math.max(0, Math.min(10000, Math.floor(Number(template?.[usageField] || 0))));
+    let selectedGrant: any = null;
     if (activeGrants.length) {
-      for (const grant of activeGrants) {
-        const limit = Number(grant?.limits?.[usageField] || 0);
-        const used = Number(grant?.usage?.[usageField] || 0);
-        if (limit <= used) continue;
-        const updated = await UserRepository.consumeCvPackageQuotaAsync(userId, String(grant.transactionId), usageField as any, limit);
-        if (updated) {
-          return res.json({
-            success: true,
-            action,
-            remaining: Math.max(0, limit - used - 1),
-            packageName: grant.packageName,
-            packageExpiresAt: grant.expiresAt,
-            noWatermark: grant.noWatermark === true || settings.watermarkEnabled === false || (premium && settings.watermarkFreeOnly !== false)
-          });
-        }
-      }
-      return res.status(403).json({ success: false, message: 'Your active CV package has no remaining quota for this action.' });
+      selectedGrant = activeGrants.find((grant: any) =>
+        Number(grant?.limits?.[usageField] || 0) > Number(grant?.usage?.[usageField] || 0)
+      );
+      if (!selectedGrant) return res.status(403).json({ success: false, message: 'Your active CV package has no remaining quota for this action.' });
+    }
+    if (selectedGrant || templateLimit > 0) {
+      const packageGrant = selectedGrant ? {
+        transactionId: String(selectedGrant.transactionId),
+        limit: Number(selectedGrant.limits[usageField])
+      } : null;
+      const updated = await UserRepository.consumeCvActionQuotasAsync(userId, templateId, usageField as any, packageGrant, templateLimit);
+      if (!updated) return res.status(403).json({ success: false, message: 'Your CV package or design quota has been used up. Please review your remaining quota.' });
+      const packageUsed = selectedGrant ? Number(selectedGrant.usage?.[usageField] || 0) + 1 : 0;
+      const designUsed = Number(updated.cvTemplateUsage?.[templateId]?.[usageField] || 0);
+      return res.json({
+        success: true,
+        action,
+        remaining: selectedGrant ? Math.max(0, packageGrant!.limit - packageUsed) : null,
+        designRemaining: templateLimit > 0 ? Math.max(0, templateLimit - designUsed) : null,
+        packageName: selectedGrant?.packageName,
+        packageExpiresAt: selectedGrant?.expiresAt,
+        noWatermark: selectedGrant?.noWatermark === true || settings.watermarkEnabled === false || (premium && settings.watermarkFreeOnly !== false)
+      });
     }
     return res.json({
       success: true,
       action,
       remaining: null,
+      designRemaining: null,
       noWatermark: settings.watermarkEnabled === false || (premium && settings.watermarkFreeOnly !== false)
     });
   } catch (err: any) {

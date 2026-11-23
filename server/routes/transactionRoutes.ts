@@ -1394,7 +1394,8 @@ transactionRouter.post('/', async (req, res) => {
                   pdfExportLimit: Number(benefits.pdfExportLimit ?? 0),
                   atsExportLimit: Number(benefits.atsExportLimit ?? 0),
                   shareLimit: Number(benefits.shareLimit ?? 0),
-                  noWatermark: benefits.noWatermark === true
+                  noWatermark: benefits.noWatermark === true,
+                  premiumDesignIds: Array.isArray(benefits.premiumDesignIds) ? benefits.premiumDesignIds : []
                 }, String(newTx.id));
                 if (!cvGrant) throw new Error('Subscription was charged, but its CV benefits could not be saved.');
               } catch (cvBenefitError) {

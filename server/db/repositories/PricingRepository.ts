@@ -257,6 +257,7 @@ function deepMergePricing(base: any, incoming: any): any {
           ? Math.min(0.35, Math.max(0.05, Number(item.watermarkOpacity)))
           : Number(baseCvBuilder.watermarkOpacity ?? 0.16),
         editMode: ['disabled', 'limited', 'unlimited'].includes(String(item.editMode)) ? String(item.editMode) : 'unlimited',
+        cvCreateLimit: Number.isInteger(Number(item.cvCreateLimit)) ? Math.min(1000, Math.max(0, Number(item.cvCreateLimit))) : 0,
         editLimit: Number.isInteger(Number(item.editLimit)) ? Math.min(1000, Math.max(0, Number(item.editLimit))) : 0,
         pdfExportLimit: Number.isInteger(Number(item.pdfExportLimit)) ? Math.min(1000, Math.max(0, Number(item.pdfExportLimit))) : 0,
         atsExportLimit: Number.isInteger(Number(item.atsExportLimit)) ? Math.min(1000, Math.max(0, Number(item.atsExportLimit))) : 0,
@@ -696,7 +697,7 @@ export class PricingRepository {
             if (!Number.isFinite(opacity) || opacity < 0.05 || opacity > 0.35) throw new Error(`cvBuilder.templates.${template.id}.watermarkOpacity must be between 0.05 and 0.35.`);
           }
           if (template.editMode !== undefined && !['disabled', 'limited', 'unlimited'].includes(String(template.editMode))) throw new Error(`cvBuilder.templates.${template.id}.editMode is invalid.`);
-          for (const field of ['editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit'] as const) {
+          for (const field of ['cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit'] as const) {
             if (template[field] !== undefined && (!Number.isInteger(Number(template[field])) || Number(template[field]) < 0 || Number(template[field]) > 1000)) throw new Error(`cvBuilder.templates.${template.id}.${field} must be a whole number from 0 to 1000.`);
           }
           if (template.shareEnabled !== undefined && typeof template.shareEnabled !== 'boolean') throw new Error(`cvBuilder.templates.${template.id}.shareEnabled must be a boolean.`);

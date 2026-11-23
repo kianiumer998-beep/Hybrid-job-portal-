@@ -427,7 +427,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
             <span>{isSavingCv ? 'Saving...' : 'Save CV Draft'}</span>
           </button>
           <button type="button" onClick={handleDownloadAtsText} className="px-3 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs">{!isSubscribed && cvBuilderSettings.atsTextExportEnabled === false ? 'ATS Text · Premium' : 'Download ATS Text'}</button>
-          <button type="button" onClick={handleShareCv} className="px-3 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs">Share CV</button>
+          <button type="button" onClick={handleShareCv} disabled={selectedTemplateConfig.shareEnabled === false} className="px-3 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs disabled:cursor-not-allowed disabled:opacity-50">{selectedTemplateConfig.shareEnabled === false ? 'Sharing Disabled' : 'Share CV'}</button>
 
           <button
             onClick={handleDownloadPdf}

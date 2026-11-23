@@ -1145,6 +1145,7 @@ export class PaymentRepository {
         await this.updateAsync(id, {
           userId: user.id,
           status: 'Success',
+          ...(snapshot.cvBenefitsEnabled === true ? { cvPackageEntitlementGranted: true } : {}),
           verifiedAt: new Date().toISOString(),
           adminNote: note || 'Verified and approved by administrator'
         });

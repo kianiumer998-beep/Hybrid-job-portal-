@@ -4,6 +4,7 @@ import { PricingRepository, AuditRepository } from '../db/repositories';
 import { requireAdminPermission, requireAuth } from '../auth/authManager';
 
 export const pricingRouter = Router();
+const cvAiRecentRequests = new Map<string, number[]>();
 
 const CV_AI_PROVIDERS: Record<string, { endpoint: string; defaultModel: string }> = {
   openai: { endpoint: 'https://api.openai.com/v1/chat/completions', defaultModel: 'gpt-4o-mini' },
@@ -109,7 +110,7 @@ pricingRouter.put('/cv-ai/config', requireAdminPermission('finance.manage'), asy
     } else if (apiKey) {
       if (apiKey.length < 12) return res.status(400).json({ success: false, message: 'The API key looks too short. Check it and try again.' });
       config.apiKeyEncrypted = encryptCvAiKey(apiKey);
-    } else if (existing.apiKeyEncrypted) {
+    } else if (existing.apiKeyEncrypted && existing.provider === provider) {
       config.apiKeyEncrypted = existing.apiKeyEncrypted;
     } else {
       return res.status(400).json({ success: false, message: 'Enter an API key before saving provider settings.' });
@@ -123,6 +124,13 @@ pricingRouter.put('/cv-ai/config', requireAdminPermission('finance.manage'), asy
 
 pricingRouter.post('/cv-ai/generate', requireAuth, async (req: any, res) => {
   try {
+    const userKey = String(req.user?.userId || req.user?.id || req.user?.email || '').trim();
+    if (!userKey) return res.status(401).json({ success: false, message: 'Please sign in again to use the AI Writing Assistant.' });
+    const now = Date.now();
+    const recent = (cvAiRecentRequests.get(userKey) || []).filter((timestamp) => now - timestamp < 60000);
+    if (recent.length >= 8) return res.status(429).json({ success: false, message: 'AI request limit reached. Please wait a minute before trying again.' });
+    recent.push(now);
+    cvAiRecentRequests.set(userKey, recent);
     const pricing = await PricingRepository.get();
     const cv = pricing?.cvBuilder || {};
     if (cv.aiWritingAssistantEnabled !== true) return res.status(403).json({ success: false, message: 'The AI Writing Assistant is currently disabled by the administrator.' });

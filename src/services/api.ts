@@ -1018,6 +1018,13 @@ export const api = {
         body: JSON.stringify(updates)
       });
     },
+    async consumeCvAction(action: 'pdf' | 'ats' | 'share', templateId: string) {
+      return safeFetchJson(`${API_BASE}/users/cv/consume`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ action, templateId })
+      });
+    },
     async updateRole(userId: string, role: string) {
       return safeFetchJson(`${getResolvedApiBase()}/auth/users/${encodeURIComponent(userId)}/role`, {
         method: 'PATCH',

@@ -413,7 +413,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
       )}
 
       {/* Navigation Sub-Tabs */}
-      <div className="flex flex-wrap gap-2 p-1.5 bg-slate-900/80 border border-slate-800 rounded-2xl">
+      <div className="flex flex-nowrap gap-2 p-1.5 bg-slate-900/80 border border-slate-800 rounded-2xl overflow-x-auto overscroll-x-contain touch-pan-x max-w-full">
         {[
           { id: 'popup-modes', label: 'Centered Popup Lightbox', icon: Sparkles, badge: localConfig.popupSettings.displayMode },
           { id: 'feed-positioning', label: 'Job Feed & Ad Frequency', icon: Layers, badge: localConfig.feedInlineSettings.insertionMode === 'cadence' ? `Every ${localConfig.feedInlineSettings.repeatEveryNJobs || 3}` : `${(localConfig.feedInlineSettings.customIndices || []).length} slots` },
@@ -430,7 +430,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center space-x-2 transition-all cursor-pointer ${
+              className={`px-3 sm:px-4 py-2.5 rounded-xl text-xs font-bold flex items-center space-x-2 transition-all cursor-pointer shrink-0 whitespace-nowrap ${
                 isActive
                   ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/60'

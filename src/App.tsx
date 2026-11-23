@@ -4629,6 +4629,7 @@ export default function App() {
                   if (result?.success && currentUser?.id) await loadBackendUserProfile(currentUser.id);
                   return result;
                 }}
+                onGenerateCvAiText={async (payload) => api.pricing.generateCvAiText(payload)}
                 cvBuilderSettings={cvBuilderSettings}
                 onOpenPaywall={() => setCvPaywallOpen(true)}
               />

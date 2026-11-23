@@ -3,7 +3,7 @@ import path from 'path';
 import { Router } from 'express';
 import { Database, generateJobSlug } from '../db/database';
 import { detectJobDuplicate, mergeJobRecords } from '../services/duplicateEngine';
-import { requireAdminPermission } from '../auth/authManager';
+import { requireAdminPermission, requireAuth } from '../auth/authManager';
 import { JobRepository, AuditRepository, NotificationRepository, UserRepository } from '../db/repositories';
 import { calculateJobMissingFields, isScrapedJob, deriveJobSourceType, isNonJobRecord, isNeedsReviewRecord } from '../services/jobValidation';
 import { withMongoRetry, isTransientMongoError } from '../db/repositories/ScraperRepository';
@@ -2269,6 +2269,66 @@ jobRouter.post('/', async (req, res) => {
   } catch (err: any) {
     console.error('Error in POST /api/jobs:', err);
     res.status(500).json({ success: false, message: err.message || 'Error creating job' });
+  }
+});
+
+// Redeem an included subscription posting slot against the user's own pending job.
+jobRouter.post('/:id/redeem-subscription-slot', requireAuth, async (req: any, res) => {
+  try {
+    const userId = String(req.user?.userId || req.user?.id || '').trim();
+    const tier = String(req.body?.tier || '').trim().toLowerCase();
+    const tierMap: Record<string, { featureId: string; priorityTier: string; flags: Record<string, boolean> }> = {
+      urgent: { featureId: 'urgent_job_posting', priorityTier: 'urgent', flags: { urgent: true } },
+      featured: { featureId: 'featured_job_posting', priorityTier: 'featured_top', flags: { featured: true, isPinnedTop: true } },
+      premium: { featureId: 'premium_job_posting', priorityTier: 'vip_bundle', flags: { urgent: true, featured: true, isPinnedTop: true, vipBundle: true } }
+    };
+    const selected = tierMap[tier];
+    if (!userId || !selected) return res.status(400).json({ success: false, message: 'Select a valid urgent, featured or premium posting slot.' });
+
+    const job = await JobRepository.getPendingById(String(req.params.id));
+    if (!job || job.status !== 'Pending') return res.status(404).json({ success: false, message: 'Only your own pending job can use a subscription posting slot.' });
+    const ownerId = job.submittedByUserId || job.postedByUserId || job.userId;
+    if (!ownerId || String(ownerId) !== userId) return res.status(403).json({ success: false, message: 'You can only redeem a posting slot for your own job.' });
+    if (job.subscriptionSlotFeatureId) return res.status(409).json({ success: false, message: 'A subscription posting slot has already been applied to this job.' });
+
+    const user = await UserRepository.consumeSubscriptionFeatureSlotAsync(userId, selected.featureId, String(job.id));
+    if (!user) return res.status(409).json({ success: false, message: 'No active subscription posting slot is available for this feature.' });
+    const entitlement = user.subscriptionEntitlements?.[selected.featureId] || {};
+    const slotDays = Number.isInteger(Number(entitlement.slotDurationDays)) && Number(entitlement.slotDurationDays) > 0 ? Math.min(3650, Number(entitlement.slotDurationDays)) : 30;
+    const entitlementExpiry = Date.parse(String(entitlement.expiresAt || ''));
+    const priorityExpiresAt = new Date(Math.min(Date.now() + slotDays * 24 * 60 * 60 * 1000, Number.isFinite(entitlementExpiry) ? entitlementExpiry : Date.now())).toISOString();
+    const updates = {
+      priorityTier: selected.priorityTier,
+      ...selected.flags,
+      subscriptionSlotFeatureId: selected.featureId,
+      subscriptionSlotUsedAt: new Date().toISOString(),
+      subscriptionSlotExpiresAt: priorityExpiresAt,
+      subscriptionSlotTransactionSource: String(entitlement.sourcePackageId || 'subscription')
+    };
+    const updated = await JobRepository.update(String(job.id), updates);
+    if (!updated) {
+      await UserRepository.restoreSubscriptionFeatureSlotAsync(userId, selected.featureId, String(job.id));
+      return res.status(500).json({ success: false, message: 'The posting slot could not be applied. Its credit was restored where possible.' });
+    }
+    await NotificationRepository.createAsync({
+      userId,
+      title: 'Subscription Posting Slot Applied',
+      message: `Your ${tier} posting slot has been applied to "${String(job.title || 'your job')}". It remains active until ${priorityExpiresAt} or subscription expiry, whichever comes first.`,
+      type: 'success',
+      channel: 'in-app',
+      eventId: `subscription-slot-applied:${userId}:${String(job.id)}:${selected.featureId}`,
+      metadata: { jobId: String(job.id), featureId: selected.featureId, priorityExpiresAt }
+    });
+    return res.json({
+      success: true,
+      job: updated,
+      remainingSlots: Number(user.subscriptionEntitlements?.[selected.featureId]?.remainingSlots || 0),
+      priorityExpiresAt,
+      message: 'Subscription posting slot applied. Your job remains pending admin review.'
+    });
+  } catch (error: any) {
+    console.error('[Subscription Posting Slot] Redemption failed:', error?.message || error);
+    return res.status(500).json({ success: false, message: error?.message || 'Could not redeem subscription posting slot.' });
   }
 });
 

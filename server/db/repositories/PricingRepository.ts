@@ -194,6 +194,7 @@ function buildAuthoritativeDefaults(): any {
       premiumAiOptimizerPkr: 500, unlimitedTemplatesPkr: 1000,
       freeDesignLimit: 2, freeCvLimit: 1, premiumCvLimit: 10, watermarkEnabled: true, watermarkFreeOnly: true,
       watermarkText: 'Hybrid Job Portal', watermarkOpacity: 0.16,
+      atsCompatibilityEnabled: true, aiWritingAssistantEnabled: false,
       templates: [
         { id: 'modern', name: 'Modern Clean', enabled: true, free: true, pricePkr: 0 },
         { id: 'executive', name: 'Executive Dark Sidebar', enabled: true, free: false, pricePkr: 300 },
@@ -264,9 +265,38 @@ function deepMergePricing(base: any, incoming: any): any {
         name: String(item.name || fallback.name || fallback.id).trim().slice(0, 80) || String(fallback.id),
         enabled: item.enabled === undefined ? fallback.enabled !== false : item.enabled === true,
         free: item.free === undefined ? fallback.free === true : item.free === true,
-        pricePkr: Number.isFinite(price) ? Math.min(10000000, Math.max(0, price)) : 0
+        pricePkr: Number.isFinite(price) ? Math.min(10000000, Math.max(0, price)) : 0,
+        pdfExportEnabled: item.pdfExportEnabled !== false,
+        atsExportEnabled: item.atsExportEnabled !== false,
+        exportWatermarkMode: ['inherit', 'always', 'never'].includes(String(item.exportWatermarkMode))
+          ? String(item.exportWatermarkMode)
+          : 'inherit',
+        watermarkText: typeof item.watermarkText === 'string' ? item.watermarkText.trim().slice(0, 80) : '',
+        watermarkOpacity: Number.isFinite(Number(item.watermarkOpacity))
+          ? Math.min(0.35, Math.max(0.05, Number(item.watermarkOpacity)))
+          : Number(baseCvBuilder.watermarkOpacity ?? 0.16),
+        editMode: ['disabled', 'limited', 'unlimited'].includes(String(item.editMode)) ? String(item.editMode) : 'unlimited',
+        cvCreateLimit: Number.isInteger(Number(item.cvCreateLimit)) ? Math.min(1000, Math.max(0, Number(item.cvCreateLimit))) : 0,
+        editLimit: Number.isInteger(Number(item.editLimit)) ? Math.min(1000, Math.max(0, Number(item.editLimit))) : 0,
+        pdfExportLimit: Number.isInteger(Number(item.pdfExportLimit)) ? Math.min(1000, Math.max(0, Number(item.pdfExportLimit))) : 0,
+        atsExportLimit: Number.isInteger(Number(item.atsExportLimit)) ? Math.min(1000, Math.max(0, Number(item.atsExportLimit))) : 0,
+        shareEnabled: item.shareEnabled === true,
+        shareLimit: Number.isInteger(Number(item.shareLimit)) ? Math.min(1000, Math.max(0, Number(item.shareLimit))) : 0
       };
     });
+  const cvPackages = Array.isArray(srcCvBuilder.packages) ? srcCvBuilder.packages.slice(0, 30).map((pkg: any, index: number) => ({
+    id: String(pkg?.id || `cv-package-${index + 1}`).slice(0, 80),
+    name: String(pkg?.name || 'CV Package').trim().slice(0, 80),
+    enabled: pkg?.enabled !== false,
+    pricePkr: Number.isFinite(Number(pkg?.pricePkr)) ? Math.min(10000000, Math.max(0, Number(pkg.pricePkr))) : 0,
+    durationDays: Number.isInteger(Number(pkg?.durationDays)) ? Math.min(3650, Math.max(1, Number(pkg.durationDays))) : 30,
+    cvCreateLimit: Number.isInteger(Number(pkg?.cvCreateLimit)) ? Math.min(100, Math.max(0, Number(pkg.cvCreateLimit))) : 1,
+    editLimit: Number.isInteger(Number(pkg?.editLimit)) ? Math.min(1000, Math.max(0, Number(pkg.editLimit))) : 0,
+    pdfExportLimit: Number.isInteger(Number(pkg?.pdfExportLimit)) ? Math.min(1000, Math.max(0, Number(pkg.pdfExportLimit))) : 0,
+    atsExportLimit: Number.isInteger(Number(pkg?.atsExportLimit)) ? Math.min(1000, Math.max(0, Number(pkg.atsExportLimit))) : 0,
+    shareLimit: Number.isInteger(Number(pkg?.shareLimit)) ? Math.min(1000, Math.max(0, Number(pkg.shareLimit))) : 0,
+    noWatermark: pkg?.noWatermark === true
+  })) : (Array.isArray(baseCvBuilder.packages) ? baseCvBuilder.packages : []);
   const cvBuilder = {
     ...baseCvBuilder,
     ...srcCvBuilder,
@@ -279,6 +309,8 @@ function deepMergePricing(base: any, incoming: any): any {
     pdfExportPkr: Math.min(10000000, Math.max(0, Number(srcCvBuilder.pdfExportPkr ?? srcCvBuilder.standardPdfExportPkr ?? baseCvBuilder.pdfExportPkr ?? 0) || 0)),
     atsTextExportEnabled: srcCvBuilder.atsTextExportEnabled === undefined ? baseCvBuilder.atsTextExportEnabled !== false : srcCvBuilder.atsTextExportEnabled === true,
     atsTextExportPkr: Math.min(10000000, Math.max(0, Number(srcCvBuilder.atsTextExportPkr ?? baseCvBuilder.atsTextExportPkr ?? 0) || 0)),
+    atsCompatibilityEnabled: srcCvBuilder.atsCompatibilityEnabled === undefined ? baseCvBuilder.atsCompatibilityEnabled !== false : srcCvBuilder.atsCompatibilityEnabled === true,
+    aiWritingAssistantEnabled: srcCvBuilder.aiWritingAssistantEnabled === true,
     watermarkEnabled: srcCvBuilder.watermarkEnabled === undefined ? baseCvBuilder.watermarkEnabled !== false : srcCvBuilder.watermarkEnabled === true,
     watermarkFreeOnly: srcCvBuilder.watermarkFreeOnly === undefined ? baseCvBuilder.watermarkFreeOnly !== false : srcCvBuilder.watermarkFreeOnly === true,
     watermarkText: typeof srcCvBuilder.watermarkText === 'string'
@@ -287,6 +319,7 @@ function deepMergePricing(base: any, incoming: any): any {
     watermarkOpacity: Number.isFinite(Number(srcCvBuilder.watermarkOpacity))
       ? Math.min(0.35, Math.max(0.05, Number(srcCvBuilder.watermarkOpacity)))
       : Math.min(0.35, Math.max(0.05, Number(baseCvBuilder.watermarkOpacity ?? 0.16))),
+    packages: cvPackages,
     templates: cvTemplates.length ? cvTemplates : templateDefaults
   };
 
@@ -699,6 +732,24 @@ export class PricingRepository {
             throw new Error(`Subscription package "${pkg.id}" durationDays must be a positive integer`);
           }
         }
+        if (pkg.cvBenefitsEnabled !== undefined && typeof pkg.cvBenefitsEnabled !== 'boolean') {
+          throw new Error(`Subscription package "${pkg.id}" cvBenefitsEnabled must be a boolean`);
+        }
+        if (pkg.cvBenefitsDescription !== undefined && (typeof pkg.cvBenefitsDescription !== 'string' || pkg.cvBenefitsDescription.length > 240)) {
+          throw new Error(`Subscription package "${pkg.id}" cvBenefitsDescription must be text up to 240 characters`);
+        }
+        if (pkg.cvBenefitsEnabled === true) {
+          const benefits = pkg.cvBenefits || {};
+          for (const field of ['cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit']) {
+            const value = Number(benefits[field] ?? 0);
+            if (!Number.isInteger(value) || value < 0 || value > 10000) {
+              throw new Error(`Subscription package "${pkg.id}" CV benefit ${field} must be a whole number from 0 to 10000`);
+            }
+          }
+          if (benefits.noWatermark !== undefined && typeof benefits.noWatermark !== 'boolean') {
+            throw new Error(`Subscription package "${pkg.id}" CV noWatermark must be a boolean`);
+          }
+        }
       }
     }
 
@@ -729,7 +780,7 @@ export class PricingRepository {
       if (cv.watermarkText !== undefined && (typeof cv.watermarkText !== 'string' || cv.watermarkText.length > 80)) {
         throw new Error('cvBuilder.watermarkText must be text with a maximum of 80 characters.');
       }
-      for (const field of ['pdfExportEnabled', 'atsTextExportEnabled', 'watermarkEnabled', 'watermarkFreeOnly'] as const) {
+      for (const field of ['atsCompatibilityEnabled', 'aiWritingAssistantEnabled', 'pdfExportEnabled', 'atsTextExportEnabled', 'watermarkEnabled', 'watermarkFreeOnly'] as const) {
         if (cv[field] !== undefined && typeof cv[field] !== 'boolean') {
           throw new Error(`cvBuilder.${field} must be a boolean.`);
         }
@@ -747,6 +798,38 @@ export class PricingRepository {
           if (template.enabled !== undefined && typeof template.enabled !== 'boolean') throw new Error(`CV design ${template.id} enabled must be a boolean.`);
           if (template.free !== undefined && typeof template.free !== 'boolean') throw new Error(`CV design ${template.id} free must be a boolean.`);
           if (template.pricePkr !== undefined) validateNonNegativeNumber(template.pricePkr, `cvBuilder.templates.${template.id}.pricePkr`, 10000000);
+          for (const field of ['pdfExportEnabled', 'atsExportEnabled'] as const) {
+            if (template[field] !== undefined && typeof template[field] !== 'boolean') throw new Error(`cvBuilder.templates.${template.id}.${field} must be a boolean.`);
+          }
+          if (template.exportWatermarkMode !== undefined && !['inherit', 'always', 'never'].includes(String(template.exportWatermarkMode))) {
+            throw new Error(`cvBuilder.templates.${template.id}.exportWatermarkMode is invalid.`);
+          }
+          if (template.watermarkText !== undefined && (typeof template.watermarkText !== 'string' || template.watermarkText.length > 80)) {
+            throw new Error(`cvBuilder.templates.${template.id}.watermarkText must be text up to 80 characters.`);
+          }
+          if (template.watermarkOpacity !== undefined) {
+            const opacity = Number(template.watermarkOpacity);
+            if (!Number.isFinite(opacity) || opacity < 0.05 || opacity > 0.35) throw new Error(`cvBuilder.templates.${template.id}.watermarkOpacity must be between 0.05 and 0.35.`);
+          }
+          if (template.editMode !== undefined && !['disabled', 'limited', 'unlimited'].includes(String(template.editMode))) throw new Error(`cvBuilder.templates.${template.id}.editMode is invalid.`);
+          for (const field of ['cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit'] as const) {
+            if (template[field] !== undefined && (!Number.isInteger(Number(template[field])) || Number(template[field]) < 0 || Number(template[field]) > 1000)) throw new Error(`cvBuilder.templates.${template.id}.${field} must be a whole number from 0 to 1000.`);
+          }
+          if (template.shareEnabled !== undefined && typeof template.shareEnabled !== 'boolean') throw new Error(`cvBuilder.templates.${template.id}.shareEnabled must be a boolean.`);
+        }
+      }
+      if (cv.packages !== undefined) {
+        if (!Array.isArray(cv.packages) || cv.packages.length > 30) throw new Error('cvBuilder.packages must contain no more than 30 packages.');
+        const seenPackageIds = new Set<string>();
+        for (const pkg of cv.packages) {
+          if (!pkg || typeof pkg.id !== 'string' || !pkg.id.trim() || seenPackageIds.has(pkg.id)) throw new Error('Each CV package must have a unique ID.');
+          seenPackageIds.add(pkg.id);
+          if (typeof pkg.name !== 'string' || !pkg.name.trim() || pkg.name.length > 80) throw new Error(`CV package ${pkg.id} needs a valid name.`);
+          for (const field of ['pricePkr', 'durationDays', 'cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit'] as const) {
+            if (!Number.isInteger(Number(pkg[field])) || Number(pkg[field]) < (field === 'durationDays' ? 1 : 0) || Number(pkg[field]) > (field === 'durationDays' ? 3650 : field === 'pricePkr' ? 10000000 : 1000)) throw new Error(`CV package ${pkg.id} has an invalid ${field}.`);
+          }
+          if (pkg.noWatermark !== undefined && typeof pkg.noWatermark !== 'boolean') throw new Error(`CV package ${pkg.id} noWatermark must be a boolean.`);
+          if (pkg.enabled !== undefined && typeof pkg.enabled !== 'boolean') throw new Error(`CV package ${pkg.id} enabled must be a boolean.`);
         }
       }
     }

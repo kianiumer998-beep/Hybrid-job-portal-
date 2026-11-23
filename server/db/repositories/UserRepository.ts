@@ -933,13 +933,13 @@ export class UserRepository {
       const coll = await getUsersCollection();
       const filter: Record<string, any> = {
         id: cleanUserId,
-        cvPackageEntitlements: { $elemMatch: { transactionId: cleanTransactionId, expiresAt: { $gt: now }, [`limits.${action}`]: { $gt: 0 } } }
+        cvPackageEntitlements: { $elemMatch: { transactionId: cleanTransactionId, expiresAt: { $gt: now }, [`limits.${action}`]: limit, [`usage.${action}`]: { $lt: limit } } }
       };
       const arrayFilter: Record<string, any> = {
         'grant.transactionId': cleanTransactionId,
         'grant.expiresAt': { $gt: now },
-        [`grant.limits.${action}`]: { $gt: 0 },
-        [`grant.usage.${action}`]: { $lt: Number.MAX_SAFE_INTEGER }
+        [`grant.limits.${action}`]: limit,
+        [`grant.usage.${action}`]: { $lt: limit }
       };
       const updatedDoc = await coll.findOneAndUpdate(filter, {
         $inc: { [`cvPackageEntitlements.$[grant].usage.${action}`]: 1 },

@@ -457,23 +457,6 @@ export const api = {
         headers: getAuthHeader(),
         body: JSON.stringify(pricingData)
       });
-    },
-    async getCvAiConfig() {
-      return safeFetchJson(`${API_BASE}/pricing/cv-ai/config`, { headers: getAuthHeader() });
-    },
-    async updateCvAiConfig(config: { provider: string; model: string; apiKey?: string; clearApiKey?: boolean }) {
-      return safeFetchJson(`${API_BASE}/pricing/cv-ai/config`, {
-        method: 'PUT',
-        headers: getAuthHeader(),
-        body: JSON.stringify(config)
-      });
-    },
-    async generateCvAiText(payload: { action: 'improve_summary' | 'rewrite_bullet'; text: string; jobTitle?: string }) {
-      return safeFetchJson(`${API_BASE}/pricing/cv-ai/generate`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify(payload)
-      });
     }
   },
 

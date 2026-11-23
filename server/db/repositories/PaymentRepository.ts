@@ -1157,7 +1157,7 @@ export class PaymentRepository {
           const durationDays = Number(snapshot.durationDays);
           const quotaFields = ['cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit'];
           const validQuotas = quotaFields.every((field) => Number.isInteger(Number(snapshot[field])) && Number(snapshot[field]) >= 0 && Number(snapshot[field]) <= 10000);
-          if (!tx.userId || !packageId || !Number.isInteger(durationDays) || durationDays <= 0 || durationDays > 3650 ||
+          if (!tx.userId || !packageId || String(tx.cvTemplateId || '') !== `cvpkg:${packageId}` || !Number.isInteger(durationDays) || durationDays <= 0 || durationDays > 3650 ||
             !Number.isFinite(snapshotPrice) || snapshotPrice <= 0 || !Number.isFinite(transactionAmount) ||
             Math.abs(snapshotPrice - transactionAmount) > 0.01 || !validQuotas) {
             await this.updateAsync(id, { status: 'VerificationUncertain', rejectionReason: 'CV package purchase details or server price/quota snapshot are missing or inconsistent.', updatedAt: new Date().toISOString() });

@@ -231,7 +231,8 @@ userRouter.post('/cv/consume', requireAuth, async (req: any, res) => {
     const settings = pricing.cvBuilder || {};
     const templates = Array.isArray(settings.templates) ? settings.templates : [];
     const template = templates.find((item: any) => String(item?.id || '') === templateId);
-    if (!template || template.enabled === false) return res.status(403).json({ success: false, message: 'This CV design is not currently available.' });
+    const ownsDesign = (Array.isArray(user.cvDesignEntitlements) ? user.cvDesignEntitlements : []).some((item: any) => String(item?.templateId || '') === templateId);
+    if (!template || (template.enabled === false && !ownsDesign)) return res.status(403).json({ success: false, message: 'This CV design is not currently available.' });
     if (action === 'pdf' && (settings.pdfExportEnabled === false || template.pdfExportEnabled === false)) {
       return res.status(403).json({ success: false, message: 'PDF export is disabled by the administrator for this CV design.' });
     }

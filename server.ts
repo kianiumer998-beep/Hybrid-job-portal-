@@ -132,7 +132,7 @@ async function startServer() {
             ? 'jobs'
             : /user|auth|role|permission/.test(pathLower)
               ? 'users'
-              : /(^|\\/)(ads?|campaigns?)(\\/|$)|banner/.test(pathLower)
+              : pathLower.split('/').some((segment: string) => ['ad', 'ads', 'campaign', 'campaigns'].includes(segment)) || pathLower.includes('banner')
                 ? 'ads'
                 : /kyc|badge|verification/.test(pathLower)
                   ? 'kyc'

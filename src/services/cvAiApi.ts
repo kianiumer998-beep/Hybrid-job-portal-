@@ -26,6 +26,7 @@ export const cvAiApi = {
   getConfig: () => requestCvAi('/pricing/cv-ai/config', 'GET'),
   updateConfig: (config: { provider: string; model: string; apiKey?: string; clearApiKey?: boolean }) =>
     requestCvAi('/pricing/cv-ai/config', 'PUT', config),
+  testConnection: () => requestCvAi('/pricing/cv-ai/test', 'POST'),
   generate: (payload: { action: 'improve_summary' | 'rewrite_bullet'; text: string; jobTitle?: string }) =>
     requestCvAi('/pricing/cv-ai/generate', 'POST', payload)
 };

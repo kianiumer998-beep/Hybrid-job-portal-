@@ -841,6 +841,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                   id: `pkg-${Date.now()}`,
                   name: 'New Package',
                   pricePkr: 500,
+                  configuredPricePkr: 500,
                   durationDays: 30,
                   features: ['Feature 1'],
                   featureIds: [],
@@ -893,10 +894,10 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                     <label className="text-[10px] text-slate-500 font-bold uppercase block mb-1">Price (PKR)</label>
                     <input
                       type="number"
-                      value={pkg.pricePkr}
+                      value={pkg.configuredPricePkr ?? pkg.pricePkr}
                       onChange={(e) => {
                         const newList = [...pricing.subscriptionPackages];
-                        newList[idx] = { ...newList[idx], pricePkr: Number(e.target.value) };
+                        newList[idx] = { ...newList[idx], pricePkr: Number(e.target.value), configuredPricePkr: Number(e.target.value) };
                         setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
                       }}
                       className="w-full px-2 py-1 bg-slate-900 border border-slate-800 rounded text-white text-xs font-mono"

@@ -268,6 +268,6 @@ export function initSubscriptionReminderScheduler(): void {
     runSubscriptionReminderTick().catch((error: any) => {
       console.error('[Subscription Reminder] Scheduled tick failed:', error?.message || error);
     });
-  });
+  }, { timezone: 'Asia/Karachi' });
   console.log('[Subscription Reminder] Daily in-app expiry reminder scheduler initialized.');
 }

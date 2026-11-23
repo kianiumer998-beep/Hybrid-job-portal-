@@ -170,6 +170,19 @@ function buildAuthoritativeDefaults(): any {
       govtAlertsWeeklyPkr: 400
     },
     subscriptionPackages: [],
+    earlyAccess: {
+      enabled: false,
+      sourceTypes: ['scraped', 'user_posted', 'admin_created'],
+      durationHours: 24,
+      showOnLanding: true,
+      showJobCount: true,
+      showCountdown: true,
+      maxJobs: 10,
+      heading: 'Premium Early Access',
+      description: 'Explore selected jobs before they become available to other members.',
+      displayFields: ['title', 'company', 'department', 'city', 'deadlineDate'],
+      showSource: true
+    },
     cvBuilder: {
       standardPdfExportPkr: 0, pdfExportEnabled: true, pdfExportPkr: 0,
       atsTextExportEnabled: true, atsTextExportPkr: 0,
@@ -351,6 +364,27 @@ function deepMergePricing(base: any, incoming: any): any {
     subscriptionPackages: Array.isArray(src.subscriptionPackages)
       ? src.subscriptionPackages
       : (base.subscriptionPackages || []),
+    earlyAccess: {
+      ...(base.earlyAccess || {}),
+      ...(src.earlyAccess || {}),
+      enabled: src.earlyAccess?.enabled === undefined ? base.earlyAccess?.enabled === true : src.earlyAccess.enabled === true,
+      sourceTypes: Array.isArray(src.earlyAccess?.sourceTypes)
+        ? Array.from(new Set(src.earlyAccess.sourceTypes.filter((value: any) => ['scraped', 'user_posted', 'admin_created'].includes(value))))
+        : (base.earlyAccess?.sourceTypes || ['scraped', 'user_posted', 'admin_created']),
+      durationHours: Number.isInteger(Number(src.earlyAccess?.durationHours))
+        ? Math.min(8760, Math.max(1, Number(src.earlyAccess.durationHours)))
+        : (base.earlyAccess?.durationHours || 24),
+      showOnLanding: src.earlyAccess?.showOnLanding === undefined ? base.earlyAccess?.showOnLanding !== false : src.earlyAccess.showOnLanding === true,
+      showJobCount: src.earlyAccess?.showJobCount === undefined ? base.earlyAccess?.showJobCount !== false : src.earlyAccess.showJobCount === true,
+      showCountdown: src.earlyAccess?.showCountdown === undefined ? base.earlyAccess?.showCountdown !== false : src.earlyAccess.showCountdown === true,
+      maxJobs: Number.isInteger(Number(src.earlyAccess?.maxJobs)) ? Math.min(100, Math.max(1, Number(src.earlyAccess.maxJobs))) : (base.earlyAccess?.maxJobs || 10),
+      heading: typeof src.earlyAccess?.heading === 'string' ? src.earlyAccess.heading.trim().slice(0, 100) : (base.earlyAccess?.heading || 'Premium Early Access'),
+      description: typeof src.earlyAccess?.description === 'string' ? src.earlyAccess.description.trim().slice(0, 300) : (base.earlyAccess?.description || ''),
+      displayFields: Array.isArray(src.earlyAccess?.displayFields)
+        ? Array.from(new Set(src.earlyAccess.displayFields.filter((value: any) => ['title', 'company', 'department', 'city', 'province', 'jobType', 'deadlineDate', 'salary', 'totalVacancies', 'experienceLevel', 'jobCategory'].includes(value))))
+        : (base.earlyAccess?.displayFields || ['title', 'company', 'department', 'city', 'deadlineDate']),
+      showSource: src.earlyAccess?.showSource === undefined ? base.earlyAccess?.showSource !== false : src.earlyAccess.showSource === true
+    },
     adPricingConfig: {
       ...(base.adPricingConfig || {}),
       ...(src.adPricingConfig || {}),
@@ -568,6 +602,28 @@ export class PricingRepository {
         if (cat.feePkr !== undefined) validateNonNegativeNumber(cat.feePkr, `landingPageConfig.categoryPostingFees.${cat.categoryId || 'unknown'}.feePkr`);
         if (cat.discountPercent !== undefined) validateNonNegativeNumber(cat.discountPercent, `landingPageConfig.categoryPostingFees.${cat.categoryId || 'unknown'}.discountPercent`, 100);
       }
+    }
+
+    if (updates.earlyAccess !== undefined) {
+      const early = updates.earlyAccess;
+      if (!early || typeof early !== 'object' || Array.isArray(early)) throw new Error('earlyAccess must be an object.');
+      for (const field of ['enabled', 'showOnLanding', 'showJobCount', 'showCountdown', 'showSource'] as const) {
+        if (early[field] !== undefined && typeof early[field] !== 'boolean') throw new Error(`earlyAccess.${field} must be a boolean.`);
+      }
+      if (early.durationHours !== undefined && (!Number.isInteger(Number(early.durationHours)) || Number(early.durationHours) < 1 || Number(early.durationHours) > 8760)) {
+        throw new Error('earlyAccess.durationHours must be a whole number between 1 and 8760.');
+      }
+      if (early.maxJobs !== undefined && (!Number.isInteger(Number(early.maxJobs)) || Number(early.maxJobs) < 1 || Number(early.maxJobs) > 100)) {
+        throw new Error('earlyAccess.maxJobs must be a whole number between 1 and 100.');
+      }
+      if (early.sourceTypes !== undefined && (!Array.isArray(early.sourceTypes) || early.sourceTypes.length > 3 || early.sourceTypes.some((value: any) => !['scraped', 'user_posted', 'admin_created'].includes(value)))) {
+        throw new Error('earlyAccess.sourceTypes contains an unsupported job source.');
+      }
+      if (early.displayFields !== undefined && (!Array.isArray(early.displayFields) || early.displayFields.length > 20 || early.displayFields.some((value: any) => !['title', 'company', 'department', 'city', 'province', 'jobType', 'deadlineDate', 'salary', 'totalVacancies', 'experienceLevel', 'jobCategory'].includes(value)))) {
+        throw new Error('earlyAccess.displayFields contains an unsupported display field.');
+      }
+      if (early.heading !== undefined && (typeof early.heading !== 'string' || early.heading.trim().length > 100)) throw new Error('earlyAccess.heading must be 100 characters or fewer.');
+      if (early.description !== undefined && (typeof early.description !== 'string' || early.description.length > 300)) throw new Error('earlyAccess.description must be 300 characters or fewer.');
     }
 
     if (Array.isArray(updates.subscriptionPackages)) {

@@ -254,7 +254,7 @@ userRouter.post('/cv/consume', requireAuth, async (req: any, res) => {
             remaining: Math.max(0, limit - used - 1),
             packageName: grant.packageName,
             packageExpiresAt: grant.expiresAt,
-            noWatermark: grant.noWatermark === true
+            noWatermark: grant.noWatermark === true || settings.watermarkEnabled === false || (premium && settings.watermarkFreeOnly !== false)
           });
         }
       }
@@ -270,7 +270,7 @@ userRouter.post('/cv/consume', requireAuth, async (req: any, res) => {
       success: true,
       action,
       remaining: null,
-      noWatermark: premium ? settings.watermarkFreeOnly === true : false
+      noWatermark: settings.watermarkEnabled === false || (premium && settings.watermarkFreeOnly !== false)
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err?.message || 'Unable to authorize CV action.' });

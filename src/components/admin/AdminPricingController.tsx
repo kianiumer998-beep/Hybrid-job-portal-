@@ -16,10 +16,12 @@ import { api } from '../../services/api';
 
 interface AdminPricingControllerProps {
   onPricingSaved?: (authoritativePricing: any) => void;
+  hideCvSettings?: boolean;
 }
 
 export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
-  onPricingSaved
+  onPricingSaved,
+  hideCvSettings = false
 }) => {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -802,6 +804,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
           </div>
         </div>
 
+        {!hideCvSettings && (
         {/* 4. CV Builder Access, Designs & Export Policy */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 lg:col-span-2">
           <div className="border-b border-slate-800 pb-4"><h3 className="font-bold text-white text-base">CV Builder Access & Monetization</h3><p className="text-xs text-slate-400 mt-1">Control free designs, one-time Premium design prices, export availability and website watermark. A purchased design remains unlocked on the member account.</p></div>
@@ -863,6 +866,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
             <input type="number" min="0" value={pricing.cvBuilder?.premiumAiOptimizerPkr ?? 500} onChange={(e) => updateNested('cvBuilder', 'premiumAiOptimizerPkr', Math.max(0, Number(e.target.value) || 0))} className="mt-2 w-full max-w-xs rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
           </div>
         </div>
+        )}
 
       </div>
     </div>

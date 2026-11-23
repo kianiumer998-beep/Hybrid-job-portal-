@@ -37,6 +37,7 @@ auditRouter.post('/', requireAdminPermission('users.manage'), async (req: any, r
       action: typeof action === 'string' && action.trim() ? action.trim() : 'General Action',
       target: typeof target === 'string' && target.trim() ? target.trim() : 'Portal',
       status: status === 'Warning' || status === 'Error' ? status : 'Success',
+      ...(typeof req.ip === 'string' && req.ip.trim() ? { ip: req.ip, ipAddress: req.ip } : {}),
       details: details || metadata
     });
     res.json({ success: true, log: saved });

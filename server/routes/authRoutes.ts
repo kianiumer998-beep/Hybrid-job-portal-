@@ -68,6 +68,34 @@ function clearAttempts(ip: string) {
   loginAttempts.delete(ip);
 }
 
+function getRequestIp(req: any): string | undefined {
+  const candidate = typeof req?.ip === 'string'
+    ? req.ip
+    : typeof req?.socket?.remoteAddress === 'string'
+      ? req.socket.remoteAddress
+      : '';
+  const normalized = candidate.trim().replace(/^::ffff:/i, '');
+  return normalized && normalized !== 'unknown-client' ? normalized : undefined;
+}
+
+async function recordFailedLoginAudit(
+  req: any,
+  action: string,
+  attemptedEmail: string,
+  reason: string
+): Promise<void> {
+  const ip = getRequestIp(req);
+  await AuditRepository.addAfterPrimaryOperation({
+    user: 'Unverified Login',
+    role: 'Anonymous',
+    action,
+    target: attemptedEmail || 'Unknown account',
+    status: 'Error',
+    ...(ip ? { ip, ipAddress: ip } : {}),
+    details: { reason, source: 'Authentication Security Monitor' }
+  }, 'POST /api/auth/login security event');
+}
+
 // Dedicated in-memory rate limiter exclusively for POST /api/auth/register
 const registerAttempts = new Map<string, { count: number; firstAttempt: number; lockedUntil?: number }>();
 const REGISTER_MAX_ATTEMPTS = 5; // Max registration attempts per window
@@ -167,6 +195,7 @@ authRouter.post('/register', async (req, res) => {
     const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: safeUser.name,
       role: safeUser.role,
+      ...(getRequestIp(req) ? { ip: getRequestIp(req), ipAddress: getRequestIp(req) } : {}),
       action: 'User Registered',
       target: safeUser.email,
       status: 'Success'
@@ -207,6 +236,7 @@ authRouter.post('/login', async (req, res) => {
     const user = await UserRepository.getByEmailAsync(cleanEmail);
     if (!user) {
       recordFailedAttempt(ip);
+      await recordFailedLoginAudit(req, 'Failed Login Attempt', cleanEmail, 'Invalid credentials');
       return res.status(401).json({ success: false, message: 'Invalid email address or password.' });
     }
 
@@ -217,6 +247,7 @@ authRouter.post('/login', async (req, res) => {
 
     if (!isValid) {
       recordFailedAttempt(ip);
+      await recordFailedLoginAudit(req, 'Failed Login Attempt', cleanEmail, 'Invalid credentials');
       return res.status(401).json({ success: false, message: 'Invalid email address or password.' });
     }
 
@@ -234,6 +265,7 @@ authRouter.post('/login', async (req, res) => {
     const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: safeUser.name,
       role: safeUser.role,
+      ...(getRequestIp(req) ? { ip: getRequestIp(req), ipAddress: getRequestIp(req) } : {}),
       action: 'User Login',
       target: safeUser.email,
       status: 'Success'
@@ -276,6 +308,7 @@ authRouter.post('/admin-login', async (req, res) => {
 
     if (!user || !ADMIN_ROLES.includes(user.role)) {
       recordFailedAttempt(ip);
+      await recordFailedLoginAudit(req, 'Failed Admin Login Attempt', adminEmail, 'Invalid administrative credentials');
       return res.status(401).json({
         success: false,
         message: 'Invalid administrative credentials.'
@@ -290,6 +323,7 @@ authRouter.post('/admin-login', async (req, res) => {
 
     if (!isValid) {
       recordFailedAttempt(ip);
+      await recordFailedLoginAudit(req, 'Failed Admin Login Attempt', adminEmail, 'Invalid administrative credentials');
       return res.status(401).json({
         success: false,
         message: 'Invalid administrative credentials.'
@@ -314,6 +348,7 @@ authRouter.post('/admin-login', async (req, res) => {
     const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: safeUser.name,
       role: safeUser.role,
+      ...(getRequestIp(req) ? { ip: getRequestIp(req), ipAddress: getRequestIp(req) } : {}),
       action: 'Admin Panel Authenticated',
       target: 'System Management Suite',
       status: 'Success'
@@ -404,6 +439,7 @@ authRouter.post('/change-password', requireAuth, async (req: any, res) => {
     const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: updatedUser.name,
       role: updatedUser.role,
+      ...(getRequestIp(req) ? { ip: getRequestIp(req), ipAddress: getRequestIp(req) } : {}),
       action: 'Password Changed',
       target: updatedUser.email,
       status: 'Success'
@@ -503,6 +539,7 @@ authRouter.post('/admin-bootstrap', async (req, res) => {
     const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: 'System Bootstrap',
       role: 'Super Admin',
+      ...(getRequestIp(req) ? { ip: getRequestIp(req), ipAddress: getRequestIp(req) } : {}),
       action: 'Admin Account Bootstrapped',
       target: bootstrapEmail,
       status: 'Success'
@@ -589,6 +626,7 @@ authRouter.patch('/users/:id/role', requireAdminPermission('users.manage'), asyn
     const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: mutation.actor?.name || req.user?.name || req.user?.email || 'Administrator',
       role: actorRole,
+      ...(getRequestIp(req) ? { ip: getRequestIp(req), ipAddress: getRequestIp(req) } : {}),
       action: 'User Role Updated',
       target: `${updatedUser.email} (${oldRole} -> ${newRole})`,
       status: 'Success',
@@ -624,6 +662,7 @@ authRouter.post('/logout', async (req: any, res) => {
     auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: req.user.name || 'User',
       role: req.user.role || 'Member',
+      ...(getRequestIp(req) ? { ip: getRequestIp(req), ipAddress: getRequestIp(req) } : {}),
       action: 'Session Logged Out',
       target: req.user.email || 'App Client',
       status: 'Success'

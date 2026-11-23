@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { Database } from '../database';
 import { getMongoDb, isMongoConfigured, withMongoTimeout } from '../mongodb';
+import { markAuditRequestRecorded } from '../../utils/auditRequestContext';
 
 const COLLECTION_NAME = 'audit_logs';
 
@@ -393,6 +394,7 @@ export class AuditRepository {
       throw new Error('Database Write Error: MongoDB audit log write operation was not acknowledged.');
     }
 
+    markAuditRequestRecorded();
     return record;
   }
 

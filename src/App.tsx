@@ -4624,6 +4624,11 @@ export default function App() {
                   if (result?.success && currentUser?.id) await loadBackendUserProfile(currentUser.id);
                   return result;
                 }}
+                onExportCv={async (format, cvData) => {
+                  const result = await api.users.exportCv(format, cvData as any);
+                  if (result?.success && currentUser?.id) await loadBackendUserProfile(currentUser.id);
+                  return result;
+                }}
                 cvBuilderSettings={cvBuilderSettings}
                 onOpenPaywall={() => setCvPaywallOpen(true)}
               />

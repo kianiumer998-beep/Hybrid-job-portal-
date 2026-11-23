@@ -4619,7 +4619,11 @@ export default function App() {
                 }}
                 onSaveCv={async (cvData) => handleUpdateProfile({ cvData })}
                 onSaveCvDocuments={async (documents, activeData) => handleUpdateProfile({ cvData: activeData, cvDocuments: documents })}
-                onConsumeCvAction={(action, templateId) => api.users.consumeCvAction(action, templateId)}
+                onConsumeCvAction={async (action, templateId) => {
+                  const result = await api.users.consumeCvAction(action, templateId);
+                  if (result?.success && currentUser?.id) await loadBackendUserProfile(currentUser.id);
+                  return result;
+                }}
                 cvBuilderSettings={cvBuilderSettings}
                 onOpenPaywall={() => setCvPaywallOpen(true)}
               />

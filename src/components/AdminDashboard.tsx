@@ -4172,6 +4172,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <p className="text-xs text-slate-400 mt-0.5">
                   Approve submissions to push to public live site, bulk edit attributes, or reject duplicate/invalid entries.
                 </p>
+                <div className="mt-2 inline-flex flex-wrap items-center gap-2 text-[11px]">
+                  <span className="rounded-lg border border-cyan-700/50 bg-cyan-950/50 px-2.5 py-1 font-bold text-cyan-200">
+                    Filtered matches on this page: {filteredPending.length}
+                  </span>
+                  <span className="text-slate-500">
+                    Total pending queue: {(pendingTotal ?? pendingJobs.length).toLocaleString()}
+                  </span>
+                </div>
               </div>
 
               {/* ACTION BUTTONS */}
@@ -6339,6 +6347,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <p className="text-xs text-slate-400 mt-0.5">
                   Manage published job vacancies, edit attributes, purge duplicates, or apply bulk updates.
                 </p>
+                <div className="mt-2 inline-flex flex-wrap items-center gap-2 text-[11px]">
+                  <span className="rounded-lg border border-cyan-700/50 bg-cyan-950/50 px-2.5 py-1 font-bold text-cyan-200">
+                    Filtered live jobs: {filteredLiveJobs.length}
+                  </span>
+                  <span className="text-slate-500">
+                    Total live jobs: {jobs.length.toLocaleString()}
+                  </span>
+                </div>
               </div>
 
               {/* ACTION BUTTONS */}

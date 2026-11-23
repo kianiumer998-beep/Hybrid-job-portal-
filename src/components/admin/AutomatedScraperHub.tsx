@@ -4678,6 +4678,17 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               ))}
               </div>
             </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-cyan-800/40 bg-cyan-950/20 px-3 py-2 text-xs">
+              <span className="font-bold text-cyan-200">
+                Filtered review results on this page: {reviewItems.length}
+              </span>
+              <span className="text-slate-400">
+                Duplicates in filtered results: {reviewItems.filter((job) => (job as any).isDuplicate || (job as any).duplicateWarning || job.description?.toLowerCase().includes('duplicate')).length}
+              </span>
+              <span className="text-slate-500">
+                Total pending queue: {(pendingTotal ?? effectivePendingList.length).toLocaleString()}
+              </span>
+            </div>
           </div>
 
           {/* PENDING QUEUE PAGINATION CONTROLS */}

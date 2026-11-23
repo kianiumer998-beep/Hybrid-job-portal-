@@ -1598,7 +1598,7 @@ transactionRouter.post('/', async (req, res) => {
             type: finalStatus === 'Success' ? 'success' : 'info',
             eventId: finalStatus === 'Success' ? `payment-approved-${newTx.id}` : `payment-submitted-${newTx.id}`,
             idempotencyKey: finalStatus === 'Success' ? `payment-approved-${newTx.id}` : `payment-submitted-${newTx.id}`,
-            metadata: { transactionId: newTx.id, amount: enforcedAmount, type: effectiveType, ...(paymentMethod === 'Wallet Balance' ? { balanceAfter: effectiveBalanceAfter } : {}) }
+            metadata: { transactionId: newTx.id, amount: enforcedAmount, type: effectiveType, ...(paymentMethod === 'Wallet Balance' ? { balanceAfter: Number(newTx.balanceAfter || 0) } : {}) }
           });
         } catch (notifErr) {
           console.error('[Notification Submission Trigger Error]:', notifErr);

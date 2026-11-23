@@ -314,7 +314,21 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
         'EDUCATION',
         ...cvData.education.flatMap((item) => [`${item.degree} — ${item.institution}`, item.fieldOfStudy || '', `${item.startDate} – ${item.endDate}`, '']),
         'SKILLS',
-        [...cvData.skills.technical, ...cvData.skills.soft, ...cvData.skills.languages].filter(Boolean).join(', ')
+        [...cvData.skills.technical, ...cvData.skills.soft, ...cvData.skills.languages].filter(Boolean).join(', '),
+        '',
+        'CERTIFICATIONS',
+        ...cvData.certifications.map((item) => [item.name, item.issuer, item.year].filter(Boolean).join(' — ')),
+        '',
+        'ADDITIONAL INFORMATION',
+        cvData.additionalSections?.objective || '',
+        ...(cvData.additionalSections?.projects || []),
+        ...(cvData.additionalSections?.internships || []),
+        ...(cvData.additionalSections?.volunteerWork || []),
+        ...(cvData.additionalSections?.achievements || []),
+        ...(cvData.additionalSections?.professionalTraining || []),
+        ...(cvData.additionalSections?.relevantCoursework || []),
+        ...(cvData.additionalSections?.publications || []),
+        ...(cvData.additionalSections?.references || [])
       ].filter((line) => line !== undefined).join('\n');
       const shareTitle = p.fullName ? `${p.fullName} — CV` : 'Professional CV';
       const shareFile = new File([shareText], `${(p.fullName || 'professional-cv').replace(/[^a-z0-9-_]+/gi, '-').toLowerCase()}.txt`, { type: 'text/plain' });

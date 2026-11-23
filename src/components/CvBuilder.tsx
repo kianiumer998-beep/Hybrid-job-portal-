@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { CvData, CvDocument, CvDesignEntitlement } from '../types/job';
+import { CvToolsPanel } from './CvToolsPanel';
 import { Sparkles, Printer, Download, Plus, Trash2, CheckCircle2, FileText, ChevronRight, ChevronLeft, Palette, User, Briefcase, GraduationCap, Award, Eye } from 'lucide-react';
 
 interface CvBuilderProps {
@@ -437,6 +438,8 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
         <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-800" role="progressbar" aria-label="CV completeness" aria-valuemin={0} aria-valuemax={100} aria-valuenow={cvCompletionScore}><div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all" style={{ width: `${cvCompletionScore}%` }} /></div>
         {cvNextSteps.length > 0 ? <div className="mt-3 flex flex-wrap gap-2">{cvNextSteps.map((item) => <span key={item.label} className="rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-[11px] text-amber-200">Add: {item.label}</span>)}</div> : <p className="mt-3 text-xs font-semibold text-emerald-300">Great work — all essential checklist items are complete.</p>}
       </section>
+
+      <CvToolsPanel cvData={cvData} settings={cvBuilderSettings} />
 
       {/* Main Builder Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">

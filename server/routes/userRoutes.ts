@@ -869,8 +869,12 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
           cvOwner.plan === 'Premium' ||
           (cvOwner.paymentStatus === 'Paid' && membershipStatus === 'Active')
         );
-        const maxAllowed = premiumActive ? premiumLimit : freeLimit;
-        const existingIds = new Set((Array.isArray(cvOwner.cvDocuments) ? cvOwner.cvDocuments : []).map((item: any) => String(item?.id || '')));
+        const existingDocuments = Array.isArray(cvOwner.cvDocuments) ? cvOwner.cvDocuments : [];
+        const existingIds = new Set(existingDocuments.map((item: any) => String(item?.id || '')));
+        const packageRemaining = (Array.isArray(cvOwner.cvPackageEntitlements) ? cvOwner.cvPackageEntitlements : [])
+          .filter((item: any) => Date.parse(String(item?.expiresAt || '')) > Date.now())
+          .reduce((total: number, item: any) => total + Math.max(0, Number(item?.limits?.cvCreateLimit || 0) - Number(item?.usage?.cvCreateLimit || 0)), 0);
+        const maxAllowed = Math.max(premiumActive ? premiumLimit : freeLimit, existingDocuments.length + packageRemaining);
         const addsNewDocument = Array.isArray(documents) && documents.some((document: any) => !existingIds.has(document.id));
         if (Array.isArray(documents) && documents.length > maxAllowed && addsNewDocument) {
           return res.status(403).json({ success: false, message: `Your current CV limit is ${maxAllowed}. Upgrade your plan or contact the administrator to increase it.` });

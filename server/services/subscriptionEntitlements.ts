@@ -65,7 +65,7 @@ export function resolveSubscriptionPackage(pkg: any, pricing: any): {
   const calculatedPrice = Math.max(0, Math.round(undiscountedPricePkr * (1 - bundleDiscountPercent / 100)));
   const pricePkr = pkg?.pricingMode === 'catalog' && selected.length > 0
     ? calculatedPrice
-    : Number(pkg?.pricePkr);
+    : Number(pkg?.configuredPricePkr ?? pkg?.pricePkr);
   if (!Number.isSafeInteger(pricePkr) || pricePkr < 0) {
     throw new Error('Subscription package price must be a non-negative whole PKR amount.');
   }

@@ -533,7 +533,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                       )}
                       {(pkg.features?.length > 0 || pkg.featureLabels?.length > 0) && (
                         <ul className="mt-2 text-[10px] space-y-1 text-slate-300">
-                          {pkg.features.map((f: string, i: number) => (
+                          {(pkg.features || []).map((f: string, i: number) => (
                             <li key={i} className="flex items-center space-x-1">
                               <CheckCircle2 className="w-3 h-3 text-emerald-400" />
                               <span className="truncate">{f}</span>

@@ -41,7 +41,8 @@ jobRouter.get('/', async (req, res) => {
 
     const user = (req as any).user;
     const pricing = await PricingRepository.get();
-    const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    const isPrivilegedUser = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(user.role));
+    const isPremium = isPrivilegedUser || await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
 
     const result = await JobRepository.getAll({
       earlyAccessPolicy: { config: pricing.earlyAccess, isPremium },

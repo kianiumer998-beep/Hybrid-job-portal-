@@ -811,7 +811,46 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
     delete finalUpdates.walletEscrowBalance;
     delete finalUpdates.walletEscrowOperations;
 
-    const updated = await UserRepository.updateAsync(id, finalUpdates);
+    let updated: any = null;
+    if (!isAdmin && Array.isArray(finalUpdates.cvDocuments)) {
+      const cvOwner = await UserRepository.getByIdAsync(id);
+      if (!cvOwner) return res.status(404).json({ success: false, message: 'User not found.' });
+      const previousDocs = Array.isArray(cvOwner.cvDocuments) ? cvOwner.cvDocuments : [];
+      const previousById = new Map(previousDocs.map((item: any) => [String(item?.id || ''), item]));
+      const incomingDocs = finalUpdates.cvDocuments;
+      const createCount = incomingDocs.filter((item: any) => !previousById.has(String(item.id))).length;
+      const editCount = incomingDocs.filter((item: any) => {
+        const previous: any = previousById.get(String(item.id));
+        return Boolean(previous) && (String(previous.title || '') !== String(item.title || '') ||
+          JSON.stringify(previous.data) !== JSON.stringify(item.data));
+      }).length;
+      const activeGrants = (Array.isArray(cvOwner.cvPackageEntitlements) ? cvOwner.cvPackageEntitlements : [])
+        .filter((item: any) => Date.parse(String(item?.expiresAt || '')) > Date.now())
+        .sort((a: any, b: any) => Date.parse(String(a.expiresAt)) - Date.parse(String(b.expiresAt)));
+      if (activeGrants.length && (createCount > 0 || editCount > 0)) {
+        const grant = activeGrants.find((item: any) => {
+          const createRemaining = Math.max(0, Number(item?.limits?.cvCreateLimit || 0) - Number(item?.usage?.cvCreateLimit || 0));
+          const editRemaining = Math.max(0, Number(item?.limits?.editLimit || 0) - Number(item?.usage?.editLimit || 0));
+          return createCount <= createRemaining && editCount <= editRemaining;
+        });
+        if (!grant) {
+          return res.status(403).json({
+            success: false,
+            message: 'Your active CV package does not have enough remaining CV creation or edit quota. Please purchase another package or wait for a valid renewal.'
+          });
+        }
+        updated = await UserRepository.saveCvDocumentsWithPackageUsageAsync(
+          id, incomingDocs, finalUpdates.cvData, String(grant.transactionId),
+          createCount, editCount, Number(grant.limits?.cvCreateLimit || 0), Number(grant.limits?.editLimit || 0)
+        );
+        if (!updated) {
+          return res.status(409).json({ success: false, message: 'CV package quota or account data changed during save. Please reload your CV and try again.' });
+        }
+        delete finalUpdates.cvDocuments;
+        delete finalUpdates.cvData;
+      }
+    }
+    if (!updated) updated = await UserRepository.updateAsync(id, finalUpdates);
     if (!updated) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }

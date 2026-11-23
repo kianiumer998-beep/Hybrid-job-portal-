@@ -817,13 +817,16 @@ export class UserRepository {
     createCount: number,
     editCount: number,
     createLimit: number,
-    editLimit: number
+    editLimit: number,
+    templateEditUsage: Record<string, { count: number; limit: number }> = {}
   ): Promise<any | null> {
     const cleanUserId = String(userId || '').trim();
     const cleanTransactionId = String(transactionId || '').trim();
-    if (!cleanUserId || !cleanTransactionId || !Array.isArray(documents) ||
+    const usesPackageQuota = Boolean(cleanTransactionId);
+    if (!cleanUserId || (!usesPackageQuota && (createCount > 0 || editCount > 0)) || !Array.isArray(documents) ||
       !Number.isInteger(createCount) || createCount < 0 || !Number.isInteger(editCount) || editCount < 0 ||
-      !Number.isInteger(createLimit) || createLimit < 0 || !Number.isInteger(editLimit) || editLimit < 0) {
+      !Number.isInteger(createLimit) || createLimit < 0 || !Number.isInteger(editLimit) || editLimit < 0 ||
+      !templateEditUsage || typeof templateEditUsage !== 'object' || Object.values(templateEditUsage).some((item: any) => !Number.isInteger(item?.count) || item.count < 1 || !Number.isInteger(item?.limit) || item.limit < 1)) {
       throw new Error('Invalid CV save or quota usage request.');
     }
     const now = new Date().toISOString();
@@ -835,26 +838,38 @@ export class UserRepository {
     if (editCount > 0) {
       increments['cvPackageEntitlements.$[grant].usage.editLimit'] = editCount;
     }
+    for (const [templateId, usage] of Object.entries(templateEditUsage)) {
+      increments[`cvTemplateUsage.${templateId}.editCount`] = usage.count;
+    }
     if (isTest()) {
       const existing = inMemoryUsers.get(cleanUserId);
       if (!existing) return null;
       const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
-      const grant = list.find((item: any) => {
+      const grant = usesPackageQuota ? list.find((item: any) => {
         if (item?.transactionId !== cleanTransactionId || !item.expiresAt || Date.parse(item.expiresAt) <= Date.now()) return false;
         const limits = item.limits || {};
         const usage = item.usage || {};
         return Number(limits.cvCreateLimit || 0) === createLimit && Number(limits.editLimit || 0) === editLimit &&
           createCount <= Math.max(0, createLimit - Number(usage.cvCreateLimit || 0)) &&
           editCount <= Math.max(0, editLimit - Number(usage.editLimit || 0));
-      });
-      if (!grant) return null;
-      const updatedGrant = { ...grant, usage: {
+      }) : null;
+      if (usesPackageQuota && !grant) return null;
+      const templateUsage = existing.cvTemplateUsage || {};
+      for (const [templateId, usage] of Object.entries(templateEditUsage)) {
+        const used = Number(templateUsage?.[templateId]?.editCount || 0);
+        if (used + usage.count > usage.limit) return null;
+      }
+      const updatedGrant = grant ? { ...grant, usage: {
         ...(grant.usage || {}),
         cvCreateLimit: Number(grant.usage?.cvCreateLimit || 0) + createCount,
         editLimit: Number(grant.usage?.editLimit || 0) + editCount
-      }};
-      const updatedList = list.map((item: any) => item?.transactionId === cleanTransactionId ? updatedGrant : item);
-      const updated = { ...existing, cvDocuments: documents, cvData: activeCvData, cvPackageEntitlements: updatedList, updatedAt };
+      }} : null;
+      const updatedList = grant ? list.map((item: any) => item?.transactionId === cleanTransactionId ? updatedGrant : item) : list;
+      const updatedTemplateUsage = { ...templateUsage };
+      for (const [templateId, usage] of Object.entries(templateEditUsage)) {
+        updatedTemplateUsage[templateId] = { ...(updatedTemplateUsage[templateId] || {}), editCount: Number(updatedTemplateUsage[templateId]?.editCount || 0) + usage.count };
+      }
+      const updated = { ...existing, cvDocuments: documents, cvData: activeCvData, cvPackageEntitlements: updatedList, ...(Object.keys(templateEditUsage).length ? { cvTemplateUsage: updatedTemplateUsage } : {}), updatedAt };
       inMemoryUsers.set(cleanUserId, updated);
       return updated;
     }
@@ -869,21 +884,30 @@ export class UserRepository {
         elemMatch['limits.editLimit'] = { $gte: editCount };
         elemMatch['usage.editLimit'] = { $lte: editLimit - editCount };
       }
-      const filter: Record<string, any> = { id: cleanUserId, cvPackageEntitlements: { $elemMatch: elemMatch } };
+      const filter: Record<string, any> = { id: cleanUserId };
+      if (usesPackageQuota) filter.cvPackageEntitlements = { $elemMatch: elemMatch };
+      const templateConditions: any[] = [];
+      for (const [templateId, usage] of Object.entries(templateEditUsage)) {
+        const field = `cvTemplateUsage.${templateId}.editCount`;
+        templateConditions.push({ $or: [{ [field]: { $lte: usage.limit - usage.count } }, { [field]: { $exists: false } }] });
+      }
+      if (templateConditions.length) filter.$and = templateConditions;
       const arrayFilter: Record<string, any> = { 'grant.transactionId': cleanTransactionId, 'grant.expiresAt': { $gt: now } };
       const update: any = { $set: { cvDocuments: documents, cvData: activeCvData, updatedAt } };
       if (Object.keys(increments).length) {
         update.$inc = increments;
-        if (createCount > 0) {
-          arrayFilter['grant.limits.cvCreateLimit'] = createLimit;
-          arrayFilter['grant.usage.cvCreateLimit'] = { $lte: createLimit - createCount };
-        }
-        if (editCount > 0) {
-          arrayFilter['grant.limits.editLimit'] = editLimit;
-          arrayFilter['grant.usage.editLimit'] = { $lte: editLimit - editCount };
+        if (usesPackageQuota) {
+          if (createCount > 0) {
+            arrayFilter['grant.limits.cvCreateLimit'] = createLimit;
+            arrayFilter['grant.usage.cvCreateLimit'] = { $lte: createLimit - createCount };
+          }
+          if (editCount > 0) {
+            arrayFilter['grant.limits.editLimit'] = editLimit;
+            arrayFilter['grant.usage.editLimit'] = { $lte: editLimit - editCount };
+          }
         }
       }
-      const updatedDoc = await coll.findOneAndUpdate(filter, update, { returnDocument: 'after', ...(Object.keys(increments).length ? { arrayFilters: [arrayFilter] } : {}) });
+      const updatedDoc = await coll.findOneAndUpdate(filter, update, { returnDocument: 'after', ...(usesPackageQuota && Object.keys(increments).length ? { arrayFilters: [arrayFilter] } : {}) });
       if (!updatedDoc) return null;
       const { _id, ...safe } = updatedDoc;
       return safe;
@@ -891,20 +915,27 @@ export class UserRepository {
     const existing = Database.getUserById(cleanUserId);
     if (!existing) return null;
     const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
-    const grant = list.find((item: any) => item?.transactionId === cleanTransactionId &&
+    const grant = usesPackageQuota ? list.find((item: any) => item?.transactionId === cleanTransactionId &&
       Date.parse(String(item?.expiresAt || '')) > Date.now() &&
-      createCount <= Math.max(0, Number(item?.limits?.cvCreateLimit || 0) - Number(item?.usage?.cvCreateLimit || 0)) &&
       Number(item?.limits?.cvCreateLimit || 0) === createLimit && Number(item?.limits?.editLimit || 0) === editLimit &&
       createCount <= Math.max(0, createLimit - Number(item?.usage?.cvCreateLimit || 0)) &&
-      editCount <= Math.max(0, editLimit - Number(item?.usage?.editLimit || 0)));
-    if (!grant) return null;
-    const updatedList = list.map((item: any) => item?.transactionId === cleanTransactionId ? {
+      editCount <= Math.max(0, editLimit - Number(item?.usage?.editLimit || 0))) : null;
+    if (usesPackageQuota && !grant) return null;
+    const templateUsage = existing.cvTemplateUsage || {};
+    for (const [templateId, usage] of Object.entries(templateEditUsage)) {
+      if (Number(templateUsage?.[templateId]?.editCount || 0) + usage.count > usage.limit) return null;
+    }
+    const updatedList = grant ? list.map((item: any) => item?.transactionId === cleanTransactionId ? {
       ...item, usage: { ...(item.usage || {}),
         cvCreateLimit: Number(item.usage?.cvCreateLimit || 0) + createCount,
         editLimit: Number(item.usage?.editLimit || 0) + editCount
       }
-    } : item);
-    return Database.updateUser(cleanUserId, { cvDocuments: documents, cvData: activeCvData, cvPackageEntitlements: updatedList, updatedAt });
+    } : item) : list;
+    const updatedTemplateUsage = { ...templateUsage };
+    for (const [templateId, usage] of Object.entries(templateEditUsage)) {
+      updatedTemplateUsage[templateId] = { ...(updatedTemplateUsage[templateId] || {}), editCount: Number(updatedTemplateUsage[templateId]?.editCount || 0) + usage.count };
+    }
+    return Database.updateUser(cleanUserId, { cvDocuments: documents, cvData: activeCvData, cvPackageEntitlements: updatedList, ...(Object.keys(templateEditUsage).length ? { cvTemplateUsage: updatedTemplateUsage } : {}), updatedAt });
   }
 
   /** Atomically consumes the package quota and optional per-design quota for one CV action. */

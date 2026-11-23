@@ -384,12 +384,6 @@ userRouter.post('/cv/consume', requireAuth, async (req: any, res) => {
     if (action === 'share' && template.shareEnabled === false) {
       return res.status(403).json({ success: false, message: 'Sharing is disabled by the administrator for this CV design.' });
     }
-    const inactive = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled', 'Revoked']);
-    const premium = !inactive.has(String(user.membershipStatus || '')) && (
-      (user.membershipStatus === 'Active' && Boolean(user.membershipTier) && String(user.membershipTier).toLowerCase() !== 'free') ||
-      user.plan === 'Premium' ||
-      (user.paymentStatus === 'Paid' && user.membershipStatus === 'Active')
-    );
     const activeGrants = (Array.isArray(user.cvPackageEntitlements) ? user.cvPackageEntitlements : [])
       .filter((item: any) => Date.parse(String(item?.expiresAt || '')) > Date.now())
       .sort((a: any, b: any) => Date.parse(String(a.expiresAt)) - Date.parse(String(b.expiresAt)));

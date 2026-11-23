@@ -377,13 +377,16 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     { id: 'tech', name: 'Tech Minimalist' }, { id: 'classic', name: 'Classic Corporate' }, { id: 'ats', name: 'ATS Plain Text' }
   ];
   const configuredTemplates = Array.isArray(cvBuilderSettings.templates) ? cvBuilderSettings.templates : [];
-  const enabledTemplates = templateCatalog.filter((template) => configuredTemplates.find((item: any) => item.id === template.id)?.enabled !== false || cvDesignEntitlements.some((item) => item.templateId === template.id));
+  const activePackageDesignIds = new Set(cvPackageEntitlements
+    .filter((entry: any) => Date.parse(String(entry?.expiresAt || '')) > Date.now())
+    .flatMap((entry: any) => Array.isArray(entry?.premiumDesignIds) ? entry.premiumDesignIds.map(String) : []));
+  const enabledTemplates = templateCatalog.filter((template) => configuredTemplates.find((item: any) => item.id === template.id)?.enabled !== false || cvDesignEntitlements.some((item) => item.templateId === template.id) || activePackageDesignIds.has(template.id));
   const freeTemplates = enabledTemplates.filter((template) => {
     const config = configuredTemplates.find((item: any) => item.id === template.id);
     return config ? config.enabled !== false && config.free === true : ['modern', 'ats'].includes(template.id);
   }).slice(0, Math.max(0, Math.min(5, Number(cvBuilderSettings.freeDesignLimit ?? 2))));
   const isTemplateEnabled = (id: string) => enabledTemplates.some((template) => template.id === id);
-  const isTemplateFree = (id: string) => isSubscribed || freeTemplates.some((template) => template.id === id) || cvDesignEntitlements.some((item) => item.templateId === id);
+  const isTemplateFree = (id: string) => isSubscribed || freeTemplates.some((template) => template.id === id) || cvDesignEntitlements.some((item) => item.templateId === id) || activePackageDesignIds.has(id);
   const selectedTemplateConfig = configuredTemplates.find((item: any) => item.id === cvData.templateStyle) || {};
   // A preview watermark is intentionally always visible to discourage screenshot-based reuse.
   // Export watermark policy is evaluated separately and never controls the on-screen preview.

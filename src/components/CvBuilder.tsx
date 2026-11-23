@@ -131,7 +131,8 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
   const handleCreateCv = () => {
     const baseLimit = isSubscribed ? Math.max(0, Math.min(10, Math.floor(Number(cvBuilderSettings.premiumCvLimit ?? 10)))) : Math.max(0, Math.min(10, Math.floor(Number(cvBuilderSettings.freeCvLimit ?? 1))));
     const packageRemaining = cvPackageEntitlements.filter((entry: any) => Date.parse(String(entry?.expiresAt || '')) > Date.now()).reduce((total: number, entry: any) => total + Math.max(0, Number(entry?.limits?.cvCreateLimit || 0) - Number(entry?.usage?.cvCreateLimit || 0)), 0);
-    const maxAllowed = Math.max(baseLimit, documents.length + packageRemaining);
+    const savedDocumentCount = Array.isArray(initialCvDocuments) ? initialCvDocuments.length : 0;
+    const maxAllowed = Math.max(baseLimit, savedDocumentCount + packageRemaining);
     if (documents.length >= maxAllowed) {
       setCvSaveMessage({ type: 'error', text: isSubscribed ? `The administrator has set a maximum of ${maxAllowed} CV(s) for premium members.` : `Your free plan allows ${maxAllowed} CV(s). Upgrade to create more.` });
       if (!isSubscribed) onOpenPaywall();

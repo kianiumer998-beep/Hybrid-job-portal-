@@ -410,7 +410,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
     <div className="admin-settings-mobile-compact space-y-6 text-white">
       
       {/* Top Metrics Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-4">
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg flex items-center space-x-3.5">
           <div className="w-11 h-11 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
             <Clock className="w-5 h-5" />
@@ -463,10 +463,10 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
       </div>
 
       {/* Main Admin Sub-Tabs Navigation */}
-      <div className="flex items-center space-x-2 border-b border-slate-800 pb-3 overflow-x-auto text-xs font-bold">
+      <div className="flex flex-nowrap items-center space-x-2 border-b border-slate-800 pb-3 overflow-x-auto overscroll-x-contain touch-pan-x text-xs font-bold">
         <button
           onClick={() => setActiveTab('approvals')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 whitespace-nowrap ${
             activeTab === 'approvals'
               ? 'bg-amber-500 text-slate-950 font-extrabold shadow-lg shadow-amber-500/20'
               : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
@@ -478,7 +478,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
         <button
           onClick={() => setActiveTab('slots')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 whitespace-nowrap ${
             activeTab === 'slots'
               ? 'bg-emerald-500 text-slate-950 font-extrabold shadow-lg shadow-emerald-500/20'
               : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
@@ -490,7 +490,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
         {canManageAdConfiguration && isPricingReady && <button
           onClick={() => setActiveTab('customizer')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 whitespace-nowrap ${
             activeTab === 'customizer'
               ? 'bg-indigo-500 text-white font-extrabold shadow-lg shadow-indigo-500/20'
               : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
@@ -502,7 +502,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
         <button
           onClick={() => setActiveTab('directory')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 whitespace-nowrap ${
             activeTab === 'directory'
               ? 'bg-emerald-500 text-slate-950 font-extrabold shadow-lg shadow-emerald-500/20'
               : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
@@ -514,7 +514,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
         {canManageAdConfiguration && isPricingReady && <button
           onClick={() => setActiveTab('pricing')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 whitespace-nowrap ${
             activeTab === 'pricing'
               ? 'bg-emerald-500 text-slate-950 font-extrabold shadow-lg shadow-emerald-500/20'
               : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
@@ -526,7 +526,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
         <button
           onClick={() => setActiveTab('performance')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 whitespace-nowrap ${
             activeTab === 'performance'
               ? 'bg-gradient-to-r from-teal-500 to-indigo-500 text-white font-extrabold shadow-lg shadow-teal-500/20'
               : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'

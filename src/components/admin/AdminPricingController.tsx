@@ -807,7 +807,6 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
         </div>
 
         {!hideCvSettings && (
-        {/* 4. CV Builder Access, Designs & Export Policy */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 lg:col-span-2">
           <div className="border-b border-slate-800 pb-4"><h3 className="font-bold text-white text-base">CV Builder Access & Monetization</h3><p className="text-xs text-slate-400 mt-1">Control free designs, one-time Premium design prices, export availability and website watermark. A purchased design remains unlocked on the member account.</p></div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">

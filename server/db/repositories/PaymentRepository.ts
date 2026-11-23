@@ -829,6 +829,54 @@ export class PaymentRepository {
   }
 
   static async verify(id: string, action: 'approve' | 'reject', note?: string, reason?: string): Promise<any | null> {
+    // Safe recovery for a previously approved CV package/subscription whose entitlement write or
+    // transaction finalization was uncertain. The transaction ID makes the grant idempotent.
+    if (action === 'approve') {
+      const recoverable = await this.getByIdAsync(id);
+      if (recoverable?.status === 'VerificationUncertain') {
+        const snapshot = recoverable.type === 'CV Design Purchase'
+          ? recoverable.cvPurchaseSnapshot
+          : recoverable.type === 'Subscription' ? recoverable.packageSnapshot : null;
+        const hasCvBenefitSnapshot = recoverable.type === 'CV Design Purchase'
+          ? snapshot?.kind === 'package'
+          : recoverable.type === 'Subscription' && snapshot?.cvBenefitsEnabled === true;
+        if (hasCvBenefitSnapshot) {
+          let owner: any = recoverable.userId ? await UserRepository.getByIdAsync(String(recoverable.userId)) : null;
+          if (!owner && recoverable.type === 'Subscription' && recoverable.userEmail) {
+            owner = await UserRepository.getByEmailAsync(String(recoverable.userEmail));
+          }
+          const subscriptionIsActive = recoverable.type !== 'Subscription' ||
+            (owner?.membershipStatus === 'Active' && String(owner?.membershipTier || '') === String(snapshot?.name || '') &&
+              Date.parse(String(owner?.subscriptionExpiresAt || '')) > Date.now());
+          if (!owner || !subscriptionIsActive) {
+            throw new Error('This uncertain payment requires administrator reconciliation. The linked account or subscription activation could not be confirmed.');
+          }
+          const grantSnapshot = recoverable.type === 'CV Design Purchase' ? snapshot : {
+            packageId: `subscription:${snapshot.id}`,
+            packageName: `${String(snapshot.name || snapshot.id)} CV Benefits`,
+            pricePkr: Number(snapshot.pricePkr),
+            durationDays: Number(snapshot.durationDays),
+            cvCreateLimit: Number(snapshot.cvBenefits?.cvCreateLimit ?? 0),
+            editLimit: Number(snapshot.cvBenefits?.editLimit ?? 0),
+            pdfExportLimit: Number(snapshot.cvBenefits?.pdfExportLimit ?? 0),
+            atsExportLimit: Number(snapshot.cvBenefits?.atsExportLimit ?? 0),
+            shareLimit: Number(snapshot.cvBenefits?.shareLimit ?? 0),
+            noWatermark: snapshot.cvBenefits?.noWatermark === true
+          };
+          const granted = await UserRepository.grantCvPackageEntitlementAsync(owner.id, grantSnapshot, String(recoverable.id));
+          if (!granted) throw new Error('CV entitlement recovery could not be confirmed. The transaction remains under reconciliation.');
+          return await this.updateAsync(id, {
+            status: 'Success',
+            ...(recoverable.type === 'CV Design Purchase' ? { cvPackageEntitlementGranted: true } : { cvPackageEntitlementGranted: true }),
+            userId: owner.id,
+            verifiedAt: recoverable.verifiedAt || new Date().toISOString(),
+            adminNote: note || 'Previously uncertain CV entitlement was reconciled and activated.',
+            rejectionReason: undefined,
+            updatedAt: new Date().toISOString()
+          });
+        }
+      }
+    }
     if (isPureInMemoryTest()) {
       const tx = inMemoryTransactions.get(id);
       if (!tx) return null;

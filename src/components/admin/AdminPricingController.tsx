@@ -821,7 +821,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                 <input type="checkbox" checked={pricing.subscriptionReminderSettings?.enabled === true} onChange={(e) => setPricing((prev: any) => ({ ...prev, subscriptionReminderSettings: { ...(prev.subscriptionReminderSettings || {}), enabled: e.target.checked } }))} />
               </label>
               <label className="mt-2 block text-[10px] text-slate-400">Remind this many days before expiry
-                <input type="number" min="1" max="30" value={pricing.subscriptionReminderSettings?.daysBefore ?? 3} onChange={(e) => setPricing((prev: any) => ({ ...prev, subscriptionReminderSettings: { ...(prev.subscriptionReminderSettings || {}), daysBefore: Math.max(1, Math.min(30, Math.floor(Number(e.target.value) || 3)) } }))} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white" />
+                <input type="number" min="1" max="30" value={pricing.subscriptionReminderSettings?.daysBefore ?? 3} onChange={(e) => setPricing((prev: any) => ({ ...prev, subscriptionReminderSettings: { ...(prev.subscriptionReminderSettings || {}), daysBefore: Math.max(1, Math.min(30, Math.floor(Number(e.target.value) || 3))) } }))} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white" />
               </label>
               <p className="mt-2 text-[10px] text-slate-500">This scheduler sends in-app notifications only. External channels require configured delivery providers.</p>
             </div>

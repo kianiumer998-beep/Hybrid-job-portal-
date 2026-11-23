@@ -70,6 +70,7 @@ export type AdminCanonicalTabId =
   | 'advertisements'
   | 'landing-customizer'
   | 'pricing-controller'
+  | 'cv-settings'
   | 'admin-payment-methods'
   | 'payment-proofs'
   | 'fee-management'
@@ -424,6 +425,16 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     isNew: true,
     keywords: ['pricing', 'rates', 'packages', 'subscription', 'plans', 'tiers', 'پیکیجز', 'ریٹ', 'فیسیں'],
     hideInProfessionalNav: true,
+  },
+  {
+    id: 'cv-settings',
+    classicCategory: 'payments',
+    proCategory: 'finance-payments',
+    label: 'CV Management & Entitlements',
+    description: 'Manage CV designs, package quotas, export permissions, watermark and subscription CV benefits.',
+    urdu: 'سی وی مینجمنٹ',
+    icon: FileText,
+    keywords: ['cv', 'resume', 'curriculum vitae', 'cv packages', 'cv quotas', 'watermark', 'ats export', 'سی وی', 'ریزیومے'],
   },
   {
     id: 'admin-payment-methods',

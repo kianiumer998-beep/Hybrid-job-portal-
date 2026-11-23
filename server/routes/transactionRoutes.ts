@@ -1278,7 +1278,24 @@ transactionRouter.post('/', async (req, res) => {
             newTx.walletMutationState = 'DEDUCTING';
 
             const subDurationDays = authoritativeSubDuration;
+            const subscriptionActivatedAt = new Date().toISOString();
             const subscriptionExpiresAt = new Date(Date.now() + subDurationDays * 24 * 60 * 60 * 1000).toISOString();
+            const walletPackageSnapshot = (req as any).packageSnapshot || {};
+            const walletFeatureSnapshots = Array.isArray(walletPackageSnapshot.featureSnapshots) ? walletPackageSnapshot.featureSnapshots : [];
+            const walletUserBeforePurchase = await UserRepository.getByIdAsync(effectiveUserId);
+            const walletEntitlements = { ...(walletUserBeforePurchase?.subscriptionEntitlements || {}) };
+            for (const feature of walletFeatureSnapshots) {
+              const featureId = String(feature?.id || '');
+              if (!featureId) continue;
+              walletEntitlements[featureId] = {
+                enabled: true,
+                grantedAt: subscriptionActivatedAt,
+                expiresAt: subscriptionExpiresAt,
+                includedSlots: Number.isInteger(Number(feature.includedSlots)) ? Math.max(0, Number(feature.includedSlots)) : 0,
+                slotDurationDays: Number.isInteger(Number(feature.slotDurationDays)) ? Math.max(1, Number(feature.slotDurationDays)) : subDurationDays,
+                sourcePackageId: String(walletPackageSnapshot.id || '')
+              };
+            }
             let updatedUser: any = null;
             try {
               updatedUser = await UserRepository.deductWalletBalanceAsync(
@@ -1287,7 +1304,11 @@ transactionRouter.post('/', async (req, res) => {
                 {
                   membershipTier: safeSubscriptionPlan || 'Pro Alerts',
                   membershipStatus: 'Active',
-                  subscriptionExpiresAt
+                  subscriptionExpiresAt,
+                  ...(walletFeatureSnapshots.length ? {
+                    subscriptionEntitlements: walletEntitlements,
+                    subscriptionFeatureIds: walletFeatureSnapshots.map((feature: any) => String(feature.id))
+                  } : {})
                 }
               );
             } catch (deductErr) {

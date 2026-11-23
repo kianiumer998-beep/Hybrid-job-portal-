@@ -474,7 +474,7 @@ function withComputedSubscriptionPrices(pricing: any): any {
     const complete = ids.length > 0 && selected.every(Boolean);
     const subtotal = complete ? selected.reduce((sum: number, item: any) => sum + Number(item.pricePkr || 0), 0) : 0;
     const calculated = complete ? Math.max(0, Math.round(subtotal * (1 - discount / 100))) : 0;
-    return { ...pkg, configuredPricePkr, pricePkr: calculated, displayPricePkr: calculated, undiscountedPricePkr: subtotal, bundleDiscountPercent: discount };
+    return { ...pkg, configuredPricePkr, pricePkr: calculated, displayPricePkr: calculated, featureLabels: complete ? selected.map((item: any) => item.label) : [], undiscountedPricePkr: subtotal, bundleDiscountPercent: discount };
   });
   return { ...pricing, subscriptionPackages };
 }

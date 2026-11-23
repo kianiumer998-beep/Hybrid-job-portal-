@@ -815,26 +815,24 @@ export class UserRepository {
     activeCvData: any,
     transactionId: string,
     createCount: number,
-    editCount: number
+    editCount: number,
+    createLimit: number,
+    editLimit: number
   ): Promise<any | null> {
     const cleanUserId = String(userId || '').trim();
     const cleanTransactionId = String(transactionId || '').trim();
     if (!cleanUserId || !cleanTransactionId || !Array.isArray(documents) ||
-      !Number.isInteger(createCount) || createCount < 0 || !Number.isInteger(editCount) || editCount < 0) {
+      !Number.isInteger(createCount) || createCount < 0 || !Number.isInteger(editCount) || editCount < 0 ||
+      !Number.isInteger(createLimit) || createLimit < 0 || !Number.isInteger(editLimit) || editLimit < 0) {
       throw new Error('Invalid CV save or quota usage request.');
     }
     const now = new Date().toISOString();
     const updatedAt = now;
-    const quotaConditions: Record<string, any> = {};
-    const arrayConditions: Record<string, any> = { 'grant.transactionId': cleanTransactionId, 'grant.expiresAt': { $gt: now } };
     const increments: Record<string, number> = {};
     if (createCount > 0) {
-      quotaConditions['limits.cvCreateLimit'] = { $gte: createCount };
-      quotaConditions['usage.cvCreateLimit'] = { $lte: undefined };
       increments['cvPackageEntitlements.$[grant].usage.cvCreateLimit'] = createCount;
     }
     if (editCount > 0) {
-      quotaConditions['limits.editLimit'] = { $gte: editCount };
       increments['cvPackageEntitlements.$[grant].usage.editLimit'] = editCount;
     }
     if (isTest()) {
@@ -845,8 +843,9 @@ export class UserRepository {
         if (item?.transactionId !== cleanTransactionId || !item.expiresAt || Date.parse(item.expiresAt) <= Date.now()) return false;
         const limits = item.limits || {};
         const usage = item.usage || {};
-        return createCount <= Math.max(0, Number(limits.cvCreateLimit || 0) - Number(usage.cvCreateLimit || 0)) &&
-          editCount <= Math.max(0, Number(limits.editLimit || 0) - Number(usage.editLimit || 0));
+        return Number(limits.cvCreateLimit || 0) === createLimit && Number(limits.editLimit || 0) === editLimit &&
+          createCount <= Math.max(0, createLimit - Number(usage.cvCreateLimit || 0)) &&
+          editCount <= Math.max(0, editLimit - Number(usage.editLimit || 0));
       });
       if (!grant) return null;
       const updatedGrant = { ...grant, usage: {
@@ -864,16 +863,25 @@ export class UserRepository {
       const elemMatch: Record<string, any> = { transactionId: cleanTransactionId, expiresAt: { $gt: now } };
       if (createCount > 0) {
         elemMatch['limits.cvCreateLimit'] = { $gte: createCount };
-        elemMatch['$expr'] = undefined;
+        elemMatch['usage.cvCreateLimit'] = { $lte: createLimit - createCount };
       }
-      if (editCount > 0) elemMatch['limits.editLimit'] = { $gte: editCount };
+      if (editCount > 0) {
+        elemMatch['limits.editLimit'] = { $gte: editCount };
+        elemMatch['usage.editLimit'] = { $lte: editLimit - editCount };
+      }
       const filter: Record<string, any> = { id: cleanUserId, cvPackageEntitlements: { $elemMatch: elemMatch } };
       const arrayFilter: Record<string, any> = { 'grant.transactionId': cleanTransactionId, 'grant.expiresAt': { $gt: now } };
       const update: any = { $set: { cvDocuments: documents, cvData: activeCvData, updatedAt } };
       if (Object.keys(increments).length) {
         update.$inc = increments;
-        if (createCount > 0) arrayFilter['grant.usage.cvCreateLimit'] = { $lte: Number.MAX_SAFE_INTEGER - createCount };
-        if (editCount > 0) arrayFilter['grant.usage.editLimit'] = { $lte: Number.MAX_SAFE_INTEGER - editCount };
+        if (createCount > 0) {
+          arrayFilter['grant.limits.cvCreateLimit'] = createLimit;
+          arrayFilter['grant.usage.cvCreateLimit'] = { $lte: createLimit - createCount };
+        }
+        if (editCount > 0) {
+          arrayFilter['grant.limits.editLimit'] = editLimit;
+          arrayFilter['grant.usage.editLimit'] = { $lte: editLimit - editCount };
+        }
       }
       const updatedDoc = await coll.findOneAndUpdate(filter, update, { returnDocument: 'after', ...(Object.keys(increments).length ? { arrayFilters: [arrayFilter] } : {}) });
       if (!updatedDoc) return null;
@@ -886,7 +894,9 @@ export class UserRepository {
     const grant = list.find((item: any) => item?.transactionId === cleanTransactionId &&
       Date.parse(String(item?.expiresAt || '')) > Date.now() &&
       createCount <= Math.max(0, Number(item?.limits?.cvCreateLimit || 0) - Number(item?.usage?.cvCreateLimit || 0)) &&
-      editCount <= Math.max(0, Number(item?.limits?.editLimit || 0) - Number(item?.usage?.editLimit || 0)));
+      Number(item?.limits?.cvCreateLimit || 0) === createLimit && Number(item?.limits?.editLimit || 0) === editLimit &&
+      createCount <= Math.max(0, createLimit - Number(item?.usage?.cvCreateLimit || 0)) &&
+      editCount <= Math.max(0, editLimit - Number(item?.usage?.editLimit || 0)));
     if (!grant) return null;
     const updatedList = list.map((item: any) => item?.transactionId === cleanTransactionId ? {
       ...item, usage: { ...(item.usage || {}),
@@ -898,10 +908,10 @@ export class UserRepository {
   }
 
   /** Atomically consumes a single export/share quota from an active CV package. */
-  static async consumeCvPackageQuotaAsync(userId: string, transactionId: string, action: 'pdfExportLimit' | 'atsExportLimit' | 'shareLimit'): Promise<any | null> {
+  static async consumeCvPackageQuotaAsync(userId: string, transactionId: string, action: 'pdfExportLimit' | 'atsExportLimit' | 'shareLimit', limit: number): Promise<any | null> {
     const cleanUserId = String(userId || '').trim();
     const cleanTransactionId = String(transactionId || '').trim();
-    if (!cleanUserId || !cleanTransactionId || !['pdfExportLimit', 'atsExportLimit', 'shareLimit'].includes(action)) throw new Error('Invalid CV package quota request.');
+    if (!cleanUserId || !cleanTransactionId || !['pdfExportLimit', 'atsExportLimit', 'shareLimit'].includes(action) || !Number.isInteger(limit) || limit < 0) throw new Error('Invalid CV package quota request.');
     const now = new Date().toISOString();
     const updatedAt = now;
     if (isTest()) {
@@ -910,7 +920,7 @@ export class UserRepository {
       const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
       const grant = list.find((item: any) => item?.transactionId === cleanTransactionId &&
         Date.parse(String(item?.expiresAt || '')) > Date.now() &&
-        Number(item?.usage?.[action] || 0) < Number(item?.limits?.[action] || 0));
+        Number(item?.limits?.[action] || 0) === limit && Number(item?.usage?.[action] || 0) < limit);
       if (!grant) return null;
       const updatedList = list.map((item: any) => item?.transactionId === cleanTransactionId ? {
         ...item, usage: { ...(item.usage || {}), [action]: Number(item.usage?.[action] || 0) + 1 }
@@ -944,7 +954,7 @@ export class UserRepository {
     const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
     const grant = list.find((item: any) => item?.transactionId === cleanTransactionId &&
       Date.parse(String(item?.expiresAt || '')) > Date.now() &&
-      Number(item?.usage?.[action] || 0) < Number(item?.limits?.[action] || 0));
+      Number(item?.limits?.[action] || 0) === limit && Number(item?.usage?.[action] || 0) < limit);
     if (!grant) return null;
     const updatedList = list.map((item: any) => item?.transactionId === cleanTransactionId ? {
       ...item, usage: { ...(item.usage || {}), [action]: Number(item.usage?.[action] || 0) + 1 }

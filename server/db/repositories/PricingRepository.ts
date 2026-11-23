@@ -378,7 +378,18 @@ function deepMergePricing(base: any, incoming: any): any {
       exemptUserEmails: syncedExemptEmails
     },
     subscriptionPackages: Array.isArray(src.subscriptionPackages)
-      ? src.subscriptionPackages
+      ? src.subscriptionPackages.map((pkg: any) => ({
+          ...pkg,
+          cvBenefitsEnabled: pkg?.cvBenefitsEnabled === true,
+          cvBenefits: {
+            cvCreateLimit: Math.min(10000, Math.max(0, Math.floor(Number(pkg?.cvBenefits?.cvCreateLimit) || 0))),
+            editLimit: Math.min(10000, Math.max(0, Math.floor(Number(pkg?.cvBenefits?.editLimit) || 0))),
+            pdfExportLimit: Math.min(10000, Math.max(0, Math.floor(Number(pkg?.cvBenefits?.pdfExportLimit) || 0))),
+            atsExportLimit: Math.min(10000, Math.max(0, Math.floor(Number(pkg?.cvBenefits?.atsExportLimit) || 0))),
+            shareLimit: Math.min(10000, Math.max(0, Math.floor(Number(pkg?.cvBenefits?.shareLimit) || 0))),
+            noWatermark: pkg?.cvBenefits?.noWatermark === true
+          }
+        }))
       : (base.subscriptionPackages || []),
     adPricingConfig: {
       ...(base.adPricingConfig || {}),
@@ -609,6 +620,18 @@ export class PricingRepository {
           const days = Number(pkg.durationDays);
           if (!Number.isInteger(days) || days <= 0) {
             throw new Error(`Subscription package "${pkg.id}" durationDays must be a positive integer`);
+          }
+        }
+        if (pkg.cvBenefitsEnabled === true) {
+          const benefits = pkg.cvBenefits || {};
+          for (const field of ['cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit']) {
+            const value = Number(benefits[field] ?? 0);
+            if (!Number.isInteger(value) || value < 0 || value > 10000) {
+              throw new Error(`Subscription package "${pkg.id}" CV benefit ${field} must be a whole number from 0 to 10000`);
+            }
+          }
+          if (benefits.noWatermark !== undefined && typeof benefits.noWatermark !== 'boolean') {
+            throw new Error(`Subscription package "${pkg.id}" CV noWatermark must be a boolean`);
           }
         }
       }

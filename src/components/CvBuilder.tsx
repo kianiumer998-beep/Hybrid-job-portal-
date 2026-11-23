@@ -254,7 +254,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
       return;
     }
     const ownsSelectedDesignForExport = cvDesignEntitlements.some((item) => item.templateId === cvData.templateStyle);
-    if (!isSubscribed && !ownsSelectedDesignForExport && cvBuilderSettings.atsTextExportEnabled === false) { onOpenPaywall(); return; }
+    if ((!isSubscribed && !ownsSelectedDesignForExport && cvBuilderSettings.atsTextExportEnabled === false) || selectedTemplateConfig.atsExportEnabled === false) { onOpenPaywall(); return; }
     const lines: string[] = [];
     const p = cvData.personalInfo;
     const extra: NonNullable<CvData['additionalSections']> = cvData.additionalSections || {};
@@ -299,7 +299,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
       return;
     }
     const ownsSelectedDesignForExport = cvDesignEntitlements.some((item) => item.templateId === cvData.templateStyle);
-    if (!isSubscribed && !ownsSelectedDesignForExport && cvBuilderSettings.pdfExportEnabled === false) { onOpenPaywall(); return; }
+    if ((!isSubscribed && !ownsSelectedDesignForExport && cvBuilderSettings.pdfExportEnabled === false) || selectedTemplateConfig.pdfExportEnabled === false) { onOpenPaywall(); return; }
     window.print();
   };
 
@@ -318,7 +318,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
   const selectedTemplateConfig = configuredTemplates.find((item: any) => item.id === cvData.templateStyle) || {};
   // A preview watermark is intentionally always visible to discourage screenshot-based reuse.
   // Export watermark policy is evaluated separately and never controls the on-screen preview.
-  const previewWatermarkVisible = selectedTemplateConfig.previewWatermarkEnabled !== false;
+  const previewWatermarkVisible = true;
   const exportWatermarkVisible = selectedTemplateConfig.exportWatermarkEnabled === true ||
     (selectedTemplateConfig.exportWatermarkEnabled === undefined &&
       cvBuilderSettings.watermarkEnabled !== false &&

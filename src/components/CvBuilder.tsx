@@ -97,7 +97,7 @@ const normalizeCvData = (value?: CvData): CvData => {
   };
 };
 
-export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, initialCvDocuments, cvDesignEntitlements = [], cvPackageEntitlements = [], onPurchaseTemplate, onSaveCvDocuments, onSaveCv, onConsumeCvAction, onOpenPaywall, cvBuilderSettings = {} }) => {
+export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, initialCvDocuments, cvDesignEntitlements = [], cvPackageEntitlements = [], onPurchaseTemplate, onSaveCvDocuments, onSaveCv, onConsumeCvAction, onExportCv, onOpenPaywall, cvBuilderSettings = {} }) => {
   const [step, setStep] = useState<number>(1);
   const [isSavingCv, setIsSavingCv] = useState(false);
   const [exportNoWatermarkOverride, setExportNoWatermarkOverride] = useState(false);

@@ -58,7 +58,7 @@ export const PremiumEarlyAccessSection: React.FC<Props> = ({ onUpgrade, onExplor
   }, []);
 
   useEffect(() => {
-    if (!payload?.config?.showCountdown || !payload?.isPremium || !payload?.jobs?.length) return;
+    if (!payload?.config?.showCountdown || (!payload?.nextReleaseAt && !payload?.jobs?.length)) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [payload]);
@@ -103,7 +103,9 @@ export const PremiumEarlyAccessSection: React.FC<Props> = ({ onUpgrade, onExplor
           {!isPremium ? (
             <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-slate-200">
               <LockKeyhole className="h-5 w-5 shrink-0 text-emerald-300" />
-              <span>These jobs are reserved for active Premium members during the early-access period. Other users can view them after the configured release time.</span>
+              <span className="min-w-0 flex-1">These jobs are reserved for active Premium members during the early-access period. Other users can view them after the configured release time.
+                {config.showCountdown !== false && payload.nextReleaseAt && <span className="mt-1 block font-bold text-emerald-200">Public release in {formatRemaining(payload.nextReleaseAt, now)}</span>}
+              </span>
             </div>
           ) : jobs.length > 0 ? (
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2">

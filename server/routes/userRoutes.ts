@@ -259,6 +259,11 @@ userRouter.post('/cv/consume', requireAuth, async (req: any, res) => {
       );
       if (!selectedGrant) return res.status(403).json({ success: false, message: 'Your active CV package has no remaining quota for this action.' });
     }
+    const noWatermark = template.exportWatermarkMode === 'always'
+      ? false
+      : template.exportWatermarkMode === 'never'
+        ? true
+        : (selectedGrant?.noWatermark === true || settings.watermarkEnabled === false || (premium && settings.watermarkFreeOnly !== false));
     if (selectedGrant || templateLimit > 0) {
       const packageGrant = selectedGrant ? {
         transactionId: String(selectedGrant.transactionId),
@@ -275,7 +280,7 @@ userRouter.post('/cv/consume', requireAuth, async (req: any, res) => {
         designRemaining: templateLimit > 0 ? Math.max(0, templateLimit - designUsed) : null,
         packageName: selectedGrant?.packageName,
         packageExpiresAt: selectedGrant?.expiresAt,
-        noWatermark: selectedGrant?.noWatermark === true || settings.watermarkEnabled === false || (premium && settings.watermarkFreeOnly !== false)
+        noWatermark
       });
     }
     return res.json({
@@ -283,7 +288,7 @@ userRouter.post('/cv/consume', requireAuth, async (req: any, res) => {
       action,
       remaining: null,
       designRemaining: null,
-      noWatermark: settings.watermarkEnabled === false || (premium && settings.watermarkFreeOnly !== false)
+      noWatermark
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err?.message || 'Unable to authorize CV action.' });

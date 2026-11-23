@@ -53,6 +53,7 @@ export function resolveSubscriptionPackage(pkg: any, pricing: any): {
   const requestedIds = Array.isArray(pkg?.featureIds)
     ? Array.from(new Set(pkg.featureIds.map((value: any) => String(value || '').trim())))
     : [];
+  if (pkg?.pricingMode === 'catalog' && requestedIds.length === 0) throw new Error('Select at least one enabled feature for a catalog-priced package.');
   const selected = requestedIds.map((id: string) => {
     if (!FEATURE_IDS.has(id)) throw new Error(`Unsupported subscription feature "${id}".`);
     const feature = catalog.find((entry) => entry.id === id && entry.enabled);

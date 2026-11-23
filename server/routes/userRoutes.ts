@@ -956,26 +956,30 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
         .sort((a: any, b: any) => Date.parse(String(a.expiresAt)) - Date.parse(String(b.expiresAt)));
       if (activeGrants.length && (createCount > 0 || editCount > 0)) {
         const grant = activeGrants.find((item: any) => {
-          const createRemaining = Math.max(0, Number(item?.limits?.cvCreateLimit || 0) - Number(item?.usage?.cvCreateLimit || 0));
-          const editRemaining = Math.max(0, Number(item?.limits?.editLimit || 0) - Number(item?.usage?.editLimit || 0));
-          return createCount <= createRemaining && editCount <= editRemaining;
+          const createLimit = Number(item?.limits?.cvCreateLimit || 0);
+          const editLimit = Number(item?.limits?.editLimit || 0);
+          const createRemaining = Math.max(0, createLimit - Number(item?.usage?.cvCreateLimit || 0));
+          const editRemaining = Math.max(0, editLimit - Number(item?.usage?.editLimit || 0));
+          const createCovered = createCount === 0 || createLimit === 0 || createCount <= createRemaining;
+          const editCovered = editCount === 0 || editLimit === 0 || editCount <= editRemaining;
+          return createCovered && editCovered && ((createCount > 0 && createLimit > 0) || (editCount > 0 && editLimit > 0));
         });
-        if (!grant) {
-          return res.status(403).json({
-            success: false,
-            message: 'Your active CV package does not have enough remaining CV creation or edit quota. Please purchase another package or wait for a valid renewal.'
-          });
+        if (grant) {
+          const packageCreateCount = Number(grant.limits?.cvCreateLimit || 0) > 0 ? createCount : 0;
+          const packageEditCount = Number(grant.limits?.editLimit || 0) > 0 ? editCount : 0;
+          updated = await UserRepository.saveCvDocumentsWithPackageUsageAsync(
+            id, incomingDocs, finalUpdates.cvData, String(grant.transactionId),
+            packageCreateCount, packageEditCount,
+            Number(grant.limits?.cvCreateLimit || 0), Number(grant.limits?.editLimit || 0), templateUsageDeltas
+          );
+          if (!updated) {
+            return res.status(409).json({ success: false, message: 'CV package or per-design quota changed during save. Please reload your CV and try again.' });
+          }
+          delete finalUpdates.cvDocuments;
+          delete finalUpdates.cvData;
         }
-        updated = await UserRepository.saveCvDocumentsWithPackageUsageAsync(
-          id, incomingDocs, finalUpdates.cvData, String(grant.transactionId),
-          createCount, editCount, Number(grant.limits?.cvCreateLimit || 0), Number(grant.limits?.editLimit || 0), templateUsageDeltas
-        );
-        if (!updated) {
-          return res.status(409).json({ success: false, message: 'CV package or per-design edit quota changed during save. Please reload your CV and try again.' });
-        }
-        delete finalUpdates.cvDocuments;
-        delete finalUpdates.cvData;
-      } else if (Object.keys(templateUsageDeltas).length > 0) {
+      }
+      if (!updated && Object.keys(templateUsageDeltas).length > 0) {
         updated = await UserRepository.saveCvDocumentsWithPackageUsageAsync(
           id, incomingDocs, finalUpdates.cvData, '', 0, 0, 0, 0, templateUsageDeltas
         );

@@ -65,7 +65,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
       enabled: false, sourceTypes: ['scraped', 'user_posted', 'admin_created'], durationHours: 24,
       showOnLanding: true, showJobCount: true, showCountdown: true, maxJobs: 10,
       heading: 'Premium Early Access', description: 'Explore selected jobs before they become available to other members.',
-      displayFields: ['title', 'company', 'department', 'city', 'deadlineDate'], showSource: true
+      displayFields: ['title', 'company', 'department', 'city', 'deadlineDate'], showSource: true, jobOverrides: []
     },
     subscriptions: {
       freeTierPrice: 0,
@@ -88,6 +88,9 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
       ]
     }
   });
+
+  const [earlyAccessJobs, setEarlyAccessJobs] = useState<any[]>([]);
+  const [selectedEarlyAccessJobId, setSelectedEarlyAccessJobId] = useState('');
 
   const [priorityMetrics, setPriorityMetrics] = useState<{
     tierCounts: { vip: number; pinned: number; featured: number; urgent: number };
@@ -118,6 +121,10 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
         }));
       } else {
         setLoadError(data?.message || 'Failed to load authoritative pricing configuration.');
+      }
+      const earlyJobsRes = await api.jobs.getAll({ limit: '1000' });
+      if (earlyJobsRes && earlyJobsRes.success && Array.isArray(earlyJobsRes.jobs)) {
+        setEarlyAccessJobs(earlyJobsRes.jobs);
       }
       const priorityRes = await api.jobs.getPriority();
       if (priorityRes && priorityRes.success && priorityRes.tierCounts) {
@@ -711,6 +718,47 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
               ))}
             </div>
             <p className="text-[10px] text-slate-500">Sensitive internal moderation, payment and scraper-control fields are never selectable here.</p>
+          </div>
+          <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+            <div>
+              <span className="block text-xs font-bold text-slate-200">Individual job controls</span>
+              <p className="text-[10px] text-slate-500">Select a job to hide it from Early Access or set a custom title for the Premium dropdown. Source selection above remains the master eligibility rule.</p>
+            </div>
+            <select value={selectedEarlyAccessJobId} onChange={(e) => setSelectedEarlyAccessJobId(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white">
+              <option value="">Select a live job...</option>
+              {earlyAccessJobs.map((job: any) => {
+                const source = job.isScraped || job.sourceType === 'scraped' || job.scraperSourceId ? 'Scraper' : (job.isAdminCreated || job.sourceType === 'admin_created' ? 'Admin' : 'User');
+                return <option key={job.id} value={String(job.id)}>{job.title || 'Untitled job'} — {source}</option>;
+              })}
+            </select>
+            {selectedEarlyAccessJobId && (() => {
+              const selectedJob = earlyAccessJobs.find((job: any) => String(job.id) === selectedEarlyAccessJobId);
+              const overrides = pricing.earlyAccess?.jobOverrides || [];
+              const currentOverride = overrides.find((item: any) => item.jobId === selectedEarlyAccessJobId);
+              const selectedSource = selectedJob?.isScraped || selectedJob?.sourceType === 'scraped' || selectedJob?.scraperSourceId
+                ? 'scraped'
+                : (selectedJob?.isAdminCreated || selectedJob?.sourceType === 'admin_created' ? 'admin_created' : 'user_posted');
+              const sourceEligible = (pricing.earlyAccess?.sourceTypes || []).includes(selectedSource);
+              const enabled = currentOverride ? currentOverride.enabled !== false : sourceEligible;
+              const updateOverride = (patch: any) => setPricing((prev: any) => {
+                const current = prev.earlyAccess?.jobOverrides || [];
+                const existingIndex = current.findIndex((item: any) => item.jobId === selectedEarlyAccessJobId);
+                const nextItem = { ...(existingIndex >= 0 ? current[existingIndex] : { jobId: selectedEarlyAccessJobId, enabled }), ...patch };
+                const next = existingIndex >= 0 ? current.map((item: any, index: number) => index === existingIndex ? nextItem : item) : [...current, nextItem];
+                return { ...prev, earlyAccess: { ...prev.earlyAccess, jobOverrides: next } };
+              });
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <label className="flex items-center gap-2 text-xs text-slate-300">
+                    <input type="checkbox" checked={enabled} onChange={(e) => updateOverride({ enabled: e.target.checked })} />
+                    Include this job in Premium Early Access
+                  </label>
+                  <label className="text-[11px] text-slate-400">Custom display title (optional)
+                    <input type="text" maxLength={120} value={currentOverride?.displayTitle || ''} onChange={(e) => updateOverride({ displayTitle: e.target.value })} placeholder={selectedJob?.title || 'Use original job title'} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white" />
+                  </label>
+                </div>
+              );
+            })()}
           </div>
         </div>
 

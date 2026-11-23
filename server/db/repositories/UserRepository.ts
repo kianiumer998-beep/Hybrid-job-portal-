@@ -832,14 +832,22 @@ export class UserRepository {
     const now = new Date().toISOString();
     const updatedAt = now;
     const increments: Record<string, number> = {};
+    const parseTemplateUsageKey = (key: string) => {
+      const separator = key.lastIndexOf('::');
+      const templateId = separator > 0 ? key.slice(0, separator) : key;
+      const field = separator > 0 ? key.slice(separator + 2) : 'editCount';
+      if (!['editCount', 'createCount'].includes(field)) throw new Error('Invalid per-design CV usage field.');
+      return { templateId, field };
+    };
     if (createCount > 0) {
       increments['cvPackageEntitlements.$[grant].usage.cvCreateLimit'] = createCount;
     }
     if (editCount > 0) {
       increments['cvPackageEntitlements.$[grant].usage.editLimit'] = editCount;
     }
-    for (const [templateId, usage] of Object.entries(templateEditUsage)) {
-      increments[`cvTemplateUsage.${templateId}.editCount`] = usage.count;
+    for (const [usageKey, usage] of Object.entries(templateEditUsage)) {
+      const parsed = parseTemplateUsageKey(usageKey);
+      increments[`cvTemplateUsage.${parsed.templateId}.${parsed.field}`] = usage.count;
     }
     if (isTest()) {
       const existing = inMemoryUsers.get(cleanUserId);
@@ -855,8 +863,9 @@ export class UserRepository {
       }) : null;
       if (usesPackageQuota && !grant) return null;
       const templateUsage = existing.cvTemplateUsage || {};
-      for (const [templateId, usage] of Object.entries(templateEditUsage)) {
-        const used = Number(templateUsage?.[templateId]?.editCount || 0);
+      for (const [usageKey, usage] of Object.entries(templateEditUsage)) {
+        const parsed = parseTemplateUsageKey(usageKey);
+        const used = Number(templateUsage?.[parsed.templateId]?.[parsed.field] || 0);
         if (used + usage.count > usage.limit) return null;
       }
       const updatedGrant = grant ? { ...grant, usage: {
@@ -866,8 +875,12 @@ export class UserRepository {
       }} : null;
       const updatedList = grant ? list.map((item: any) => item?.transactionId === cleanTransactionId ? updatedGrant : item) : list;
       const updatedTemplateUsage = { ...templateUsage };
-      for (const [templateId, usage] of Object.entries(templateEditUsage)) {
-        updatedTemplateUsage[templateId] = { ...(updatedTemplateUsage[templateId] || {}), editCount: Number(updatedTemplateUsage[templateId]?.editCount || 0) + usage.count };
+      for (const [usageKey, usage] of Object.entries(templateEditUsage)) {
+        const parsed = parseTemplateUsageKey(usageKey);
+        updatedTemplateUsage[parsed.templateId] = {
+          ...(updatedTemplateUsage[parsed.templateId] || {}),
+          [parsed.field]: Number(updatedTemplateUsage[parsed.templateId]?.[parsed.field] || 0) + usage.count
+        };
       }
       const updated = { ...existing, cvDocuments: documents, cvData: activeCvData, cvPackageEntitlements: updatedList, ...(Object.keys(templateEditUsage).length ? { cvTemplateUsage: updatedTemplateUsage } : {}), updatedAt };
       inMemoryUsers.set(cleanUserId, updated);
@@ -887,8 +900,9 @@ export class UserRepository {
       const filter: Record<string, any> = { id: cleanUserId };
       if (usesPackageQuota) filter.cvPackageEntitlements = { $elemMatch: elemMatch };
       const templateConditions: any[] = [];
-      for (const [templateId, usage] of Object.entries(templateEditUsage)) {
-        const field = `cvTemplateUsage.${templateId}.editCount`;
+      for (const [usageKey, usage] of Object.entries(templateEditUsage)) {
+        const parsed = parseTemplateUsageKey(usageKey);
+        const field = `cvTemplateUsage.${parsed.templateId}.${parsed.field}`;
         templateConditions.push({ $or: [{ [field]: { $lte: usage.limit - usage.count } }, { [field]: { $exists: false } }] });
       }
       if (templateConditions.length) filter.$and = templateConditions;
@@ -922,8 +936,9 @@ export class UserRepository {
       editCount <= Math.max(0, editLimit - Number(item?.usage?.editLimit || 0))) : null;
     if (usesPackageQuota && !grant) return null;
     const templateUsage = existing.cvTemplateUsage || {};
-    for (const [templateId, usage] of Object.entries(templateEditUsage)) {
-      if (Number(templateUsage?.[templateId]?.editCount || 0) + usage.count > usage.limit) return null;
+    for (const [usageKey, usage] of Object.entries(templateEditUsage)) {
+      const parsed = parseTemplateUsageKey(usageKey);
+      if (Number(templateUsage?.[parsed.templateId]?.[parsed.field] || 0) + usage.count > usage.limit) return null;
     }
     const updatedList = grant ? list.map((item: any) => item?.transactionId === cleanTransactionId ? {
       ...item, usage: { ...(item.usage || {}),
@@ -932,8 +947,12 @@ export class UserRepository {
       }
     } : item) : list;
     const updatedTemplateUsage = { ...templateUsage };
-    for (const [templateId, usage] of Object.entries(templateEditUsage)) {
-      updatedTemplateUsage[templateId] = { ...(updatedTemplateUsage[templateId] || {}), editCount: Number(updatedTemplateUsage[templateId]?.editCount || 0) + usage.count };
+    for (const [usageKey, usage] of Object.entries(templateEditUsage)) {
+      const parsed = parseTemplateUsageKey(usageKey);
+      updatedTemplateUsage[parsed.templateId] = {
+        ...(updatedTemplateUsage[parsed.templateId] || {}),
+        [parsed.field]: Number(updatedTemplateUsage[parsed.templateId]?.[parsed.field] || 0) + usage.count
+      };
     }
     return Database.updateUser(cleanUserId, { cvDocuments: documents, cvData: activeCvData, cvPackageEntitlements: updatedList, ...(Object.keys(templateEditUsage).length ? { cvTemplateUsage: updatedTemplateUsage } : {}), updatedAt });
   }

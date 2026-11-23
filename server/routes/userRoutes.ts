@@ -1119,6 +1119,14 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
           const editCovered = editCount === 0 || editLimit === 0 || editCount <= editRemaining;
           return createCovered && editCovered && ((createCount > 0 && createLimit > 0) || (editCount > 0 && editLimit > 0));
         });
+        // Never fall back to an unrestricted save when an active package explicitly governs
+        // the action being performed. If separate grants cannot safely cover a combined save,
+        // reject it rather than silently bypassing either package quota.
+        const createQuotaConfigured = createCount > 0 && activeGrants.some((item: any) => Number(item?.limits?.cvCreateLimit || 0) > 0);
+        const editQuotaConfigured = editCount > 0 && activeGrants.some((item: any) => Number(item?.limits?.editLimit || 0) > 0);
+        if (!grant && (createQuotaConfigured || editQuotaConfigured)) {
+          return res.status(403).json({ success: false, message: 'Your active CV package does not have enough remaining creation or edit quota for this save. Please review your package usage or purchase another package.' });
+        }
         if (grant) {
           const packageCreateCount = Number(grant.limits?.cvCreateLimit || 0) > 0 ? createCount : 0;
           const packageEditCount = Number(grant.limits?.editLimit || 0) > 0 ? editCount : 0;

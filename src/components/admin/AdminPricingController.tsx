@@ -61,6 +61,12 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
       minCampaignDurationDays: 3,
       maxCampaignDurationDays: 90
     },
+    earlyAccess: {
+      enabled: false, sourceTypes: ['scraped', 'user_posted', 'admin_created'], durationHours: 24,
+      showOnLanding: true, showJobCount: true, showCountdown: true, maxJobs: 10,
+      heading: 'Premium Early Access', description: 'Explore selected jobs before they become available to other members.',
+      displayFields: ['title', 'company', 'department', 'city', 'deadlineDate'], showSource: true
+    },
     subscriptions: {
       freeTierPrice: 0,
       proMonthlyPkr: 1200,
@@ -107,6 +113,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
           jobPosting: { ...prev.jobPosting, ...(data.pricing.jobPosting || {}) },
           advertisements: { ...prev.advertisements, ...(data.pricing.advertisements || {}) },
           subscriptions: { ...prev.subscriptions, ...(data.pricing.subscriptions || {}) },
+          earlyAccess: { ...prev.earlyAccess, ...(data.pricing.earlyAccess || {}) },
           cvBuilder: { ...prev.cvBuilder, ...(data.pricing.cvBuilder || {}), templates: Array.isArray(data.pricing.cvBuilder?.templates) ? data.pricing.cvBuilder.templates : prev.cvBuilder.templates }
         }));
       } else {
@@ -614,6 +621,97 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
           <p className="text-[11px] text-slate-500">
             Older advertisement rate fields remain preserved in the saved configuration for backward compatibility. They are not edited here and are not the active campaign-calculation source.
           </p>
+        </div>
+
+        {/* Premium Early Job Access — persisted through the existing authoritative pricing configuration. */}
+        <div className="bg-slate-900 border border-emerald-500/30 rounded-2xl p-6 space-y-4 lg:col-span-2">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
+            <div className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-emerald-400" />
+              <div>
+                <h3 className="font-bold text-white text-base">Premium Early Job Access</h3>
+                <p className="text-[11px] text-slate-400">Give active Premium members a configurable time advantage.</p>
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-xs font-bold text-slate-300">
+              Enable Early Access
+              <input type="checkbox" checked={pricing.earlyAccess?.enabled === true} onChange={(e) => setPricing((prev: any) => ({ ...prev, earlyAccess: { ...prev.earlyAccess, enabled: e.target.checked } }))} />
+            </label>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="block text-xs text-slate-300 font-semibold">Early access duration (hours)</label>
+              <input type="number" min="1" max="8760" step="1" value={pricing.earlyAccess?.durationHours ?? 24} onChange={(e) => setPricing((prev: any) => ({ ...prev, earlyAccess: { ...prev.earlyAccess, durationHours: Math.max(1, Math.min(8760, Math.floor(Number(e.target.value) || 1))) } }))} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white" />
+              <p className="text-[10px] text-slate-500">24 hours = 1 day; 48 hours = 2 days.</p>
+            </div>
+            <div className="space-y-2">
+              <label className="block text-xs text-slate-300 font-semibold">Maximum landing-page jobs</label>
+              <input type="number" min="1" max="100" value={pricing.earlyAccess?.maxJobs ?? 10} onChange={(e) => setPricing((prev: any) => ({ ...prev, earlyAccess: { ...prev.earlyAccess, maxJobs: Math.max(1, Math.min(100, Math.floor(Number(e.target.value) || 1))) } }))} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <span className="block text-xs text-slate-300 font-semibold">Apply Early Access to job sources (multiple selection allowed)</span>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {[
+                { id: 'scraped', label: 'Scraper jobs' },
+                { id: 'user_posted', label: 'User-posted jobs' },
+                { id: 'admin_created', label: 'Admin-posted jobs' }
+              ].map((source) => (
+                <label key={source.id} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200">
+                  <input type="checkbox" checked={(pricing.earlyAccess?.sourceTypes || []).includes(source.id)} onChange={(e) => setPricing((prev: any) => {
+                    const current = prev.earlyAccess?.sourceTypes || [];
+                    const next = e.target.checked ? [...current, source.id] : current.filter((item: string) => item !== source.id);
+                    return { ...prev, earlyAccess: { ...prev.earlyAccess, sourceTypes: next } };
+                  })} />
+                  {source.label}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {[
+              { key: 'showOnLanding', label: 'Show Early Access section on landing page' },
+              { key: 'showJobCount', label: 'Show available job count' },
+              { key: 'showCountdown', label: 'Show countdown timer' },
+              { key: 'showSource', label: 'Show job source / department label' }
+            ].map((item) => (
+              <label key={item.key} className="flex items-center gap-2 text-xs text-slate-300">
+                <input type="checkbox" checked={pricing.earlyAccess?.[item.key] !== false} onChange={(e) => setPricing((prev: any) => ({ ...prev, earlyAccess: { ...prev.earlyAccess, [item.key]: e.target.checked } }))} />
+                {item.label}
+              </label>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-slate-300 mb-1">Landing section heading</label>
+              <input type="text" maxLength={100} value={pricing.earlyAccess?.heading || ''} onChange={(e) => setPricing((prev: any) => ({ ...prev, earlyAccess: { ...prev.earlyAccess, heading: e.target.value } }))} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-300 mb-1">Landing section description</label>
+              <input type="text" maxLength={300} value={pricing.earlyAccess?.description || ''} onChange={(e) => setPricing((prev: any) => ({ ...prev, earlyAccess: { ...prev.earlyAccess, description: e.target.value } }))} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white text-sm" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <span className="block text-xs text-slate-300 font-semibold">Fields visible in the Premium Early Access dropdown</span>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {[
+                ['title', 'Job title'], ['company', 'Company'], ['department', 'Department'],
+                ['city', 'City'], ['province', 'Province'], ['jobType', 'Job type'],
+                ['deadlineDate', 'Deadline'], ['salary', 'Salary'], ['totalVacancies', 'Vacancies'],
+                ['experienceLevel', 'Experience'], ['jobCategory', 'Job category']
+              ].map(([field, label]) => (
+                <label key={field} className="flex items-center gap-2 text-[11px] text-slate-300">
+                  <input type="checkbox" checked={(pricing.earlyAccess?.displayFields || []).includes(field)} onChange={(e) => setPricing((prev: any) => {
+                    const current = prev.earlyAccess?.displayFields || [];
+                    const next = e.target.checked ? [...current, field] : current.filter((item: string) => item !== field);
+                    return { ...prev, earlyAccess: { ...prev.earlyAccess, displayFields: next } };
+                  })} />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <p className="text-[10px] text-slate-500">Sensitive internal moderation, payment and scraper-control fields are never selectable here.</p>
+          </div>
         </div>
 
         {/* 3. Subscriptions & Candidate Plans */}

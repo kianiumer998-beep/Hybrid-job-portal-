@@ -937,7 +937,8 @@ export class UserRepository {
       durationDays,
       limits,
       usage: { cvCreateLimit: 0, editLimit: 0, pdfExportLimit: 0, atsExportLimit: 0, shareLimit: 0 },
-      noWatermark: packageSnapshot.noWatermark === true
+      noWatermark: packageSnapshot.noWatermark === true,
+      premiumDesignIds: Array.isArray(packageSnapshot.premiumDesignIds) ? Array.from(new Set(packageSnapshot.premiumDesignIds.filter((id: any) => typeof id === 'string').map((id: string) => id.trim()).filter((id: string) => /^[a-zA-Z0-9_-]{1,80}$/.test(id)))).slice(0, 30) : []
     };
     if (!Number.isFinite(entitlement.pricePkr) || entitlement.pricePkr <= 0) throw new Error('CV package price is invalid.');
     const updatedAt = grantedAt;

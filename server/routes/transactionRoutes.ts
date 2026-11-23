@@ -672,75 +672,114 @@ transactionRouter.post('/', async (req, res) => {
         };
       } else if (effectiveType === 'CV Design Purchase') {
         if (!effectiveUserId || typeof cvTemplateId !== 'string' || !cvTemplateId.trim()) {
-          return res.status(400).json({ success: false, message: 'A signed-in account and valid CV design are required.' });
+          return res.status(400).json({ success: false, message: 'A signed-in account and valid CV design or package are required.' });
         }
         const pricingConfig = (await PricingRepository.get()) || {};
         const cvSettings = pricingConfig.cvBuilder || {};
-        const templates = Array.isArray(cvSettings.templates) ? cvSettings.templates : [];
         const purchaseId = cvTemplateId.trim();
-        const selectedTemplate = templates.find((item: any) => item && item.id === purchaseId);
-        if (!selectedTemplate || selectedTemplate.enabled === false) {
-          return res.status(400).json({ success: false, message: 'This CV design is no longer available.' });
-        }
-        const freeDesignLimit = Math.min(5, Math.max(0, Math.floor(Number(cvSettings.freeDesignLimit ?? 2))));
-        const freeTemplateIds = new Set(templates
-          .filter((item: any) => item && item.enabled !== false && item.free === true)
-          .slice(0, freeDesignLimit)
-          .map((item: any) => String(item.id)));
-        if (freeTemplateIds.has(purchaseId)) {
-          return res.status(400).json({ success: false, message: 'This CV design is free under the current Admin policy and does not require a purchase.' });
-        }
-        enforcedAmount = Number(selectedTemplate.pricePkr);
-        if (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0 || enforcedAmount > 10000000) {
-          return res.status(400).json({ success: false, message: 'The administrator has not configured a valid one-time price for this CV design.' });
-        }
-        const purchaseName = String(selectedTemplate.name || selectedTemplate.id).slice(0, 80);
         const expectedCvPrice = Number(expectedAmount);
-        if (!Number.isFinite(expectedCvPrice) || Math.abs(expectedCvPrice - enforcedAmount) > 0.01) {
-          return res.status(409).json({ success: false, message: 'The CV design price has changed. Please review the updated price and try again.' });
-        }
-        const cvOwner = await UserRepository.getByIdAsync(effectiveUserId);
-        if (!cvOwner) return res.status(404).json({ success: false, message: 'Your account could not be found.' });
-        const ownedDesigns = Array.isArray(cvOwner.cvDesignEntitlements) ? cvOwner.cvDesignEntitlements : [];
-        const existingCvTransactions = await PaymentRepository.getAllAsync(effectiveUserId);
-        const activePurchase = existingCvTransactions.find((item: any) =>
-          item && item.type === 'CV Design Purchase' && item.cvTemplateId === purchaseId &&
-          ['Pending', 'Verifying', 'VerificationUncertain', 'Success'].includes(String(item.status))
-        );
-        if (activePurchase) {
-          const confirmedEntitlement = ownedDesigns.find((item: any) =>
-            item?.templateId === purchaseId && String(item?.transactionId || '') === String(activePurchase.id)
-          );
-          if (activePurchase.status === 'Pending' && activePurchase.paymentMethod === 'Wallet Balance' && confirmedEntitlement) {
-            const reconciled = await PaymentRepository.updateAsync(activePurchase.id, {
-              status: 'Success',
-              walletMutationState: 'DEDUCTED',
-              cvEntitlementGranted: true,
-              verifiedAt: activePurchase.verifiedAt || new Date().toISOString(),
-              adminNote: activePurchase.adminNote || 'Wallet purchase reconciled from the confirmed account entitlement.'
-            });
-            if (reconciled) {
-              return res.json({ success: true, transaction: reconciled, message: 'Your previous wallet purchase has been reconciled and the CV item is unlocked.' });
-            }
+        if (purchaseId.startsWith('cvpkg:')) {
+          const packageId = purchaseId.slice('cvpkg:'.length).trim();
+          const packages = Array.isArray(cvSettings.packages) ? cvSettings.packages : [];
+          const selectedPackage = packages.find((item: any) => item && String(item.id) === packageId && item.enabled !== false);
+          if (!selectedPackage) return res.status(400).json({ success: false, message: 'This CV package is no longer available.' });
+          enforcedAmount = Number(selectedPackage.pricePkr);
+          const durationDays = Number(selectedPackage.durationDays);
+          const quotaFields = ['cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit'];
+          const validQuotas = quotaFields.every((field) => Number.isInteger(Number(selectedPackage[field])) && Number(selectedPackage[field]) >= 0 && Number(selectedPackage[field]) <= 10000);
+          if (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0 || enforcedAmount > 10000000 ||
+            !Number.isInteger(durationDays) || durationDays <= 0 || durationDays > 3650 || !validQuotas) {
+            return res.status(400).json({ success: false, message: 'The administrator has not configured a valid price, validity or quota for this CV package.' });
           }
-          return res.status(409).json({
-            success: false,
-            transaction: activePurchase,
-            message: activePurchase.status === 'Success'
-              ? 'This CV design or export has already been purchased.'
-              : 'A payment for this CV item is already awaiting verification.'
-          });
+          if (!Number.isFinite(expectedCvPrice) || Math.abs(expectedCvPrice - enforcedAmount) > 0.01) {
+            return res.status(409).json({ success: false, message: 'The CV package price has changed. Please review the updated price and try again.' });
+          }
+          const cvOwner = await UserRepository.getByIdAsync(effectiveUserId);
+          if (!cvOwner) return res.status(404).json({ success: false, message: 'Your account could not be found.' });
+          const existingPackageTransactions = await PaymentRepository.getAllAsync(effectiveUserId);
+          const pendingPackagePurchase = existingPackageTransactions.find((item: any) => item && item.type === 'CV Design Purchase' && item.cvTemplateId === purchaseId && ['Pending', 'Verifying', 'VerificationUncertain'].includes(String(item.status)));
+          if (pendingPackagePurchase) {
+            const alreadyGranted = (Array.isArray(cvOwner.cvPackageEntitlements) ? cvOwner.cvPackageEntitlements : [])
+              .some((entry: any) => String(entry?.transactionId || '') === String(pendingPackagePurchase.id));
+            if (alreadyGranted && pendingPackagePurchase.paymentMethod === 'Wallet Balance' &&
+              ['Pending', 'VerificationUncertain'].includes(String(pendingPackagePurchase.status))) {
+              const reconciled = await PaymentRepository.updateAsync(pendingPackagePurchase.id, {
+                status: 'Success',
+                walletMutationState: 'DEDUCTED',
+                cvPackageEntitlementGranted: true,
+                verifiedAt: pendingPackagePurchase.verifiedAt || new Date().toISOString(),
+                adminNote: pendingPackagePurchase.adminNote || 'Wallet CV package purchase reconciled from the confirmed account entitlement.'
+              });
+              if (reconciled) return res.json({ success: true, transaction: reconciled, message: 'Your previous wallet CV package purchase has been reconciled and activated.' });
+            }
+            return res.status(409).json({ success: false, transaction: pendingPackagePurchase, message: 'A payment for this CV package is already awaiting verification.' });
+          }
+          const packageName = String(selectedPackage.name || packageId).slice(0, 80);
+          (req as any).cvPurchaseSnapshot = {
+            kind: 'package',
+            packageId,
+            packageName,
+            pricePkr: enforcedAmount,
+            durationDays,
+            cvCreateLimit: Number(selectedPackage.cvCreateLimit),
+            editLimit: Number(selectedPackage.editLimit),
+            pdfExportLimit: Number(selectedPackage.pdfExportLimit),
+            atsExportLimit: Number(selectedPackage.atsExportLimit),
+            shareLimit: Number(selectedPackage.shareLimit),
+            noWatermark: selectedPackage.noWatermark === true,
+            timestamp: new Date().toISOString()
+          };
+          pricingBreakdown = [{ name: `${packageName} CV Package (${durationDays} days)`, amount: enforcedAmount }];
+        } else {
+          const templates = Array.isArray(cvSettings.templates) ? cvSettings.templates : [];
+          const selectedTemplate = templates.find((item: any) => item && item.id === purchaseId);
+          if (!selectedTemplate || selectedTemplate.enabled === false) {
+            return res.status(400).json({ success: false, message: 'This CV design is no longer available.' });
+          }
+          const freeDesignLimit = Math.min(5, Math.max(0, Math.floor(Number(cvSettings.freeDesignLimit ?? 2))));
+          const freeTemplateIds = new Set(templates.filter((item: any) => item && item.enabled !== false && item.free === true).slice(0, freeDesignLimit).map((item: any) => String(item.id)));
+          if (freeTemplateIds.has(purchaseId)) {
+            return res.status(400).json({ success: false, message: 'This CV design is free under the current Admin policy and does not require a purchase.' });
+          }
+          enforcedAmount = Number(selectedTemplate.pricePkr);
+          if (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0 || enforcedAmount > 10000000) {
+            return res.status(400).json({ success: false, message: 'The administrator has not configured a valid one-time price for this CV design.' });
+          }
+          const purchaseName = String(selectedTemplate.name || selectedTemplate.id).slice(0, 80);
+          if (!Number.isFinite(expectedCvPrice) || Math.abs(expectedCvPrice - enforcedAmount) > 0.01) {
+            return res.status(409).json({ success: false, message: 'The CV design price has changed. Please review the updated price and try again.' });
+          }
+          const cvOwner = await UserRepository.getByIdAsync(effectiveUserId);
+          if (!cvOwner) return res.status(404).json({ success: false, message: 'Your account could not be found.' });
+          const ownedDesigns = Array.isArray(cvOwner.cvDesignEntitlements) ? cvOwner.cvDesignEntitlements : [];
+          const existingCvTransactions = await PaymentRepository.getAllAsync(effectiveUserId);
+          const activePurchase = existingCvTransactions.find((item: any) =>
+            item && item.type === 'CV Design Purchase' && item.cvTemplateId === purchaseId &&
+            ['Pending', 'Verifying', 'VerificationUncertain', 'Success'].includes(String(item.status))
+          );
+          if (activePurchase) {
+            const confirmedEntitlement = ownedDesigns.find((item: any) => item?.templateId === purchaseId && String(item?.transactionId || '') === String(activePurchase.id));
+            if (activePurchase.status === 'Pending' && activePurchase.paymentMethod === 'Wallet Balance' && confirmedEntitlement) {
+              const reconciled = await PaymentRepository.updateAsync(activePurchase.id, {
+                status: 'Success', walletMutationState: 'DEDUCTED', cvEntitlementGranted: true,
+                verifiedAt: activePurchase.verifiedAt || new Date().toISOString(),
+                adminNote: activePurchase.adminNote || 'Wallet purchase reconciled from the confirmed account entitlement.'
+              });
+              if (reconciled) return res.json({ success: true, transaction: reconciled, message: 'Your previous wallet purchase has been reconciled and the CV item is unlocked.' });
+            }
+            return res.status(409).json({
+              success: false, transaction: activePurchase,
+              message: activePurchase.status === 'Success' ? 'This CV design has already been purchased.' : 'A payment for this CV item is already awaiting verification.'
+            });
+          }
+          if (ownedDesigns.some((item: any) => item?.templateId === purchaseId)) {
+            return res.status(409).json({ success: false, message: 'You already own this CV design.' });
+          }
+          (req as any).cvPurchaseSnapshot = {
+            templateId: purchaseId, templateName: purchaseName, pricePkr: enforcedAmount, timestamp: new Date().toISOString()
+          };
+          pricingBreakdown = [{ name: `${purchaseName} (one-time)`, amount: enforcedAmount }];
         }
-        if (ownedDesigns.some((item: any) => item?.templateId === purchaseId)) {
-          return res.status(409).json({ success: false, message: 'You already own this CV design.' });
-        }
-        (req as any).cvPurchaseSnapshot = {
-          templateId: purchaseId,
-          templateName: purchaseName,
-          pricePkr: enforcedAmount,
-          timestamp: new Date().toISOString()
-        };
-        pricingBreakdown = [{ name: `${purchaseName} (one-time)`, amount: enforcedAmount }];
       } else if (effectiveType === 'Subscription') {
         const rawPlan = typeof plan === 'string' ? plan.trim() : '';
         const pricingConfig = (await PricingRepository.get()) || {};
@@ -1248,24 +1287,26 @@ transactionRouter.post('/', async (req, res) => {
             );
             walletMutationState = 'DEDUCTING';
             newTx.walletMutationState = 'DEDUCTING';
-            const purchase = await UserRepository.purchaseCvDesignWithWalletAsync(
-              effectiveUserId,
-              enforcedAmount,
-              {
-                templateId: purchaseSnapshot.templateId,
-                templateName: purchaseSnapshot.templateName,
-                transactionId: newTx.id,
-                amount: enforcedAmount,
-                purchasedAt: new Date().toISOString()
-              }
-            );
+            const purchase = purchaseSnapshot?.kind === 'package'
+              ? await UserRepository.purchaseCvPackageWithWalletAsync(effectiveUserId, enforcedAmount, purchaseSnapshot, newTx.id)
+              : await UserRepository.purchaseCvDesignWithWalletAsync(
+                  effectiveUserId,
+                  enforcedAmount,
+                  {
+                    templateId: purchaseSnapshot.templateId,
+                    templateName: purchaseSnapshot.templateName,
+                    transactionId: newTx.id,
+                    amount: enforcedAmount,
+                    purchasedAt: new Date().toISOString()
+                  }
+                );
             if (!purchase.ok || !purchase.user) {
               walletMutationState = 'NONE';
               const reason = purchase.reason === 'already_owned'
                 ? 'You already own this CV design.'
                 : purchase.reason === 'insufficient'
-                  ? 'Your wallet balance is insufficient for this CV design.'
-                  : 'Your account could not be updated for this CV design purchase.';
+                  ? 'Your wallet balance is insufficient for this CV purchase.'
+                  : 'Your account could not be updated for this CV purchase.';
               throw new Error(reason);
             }
             walletMutationState = 'DEDUCTED';
@@ -1277,12 +1318,14 @@ transactionRouter.post('/', async (req, res) => {
                 walletMutationState: 'DEDUCTED',
                 balanceBefore: effectiveBalanceBefore,
                 balanceAfter: effectiveBalanceAfter,
-                cvEntitlementGranted: true,
+                cvEntitlementGranted: purchaseSnapshot?.kind !== 'package',
+                cvPackageEntitlementGranted: purchaseSnapshot?.kind === 'package',
                 updatedAt: new Date().toISOString()
               }
             );
             newTx.walletMutationState = 'DEDUCTED';
-            newTx.cvEntitlementGranted = true;
+            newTx.cvEntitlementGranted = purchaseSnapshot?.kind !== 'package';
+            newTx.cvPackageEntitlementGranted = purchaseSnapshot?.kind === 'package';
           } else if (effectiveType === 'Subscription') {
             await persistTransactionState(
               newTx.id,

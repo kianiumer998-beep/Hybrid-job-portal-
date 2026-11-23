@@ -556,6 +556,10 @@ userRouter.post('/subscription/renewal-preference', requireAuth, async (req: any
       const pricing = await PricingRepository.get();
       const pkg = (pricing?.subscriptionPackages || []).find((item: any) => item?.id === packageId && item.enabled === true);
       if (!pkg) return res.status(400).json({ success: false, message: 'The selected renewal package is unavailable.' });
+      const consentedMaxAmount = Number(pkg.pricePkr);
+      if (!Number.isSafeInteger(consentedMaxAmount) || consentedMaxAmount <= 0) {
+        return res.status(400).json({ success: false, message: 'The selected package does not have a valid positive PKR price for auto-renewal.' });
+      }
       const user = await UserRepository.getByIdAsync(userId);
       if (!user) return res.status(404).json({ success: false, message: 'User account not found.' });
       if (user.membershipStatus !== 'Active' || !user.subscriptionExpiresAt || Date.parse(String(user.subscriptionExpiresAt)) <= Date.now()) {
@@ -565,6 +569,7 @@ userRouter.post('/subscription/renewal-preference', requireAuth, async (req: any
         autoRenew: true,
         autoRenewPackageId: packageId,
         autoRenewPaymentMethod: 'Wallet Balance',
+        autoRenewMaxAmountPkr: consentedMaxAmount,
         autoRenewConsentAt: new Date().toISOString(),
         autoRenewConsentVersion: 'wallet-auto-renew-v1'
       });

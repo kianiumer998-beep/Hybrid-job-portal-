@@ -264,7 +264,7 @@ function createCvPdf(lines: string[], watermarkText?: string, watermarkOpacity: 
   for (let i = 0; i < wrapped.length; i += 48) pages.push(wrapped.slice(i, i + 48));
   if (!pages.length) pages.push(['Professional CV']);
   const objects: string[] = [];
-  const pageIds = pages.map((_, index) => 5 + index * 2);
+  const pageIds = pages.map((_, index) => 6 + index * 2);
   objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
   objects[2] = '<< /Type /Pages /Kids [' + pageIds.map((id) => id + ' 0 R').join(' ') + '] /Count ' + pages.length + ' >>';
   objects[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>';

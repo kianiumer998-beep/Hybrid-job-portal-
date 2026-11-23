@@ -601,6 +601,7 @@ userRouter.get('/:id', requireAuth, async (req: any, res) => {
 
     const { passwordHash, salt, password, cvData, cvDocuments, ...safeUser } = user;
     delete safeUser.walletEscrowOperations;
+    delete safeUser.subscriptionSlotOperations;
     // CV drafts and saved CV documents are private to their owner, not exposed to administrators viewing another account.
     if (String(id) === String(currentUserId)) {
       if (cvData !== undefined) safeUser.cvData = cvData;

@@ -14,6 +14,7 @@ interface CvBuilderProps {
   onSaveCv: (data: CvData) => Promise<boolean> | boolean;
   onConsumeCvAction?: (action: 'pdf' | 'ats' | 'share', templateId: string) => Promise<any>;
   onExportCv?: (format: 'pdf' | 'ats', cvData: CvData) => Promise<any>;
+  onGenerateCvAiText?: (payload: { action: 'improve_summary' | 'rewrite_bullet'; text: string; jobTitle?: string }) => Promise<any>;
   onOpenPaywall: () => void;
   cvBuilderSettings?: any;
 }
@@ -97,7 +98,7 @@ const normalizeCvData = (value?: CvData): CvData => {
   };
 };
 
-export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, initialCvDocuments, cvDesignEntitlements = [], cvPackageEntitlements = [], onPurchaseTemplate, onSaveCvDocuments, onSaveCv, onConsumeCvAction, onExportCv, onOpenPaywall, cvBuilderSettings = {} }) => {
+export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, initialCvDocuments, cvDesignEntitlements = [], cvPackageEntitlements = [], onPurchaseTemplate, onSaveCvDocuments, onSaveCv, onConsumeCvAction, onExportCv, onGenerateCvAiText, onOpenPaywall, cvBuilderSettings = {} }) => {
   const [step, setStep] = useState<number>(1);
   const [isSavingCv, setIsSavingCv] = useState(false);
   const [exportNoWatermarkOverride, setExportNoWatermarkOverride] = useState(false);
@@ -285,6 +286,32 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     }
   };
 
+  const handleApplyAiSuggestion = (action: 'improve_summary' | 'rewrite_bullet', text: string) => {
+    const suggestion = String(text || '').trim();
+    if (!suggestion) return;
+    if (action === 'improve_summary') {
+      setCvData((previous) => ({ ...previous, personalInfo: { ...previous.personalInfo, summary: suggestion } }));
+    } else {
+      if (!cvData.experience.length) {
+        setCvSaveMessage({ type: 'error', text: 'Add a work-experience entry before applying an experience bullet.' });
+        return;
+      }
+      setCvData((previous) => {
+        const targetIndex = previous.experience.findIndex((item) => Array.isArray(item.bullets) && item.bullets.length > 0);
+        const index = targetIndex >= 0 ? targetIndex : 0;
+        const experience = previous.experience.map((item, itemIndex) => {
+          if (itemIndex !== index) return item;
+          const bullets = [...(item.bullets || [])];
+          if (bullets.length) bullets[0] = suggestion;
+          else bullets.push(suggestion);
+          return { ...item, bullets };
+        });
+        return { ...previous, experience };
+      });
+    }
+    setCvSaveMessage({ type: 'success', text: 'AI suggestion added to your CV draft. Select Save CV to keep the change.' });
+  };
+
   const handleDownloadAtsText = async () => downloadServerCvExport('ats');
 
   // Trigger a server-generated PDF file; browser print is not used for quota-controlled exports.
@@ -439,7 +466,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
         {cvNextSteps.length > 0 ? <div className="mt-3 flex flex-wrap gap-2">{cvNextSteps.map((item) => <span key={item.label} className="rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-[11px] text-amber-200">Add: {item.label}</span>)}</div> : <p className="mt-3 text-xs font-semibold text-emerald-300">Great work — all essential checklist items are complete.</p>}
       </section>
 
-      <CvToolsPanel cvData={cvData} settings={cvBuilderSettings} />
+      <CvToolsPanel cvData={cvData} settings={cvBuilderSettings} onGenerateAiText={onGenerateCvAiText} onApplyAiSuggestion={handleApplyAiSuggestion} />
 
       {/* Main Builder Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">

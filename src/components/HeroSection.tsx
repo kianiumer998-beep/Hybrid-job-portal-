@@ -1,6 +1,7 @@
 import React from 'react';
 import { Search, MapPin, Sparkles, ShieldCheck, MessageSquare, ArrowRight, Building2, PlusCircle } from 'lucide-react';
 import { LandingHeroConfig, LandingDesignId, DEFAULT_LANDING_PAGE_CONFIG } from '../types/landing';
+import { PremiumEarlyAccessSection } from './PremiumEarlyAccessSection';
 
 
 interface HeroDesignStyle {
@@ -95,6 +96,7 @@ interface HeroSectionProps {
   totalJobsCount: number;
   heroConfig?: LandingHeroConfig;
   designId?: LandingDesignId;
+  onPremiumClick?: () => void;
 }
 
 export const HeroSection: React.FC<HeroSectionProps> = ({
@@ -103,11 +105,13 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
   onPostJobClick,
   totalJobsCount,
   heroConfig = DEFAULT_LANDING_PAGE_CONFIG.hero,
-  designId = 'legacy'
+  designId = 'legacy',
+  onPremiumClick
 }) => {
   const theme = HERO_DESIGN_STYLES[designId] ?? HERO_DESIGN_STYLES.legacy;
 
   return (
+    <>
     <section className={theme.sectionBg}>
       {/* Subtle Background Glow Elements */}
       <div className={theme.glowGradient} />
@@ -230,5 +234,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
         </div>
       </div>
     </section>
+    <PremiumEarlyAccessSection onUpgrade={() => onPremiumClick?.()} onExplore={onExploreClick} />
+    </>
   );
 };

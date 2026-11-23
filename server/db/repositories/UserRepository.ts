@@ -907,6 +907,108 @@ export class UserRepository {
     return Database.updateUser(cleanUserId, { cvDocuments: documents, cvData: activeCvData, cvPackageEntitlements: updatedList, updatedAt });
   }
 
+  /** Atomically consumes the package quota and optional per-design quota for one CV action. */
+  static async consumeCvActionQuotasAsync(
+    userId: string,
+    templateId: string,
+    action: 'pdfExportLimit' | 'atsExportLimit' | 'shareLimit',
+    packageGrant?: { transactionId: string; limit: number } | null,
+    templateLimit: number = 0
+  ): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanTemplateId = String(templateId || '').trim();
+    if (!cleanUserId || !cleanTemplateId || !['pdfExportLimit', 'atsExportLimit', 'shareLimit'].includes(action) ||
+      !Number.isInteger(templateLimit) || templateLimit < 0 ||
+      (packageGrant && (!String(packageGrant.transactionId || '').trim() || !Number.isInteger(packageGrant.limit) || packageGrant.limit < 1))) {
+      throw new Error('Invalid CV action quota request.');
+    }
+    const now = new Date().toISOString();
+    const updatedAt = now;
+    const designPath = `cvTemplateUsage.${cleanTemplateId}.${action}`;
+    const packagePath = packageGrant ? `cvPackageEntitlements.$[grant].usage.${action}` : '';
+    const increment: Record<string, number> = {};
+    if (packageGrant) increment[packagePath] = 1;
+    if (templateLimit > 0) increment[designPath] = 1;
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+      if (packageGrant && !list.some((item: any) => item?.transactionId === packageGrant.transactionId &&
+        Date.parse(String(item?.expiresAt || '')) > Date.now() &&
+        Number(item?.limits?.[action] || 0) === packageGrant.limit &&
+        Number(item?.usage?.[action] || 0) < packageGrant.limit)) return null;
+      const designUsed = Number(existing.cvTemplateUsage?.[cleanTemplateId]?.[action] || 0);
+      if (templateLimit > 0 && designUsed >= templateLimit) return null;
+      const updatedList = packageGrant ? list.map((item: any) => item?.transactionId === packageGrant.transactionId ? {
+        ...item, usage: { ...(item.usage || {}), [action]: Number(item.usage?.[action] || 0) + 1 }
+      } : item) : list;
+      const updated = {
+        ...existing,
+        cvPackageEntitlements: updatedList,
+        ...(templateLimit > 0 ? { cvTemplateUsage: {
+          ...(existing.cvTemplateUsage || {}),
+          [cleanTemplateId]: { ...(existing.cvTemplateUsage?.[cleanTemplateId] || {}), [action]: designUsed + 1 }
+        }} : {}),
+        updatedAt
+      };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+    if (isMongoActive()) {
+      const filter: Record<string, any> = { id: cleanUserId };
+      if (packageGrant) {
+        filter.cvPackageEntitlements = { $elemMatch: {
+          transactionId: packageGrant.transactionId,
+          expiresAt: { $gt: now },
+          [`limits.${action}`]: packageGrant.limit,
+          [`usage.${action}`]: { $lt: packageGrant.limit }
+        }};
+      }
+      if (templateLimit > 0) {
+        filter.$or = [
+          { [designPath]: { $lt: templateLimit } },
+          { [designPath]: { $exists: false } }
+        ];
+      }
+      const options: any = { returnDocument: 'after' };
+      if (packageGrant) {
+        options.arrayFilters = [{
+          'grant.transactionId': packageGrant.transactionId,
+          'grant.expiresAt': { $gt: now },
+          [`grant.limits.${action}`]: packageGrant.limit,
+          [`grant.usage.${action}`]: { $lt: packageGrant.limit }
+        }];
+      }
+      const updatedDoc = await (await getUsersCollection()).findOneAndUpdate(filter, {
+        ...(Object.keys(increment).length ? { $inc: increment } : {}),
+        $set: { updatedAt }
+      }, options);
+      if (!updatedDoc) return null;
+      const { _id, ...safe } = updatedDoc;
+      return safe;
+    }
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    const list = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+    if (packageGrant && !list.some((item: any) => item?.transactionId === packageGrant.transactionId &&
+      Date.parse(String(item?.expiresAt || '')) > Date.now() &&
+      Number(item?.limits?.[action] || 0) === packageGrant.limit &&
+      Number(item?.usage?.[action] || 0) < packageGrant.limit)) return null;
+    const designUsed = Number(existing.cvTemplateUsage?.[cleanTemplateId]?.[action] || 0);
+    if (templateLimit > 0 && designUsed >= templateLimit) return null;
+    const updatedList = packageGrant ? list.map((item: any) => item?.transactionId === packageGrant.transactionId ? {
+      ...item, usage: { ...(item.usage || {}), [action]: Number(item.usage?.[action] || 0) + 1 }
+    } : item) : list;
+    return Database.updateUser(cleanUserId, {
+      cvPackageEntitlements: updatedList,
+      ...(templateLimit > 0 ? { cvTemplateUsage: {
+        ...(existing.cvTemplateUsage || {}),
+        [cleanTemplateId]: { ...(existing.cvTemplateUsage?.[cleanTemplateId] || {}), [action]: designUsed + 1 }
+      }} : {}),
+      updatedAt
+    });
+  }
+
   /** Atomically consumes a single export/share quota from an active CV package. */
   static async consumeCvPackageQuotaAsync(userId: string, transactionId: string, action: 'pdfExportLimit' | 'atsExportLimit' | 'shareLimit', limit: number): Promise<any | null> {
     const cleanUserId = String(userId || '').trim();

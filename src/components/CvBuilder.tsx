@@ -7,6 +7,7 @@ interface CvBuilderProps {
   initialCvData?: CvData;
   initialCvDocuments?: CvDocument[];
   cvDesignEntitlements?: CvDesignEntitlement[];
+  cvPackageEntitlements?: any[];
   onPurchaseTemplate: (templateId: string, templateName: string, pricePkr: number) => void;
   onSaveCvDocuments?: (documents: CvDocument[], activeData: CvData) => Promise<boolean> | boolean;
   onSaveCv: (data: CvData) => Promise<boolean> | boolean;
@@ -93,7 +94,7 @@ const normalizeCvData = (value?: CvData): CvData => {
   };
 };
 
-export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, initialCvDocuments, cvDesignEntitlements = [], onPurchaseTemplate, onSaveCvDocuments, onSaveCv, onOpenPaywall, cvBuilderSettings = {} }) => {
+export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, initialCvDocuments, cvDesignEntitlements = [], cvPackageEntitlements = [], onPurchaseTemplate, onSaveCvDocuments, onSaveCv, onOpenPaywall, cvBuilderSettings = {} }) => {
   const [step, setStep] = useState<number>(1);
   const [isSavingCv, setIsSavingCv] = useState(false);
   const [cvSaveMessage, setCvSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -798,6 +799,43 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                   })}
                 </div>
               </div>
+              {Array.isArray(cvBuilderSettings.packages) && cvBuilderSettings.packages.some((item: any) => item?.enabled !== false) && (
+                <div className="space-y-2 rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3">
+                  <div>
+                    <h4 className="text-xs font-black text-white">CV Usage Packages</h4>
+                    <p className="mt-1 text-[10px] text-slate-400">One-time payment. Package quotas activate only after wallet payment or administrator approval.</p>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {cvBuilderSettings.packages.filter((item: any) => item && item.enabled !== false).map((pkg: any) => {
+                      const owned = cvPackageEntitlements.find((entry: any) =>
+                        entry?.packageId === pkg.id && Number.isFinite(Date.parse(String(entry?.expiresAt || ''))) && Date.parse(String(entry.expiresAt)) > Date.now()
+                      );
+                      const price = Math.max(0, Number(pkg.pricePkr || 0));
+                      return (
+                        <button key={pkg.id} type="button" disabled={!price || Boolean(owned)} onClick={() => onPurchaseTemplate(`cvpkg:${pkg.id}`, String(pkg.name || 'CV Package'), price)}
+                          className="rounded-lg border border-slate-700 bg-slate-950 p-3 text-left hover:border-indigo-400 disabled:cursor-not-allowed disabled:opacity-60">
+                          <span className="block text-xs font-bold text-white">{pkg.name || 'CV Package'}</span>
+                          <span className="mt-1 block text-[10px] text-slate-400">PKR {price.toLocaleString('en-PK')} · {Number(pkg.durationDays || 0)} days</span>
+                          <span className="mt-1 block text-[10px] text-slate-400">CVs: {pkg.cvCreateLimit ?? 0} · Edits: {pkg.editLimit ?? 0} · PDF: {pkg.pdfExportLimit ?? 0} · ATS: {pkg.atsExportLimit ?? 0} · Shares: {pkg.shareLimit ?? 0}</span>
+                          <span className="mt-2 block text-[10px] font-bold text-indigo-300">{owned ? `Active until ${new Date(owned.expiresAt).toLocaleDateString()}` : 'Purchase package'}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {cvPackageEntitlements.some((entry: any) => Date.parse(String(entry?.expiresAt || '')) > Date.now()) && (
+                <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+                  <p className="text-xs font-bold text-emerald-300">Active CV package entitlements</p>
+                  {cvPackageEntitlements.filter((entry: any) => Date.parse(String(entry?.expiresAt || '')) > Date.now()).map((entry: any) => (
+                    <p key={entry.transactionId} className="mt-1 text-[10px] text-slate-300">
+                      {entry.packageName} · expires {new Date(entry.expiresAt).toLocaleDateString()} ·
+                      CVs {Math.max(0, Number(entry.limits?.cvCreateLimit || 0) - Number(entry.usage?.cvCreateLimit || 0))} remaining ·
+                      edits {Math.max(0, Number(entry.limits?.editLimit || 0) - Number(entry.usage?.editLimit || 0))} remaining
+                    </p>
+                  ))}
+                </div>
+              )}
               <label className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-400">
                 Accent Color
                 <input type="color" value={cvData.themeColor} onChange={(e) => setCvData({ ...cvData, themeColor: e.target.value })} className="h-9 w-14 rounded border border-slate-700 bg-slate-900 cursor-pointer" aria-label="CV accent color" />

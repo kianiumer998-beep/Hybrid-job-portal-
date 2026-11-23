@@ -461,6 +461,24 @@ const JOB_SECTOR_ALIAS_TO_CAT_ID: Record<string, string> = {
   'global remote': 'cat-remote'
 };
 
+function withComputedSubscriptionPrices(pricing: any): any {
+  const catalog = normalizeSubscriptionFeatureCatalog(pricing?.subscriptionFeatureCatalog);
+  const discount = Math.min(100, Math.max(0, Number(pricing?.subscriptionBundleDiscountPercent) || 0));
+  const subscriptionPackages = (Array.isArray(pricing?.subscriptionPackages) ? pricing.subscriptionPackages : []).map((pkg: any) => {
+    const configuredPricePkr = Number(pkg?.configuredPricePkr ?? pkg?.pricePkr ?? 0);
+    if (pkg?.pricingMode !== 'catalog') {
+      return { ...pkg, configuredPricePkr, displayPricePkr: configuredPricePkr };
+    }
+    const ids = Array.isArray(pkg.featureIds) ? Array.from(new Set(pkg.featureIds.map((id: any) => String(id)))) : [];
+    const selected = ids.map((id: string) => catalog.find((item) => item.id === id && item.enabled));
+    const complete = ids.length > 0 && selected.every(Boolean);
+    const subtotal = complete ? selected.reduce((sum: number, item: any) => sum + Number(item.pricePkr || 0), 0) : 0;
+    const calculated = complete ? Math.max(0, Math.round(subtotal * (1 - discount / 100))) : 0;
+    return { ...pkg, configuredPricePkr, pricePkr: calculated, displayPricePkr: calculated, undiscountedPricePkr: subtotal, bundleDiscountPercent: discount };
+  });
+  return { ...pricing, subscriptionPackages };
+}
+
 export class PricingRepository {
   private static mockCollection: any = null;
 
@@ -503,12 +521,12 @@ export class PricingRepository {
         );
         if (doc && doc.settings) {
           return {
-            ...deepMergePricing(buildAuthoritativeDefaults(), doc.settings),
+            ...withComputedSubscriptionPrices(deepMergePricing(buildAuthoritativeDefaults(), doc.settings)),
             isPersistedToMongo: true
           };
         }
         return {
-          ...deepMergePricing(buildAuthoritativeDefaults(), PricingRepository.mockCollection ? {} : Database.getPricing()),
+          ...withComputedSubscriptionPrices(deepMergePricing(buildAuthoritativeDefaults(), PricingRepository.mockCollection ? {} : Database.getPricing())),
           isPersistedToMongo: false,
           isFirstRun: true
         };
@@ -517,7 +535,7 @@ export class PricingRepository {
         throw new Error(`Authoritative configuration database is unavailable: ${err.message}`);
       }
     }
-    return deepMergePricing(buildAuthoritativeDefaults(), Database.getPricing());
+    return withComputedSubscriptionPrices(deepMergePricing(buildAuthoritativeDefaults(), Database.getPricing()));
   }
 
   /**

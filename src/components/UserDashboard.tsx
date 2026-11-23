@@ -172,6 +172,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [renewalPackageId, setRenewalPackageId] = useState<string>(String((currentUser as any).autoRenewPackageId || ''));
   const [renewalPreferenceBusy, setRenewalPreferenceBusy] = useState(false);
   const [renewalPreferenceMessage, setRenewalPreferenceMessage] = useState('');
+  const [postingSlotBusyJobId, setPostingSlotBusyJobId] = useState<string | null>(null);
 
   const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => 
     safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_${currentUser.id}`, 'classic')
@@ -3886,6 +3887,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 const appsError = jobApplicationsError[jobId];
                 const jobApps = jobApplicationsByJobId[jobId] || [];
                 const statusNotice = jobApplicationStatusNotice[jobId];
+                const postingEntitlements = (currentUser as any).subscriptionEntitlements || {};
+                const hasPostingSlot = (featureId: string) => {
+                  const entitlement = postingEntitlements[featureId];
+                  const expiry = Date.parse(String(entitlement?.expiresAt || ''));
+                  return entitlement?.enabled === true && Number.isFinite(expiry) && expiry > Date.now() && Number(entitlement?.remainingSlots || 0) > 0;
+                };
 
                 return (
                   <div key={j.id} className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
@@ -3944,6 +3951,42 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                       </div>
                     </div>
 
+                    {j.status === 'Pending' && !j.subscriptionSlotFeatureId && (
+                      <div className="pt-3 border-t border-slate-800 space-y-2">
+                        <p className="text-[10px] text-slate-400">Use an included subscription posting slot on this pending job. The job will still require normal admin approval.</p>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { tier: 'urgent' as const, featureId: 'urgent_job_posting', label: 'Use Urgent Slot' },
+                            { tier: 'featured' as const, featureId: 'featured_job_posting', label: 'Use Featured Slot' },
+                            { tier: 'premium' as const, featureId: 'premium_job_posting', label: 'Use Premium Slot' }
+                          ].filter((option) => hasPostingSlot(option.featureId)).map((option) => (
+                            <button key={option.tier} type="button" disabled={postingSlotBusyJobId === jobId} onClick={async () => {
+                              const accepted = window.confirm(`Apply one ${option.tier} posting slot to "${j.title}"? One included slot will be used. The job remains pending until admin approval.`);
+                              if (!accepted) return;
+                              setPostingSlotBusyJobId(jobId);
+                              try {
+                                const result: any = await api.jobs.redeemSubscriptionSlot(jobId, option.tier);
+                                if (!result?.success) throw new Error(result?.message || 'Could not apply posting slot.');
+                                window.alert(`Posting slot applied. Remaining slots: ${Number(result.remainingSlots || 0)}. Priority is valid until ${new Date(result.priorityExpiresAt).toLocaleString()} or subscription expiry.`);
+                                window.location.reload();
+                              } catch (error: any) {
+                                window.alert(error?.message || 'Could not apply posting slot.');
+                              } finally {
+                                setPostingSlotBusyJobId(null);
+                              }
+                            }} className="px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-[10px] font-bold disabled:opacity-50">
+                              {postingSlotBusyJobId === jobId ? 'Applying…' : option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {j.subscriptionSlotFeatureId && (
+                      <p className="text-[10px] text-slate-400 border-t border-slate-800 pt-2">
+                        Subscription posting slot: <span className="text-emerald-300 font-bold">{String(j.subscriptionSlotFeatureId).replace(/_job_posting/g, '').replace(/_/g, ' ')}</span>
+                        {j.subscriptionSlotExpiresAt ? ` • Priority expires ${new Date(j.subscriptionSlotExpiresAt).toLocaleString()}` : ''}
+                      </p>
+                    )}
                     {isExpanded && (
                       <div className="pt-3 border-t border-slate-800 space-y-3">
                         {statusNotice && (

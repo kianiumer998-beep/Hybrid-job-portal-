@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { PaymentRepository, PricingRepository, UserRepository } from '../db/repositories';
 import { hasActiveSubscriptionFeature, resolveSubscriptionPackage } from './subscriptionEntitlements';
 import { sendConfiguredPremiumAlert } from './communicationDeliveryService';
+import { dispatchPremiumJobAlertDigests } from './premiumJobAlertService';
 import { NotificationRepository } from '../db/repositories/NotificationRepository';
 
 let reminderTask: ReturnType<typeof cron.schedule> | null = null;
@@ -195,13 +196,14 @@ export async function runSubscriptionReminderTick(now = new Date()): Promise<{ s
     const settings = pricing?.subscriptionReminderSettings || {};
     const users = await UserRepository.getAllAsync();
     const autoRenewed = await processConsentedAutoRenewals(users || [], now);
+    const jobDigests = await dispatchPremiumJobAlertDigests(now);
     if (settings.enabled !== true) {
-      return { scanned: (users || []).length, notified: autoRenewed, skipped: false };
+      return { scanned: (users || []).length, notified: autoRenewed + jobDigests, skipped: false };
     }
     const daysBefore = Number(settings.daysBefore);
     if (!Number.isInteger(daysBefore) || daysBefore < 1 || daysBefore > 30) {
       console.warn('[Subscription Reminder] Invalid reminder lead time; reminder delivery skipped (auto-renewal still processed).');
-      return { scanned: (users || []).length, notified: autoRenewed, skipped: true };
+      return { scanned: (users || []).length, notified: autoRenewed + jobDigests, skipped: true };
     }
 
     const targetStart = now.getTime() + Math.max(0, daysBefore - 1) * 24 * 60 * 60 * 1000;
@@ -241,7 +243,7 @@ export async function runSubscriptionReminderTick(now = new Date()): Promise<{ s
         console.error('[Subscription Reminder] Could not process reminder for user:', user.id, notificationError?.message || notificationError);
       }
     }
-    return { scanned: (users || []).length, notified: notified + autoRenewed, skipped: false };
+    return { scanned: (users || []).length, notified: notified + autoRenewed + jobDigests, skipped: false };
   } finally {
     reminderTickRunning = false;
   }

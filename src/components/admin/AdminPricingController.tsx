@@ -843,7 +843,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                   pricePkr: 500,
                   configuredPricePkr: 500,
                   durationDays: 30,
-                  features: ['Feature 1'],
+                  features: [],
                   featureIds: [],
                   pricingMode: 'fixed',
                   enabled: true

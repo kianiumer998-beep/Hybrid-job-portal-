@@ -122,12 +122,46 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
   // Pricing Matrix Form State
   const [editablePricing, setEditablePricing] = useState<AdPricingConfig>(pricingConfig);
+  const [editableCampaignConfig, setEditableCampaignConfig] = useState<CampaignCustomizationConfig>(campaignConfig);
+  const [isPlacementRatesSaving, setIsPlacementRatesSaving] = useState(false);
+  const [isPlacementRatesSaved, setIsPlacementRatesSaved] = useState(false);
 
   useEffect(() => {
     setEditablePricing(pricingConfig);
   }, [pricingConfig]);
+  useEffect(() => {
+    setEditableCampaignConfig(campaignConfig);
+  }, [campaignConfig]);
   const [isPricingSaved, setIsPricingSaved] = useState<boolean>(false);
   const [isPricingSaving, setIsPricingSaving] = useState<boolean>(false);
+
+  const handleSavePlacementRates = async () => {
+    if (!onUpdateCampaignConfig) {
+      alert('Placement rate settings save is unavailable. Please contact the administrator.');
+      return;
+    }
+    setIsPlacementRatesSaving(true);
+    setIsPlacementRatesSaved(false);
+    try {
+      await onUpdateCampaignConfig(editableCampaignConfig);
+      setIsPlacementRatesSaved(true);
+      setTimeout(() => setIsPlacementRatesSaved(false), 3000);
+    } catch (error: any) {
+      console.error('[AdminAdHub] Failed to save placement rate settings:', error);
+      alert(error?.message || 'Placement rate settings could not be saved. Please try again.');
+    } finally {
+      setIsPlacementRatesSaving(false);
+    }
+  };
+
+  const handleUpdatePlacementRate = (placementId: AdPlacement, updates: Partial<CampaignCustomizationConfig['placementOptions'][number]>) => {
+    setEditableCampaignConfig((previous) => ({
+      ...previous,
+      placementOptions: previous.placementOptions.map((option) =>
+        option.id === placementId ? { ...option, ...updates } : option
+      )
+    }));
+  };
 
   // Form State for Create/Edit
   const [formTitle, setFormTitle] = useState('');
@@ -1098,6 +1132,62 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
                         }}
                         className="w-full px-2.5 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs font-bold text-emerald-400 text-right font-mono"
                       />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Placement-specific minimum duration and rate overrides */}
+            <div className="space-y-3 pt-4 border-t border-slate-800">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-300">Placement Rate Card & Minimum Duration</h4>
+                  <p className="mt-1 text-[10px] text-slate-500">Multiplier remains active. Fixed PKR overrides the calculated campaign fee; percentage uplift adds extra after the multiplier.</p>
+                </div>
+                <button type="button" onClick={handleSavePlacementRates} disabled={isPlacementRatesSaving || !onUpdateCampaignConfig}
+                  className="shrink-0 rounded-xl bg-teal-500 px-4 py-2 text-xs font-black text-slate-950 disabled:opacity-50">
+                  {isPlacementRatesSaving ? 'Saving placement rates…' : isPlacementRatesSaved ? 'Placement rates saved' : 'Save Placement Rates'}
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {editableCampaignConfig.placementOptions.map((placement) => (
+                  <div key={placement.id} className="rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-white">{placement.name}</div>
+                        <div className="text-[10px] text-slate-500">{placement.id}</div>
+                      </div>
+                      <span className="shrink-0 rounded-lg bg-slate-800 px-2 py-1 text-[10px] font-bold text-teal-300">
+                        {Number(editablePricing.placementMultipliers?.[placement.id] ?? placement.multiplier ?? 1).toFixed(2)}x
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="text-[10px] font-bold text-slate-400">
+                        Minimum Duration (Hours)
+                        <input type="number" min="1" max="2160" step="1" value={placement.minDurationHours ?? 1}
+                          onChange={(e) => handleUpdatePlacementRate(placement.id, { minDurationHours: Math.min(2160, Math.max(1, Math.floor(Number(e.target.value) || 1))) })}
+                          className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-xs font-mono text-white" />
+                      </label>
+                      <label className="text-[10px] font-bold text-slate-400">
+                        Percentage Uplift (% Extra)
+                        <input type="number" min="0" max="1000" step="1" value={placement.percentageUpliftPercent ?? 0}
+                          onChange={(e) => handleUpdatePlacementRate(placement.id, { percentageUpliftPercent: Math.min(1000, Math.max(0, Number(e.target.value) || 0)) })}
+                          className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-xs font-mono text-white" />
+                      </label>
+                      <label className="col-span-2 text-[10px] font-bold text-slate-400">
+                        Manual Fixed Campaign Rate (PKR)
+                        <input type="number" min="0" max="10000000" step="1" value={placement.fixedPriceOverridePkr ?? ''}
+                          placeholder="Leave blank to use multiplier + uplift"
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            handleUpdatePlacementRate(placement.id, { fixedPriceOverridePkr: raw === '' ? undefined : Math.min(10000000, Math.max(0, Number(raw) || 0)) });
+                          }}
+                          className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-xs font-mono text-white" />
+                      </label>
+                    </div>
+                    <div className="rounded-lg bg-teal-500/5 px-2.5 py-2 text-[10px] text-slate-300">
+                      Summary: min {Math.max(1, Number(placement.minDurationHours) || 1)}h · {Number(editablePricing.placementMultipliers?.[placement.id] ?? placement.multiplier ?? 1).toFixed(2)}x multiplier · {Number(placement.percentageUpliftPercent || 0)}% extra · {Number(placement.fixedPriceOverridePkr || 0) > 0 ? `PKR ${Number(placement.fixedPriceOverridePkr).toLocaleString()} fixed` : 'dynamic rate'}
                     </div>
                   </div>
                 ))}

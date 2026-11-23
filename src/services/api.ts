@@ -1021,6 +1021,13 @@ export const api = {
         body: JSON.stringify(updates)
       });
     },
+    async updateRenewalPreference(data: { enabled: boolean; packageId?: string; consent?: boolean }) {
+      return safeFetchJson(`${API_BASE}/users/subscription/renewal-preference`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(data)
+      });
+    },
     async updateRole(userId: string, role: string) {
       return safeFetchJson(`${getResolvedApiBase()}/auth/users/${encodeURIComponent(userId)}/role`, {
         method: 'PATCH',

@@ -639,6 +639,19 @@ export class PricingRepository {
           if (template.enabled !== undefined && typeof template.enabled !== 'boolean') throw new Error(`CV design ${template.id} enabled must be a boolean.`);
           if (template.free !== undefined && typeof template.free !== 'boolean') throw new Error(`CV design ${template.id} free must be a boolean.`);
           if (template.pricePkr !== undefined) validateNonNegativeNumber(template.pricePkr, `cvBuilder.templates.${template.id}.pricePkr`, 10000000);
+          for (const field of ['pdfExportEnabled', 'atsExportEnabled'] as const) {
+            if (template[field] !== undefined && typeof template[field] !== 'boolean') throw new Error(`cvBuilder.templates.${template.id}.${field} must be a boolean.`);
+          }
+          if (template.exportWatermarkMode !== undefined && !['inherit', 'always', 'never'].includes(String(template.exportWatermarkMode))) {
+            throw new Error(`cvBuilder.templates.${template.id}.exportWatermarkMode is invalid.`);
+          }
+          if (template.watermarkText !== undefined && (typeof template.watermarkText !== 'string' || template.watermarkText.length > 80)) {
+            throw new Error(`cvBuilder.templates.${template.id}.watermarkText must be text up to 80 characters.`);
+          }
+          if (template.watermarkOpacity !== undefined) {
+            const opacity = Number(template.watermarkOpacity);
+            if (!Number.isFinite(opacity) || opacity < 0.05 || opacity > 0.35) throw new Error(`cvBuilder.templates.${template.id}.watermarkOpacity must be between 0.05 and 0.35.`);
+          }
         }
       }
     }

@@ -215,6 +215,128 @@ function isUserAdmin(user: any): boolean {
   return hasAdminPermission(user?.role, 'users.manage');
 }
 
+function buildCvExportLines(data: any, watermarkText?: string): string[] {
+  const p = data.personalInfo || {};
+  const extra = data.additionalSections || {};
+  const lines = [p.fullName, p.jobTitle, [p.email, p.phone, p.location, p.website, p.linkedin, p.github].filter(Boolean).join(' | '), '', 'PROFESSIONAL SUMMARY', p.summary || ''];
+  const add = (heading: string, values: any[]) => {
+    const clean = values.map((value) => String(value || '').trim()).filter(Boolean);
+    if (clean.length) lines.push('', heading.toUpperCase(), ...clean);
+  };
+  add('Career Objective', [extra.objective]);
+  add('Work Experience', (data.experience || []).flatMap((entry: any) => [
+    entry.position + ' - ' + entry.company + ' (' + entry.startDate + ' - ' + (entry.current ? 'Present' : entry.endDate) + ')',
+    ...(entry.bullets || []).map((bullet: string) => '• ' + bullet)
+  ]));
+  add('Education', (data.education || []).map((entry: any) => entry.degree + ' ' + entry.fieldOfStudy + ' - ' + entry.institution + ' (' + entry.startDate + ' - ' + entry.endDate + ') ' + (entry.gpa || '')));
+  add('Technical Skills', data.skills?.technical || []);
+  add('Soft Skills', data.skills?.soft || []);
+  add('Languages', data.skills?.languages || []);
+  add('Certifications', (data.certifications || []).map((entry: any) => entry.name + ' - ' + entry.issuer + ' - ' + entry.year));
+  add('Projects', extra.projects || []);
+  add('Internships', extra.internships || []);
+  add('Volunteer Work', extra.volunteerWork || []);
+  add('Achievements & Awards', extra.achievements || []);
+  add('Professional Training', extra.professionalTraining || []);
+  add('Relevant Coursework', extra.relevantCoursework || []);
+  add('Research & Publications', extra.publications || []);
+  add('References', extra.references || []);
+  add('Additional Information', [extra.careerGapExplanation, extra.preferredEmploymentType, extra.noticePeriod, extra.domicile, extra.professionalRegistration]);
+  if (watermarkText) lines.push('', watermarkText);
+  return lines.map((line) => String(line ?? '').replace(/[\r\n\t]+/g, ' ').trim()).filter((line, index) => line || index === 0);
+}
+
+function createCvPdf(lines: string[]): Buffer {
+  const escapePdf = (value: string) => value.replace(/[^\x20-\x7E]/g, '?').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+  const wrapped: string[] = [];
+  for (const raw of lines) {
+    let remaining = String(raw || '');
+    if (!remaining) { wrapped.push(''); continue; }
+    while (remaining.length > 92) {
+      let split = remaining.lastIndexOf(' ', 92);
+      if (split < 30) split = 92;
+      wrapped.push(remaining.slice(0, split));
+      remaining = remaining.slice(split).trim();
+    }
+    wrapped.push(remaining);
+  }
+  const pages: string[][] = [];
+  for (let i = 0; i < wrapped.length; i += 48) pages.push(wrapped.slice(i, i + 48));
+  if (!pages.length) pages.push(['Professional CV']);
+  const objects: string[] = [];
+  const pageIds = pages.map((_, index) => 5 + index * 2);
+  objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+  objects[2] = '<< /Type /Pages /Kids [' + pageIds.map((id) => id + ' 0 R').join(' ') + '] /Count ' + pages.length + ' >>';
+  objects[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>';
+  objects[4] = '<< /Producer (Hybrid Job Portal CV Export) >>';
+  pages.forEach((page, index) => {
+    const pageId = pageIds[index];
+    const contentId = pageId + 1;
+    const commands = ['BT', '/F1 10 Tf', '50 790 Td', '13 TL'];
+    page.forEach((line) => commands.push('(' + escapePdf(line) + ') Tj', 'T*'));
+    commands.push('ET');
+    const stream = commands.join('\n');
+    objects[pageId] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ' + contentId + ' 0 R >>';
+    objects[contentId] = '<< /Length ' + Buffer.byteLength(stream, 'ascii') + ' >>\nstream\n' + stream + '\nendstream';
+  });
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  for (let id = 1; id < objects.length; id++) {
+    offsets[id] = Buffer.byteLength(pdf, 'ascii');
+    pdf += id + ' 0 obj\n' + objects[id] + '\nendobj\n';
+  }
+  const xrefOffset = Buffer.byteLength(pdf, 'ascii');
+  pdf += 'xref\n0 ' + objects.length + '\n0000000000 65535 f \n';
+  for (let id = 1; id < objects.length; id++) pdf += String(offsets[id]).padStart(10, '0') + ' 00000 n \n';
+  pdf += 'trailer\n<< /Size ' + objects.length + ' /Root 1 0 R /Info 4 0 R >>\nstartxref\n' + xrefOffset + '\n%%EOF';
+  return Buffer.from(pdf, 'ascii');
+}
+
+// Server-generated CV exports. Quotas are consumed only when the file is generated.
+userRouter.post('/cv/export/:format', requireAuth, async (req: any, res) => {
+  try {
+    const userId = String(req.user?.userId || req.user?.id || '').trim();
+    const format = String(req.params?.format || '').toLowerCase();
+    const action = format === 'pdf' ? 'pdf' : format === 'ats' ? 'ats' : '';
+    const usageField = action === 'pdf' ? 'pdfExportLimit' : action === 'ats' ? 'atsExportLimit' : '';
+    const cvData = req.body?.cvData;
+    if (!userId || !usageField || !cvData || typeof cvData !== 'object') return res.status(400).json({ success: false, message: 'A valid CV and export format are required.' });
+    const validationError = validateCvDataPayload(cvData);
+    if (validationError) return res.status(400).json({ success: false, message: validationError });
+    const user = await UserRepository.getByIdAsync(userId);
+    if (!user) return res.status(404).json({ success: false, message: 'User account not found.' });
+    const pricing = (await PricingRepository.get()) || {};
+    const settings = pricing.cvBuilder || {};
+    const templateId = String(cvData.templateStyle || '');
+    const templates = Array.isArray(settings.templates) ? settings.templates : [];
+    const template = templates.find((item: any) => String(item?.id || '') === templateId);
+    const ownsDesign = (Array.isArray(user.cvDesignEntitlements) ? user.cvDesignEntitlements : []).some((item: any) => String(item?.templateId || '') === templateId);
+    if (!template || (template.enabled === false && !ownsDesign)) return res.status(403).json({ success: false, message: 'This CV design is not currently available.' });
+    if ((action === 'pdf' && (settings.pdfExportEnabled === false || template.pdfExportEnabled === false)) || (action === 'ats' && (settings.atsTextExportEnabled === false || template.atsExportEnabled === false))) {
+      return res.status(403).json({ success: false, message: 'This CV export format is disabled by the administrator.' });
+    }
+    const inactive = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled', 'Revoked']);
+    const premium = !inactive.has(String(user.membershipStatus || '')) && ((user.membershipStatus === 'Active' && Boolean(user.membershipTier) && String(user.membershipTier).toLowerCase() !== 'free') || user.plan === 'Premium' || (user.paymentStatus === 'Paid' && user.membershipStatus === 'Active'));
+    const activeGrants = (Array.isArray(user.cvPackageEntitlements) ? user.cvPackageEntitlements : []).filter((item: any) => Date.parse(String(item?.expiresAt || '')) > Date.now()).sort((a: any, b: any) => Date.parse(String(a.expiresAt)) - Date.parse(String(b.expiresAt)));
+    const selectedGrant = activeGrants.find((grant: any) => Number(grant?.limits?.[usageField] || 0) > Number(grant?.usage?.[usageField] || 0)) || null;
+    const designLimit = Math.max(0, Math.min(10000, Math.floor(Number(template?.[usageField] || 0))));
+    const noWatermark = template.exportWatermarkMode === 'always' ? false : template.exportWatermarkMode === 'never' ? true : (selectedGrant?.noWatermark === true || settings.watermarkEnabled === false || (premium && settings.watermarkFreeOnly !== false));
+    if (selectedGrant || designLimit > 0) {
+      const packageGrant = selectedGrant ? { transactionId: String(selectedGrant.transactionId), limit: Number(selectedGrant.limits[usageField]) } : null;
+      const consumed = await UserRepository.consumeCvActionQuotasAsync(userId, templateId, usageField as any, packageGrant, designLimit);
+      if (!consumed) return res.status(403).json({ success: false, message: 'Your CV export quota has been used up.' });
+    } else return res.status(403).json({ success: false, message: 'No active CV export allowance is configured for this account or design.' });
+    const watermark = noWatermark ? undefined : String(template.watermarkText || settings.watermarkText || 'Hybrid Job Portal');
+    const safeName = String(cvData.personalInfo?.fullName || 'candidate-cv').replace(/[^a-z0-9-_]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'candidate-cv';
+    const lines = buildCvExportLines(cvData, watermark);
+    if (action === 'ats') return res.json({ success: true, filename: safeName + '-ats.txt', mimeType: 'text/plain;charset=utf-8', contentBase64: Buffer.from(lines.join('\n'), 'utf8').toString('base64') });
+    const pdf = createCvPdf(lines);
+    return res.json({ success: true, filename: safeName + '.pdf', mimeType: 'application/pdf', contentBase64: pdf.toString('base64') });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Unable to generate CV export.' });
+  }
+});
+
 // CV export/share authorization. Quota is consumed server-side before the client starts the action.
 userRouter.post('/cv/consume', requireAuth, async (req: any, res) => {
   try {

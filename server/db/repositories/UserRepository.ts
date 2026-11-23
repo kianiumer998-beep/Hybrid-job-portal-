@@ -283,6 +283,162 @@ export class UserRepository {
     });
   }
 
+  /** Atomically consumes one purchased posting slot and records the job redemption key. */
+  static async consumeSubscriptionFeatureSlotAsync(userId: string, featureId: string, jobId: string): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanFeatureId = String(featureId || '').trim();
+    const cleanJobId = String(jobId || '').trim();
+    const allowed = new Set(['urgent_job_posting', 'featured_job_posting', 'premium_job_posting']);
+    if (!cleanUserId || !allowed.has(cleanFeatureId) || !cleanJobId || cleanJobId.length > 200) {
+      throw new Error('Valid user, posting feature and job references are required.');
+    }
+    const markerKey = ('slot-' + cleanFeatureId + '-' + cleanJobId).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+    const marker = 'walletEscrowOperations.' + markerKey;
+    const slotsPath = 'subscriptionEntitlements.' + cleanFeatureId + '.remainingSlots';
+    const enabledPath = 'subscriptionEntitlements.' + cleanFeatureId + '.enabled';
+    const expiryPath = 'subscriptionEntitlements.' + cleanFeatureId + '.expiresAt';
+    const now = new Date().toISOString();
+
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const operations = existing.walletEscrowOperations || {};
+      if (operations[markerKey] === 'CONSUMED') return existing;
+      const entitlement = existing.subscriptionEntitlements?.[cleanFeatureId];
+      const membershipExpiry = Date.parse(String(existing.subscriptionExpiresAt || ''));
+      const featureExpiry = Date.parse(String(entitlement?.expiresAt || ''));
+      if (existing.membershipStatus !== 'Active' || !Number.isFinite(membershipExpiry) || membershipExpiry <= Date.now() ||
+          entitlement?.enabled !== true || !Number.isFinite(featureExpiry) || featureExpiry <= Date.now() ||
+          !Number.isInteger(Number(entitlement.remainingSlots)) || Number(entitlement.remainingSlots) <= 0) return null;
+      const updated = {
+        ...existing,
+        subscriptionEntitlements: {
+          ...existing.subscriptionEntitlements,
+          [cleanFeatureId]: { ...entitlement, remainingSlots: Number(entitlement.remainingSlots) - 1 }
+        },
+        walletEscrowOperations: { ...operations, [markerKey]: 'CONSUMED' },
+        updatedAt: now
+      };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        {
+          id: cleanUserId,
+          membershipStatus: 'Active',
+          subscriptionExpiresAt: { $gt: now },
+          [enabledPath]: true,
+          [expiryPath]: { $gt: now },
+          [slotsPath]: { $gt: 0 },
+          [marker]: { $ne: 'CONSUMED' }
+        },
+        { $inc: { [slotsPath]: -1 }, $set: { [marker]: 'CONSUMED', updatedAt: now } },
+        { returnDocument: 'after' }
+      );
+      if (updatedDoc) {
+        const { _id, ...safe } = updatedDoc;
+        return safe;
+      }
+      const existing = await coll.findOne({ id: cleanUserId, [marker]: 'CONSUMED' });
+      if (existing) {
+        const { _id, ...safe } = existing;
+        return safe;
+      }
+      return null;
+    }
+
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    const operations = existing.walletEscrowOperations || {};
+    if (operations[markerKey] === 'CONSUMED') return existing;
+    const entitlement = existing.subscriptionEntitlements?.[cleanFeatureId];
+    const membershipExpiry = Date.parse(String(existing.subscriptionExpiresAt || ''));
+    const featureExpiry = Date.parse(String(entitlement?.expiresAt || ''));
+    if (existing.membershipStatus !== 'Active' || !Number.isFinite(membershipExpiry) || membershipExpiry <= Date.now() ||
+        entitlement?.enabled !== true || !Number.isFinite(featureExpiry) || featureExpiry <= Date.now() ||
+        !Number.isInteger(Number(entitlement.remainingSlots)) || Number(entitlement.remainingSlots) <= 0) return null;
+    return Database.updateUser(cleanUserId, {
+      subscriptionEntitlements: {
+        ...existing.subscriptionEntitlements,
+        [cleanFeatureId]: { ...entitlement, remainingSlots: Number(entitlement.remainingSlots) - 1 }
+      },
+      walletEscrowOperations: { ...operations, [markerKey]: 'CONSUMED' },
+      updatedAt: now
+    });
+  }
+
+  /** Compensates a slot redemption if the pending job update fails. */
+  static async restoreSubscriptionFeatureSlotAsync(userId: string, featureId: string, jobId: string): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanFeatureId = String(featureId || '').trim();
+    const cleanJobId = String(jobId || '').trim();
+    const allowed = new Set(['urgent_job_posting', 'featured_job_posting', 'premium_job_posting']);
+    if (!cleanUserId || !allowed.has(cleanFeatureId) || !cleanJobId) throw new Error('Valid slot restoration references are required.');
+    const markerKey = ('slot-' + cleanFeatureId + '-' + cleanJobId).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+    const marker = 'walletEscrowOperations.' + markerKey;
+    const slotsPath = 'subscriptionEntitlements.' + cleanFeatureId + '.remainingSlots';
+    const now = new Date().toISOString();
+
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const operations = existing.walletEscrowOperations || {};
+      if (operations[markerKey] === 'REFUNDED') return existing;
+      if (operations[markerKey] !== 'CONSUMED') return null;
+      const entitlement = existing.subscriptionEntitlements?.[cleanFeatureId];
+      if (!entitlement) return null;
+      const updated = {
+        ...existing,
+        subscriptionEntitlements: {
+          ...existing.subscriptionEntitlements,
+          [cleanFeatureId]: { ...entitlement, remainingSlots: Math.max(0, Number(entitlement.remainingSlots) || 0) + 1 }
+        },
+        walletEscrowOperations: { ...operations, [markerKey]: 'REFUNDED' },
+        updatedAt: now
+      };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        { id: cleanUserId, [marker]: 'CONSUMED' },
+        { $inc: { [slotsPath]: 1 }, $set: { [marker]: 'REFUNDED', updatedAt: now } },
+        { returnDocument: 'after' }
+      );
+      if (updatedDoc) {
+        const { _id, ...safe } = updatedDoc;
+        return safe;
+      }
+      const existing = await coll.findOne({ id: cleanUserId, [marker]: 'REFUNDED' });
+      if (existing) {
+        const { _id, ...safe } = existing;
+        return safe;
+      }
+      return null;
+    }
+
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    const operations = existing.walletEscrowOperations || {};
+    if (operations[markerKey] === 'REFUNDED') return existing;
+    if (operations[markerKey] !== 'CONSUMED') return null;
+    const entitlement = existing.subscriptionEntitlements?.[cleanFeatureId];
+    if (!entitlement) return null;
+    return Database.updateUser(cleanUserId, {
+      subscriptionEntitlements: {
+        ...existing.subscriptionEntitlements,
+        [cleanFeatureId]: { ...entitlement, remainingSlots: Math.max(0, Number(entitlement.remainingSlots) || 0) + 1 }
+      },
+      walletEscrowOperations: { ...operations, [markerKey]: 'REFUNDED' },
+      updatedAt: now
+    });
+  }
+
   /**
    * Idempotently deducts wallet funds for a durable operation such as subscription auto-renewal.
    * The operation marker and wallet debit are written atomically in MongoDB.

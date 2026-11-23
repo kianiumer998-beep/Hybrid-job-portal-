@@ -124,22 +124,36 @@ async function processConsentedAutoRenewals(users: any[], now: Date): Promise<nu
         subscriptionFeatureIds: resolved.featureIds,
         subscriptionEntitlements: entitlements,
         autoRenewLastAttemptAt: now.toISOString()
+      },
+      {
+        autoRenew: true,
+        autoRenewPackageId: String(pkg.id),
+        autoRenewConsentAt: String(user.autoRenewConsentAt)
       }
     );
     if (!updatedUser) {
+      const latestUser = await UserRepository.getByIdAsync(String(user.id));
+      const consentWithdrawn = latestUser?.autoRenew !== true ||
+        String(latestUser?.autoRenewPackageId || '') !== String(pkg.id) ||
+        String(latestUser?.autoRenewConsentAt || '') !== String(user.autoRenewConsentAt);
+      const failureMessage = consentWithdrawn
+        ? 'Auto-renewal was cancelled because the user withdrew consent before the wallet debit.'
+        : 'Insufficient wallet balance for the consented subscription auto-renewal.';
       await PaymentRepository.updateAsync(String(tx.id), {
         status: 'Failed',
         walletMutationState: 'NONE',
-        rejectionReason: 'Insufficient wallet balance for the consented subscription auto-renewal.',
+        rejectionReason: failureMessage,
         updatedAt: now.toISOString()
       });
       await NotificationRepository.createAsync({
         userId: String(user.id),
-        title: 'Auto-renewal Failed — Low Wallet Balance',
-        message: `Your ${String(pkg.name || 'subscription')} could not renew because your wallet balance is insufficient. Add funds or renew manually.`,
+        title: consentWithdrawn ? 'Auto-renewal Cancelled' : 'Auto-renewal Failed — Low Wallet Balance',
+        message: consentWithdrawn
+          ? 'Your auto-renewal was cancelled before any wallet deduction. Your subscription will follow its normal expiry.'
+          : `Your ${String(pkg.name || 'subscription')} could not renew because your wallet balance is insufficient. Add funds or renew manually.`,
         type: 'warning',
         channel: 'in-app',
-        eventId: `subscription-auto-renew-insufficient:${String(user.id)}:${expiryIso}:${String(pkg.id)}`
+        eventId: `subscription-auto-renew-failed:${String(user.id)}:${expiryIso}:${String(pkg.id)}`
       });
       continue;
     }

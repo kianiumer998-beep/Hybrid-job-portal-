@@ -1028,6 +1028,20 @@ export const api = {
         body: JSON.stringify(updates)
       });
     },
+    async consumeCvAction(action: 'pdf' | 'ats' | 'share', templateId: string) {
+      return safeFetchJson(`${API_BASE}/users/cv/consume`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ action, templateId })
+      });
+    },
+    async exportCv(format: 'pdf' | 'ats', cvData: Record<string, any>) {
+      return safeFetchJson(`${API_BASE}/users/cv/export/${format}`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ cvData })
+      });
+    },
     async updateRenewalPreference(data: { enabled: boolean; packageId?: string; consent?: boolean }) {
       return safeFetchJson(`${API_BASE}/users/subscription/renewal-preference`, {
         method: 'POST',

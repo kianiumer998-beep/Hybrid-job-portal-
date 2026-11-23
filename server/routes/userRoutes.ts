@@ -894,11 +894,31 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
       const previousById = new Map(previousDocs.map((item: any) => [String(item?.id || ''), item]));
       const incomingDocs = finalUpdates.cvDocuments;
       const createCount = incomingDocs.filter((item: any) => !previousById.has(String(item.id))).length;
-      const editCount = incomingDocs.filter((item: any) => {
+      const changedDocs = incomingDocs.filter((item: any) => {
         const previous: any = previousById.get(String(item.id));
         return Boolean(previous) && (String(previous.title || '') !== String(item.title || '') ||
           JSON.stringify(previous.data) !== JSON.stringify(item.data));
-      }).length;
+      });
+      const editCount = changedDocs.length;
+      const pricingConfig = (await PricingRepository.get()) || {};
+      const templateConfigs = Array.isArray(pricingConfig.cvBuilder?.templates) ? pricingConfig.cvBuilder.templates : [];
+      const templateEditUsage: Record<string, { count: number; limit: number }> = {};
+      for (const document of changedDocs) {
+        const templateId = String(document?.data?.templateStyle || '').trim();
+        const templateConfig = templateConfigs.find((item: any) => String(item?.id || '') === templateId);
+        const editMode = templateConfig?.editMode || 'unlimited';
+        if (editMode === 'disabled') {
+          return res.status(403).json({ success: false, message: `Editing is disabled for the ${templateConfig?.name || templateId || 'selected'} CV design.` });
+        }
+        if (editMode === 'limited') {
+          const limit = Math.max(0, Math.min(10000, Math.floor(Number(templateConfig?.editLimit || 0))));
+          if (!templateId || limit <= 0) return res.status(403).json({ success: false, message: 'This CV design has no remaining edit allowance configured.' });
+          const used = Number(cvOwner.cvTemplateUsage?.[templateId]?.editCount || 0);
+          const pending = templateEditUsage[templateId]?.count || 0;
+          if (used + pending + 1 > limit) return res.status(403).json({ success: false, message: `The ${templateConfig?.name || templateId} design edit quota has been reached.` });
+          templateEditUsage[templateId] = { count: pending + 1, limit };
+        }
+      }
       const activeGrants = (Array.isArray(cvOwner.cvPackageEntitlements) ? cvOwner.cvPackageEntitlements : [])
         .filter((item: any) => Date.parse(String(item?.expiresAt || '')) > Date.now())
         .sort((a: any, b: any) => Date.parse(String(a.expiresAt)) - Date.parse(String(b.expiresAt)));
@@ -916,11 +936,18 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
         }
         updated = await UserRepository.saveCvDocumentsWithPackageUsageAsync(
           id, incomingDocs, finalUpdates.cvData, String(grant.transactionId),
-          createCount, editCount, Number(grant.limits?.cvCreateLimit || 0), Number(grant.limits?.editLimit || 0)
+          createCount, editCount, Number(grant.limits?.cvCreateLimit || 0), Number(grant.limits?.editLimit || 0), templateEditUsage
         );
         if (!updated) {
-          return res.status(409).json({ success: false, message: 'CV package quota or account data changed during save. Please reload your CV and try again.' });
+          return res.status(409).json({ success: false, message: 'CV package or per-design edit quota changed during save. Please reload your CV and try again.' });
         }
+        delete finalUpdates.cvDocuments;
+        delete finalUpdates.cvData;
+      } else if (Object.keys(templateEditUsage).length > 0) {
+        updated = await UserRepository.saveCvDocumentsWithPackageUsageAsync(
+          id, incomingDocs, finalUpdates.cvData, '', 0, 0, 0, 0, templateEditUsage
+        );
+        if (!updated) return res.status(409).json({ success: false, message: 'Per-design edit quota changed during save. Please reload your CV and try again.' });
         delete finalUpdates.cvDocuments;
         delete finalUpdates.cvData;
       }

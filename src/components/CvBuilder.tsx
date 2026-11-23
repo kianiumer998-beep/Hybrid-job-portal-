@@ -277,7 +277,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
     add('Research & Publications', extra.publications || []);
     add('References', extra.references || []);
     add('Additional Information', [extra.careerGapExplanation, extra.preferredEmploymentType, extra.noticePeriod, extra.domicile, extra.professionalRegistration].filter(Boolean) as string[]);
-    if (watermarkVisible) lines.push('', String(cvBuilderSettings.watermarkText || 'Hybrid Job Portal'));
+    if (exportWatermarkVisible) lines.push('', String(selectedTemplateConfig.watermarkText || cvBuilderSettings.watermarkText || 'Hybrid Job Portal'));
     const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -315,7 +315,14 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
   }).slice(0, Math.max(0, Math.min(5, Number(cvBuilderSettings.freeDesignLimit ?? 2))));
   const isTemplateEnabled = (id: string) => enabledTemplates.some((template) => template.id === id);
   const isTemplateFree = (id: string) => isSubscribed || freeTemplates.some((template) => template.id === id) || cvDesignEntitlements.some((item) => item.templateId === id);
-  const watermarkVisible = cvBuilderSettings.watermarkEnabled !== false && (!isSubscribed || cvBuilderSettings.watermarkFreeOnly === false);
+  const selectedTemplateConfig = configuredTemplates.find((item: any) => item.id === cvData.templateStyle) || {};
+  // A preview watermark is intentionally always visible to discourage screenshot-based reuse.
+  // Export watermark policy is evaluated separately and never controls the on-screen preview.
+  const previewWatermarkVisible = selectedTemplateConfig.previewWatermarkEnabled !== false;
+  const exportWatermarkVisible = selectedTemplateConfig.exportWatermarkEnabled === true ||
+    (selectedTemplateConfig.exportWatermarkEnabled === undefined &&
+      cvBuilderSettings.watermarkEnabled !== false &&
+      (!isSubscribed || cvBuilderSettings.watermarkFreeOnly === false));
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -884,7 +891,8 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                 fontFamily: cvData.templateStyle === 'tech' ? 'ui-monospace, SFMono-Regular, monospace' : cvData.templateStyle === 'classic' ? 'Georgia, serif' : 'Arial, sans-serif'
               }}
             >
-              {watermarkVisible && <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center overflow-hidden"><span className="whitespace-nowrap text-3xl font-black uppercase tracking-widest text-slate-500" style={{ transform: "rotate(-35deg)", opacity: Math.min(0.35, Math.max(0.05, Number(cvBuilderSettings.watermarkOpacity ?? 0.16))) }}>{String(cvBuilderSettings.watermarkText || 'Hybrid Job Portal')}</span></div>}
+              {previewWatermarkVisible && <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center overflow-hidden print:hidden"><span className="whitespace-nowrap text-3xl font-black uppercase tracking-widest text-slate-500" style={{ transform: "rotate(-35deg)", opacity: Math.min(0.35, Math.max(0.05, Number(selectedTemplateConfig.watermarkOpacity ?? cvBuilderSettings.watermarkOpacity ?? 0.16))) }}>{String(selectedTemplateConfig.watermarkText || cvBuilderSettings.watermarkText || 'Hybrid Job Portal')} · PREVIEW</span></div>}
+              {exportWatermarkVisible && <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 hidden print:flex items-center justify-center overflow-hidden"><span className="whitespace-nowrap text-3xl font-black uppercase tracking-widest text-slate-500" style={{ transform: "rotate(-35deg)", opacity: Math.min(0.35, Math.max(0.05, Number(selectedTemplateConfig.watermarkOpacity ?? cvBuilderSettings.watermarkOpacity ?? 0.16))) }}>{String(selectedTemplateConfig.watermarkText || cvBuilderSettings.watermarkText || 'Hybrid Job Portal')}</span></div>}
               {/* CV Header */}
               <div className="border-b-2 pb-3 flex items-start justify-between gap-4" style={{ borderColor: cvData.themeColor }}>
                 <div className="flex-1">

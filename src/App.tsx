@@ -4677,7 +4677,7 @@ export default function App() {
                                 <span>{feat}</span>
                               </li>
                             ))}
-                            {(!pkg.features || pkg.features.length === 0) && (
+                            {(!pkg.features || pkg.features.length === 0) && (!pkg.featureLabels || pkg.featureLabels.length === 0) && (
                               <>
                                 <li className="flex items-center space-x-2">
                                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />

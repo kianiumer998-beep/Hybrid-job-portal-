@@ -8,7 +8,7 @@ const DEFAULT_CV = {
   templates: [], packages: []
 };
 
-export const AdminCvSettingsController: React.FC = () => {
+export const AdminCvSettingsController: React.FC<{ onPricingSaved?: (pricing: any) => void }> = ({ onPricingSaved }) => {
   const [pricing, setPricing] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -34,6 +34,7 @@ export const AdminCvSettingsController: React.FC = () => {
       const result = await api.pricing.update({ cvBuilder: pricing.cvBuilder, subscriptionPackages: pricing.subscriptionPackages });
       if (!result?.success) throw new Error(result?.message || 'CV settings were not saved.');
       setPricing((p: any) => ({ ...p, ...result.pricing, cvBuilder: { ...p.cvBuilder, ...(result.pricing?.cvBuilder || {}) } }));
+      if (result.pricing) onPricingSaved?.(result.pricing);
       setNotice('CV settings saved successfully.');
     } catch (e: any) { setError(e?.message || 'Unable to save CV settings.'); }
     finally { setSaving(false); }

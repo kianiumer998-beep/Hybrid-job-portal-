@@ -814,7 +814,7 @@ export class UserRepository {
 
     if (isMongoActive()) {
       const coll = await getUsersCollection();
-      const updatedDoc = await coll.findOneAndUpdate(
+      const updatedDoc = await (coll as any).findOneAndUpdate(
         { id: cleanUserId, 'cvDesignEntitlements.templateId': { $ne: templateId } },
         { $push: { cvDesignEntitlements: safeEntitlement }, $set: { updatedAt } },
         { returnDocument: 'after', includeResultMetadata: false }
@@ -877,7 +877,7 @@ export class UserRepository {
 
     if (isMongoActive()) {
       const coll = await getUsersCollection();
-      const updatedDoc = await coll.findOneAndUpdate(
+      const updatedDoc = await (coll as any).findOneAndUpdate(
         { id: cleanUserId, walletBalance: { $gte: amount }, 'cvDesignEntitlements.templateId': { $ne: templateId } },
         { $inc: { walletBalance: -amount }, $push: { cvDesignEntitlements: safeEntitlement }, $set: { updatedAt } },
         { returnDocument: 'after', includeResultMetadata: false }

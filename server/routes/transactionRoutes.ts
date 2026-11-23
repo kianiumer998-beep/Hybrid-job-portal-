@@ -745,14 +745,27 @@ transactionRouter.post('/', async (req, res) => {
         const rawPlan = typeof plan === 'string' ? plan.trim() : '';
         const pricingConfig = (await PricingRepository.get()) || {};
         const packages = pricingConfig.subscriptionPackages || [];
-        
-        // Find package by exact ID only (No name or legacy alias fallbacks allowed)
-        const targetPackage = packages.find((p: any) => p.id === rawPlan);
+        let targetPackage: any = packages.find((p: any) => p.id === rawPlan && p.enabled === true);
+        if (!targetPackage && rawPlan.startsWith('feature:')) {
+          const featureId = rawPlan.slice('feature:'.length);
+          const feature = (pricingConfig.subscriptionFeatureCatalog || []).find((item: any) => item?.id === featureId && item.enabled === true);
+          if (feature) {
+            targetPackage = {
+              id: `feature-${feature.id}`,
+              name: feature.label,
+              enabled: true,
+              pricingMode: 'catalog',
+              durationDays: feature.durationDays,
+              featureIds: [feature.id],
+              bundleDiscountPercent: 0
+            };
+          }
+        }
 
         if (!targetPackage || !targetPackage.enabled) {
           return res.status(400).json({
             success: false,
-            message: `The selected subscription plan "${rawPlan}" is no longer available or is disabled.`
+            message: `The selected subscription plan or feature "${rawPlan}" is no longer available or is disabled.`
           });
         }
 

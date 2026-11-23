@@ -907,7 +907,7 @@ export class UserRepository {
           }
         }
       }
-      const updatedDoc = await coll.findOneAndUpdate(filter, update, { returnDocument: 'after', ...(usesPackageQuota && Object.keys(increments).length ? { arrayFilters: [arrayFilter] } : {}) });
+      const updatedDoc = await coll.findOneAndUpdate(filter, update, { returnDocument: 'after', ...(usesPackageQuota && (createCount > 0 || editCount > 0) ? { arrayFilters: [arrayFilter] } : {}) });
       if (!updatedDoc) return null;
       const { _id, ...safe } = updatedDoc;
       return safe;

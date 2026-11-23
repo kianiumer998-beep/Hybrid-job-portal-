@@ -218,7 +218,7 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
   if (loading) return <div className="flex items-center justify-center p-20 text-white"><Loader2 className="w-8 h-8 animate-spin text-cyan-400" /></div>;
 
   return (
-    <div className="space-y-6 text-white">
+    <div className="admin-settings-mobile-compact space-y-6 text-white">
       {error && (
         <div className="p-4 bg-rose-950/40 border border-rose-500/40 rounded-2xl text-rose-300 text-xs flex items-center justify-between">
           <span>⚠️ {error}</span>

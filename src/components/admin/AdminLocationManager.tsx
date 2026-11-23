@@ -232,7 +232,7 @@ export const AdminLocationManager: React.FC = () => {
   });
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white space-y-6 shadow-xl">
+    <div className="admin-settings-mobile-compact bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white space-y-6 shadow-xl">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-800 pb-4">
         <div>

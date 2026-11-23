@@ -312,7 +312,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="admin-settings-mobile-compact space-y-6">
       
       {/* Header Bar */}
       <div className="bg-gradient-to-r from-indigo-950/70 via-slate-900 to-emerald-950/70 border border-indigo-500/30 rounded-3xl p-6 shadow-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">

@@ -181,7 +181,7 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="admin-settings-mobile-compact space-y-6">
       
       {/* Top Banner / Visual Command Hub */}
       <div className="bg-gradient-to-r from-purple-950/80 via-slate-900 to-indigo-950/80 border border-purple-500/30 rounded-3xl p-6 shadow-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">

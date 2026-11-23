@@ -374,7 +374,7 @@ export const AdminModalContentManager: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
+    <div className="admin-settings-mobile-compact space-y-6 animate-in fade-in duration-300">
       
       {/* Top Header */}
       <div className="bg-[#05130e] border border-emerald-500/30 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">

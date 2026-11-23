@@ -418,7 +418,7 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
   const filteredUsers = filterFeeManagerUsers(users, userSearchQuery);
 
   return (
-    <div className="space-y-6">
+    <div className="admin-settings-mobile-compact space-y-6">
       
       {/* Top Banner / Command Header */}
       <div className="bg-gradient-to-r from-amber-950/60 via-slate-900 to-indigo-950/60 border border-amber-500/30 rounded-3xl p-6 shadow-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">

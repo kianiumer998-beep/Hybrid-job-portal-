@@ -407,7 +407,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
   });
 
   return (
-    <div className="space-y-6 text-white">
+    <div className="admin-settings-mobile-compact space-y-6 text-white">
       
       {/* Top Metrics Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">

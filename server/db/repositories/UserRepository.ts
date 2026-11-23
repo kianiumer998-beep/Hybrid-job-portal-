@@ -291,7 +291,8 @@ export class UserRepository {
     userId: string,
     amount: number,
     operationKey: string,
-    extraUpdates?: Record<string, any>
+    extraUpdates?: Record<string, any>,
+    expectedState?: Record<string, any>
   ): Promise<any | null> {
     const cleanUserId = String(userId || '').trim();
     const cleanKey = String(operationKey || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
@@ -306,6 +307,7 @@ export class UserRepository {
     if (isTest()) {
       const existing = inMemoryUsers.get(cleanUserId);
       if (!existing) return null;
+      if (expectedState && Object.entries(expectedState).some(([key, value]) => existing[key] !== value)) return null;
       const operations = existing.walletEscrowOperations || {};
       if (operations[cleanKey] === 'DEDUCTED') return existing;
       const balance = Number(existing.walletBalance || 0);
@@ -323,7 +325,7 @@ export class UserRepository {
     if (isMongoActive()) {
       const coll = await getUsersCollection();
       const updatedDoc = await coll.findOneAndUpdate(
-        { id: cleanUserId, walletBalance: { $gte: amount }, [marker]: { $ne: 'DEDUCTED' } },
+        { id: cleanUserId, walletBalance: { $gte: amount }, ...(expectedState || {}), [marker]: { $ne: 'DEDUCTED' } },
         { $inc: { walletBalance: -amount }, $set: setPayload },
         { returnDocument: 'after' }
       );
@@ -340,6 +342,7 @@ export class UserRepository {
     }
     const existing = Database.getUserById(cleanUserId);
     if (!existing) return null;
+    if (expectedState && Object.entries(expectedState).some(([key, value]) => existing[key] !== value)) return null;
     const operations = existing.walletEscrowOperations || {};
     if (operations[cleanKey] === 'DEDUCTED') return existing;
     const balance = Number(existing.walletBalance || 0);

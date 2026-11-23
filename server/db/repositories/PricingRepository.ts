@@ -171,14 +171,29 @@ function buildAuthoritativeDefaults(): any {
       govtAlertsWeeklyPkr: 400
     },
     subscriptionPackages: [],
-    subscriptionFeatureCatalog: SUBSCRIPTION_FEATURES.map((feature) => ({ id: feature.id, label: feature.label, enabled: false, pricePkr: 0, durationDays: 30, includedSlots: 0, slotDurationDays: 30 })),,    subscriptionBundleDiscountPercent: 0,,    subscriptionReminderSettings: { enabled: false, daysBefore: 3 },,    earlyAccess: {,      enabled: false,,      sourceTypes: ['scraped', 'user_posted', 'admin_created'],,      durationHours: 24,,      showOnLanding: true,,      showJobCount: true,,      showCountdown: true,,      maxJobs: 10,,      heading: 'Premium Early Access',,      description: 'Explore selected jobs before they become available to other members.',,      displayFields: ['title', 'company', 'department', 'city', 'deadlineDate'],,      showSource: true,,      jobOverrides: [],    },
+    subscriptionFeatureCatalog: SUBSCRIPTION_FEATURES.map((feature) => ({ id: feature.id, label: feature.label, enabled: false, pricePkr: 0, durationDays: 30, includedSlots: 0, slotDurationDays: 30 })),
+    subscriptionBundleDiscountPercent: 0,
+    subscriptionReminderSettings: { enabled: false, daysBefore: 3 },
+    earlyAccess: {
+      enabled: false,
+      sourceTypes: ['scraped', 'user_posted', 'admin_created'],
+      durationHours: 24,
+      showOnLanding: true,
+      showJobCount: true,
+      showCountdown: true,
+      maxJobs: 10,
+      heading: 'Premium Early Access',
+      description: 'Explore selected jobs before they become available to other members.',
+      displayFields: ['title', 'company', 'department', 'city', 'deadlineDate'],
+      showSource: true,
+      jobOverrides: []
+    },
     cvBuilder: {
       standardPdfExportPkr: 0, pdfExportEnabled: true, pdfExportPkr: 0,
       atsTextExportEnabled: true, atsTextExportPkr: 0,
       premiumAiOptimizerPkr: 500, unlimitedTemplatesPkr: 1000,
       freeDesignLimit: 2, freeCvLimit: 1, premiumCvLimit: 10, watermarkEnabled: true, watermarkFreeOnly: true,
       watermarkText: 'Hybrid Job Portal', watermarkOpacity: 0.16,
-      atsCompatibilityEnabled: true, aiWritingAssistantEnabled: false,
       templates: [
         { id: 'modern', name: 'Modern Clean', enabled: true, free: true, pricePkr: 0 },
         { id: 'executive', name: 'Executive Dark Sidebar', enabled: true, free: false, pricePkr: 300 },
@@ -249,10 +264,9 @@ function deepMergePricing(base: any, incoming: any): any {
         name: String(item.name || fallback.name || fallback.id).trim().slice(0, 80) || String(fallback.id),
         enabled: item.enabled === undefined ? fallback.enabled !== false : item.enabled === true,
         free: item.free === undefined ? fallback.free === true : item.free === true,
-        pricePkr: Number.isFinite(price) ? Math.min(10000000, Math.max(0, price)) : 0,,        pdfExportEnabled: item.pdfExportEnabled !== false,,        atsExportEnabled: item.atsExportEnabled !== false,,        exportWatermarkMode: ['inherit', 'always', 'never'].includes(String(item.exportWatermarkMode)),          ? String(item.exportWatermarkMode),          : 'inherit',,        watermarkText: typeof item.watermarkText === 'string' ? item.watermarkText.trim().slice(0, 80) : '',,        watermarkOpacity: Number.isFinite(Number(item.watermarkOpacity)),          ? Math.min(0.35, Math.max(0.05, Number(item.watermarkOpacity))),          : Number(baseCvBuilder.watermarkOpacity ?? 0.16),,        editMode: ['disabled', 'limited', 'unlimited'].includes(String(item.editMode)) ? String(item.editMode) : 'unlimited',,        cvCreateLimit: Number.isInteger(Number(item.cvCreateLimit)) ? Math.min(1000, Math.max(0, Number(item.cvCreateLimit))) : 0,,        editLimit: Number.isInteger(Number(item.editLimit)) ? Math.min(1000, Math.max(0, Number(item.editLimit))) : 0,,        pdfExportLimit: Number.isInteger(Number(item.pdfExportLimit)) ? Math.min(1000, Math.max(0, Number(item.pdfExportLimit))) : 0,,        atsExportLimit: Number.isInteger(Number(item.atsExportLimit)) ? Math.min(1000, Math.max(0, Number(item.atsExportLimit))) : 0,,        shareEnabled: item.shareEnabled === true,,        shareLimit: Number.isInteger(Number(item.shareLimit)) ? Math.min(1000, Math.max(0, Number(item.shareLimit))) : 0
+        pricePkr: Number.isFinite(price) ? Math.min(10000000, Math.max(0, price)) : 0
       };
     });
-  const cvPackages = Array.isArray(srcCvBuilder.packages) ? srcCvBuilder.packages.slice(0, 30).map((pkg: any, index: number) => ({,    id: String(pkg?.id || `cv-package-${index + 1}`).slice(0, 80),,    name: String(pkg?.name || 'CV Package').trim().slice(0, 80),,    enabled: pkg?.enabled !== false,,    pricePkr: Number.isFinite(Number(pkg?.pricePkr)) ? Math.min(10000000, Math.max(0, Number(pkg.pricePkr))) : 0,,    durationDays: Number.isInteger(Number(pkg?.durationDays)) ? Math.min(3650, Math.max(1, Number(pkg.durationDays))) : 30,,    cvCreateLimit: Number.isInteger(Number(pkg?.cvCreateLimit)) ? Math.min(100, Math.max(0, Number(pkg.cvCreateLimit))) : 1,,    editLimit: Number.isInteger(Number(pkg?.editLimit)) ? Math.min(1000, Math.max(0, Number(pkg.editLimit))) : 0,,    pdfExportLimit: Number.isInteger(Number(pkg?.pdfExportLimit)) ? Math.min(1000, Math.max(0, Number(pkg.pdfExportLimit))) : 0,,    atsExportLimit: Number.isInteger(Number(pkg?.atsExportLimit)) ? Math.min(1000, Math.max(0, Number(pkg.atsExportLimit))) : 0,,    shareLimit: Number.isInteger(Number(pkg?.shareLimit)) ? Math.min(1000, Math.max(0, Number(pkg.shareLimit))) : 0,,    noWatermark: pkg?.noWatermark === true,  })) : (Array.isArray(baseCvBuilder.packages) ? baseCvBuilder.packages : []);
   const cvBuilder = {
     ...baseCvBuilder,
     ...srcCvBuilder,
@@ -265,7 +279,6 @@ function deepMergePricing(base: any, incoming: any): any {
     pdfExportPkr: Math.min(10000000, Math.max(0, Number(srcCvBuilder.pdfExportPkr ?? srcCvBuilder.standardPdfExportPkr ?? baseCvBuilder.pdfExportPkr ?? 0) || 0)),
     atsTextExportEnabled: srcCvBuilder.atsTextExportEnabled === undefined ? baseCvBuilder.atsTextExportEnabled !== false : srcCvBuilder.atsTextExportEnabled === true,
     atsTextExportPkr: Math.min(10000000, Math.max(0, Number(srcCvBuilder.atsTextExportPkr ?? baseCvBuilder.atsTextExportPkr ?? 0) || 0)),
-    atsCompatibilityEnabled: srcCvBuilder.atsCompatibilityEnabled === undefined ? baseCvBuilder.atsCompatibilityEnabled !== false : srcCvBuilder.atsCompatibilityEnabled === true,,    aiWritingAssistantEnabled: srcCvBuilder.aiWritingAssistantEnabled === true,
     watermarkEnabled: srcCvBuilder.watermarkEnabled === undefined ? baseCvBuilder.watermarkEnabled !== false : srcCvBuilder.watermarkEnabled === true,
     watermarkFreeOnly: srcCvBuilder.watermarkFreeOnly === undefined ? baseCvBuilder.watermarkFreeOnly !== false : srcCvBuilder.watermarkFreeOnly === true,
     watermarkText: typeof srcCvBuilder.watermarkText === 'string'
@@ -274,7 +287,6 @@ function deepMergePricing(base: any, incoming: any): any {
     watermarkOpacity: Number.isFinite(Number(srcCvBuilder.watermarkOpacity))
       ? Math.min(0.35, Math.max(0.05, Number(srcCvBuilder.watermarkOpacity)))
       : Math.min(0.35, Math.max(0.05, Number(baseCvBuilder.watermarkOpacity ?? 0.16))),
-    packages: cvPackages,
     templates: cvTemplates.length ? cvTemplates : templateDefaults
   };
 
@@ -355,9 +367,36 @@ function deepMergePricing(base: any, incoming: any): any {
       exemptUserEmails: syncedExemptEmails
     },
     subscriptionPackages: Array.isArray(src.subscriptionPackages)
-      ? src.subscriptionPackages.map((pkg: any) => ({,          ...pkg,,          cvBenefitsEnabled: pkg?.cvBenefitsEnabled === true,,          cvBenefits: {,            cvCreateLimit: Math.min(10000, Math.max(0, Math.floor(Number(pkg?.cvBenefits?.cvCreateLimit) || 0))),,            editLimit: Math.min(10000, Math.max(0, Math.floor(Number(pkg?.cvBenefits?.editLimit) || 0))),,            pdfExportLimit: Math.min(10000, Math.max(0, Math.floor(Number(pkg?.cvBenefits?.pdfExportLimit) || 0))),,            atsExportLimit: Math.min(10000, Math.max(0, Math.floor(Number(pkg?.cvBenefits?.atsExportLimit) || 0))),,            shareLimit: Math.min(10000, Math.max(0, Math.floor(Number(pkg?.cvBenefits?.shareLimit) || 0))),,            noWatermark: pkg?.cvBenefits?.noWatermark === true,          },        }))
+      ? src.subscriptionPackages
       : (base.subscriptionPackages || []),
-    earlyAccess: {,      ...(base.earlyAccess || {}),,      ...(src.earlyAccess || {}),,      enabled: src.earlyAccess?.enabled === undefined ? base.earlyAccess?.enabled === true : src.earlyAccess.enabled === true,,      sourceTypes: Array.isArray(src.earlyAccess?.sourceTypes),        ? Array.from(new Set(src.earlyAccess.sourceTypes.filter((value: any) => ['scraped', 'user_posted', 'admin_created'].includes(value)))),        : (base.earlyAccess?.sourceTypes || ['scraped', 'user_posted', 'admin_created']),,      durationHours: Number.isInteger(Number(src.earlyAccess?.durationHours)),        ? Math.min(8760, Math.max(1, Number(src.earlyAccess.durationHours))),        : (base.earlyAccess?.durationHours || 24),,      showOnLanding: src.earlyAccess?.showOnLanding === undefined ? base.earlyAccess?.showOnLanding !== false : src.earlyAccess.showOnLanding === true,,      showJobCount: src.earlyAccess?.showJobCount === undefined ? base.earlyAccess?.showJobCount !== false : src.earlyAccess.showJobCount === true,,      showCountdown: src.earlyAccess?.showCountdown === undefined ? base.earlyAccess?.showCountdown !== false : src.earlyAccess.showCountdown === true,,      maxJobs: Number.isInteger(Number(src.earlyAccess?.maxJobs)) ? Math.min(100, Math.max(1, Number(src.earlyAccess.maxJobs))) : (base.earlyAccess?.maxJobs || 10),,      heading: typeof src.earlyAccess?.heading === 'string' ? src.earlyAccess.heading.trim().slice(0, 100) : (base.earlyAccess?.heading || 'Premium Early Access'),,      description: typeof src.earlyAccess?.description === 'string' ? src.earlyAccess.description.trim().slice(0, 300) : (base.earlyAccess?.description || ''),,      displayFields: Array.isArray(src.earlyAccess?.displayFields),        ? Array.from(new Set(src.earlyAccess.displayFields.filter((value: any) => ['title', 'company', 'department', 'city', 'province', 'jobType', 'deadlineDate', 'salary', 'totalVacancies', 'experienceLevel', 'jobCategory'].includes(value)))),        : (base.earlyAccess?.displayFields || ['title', 'company', 'department', 'city', 'deadlineDate']),,      showSource: src.earlyAccess?.showSource === undefined ? base.earlyAccess?.showSource !== false : src.earlyAccess.showSource === true,,      jobOverrides: Array.isArray(src.earlyAccess?.jobOverrides),        ? src.earlyAccess.jobOverrides.slice(0, 1000).filter((item: any) => item && typeof item.jobId === 'string' && item.jobId.trim()).map((item: any) => ({,            jobId: item.jobId.trim().slice(0, 200),,            enabled: item.enabled !== false,,            ...(typeof item.displayTitle === 'string' && item.displayTitle.trim() ? { displayTitle: item.displayTitle.trim().slice(0, 120) } : {}),          })),        : (base.earlyAccess?.jobOverrides || []),    },
+    earlyAccess: {
+      ...(base.earlyAccess || {}),
+      ...(src.earlyAccess || {}),
+      enabled: src.earlyAccess?.enabled === undefined ? base.earlyAccess?.enabled === true : src.earlyAccess.enabled === true,
+      sourceTypes: Array.isArray(src.earlyAccess?.sourceTypes)
+        ? Array.from(new Set(src.earlyAccess.sourceTypes.filter((value: any) => ['scraped', 'user_posted', 'admin_created'].includes(value))))
+        : (base.earlyAccess?.sourceTypes || ['scraped', 'user_posted', 'admin_created']),
+      durationHours: Number.isInteger(Number(src.earlyAccess?.durationHours))
+        ? Math.min(8760, Math.max(1, Number(src.earlyAccess.durationHours)))
+        : (base.earlyAccess?.durationHours || 24),
+      showOnLanding: src.earlyAccess?.showOnLanding === undefined ? base.earlyAccess?.showOnLanding !== false : src.earlyAccess.showOnLanding === true,
+      showJobCount: src.earlyAccess?.showJobCount === undefined ? base.earlyAccess?.showJobCount !== false : src.earlyAccess.showJobCount === true,
+      showCountdown: src.earlyAccess?.showCountdown === undefined ? base.earlyAccess?.showCountdown !== false : src.earlyAccess.showCountdown === true,
+      maxJobs: Number.isInteger(Number(src.earlyAccess?.maxJobs)) ? Math.min(100, Math.max(1, Number(src.earlyAccess.maxJobs))) : (base.earlyAccess?.maxJobs || 10),
+      heading: typeof src.earlyAccess?.heading === 'string' ? src.earlyAccess.heading.trim().slice(0, 100) : (base.earlyAccess?.heading || 'Premium Early Access'),
+      description: typeof src.earlyAccess?.description === 'string' ? src.earlyAccess.description.trim().slice(0, 300) : (base.earlyAccess?.description || ''),
+      displayFields: Array.isArray(src.earlyAccess?.displayFields)
+        ? Array.from(new Set(src.earlyAccess.displayFields.filter((value: any) => ['title', 'company', 'department', 'city', 'province', 'jobType', 'deadlineDate', 'salary', 'totalVacancies', 'experienceLevel', 'jobCategory'].includes(value))))
+        : (base.earlyAccess?.displayFields || ['title', 'company', 'department', 'city', 'deadlineDate']),
+      showSource: src.earlyAccess?.showSource === undefined ? base.earlyAccess?.showSource !== false : src.earlyAccess.showSource === true,
+      jobOverrides: Array.isArray(src.earlyAccess?.jobOverrides)
+        ? src.earlyAccess.jobOverrides.slice(0, 1000).filter((item: any) => item && typeof item.jobId === 'string' && item.jobId.trim()).map((item: any) => ({
+            jobId: item.jobId.trim().slice(0, 200),
+            enabled: item.enabled !== false,
+            ...(typeof item.displayTitle === 'string' && item.displayTitle.trim() ? { displayTitle: item.displayTitle.trim().slice(0, 120) } : {})
+          }))
+        : (base.earlyAccess?.jobOverrides || [])
+    },
     adPricingConfig: {
       ...(base.adPricingConfig || {}),
       ...(src.adPricingConfig || {}),
@@ -422,7 +461,27 @@ const JOB_SECTOR_ALIAS_TO_CAT_ID: Record<string, string> = {
   'global remote': 'cat-remote'
 };
 
-function withComputedSubscriptionPrices(pricing: any): any {,  const catalog = normalizeSubscriptionFeatureCatalog(pricing?.subscriptionFeatureCatalog);,  const discount = Math.min(100, Math.max(0, Number(pricing?.subscriptionBundleDiscountPercent) || 0));,  const subscriptionPackages = (Array.isArray(pricing?.subscriptionPackages) ? pricing.subscriptionPackages : []).map((pkg: any) => {,    const configuredPricePkr = Number(pkg?.configuredPricePkr ?? pkg?.pricePkr ?? 0);,    if (pkg?.pricingMode !== 'catalog') {,      const ids = Array.isArray(pkg.featureIds) ? Array.from(new Set(pkg.featureIds.map((id: any) => String(id)))) : [];,      const selected = ids.map((id: string) => catalog.find((item) => item.id === id && item.enabled));,      const complete = ids.length > 0 && selected.every(Boolean);,      return { ...pkg, configuredPricePkr, displayPricePkr: configuredPricePkr, featureLabels: complete ? selected.map((item: any) => item.label) : [] };,    },    const ids = Array.isArray(pkg.featureIds) ? Array.from(new Set(pkg.featureIds.map((id: any) => String(id)))) : [];,    const selected = ids.map((id: string) => catalog.find((item) => item.id === id && item.enabled));,    const complete = ids.length > 0 && selected.every(Boolean);,    const subtotal = complete ? selected.reduce((sum: number, item: any) => sum + Number(item.pricePkr || 0), 0) : 0;,    const calculated = complete ? Math.max(0, Math.round(subtotal * (1 - discount / 100))) : 0;,    return { ...pkg, configuredPricePkr, pricePkr: calculated, displayPricePkr: calculated, featureLabels: complete ? selected.map((item: any) => item.label) : [], undiscountedPricePkr: subtotal, bundleDiscountPercent: discount };,  });,  return { ...pricing, subscriptionPackages };,},
+function withComputedSubscriptionPrices(pricing: any): any {
+  const catalog = normalizeSubscriptionFeatureCatalog(pricing?.subscriptionFeatureCatalog);
+  const discount = Math.min(100, Math.max(0, Number(pricing?.subscriptionBundleDiscountPercent) || 0));
+  const subscriptionPackages = (Array.isArray(pricing?.subscriptionPackages) ? pricing.subscriptionPackages : []).map((pkg: any) => {
+    const configuredPricePkr = Number(pkg?.configuredPricePkr ?? pkg?.pricePkr ?? 0);
+    if (pkg?.pricingMode !== 'catalog') {
+      const ids = Array.isArray(pkg.featureIds) ? Array.from(new Set(pkg.featureIds.map((id: any) => String(id)))) : [];
+      const selected = ids.map((id: string) => catalog.find((item) => item.id === id && item.enabled));
+      const complete = ids.length > 0 && selected.every(Boolean);
+      return { ...pkg, configuredPricePkr, displayPricePkr: configuredPricePkr, featureLabels: complete ? selected.map((item: any) => item.label) : [] };
+    }
+    const ids = Array.isArray(pkg.featureIds) ? Array.from(new Set(pkg.featureIds.map((id: any) => String(id)))) : [];
+    const selected = ids.map((id: string) => catalog.find((item) => item.id === id && item.enabled));
+    const complete = ids.length > 0 && selected.every(Boolean);
+    const subtotal = complete ? selected.reduce((sum: number, item: any) => sum + Number(item.pricePkr || 0), 0) : 0;
+    const calculated = complete ? Math.max(0, Math.round(subtotal * (1 - discount / 100))) : 0;
+    return { ...pkg, configuredPricePkr, pricePkr: calculated, displayPricePkr: calculated, featureLabels: complete ? selected.map((item: any) => item.label) : [], undiscountedPricePkr: subtotal, bundleDiscountPercent: discount };
+  });
+  return { ...pricing, subscriptionPackages };
+}
+
 export class PricingRepository {
   private static mockCollection: any = null;
 
@@ -578,7 +637,56 @@ export class PricingRepository {
       }
     }
 
-    if (updates.earlyAccess !== undefined) {,      const early = updates.earlyAccess;,      if (!early || typeof early !== 'object' || Array.isArray(early)) throw new Error('earlyAccess must be an object.');,      for (const field of ['enabled', 'showOnLanding', 'showJobCount', 'showCountdown', 'showSource'] as const) {,        if (early[field] !== undefined && typeof early[field] !== 'boolean') throw new Error(`earlyAccess.${field} must be a boolean.`);,      },      if (early.durationHours !== undefined && (!Number.isInteger(Number(early.durationHours)) || Number(early.durationHours) < 1 || Number(early.durationHours) > 8760)) {,        throw new Error('earlyAccess.durationHours must be a whole number between 1 and 8760.');,      },      if (early.maxJobs !== undefined && (!Number.isInteger(Number(early.maxJobs)) || Number(early.maxJobs) < 1 || Number(early.maxJobs) > 100)) {,        throw new Error('earlyAccess.maxJobs must be a whole number between 1 and 100.');,      },      if (early.sourceTypes !== undefined && (!Array.isArray(early.sourceTypes) || early.sourceTypes.length > 3 || early.sourceTypes.some((value: any) => !['scraped', 'user_posted', 'admin_created'].includes(value)))) {,        throw new Error('earlyAccess.sourceTypes contains an unsupported job source.');,      },      if (early.displayFields !== undefined && (!Array.isArray(early.displayFields) || early.displayFields.length > 20 || early.displayFields.some((value: any) => !['title', 'company', 'department', 'city', 'province', 'jobType', 'deadlineDate', 'salary', 'totalVacancies', 'experienceLevel', 'jobCategory'].includes(value)))) {,        throw new Error('earlyAccess.displayFields contains an unsupported display field.');,      },      if (early.heading !== undefined && (typeof early.heading !== 'string' || early.heading.trim().length > 100)) throw new Error('earlyAccess.heading must be 100 characters or fewer.');,      if (early.description !== undefined && (typeof early.description !== 'string' || early.description.length > 300)) throw new Error('earlyAccess.description must be 300 characters or fewer.');,      if (early.jobOverrides !== undefined) {,        if (!Array.isArray(early.jobOverrides) || early.jobOverrides.length > 1000) throw new Error('earlyAccess.jobOverrides must contain no more than 1000 jobs.');,        const seenJobIds = new Set<string>();,        for (const item of early.jobOverrides) {,          const jobId = typeof item?.jobId === 'string' ? item.jobId.trim() : '';,          if (!jobId || jobId.length > 200 || seenJobIds.has(jobId)) throw new Error('earlyAccess.jobOverrides contains an invalid or duplicate job ID.');,          seenJobIds.add(jobId);,          if (item.enabled !== undefined && typeof item.enabled !== 'boolean') throw new Error(`earlyAccess.jobOverrides.${jobId}.enabled must be a boolean.`);,          if (item.displayTitle !== undefined && (typeof item.displayTitle !== 'string' || item.displayTitle.trim().length > 120)) throw new Error(`earlyAccess.jobOverrides.${jobId}.displayTitle must be 120 characters or fewer.`);,        },      },    },,    if (updates.subscriptionBundleDiscountPercent !== undefined) validateNonNegativeNumber(updates.subscriptionBundleDiscountPercent, 'subscriptionBundleDiscountPercent', 100);,    if (updates.subscriptionReminderSettings !== undefined) {,      const reminder = updates.subscriptionReminderSettings;,      if (!reminder || typeof reminder !== 'object' || Array.isArray(reminder)) throw new Error('subscriptionReminderSettings must be an object.');,      if (reminder.enabled !== undefined && typeof reminder.enabled !== 'boolean') throw new Error('subscriptionReminderSettings.enabled must be a boolean.');,      if (reminder.daysBefore !== undefined && (!Number.isInteger(Number(reminder.daysBefore)) || Number(reminder.daysBefore) < 1 || Number(reminder.daysBefore) > 30)) throw new Error('subscriptionReminderSettings.daysBefore must be a whole number between 1 and 30.');,    },    if (updates.subscriptionFeatureCatalog !== undefined) {,      if (!Array.isArray(updates.subscriptionFeatureCatalog) || updates.subscriptionFeatureCatalog.length > 8) throw new Error('subscriptionFeatureCatalog must contain no more than 8 features.');,      const normalized = normalizeSubscriptionFeatureCatalog(updates.subscriptionFeatureCatalog);,      if (normalized.length !== updates.subscriptionFeatureCatalog.length) throw new Error('subscriptionFeatureCatalog contains an unsupported or duplicate feature ID.');,      for (const feature of normalized) {,        if (!feature.label || !feature.label.trim()) throw new Error('Every subscription feature requires a label.');,        validateNonNegativeNumber(feature.pricePkr, `subscriptionFeatureCatalog.${feature.id}.pricePkr`, 10000000);,      },      updates.subscriptionFeatureCatalog = normalized;,    }
+    if (updates.earlyAccess !== undefined) {
+      const early = updates.earlyAccess;
+      if (!early || typeof early !== 'object' || Array.isArray(early)) throw new Error('earlyAccess must be an object.');
+      for (const field of ['enabled', 'showOnLanding', 'showJobCount', 'showCountdown', 'showSource'] as const) {
+        if (early[field] !== undefined && typeof early[field] !== 'boolean') throw new Error(`earlyAccess.${field} must be a boolean.`);
+      }
+      if (early.durationHours !== undefined && (!Number.isInteger(Number(early.durationHours)) || Number(early.durationHours) < 1 || Number(early.durationHours) > 8760)) {
+        throw new Error('earlyAccess.durationHours must be a whole number between 1 and 8760.');
+      }
+      if (early.maxJobs !== undefined && (!Number.isInteger(Number(early.maxJobs)) || Number(early.maxJobs) < 1 || Number(early.maxJobs) > 100)) {
+        throw new Error('earlyAccess.maxJobs must be a whole number between 1 and 100.');
+      }
+      if (early.sourceTypes !== undefined && (!Array.isArray(early.sourceTypes) || early.sourceTypes.length > 3 || early.sourceTypes.some((value: any) => !['scraped', 'user_posted', 'admin_created'].includes(value)))) {
+        throw new Error('earlyAccess.sourceTypes contains an unsupported job source.');
+      }
+      if (early.displayFields !== undefined && (!Array.isArray(early.displayFields) || early.displayFields.length > 20 || early.displayFields.some((value: any) => !['title', 'company', 'department', 'city', 'province', 'jobType', 'deadlineDate', 'salary', 'totalVacancies', 'experienceLevel', 'jobCategory'].includes(value)))) {
+        throw new Error('earlyAccess.displayFields contains an unsupported display field.');
+      }
+      if (early.heading !== undefined && (typeof early.heading !== 'string' || early.heading.trim().length > 100)) throw new Error('earlyAccess.heading must be 100 characters or fewer.');
+      if (early.description !== undefined && (typeof early.description !== 'string' || early.description.length > 300)) throw new Error('earlyAccess.description must be 300 characters or fewer.');
+      if (early.jobOverrides !== undefined) {
+        if (!Array.isArray(early.jobOverrides) || early.jobOverrides.length > 1000) throw new Error('earlyAccess.jobOverrides must contain no more than 1000 jobs.');
+        const seenJobIds = new Set<string>();
+        for (const item of early.jobOverrides) {
+          const jobId = typeof item?.jobId === 'string' ? item.jobId.trim() : '';
+          if (!jobId || jobId.length > 200 || seenJobIds.has(jobId)) throw new Error('earlyAccess.jobOverrides contains an invalid or duplicate job ID.');
+          seenJobIds.add(jobId);
+          if (item.enabled !== undefined && typeof item.enabled !== 'boolean') throw new Error(`earlyAccess.jobOverrides.${jobId}.enabled must be a boolean.`);
+          if (item.displayTitle !== undefined && (typeof item.displayTitle !== 'string' || item.displayTitle.trim().length > 120)) throw new Error(`earlyAccess.jobOverrides.${jobId}.displayTitle must be 120 characters or fewer.`);
+        }
+      }
+    }
+
+    if (updates.subscriptionBundleDiscountPercent !== undefined) validateNonNegativeNumber(updates.subscriptionBundleDiscountPercent, 'subscriptionBundleDiscountPercent', 100);
+    if (updates.subscriptionReminderSettings !== undefined) {
+      const reminder = updates.subscriptionReminderSettings;
+      if (!reminder || typeof reminder !== 'object' || Array.isArray(reminder)) throw new Error('subscriptionReminderSettings must be an object.');
+      if (reminder.enabled !== undefined && typeof reminder.enabled !== 'boolean') throw new Error('subscriptionReminderSettings.enabled must be a boolean.');
+      if (reminder.daysBefore !== undefined && (!Number.isInteger(Number(reminder.daysBefore)) || Number(reminder.daysBefore) < 1 || Number(reminder.daysBefore) > 30)) throw new Error('subscriptionReminderSettings.daysBefore must be a whole number between 1 and 30.');
+    }
+    if (updates.subscriptionFeatureCatalog !== undefined) {
+      if (!Array.isArray(updates.subscriptionFeatureCatalog) || updates.subscriptionFeatureCatalog.length > 8) throw new Error('subscriptionFeatureCatalog must contain no more than 8 features.');
+      const normalized = normalizeSubscriptionFeatureCatalog(updates.subscriptionFeatureCatalog);
+      if (normalized.length !== updates.subscriptionFeatureCatalog.length) throw new Error('subscriptionFeatureCatalog contains an unsupported or duplicate feature ID.');
+      for (const feature of normalized) {
+        if (!feature.label || !feature.label.trim()) throw new Error('Every subscription feature requires a label.');
+        validateNonNegativeNumber(feature.pricePkr, `subscriptionFeatureCatalog.${feature.id}.pricePkr`, 10000000);
+      }
+      updates.subscriptionFeatureCatalog = normalized;
+    }
     if (Array.isArray(updates.subscriptionPackages)) {
       for (const pkg of updates.subscriptionPackages) {
         if (!pkg.id || typeof pkg.id !== 'string') {
@@ -591,7 +699,6 @@ export class PricingRepository {
             throw new Error(`Subscription package "${pkg.id}" durationDays must be a positive integer`);
           }
         }
-        if (pkg.cvBenefitsEnabled !== undefined && typeof pkg.cvBenefitsEnabled !== 'boolean') {,          throw new Error(`Subscription package "${pkg.id}" cvBenefitsEnabled must be a boolean`);,        },        if (pkg.cvBenefitsDescription !== undefined && (typeof pkg.cvBenefitsDescription !== 'string' || pkg.cvBenefitsDescription.length > 240)) {,          throw new Error(`Subscription package "${pkg.id}" cvBenefitsDescription must be text up to 240 characters`);,        },        if (pkg.cvBenefitsEnabled === true) {,          const benefits = pkg.cvBenefits || {};,          for (const field of ['cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit']) {,            const value = Number(benefits[field] ?? 0);,            if (!Number.isInteger(value) || value < 0 || value > 10000) {,              throw new Error(`Subscription package "${pkg.id}" CV benefit ${field} must be a whole number from 0 to 10000`);,            },          },          if (benefits.noWatermark !== undefined && typeof benefits.noWatermark !== 'boolean') {,            throw new Error(`Subscription package "${pkg.id}" CV noWatermark must be a boolean`);,          },        }
       }
     }
 
@@ -622,7 +729,7 @@ export class PricingRepository {
       if (cv.watermarkText !== undefined && (typeof cv.watermarkText !== 'string' || cv.watermarkText.length > 80)) {
         throw new Error('cvBuilder.watermarkText must be text with a maximum of 80 characters.');
       }
-      for (const field of ['atsCompatibilityEnabled', 'aiWritingAssistantEnabled', 'pdfExportEnabled', 'atsTextExportEnabled', 'watermarkEnabled', 'watermarkFreeOnly'] as const) {
+      for (const field of ['pdfExportEnabled', 'atsTextExportEnabled', 'watermarkEnabled', 'watermarkFreeOnly'] as const) {
         if (cv[field] !== undefined && typeof cv[field] !== 'boolean') {
           throw new Error(`cvBuilder.${field} must be a boolean.`);
         }
@@ -640,10 +747,8 @@ export class PricingRepository {
           if (template.enabled !== undefined && typeof template.enabled !== 'boolean') throw new Error(`CV design ${template.id} enabled must be a boolean.`);
           if (template.free !== undefined && typeof template.free !== 'boolean') throw new Error(`CV design ${template.id} free must be a boolean.`);
           if (template.pricePkr !== undefined) validateNonNegativeNumber(template.pricePkr, `cvBuilder.templates.${template.id}.pricePkr`, 10000000);
-          for (const field of ['pdfExportEnabled', 'atsExportEnabled'] as const) {,            if (template[field] !== undefined && typeof template[field] !== 'boolean') throw new Error(`cvBuilder.templates.${template.id}.${field} must be a boolean.`);,          },          if (template.exportWatermarkMode !== undefined && !['inherit', 'always', 'never'].includes(String(template.exportWatermarkMode))) {,            throw new Error(`cvBuilder.templates.${template.id}.exportWatermarkMode is invalid.`);,          },          if (template.watermarkText !== undefined && (typeof template.watermarkText !== 'string' || template.watermarkText.length > 80)) {,            throw new Error(`cvBuilder.templates.${template.id}.watermarkText must be text up to 80 characters.`);,          },          if (template.watermarkOpacity !== undefined) {,            const opacity = Number(template.watermarkOpacity);,            if (!Number.isFinite(opacity) || opacity < 0.05 || opacity > 0.35) throw new Error(`cvBuilder.templates.${template.id}.watermarkOpacity must be between 0.05 and 0.35.`);,          },          if (template.editMode !== undefined && !['disabled', 'limited', 'unlimited'].includes(String(template.editMode))) throw new Error(`cvBuilder.templates.${template.id}.editMode is invalid.`);,          for (const field of ['cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit'] as const) {,            if (template[field] !== undefined && (!Number.isInteger(Number(template[field])) || Number(template[field]) < 0 || Number(template[field]) > 1000)) throw new Error(`cvBuilder.templates.${template.id}.${field} must be a whole number from 0 to 1000.`);,          },          if (template.shareEnabled !== undefined && typeof template.shareEnabled !== 'boolean') throw new Error(`cvBuilder.templates.${template.id}.shareEnabled must be a boolean.`);
         }
       }
-      if (cv.packages !== undefined) {,        if (!Array.isArray(cv.packages) || cv.packages.length > 30) throw new Error('cvBuilder.packages must contain no more than 30 packages.');,        const seenPackageIds = new Set<string>();,        for (const pkg of cv.packages) {,          if (!pkg || typeof pkg.id !== 'string' || !pkg.id.trim() || seenPackageIds.has(pkg.id)) throw new Error('Each CV package must have a unique ID.');,          seenPackageIds.add(pkg.id);,          if (typeof pkg.name !== 'string' || !pkg.name.trim() || pkg.name.length > 80) throw new Error(`CV package ${pkg.id} needs a valid name.`);,          for (const field of ['pricePkr', 'durationDays', 'cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit'] as const) {,            if (!Number.isInteger(Number(pkg[field])) || Number(pkg[field]) < (field === 'durationDays' ? 1 : 0) || Number(pkg[field]) > (field === 'durationDays' ? 3650 : field === 'pricePkr' ? 10000000 : 1000)) throw new Error(`CV package ${pkg.id} has an invalid ${field}.`);,          },          if (pkg.noWatermark !== undefined && typeof pkg.noWatermark !== 'boolean') throw new Error(`CV package ${pkg.id} noWatermark must be a boolean.`);,          if (pkg.enabled !== undefined && typeof pkg.enabled !== 'boolean') throw new Error(`CV package ${pkg.id} enabled must be a boolean.`);,        },      }
     }
 
     // Category fees update precedence without resurrecting deleted entries from stale current fields

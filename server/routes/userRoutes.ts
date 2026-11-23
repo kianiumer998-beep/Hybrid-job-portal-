@@ -256,8 +256,7 @@ userRouter.post('/cv/consume', requireAuth, async (req: any, res) => {
     if (activeGrants.length) {
       selectedGrant = activeGrants.find((grant: any) =>
         Number(grant?.limits?.[usageField] || 0) > Number(grant?.usage?.[usageField] || 0)
-      );
-      if (!selectedGrant) return res.status(403).json({ success: false, message: 'Your active CV package has no remaining quota for this action.' });
+      ) || null;
     }
     const noWatermark = template.exportWatermarkMode === 'always'
       ? false

@@ -8,6 +8,7 @@ import { isMongoConfigured } from './server/db/mongodb';
 import { createServer as createViteServer } from 'vite';
 
 import { AuditRepository } from './server/db/repositories/AuditRepository';
+import { runWithAuditRequestContext } from './server/utils/auditRequestContext';
 import { authMiddleware, requireAdminPermission } from './server/auth/authManager';
 import { authRouter } from './server/routes/authRoutes';
 import { jobRouter } from './server/routes/jobRoutes';
@@ -95,6 +96,70 @@ async function startServer() {
 
   // Global authentication & dev passkey inspection middleware
   app.use(authMiddleware);
+
+  // Automatically capture successful admin API mutations that do not already
+  // write a specific audit event. Request bodies and query strings are excluded.
+  app.use((req: any, res: any, next: any) => {
+    const auditContext = { auditRecorded: false };
+    runWithAuditRequestContext(auditContext, () => {
+      res.once('finish', () => {
+        const method = String(req.method || '').toUpperCase();
+        if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return;
+        if (res.statusCode < 200 || res.statusCode >= 300) return;
+
+        const requestPath = String(req.originalUrl || req.url || '').split('?')[0];
+        if (!requestPath.startsWith('/api/') || requestPath.startsWith('/api/audit-logs')) return;
+        if (auditContext.auditRecorded) return;
+
+        const actorRole = String(req.user?.role || '');
+        const adminRoles = [
+          'Super Admin',
+          'Admin',
+          'Job Moderator',
+          'Scraper Manager',
+          'Payment Manager',
+          'Finance Manager',
+          'SEO Manager',
+          'Advertisement Manager'
+        ];
+        if (!adminRoles.includes(actorRole)) return;
+
+        const ip = typeof req.ip === 'string' && req.ip.trim() ? req.ip : undefined;
+        const pathLower = requestPath.toLowerCase();
+        const category = /payment|transaction|wallet|subscription|pricing|refund/.test(pathLower)
+          ? 'payments'
+          : /job|application|scraper|cv/.test(pathLower)
+            ? 'jobs'
+            : /user|auth|role|permission/.test(pathLower)
+              ? 'users'
+              : /ad|campaign|banner/.test(pathLower)
+                ? 'ads'
+                : /kyc|badge|verification/.test(pathLower)
+                  ? 'kyc'
+                  : 'security';
+
+        void AuditRepository.add({
+          user: req.user?.name || req.user?.email || 'Administrator',
+          role: actorRole,
+          action: `Admin API: ${method} ${requestPath}`,
+          target: 'Admin API Operation',
+          status: 'Success',
+          ...(ip ? { ip, ipAddress: ip } : {}),
+          details: {
+            description: `Successful administrative API operation: ${method} ${requestPath}`,
+            category,
+            severity: 'success',
+            source: 'Automatic Admin Activity Capture',
+            httpMethod: method,
+            httpStatus: res.statusCode
+          }
+        }).catch((err: any) => {
+          console.error('[AdminActivityAudit] Failed to persist automatic activity event:', err?.message || err);
+        });
+      });
+      next();
+    });
+  });
 
   // API Route: Healthcheck
   app.get('/api/health', (req, res) => {

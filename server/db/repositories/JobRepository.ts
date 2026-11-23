@@ -873,9 +873,9 @@ export class JobRepository {
   static async getBySlug(slug: string): Promise<any | null> {
     if (process.env.IS_TEST === 'true' || !isMongoConfigured()) {
       const live = Database.getJobs().find((j: any) => j.slug === slug);
-      if (live) return live;
+      if (live) return applySubscriptionPostingSlotExpiry(live);
       const pending = Database.getPendingJobs().find((j: any) => j.slug === slug);
-      if (pending) return pending;
+      if (pending) return applySubscriptionPostingSlotExpiry(pending);
       return null;
     }
     assertMongoAvailable();
@@ -883,7 +883,7 @@ export class JobRepository {
     const doc = await jobsColl.findOne({ slug });
     if (!doc) return null;
 
-    const normalized = normalizeMongoJob(doc);
+    const normalized = applySubscriptionPostingSlotExpiry(normalizeMongoJob(doc));
     const isExpired = checkJobExpired(normalized);
     return {
       ...normalized,

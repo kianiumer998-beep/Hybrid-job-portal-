@@ -78,6 +78,7 @@ export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJo
   const heroImage = safeImage(config.design4HeroImageUrl, DEFAULT_DESIGN4_IMAGE);
   const overlay = Math.max(35, Math.min(90, Number(config.design45HeroOverlay ?? 68)));
   return (
+    <>
     <section className="mx-auto w-full max-w-[1440px] px-3 sm:px-6 pt-3 sm:pt-6">
       <div className="relative isolate min-h-[520px] sm:min-h-[590px] overflow-hidden rounded-[28px] bg-slate-950 shadow-2xl">
         <img src={heroImage} alt="Professionals collaborating in a modern workplace" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = DEFAULT_DESIGN4_IMAGE; }} className="absolute inset-0 z-0 h-full w-full object-cover" />
@@ -110,5 +111,6 @@ export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJo
       </div>
     </section>
     <PremiumEarlyAccessSection onUpgrade={() => onPremiumClick?.()} onExplore={onExplore} />
+    </>
   );
 };

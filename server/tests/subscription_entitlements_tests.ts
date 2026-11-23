@@ -54,7 +54,42 @@ async function run() {
   assert.equal(repeatedRedemption.subscriptionEntitlements.urgent_job_posting.remainingSlots, 0, 'repeated redemption does not consume another slot');
   const restored = await UserRepository.restoreSubscriptionFeatureSlotAsync(slotUserId, 'urgent_job_posting', 'job-123');
   assert.equal(restored.subscriptionEntitlements.urgent_job_posting.remainingSlots, 1, 'failed job update compensation restores the consumed slot');
-  console.log('Subscription entitlement tests passed (11 assertions).');
+
+  const cvUserId = 'subscription-cv-benefits-test-user';
+  await UserRepository.createAsync({ id: cvUserId, walletBalance: 0, cvPackageEntitlements: [] });
+  const cvBenefits = {
+    packageId: 'subscription:cv-pro',
+    packageName: 'CV Pro Benefits',
+    pricePkr: 500,
+    durationDays: 30,
+    cvCreateLimit: 2,
+    editLimit: 5,
+    pdfExportLimit: 3,
+    atsExportLimit: 2,
+    shareLimit: 1,
+    noWatermark: true,
+    premiumDesignIds: ['executive', 'tech']
+  };
+  const firstCvGrant = await UserRepository.grantCvPackageEntitlementAsync(cvUserId, cvBenefits, 'cv-subscription-tx-1');
+  assert.equal(firstCvGrant.cvPackageEntitlements.length, 1, 'approved subscription grants one CV benefit entitlement');
+  assert.deepEqual(firstCvGrant.cvPackageEntitlements[0].premiumDesignIds, ['executive', 'tech'], 'subscription retains included premium design IDs');
+  assert.equal(firstCvGrant.cvPackageEntitlements[0].noWatermark, true, 'subscription retains the no-watermark entitlement');
+  const repeatedCvGrant = await UserRepository.grantCvPackageEntitlementAsync(cvUserId, cvBenefits, 'cv-subscription-tx-1');
+  assert.equal(repeatedCvGrant.cvPackageEntitlements.length, 1, 'replayed approval does not duplicate CV entitlements');
+  const cvExport = await UserRepository.consumeCvActionQuotasAsync(cvUserId, 'executive', 'pdfExportLimit', { transactionId: 'cv-subscription-tx-1', limit: 3 }, 0);
+  assert.equal(cvExport.cvPackageEntitlements[0].usage.pdfExportLimit, 1, 'PDF export consumes one server-side package quota');
+
+  const walletCvUserId = 'subscription-cv-wallet-test-user';
+  await UserRepository.createAsync({ id: walletCvUserId, walletBalance: 1000, cvPackageEntitlements: [] });
+  const walletCvPackage = { packageId: 'cv-starter', packageName: 'CV Starter', durationDays: 30, cvCreateLimit: 1, editLimit: 2, pdfExportLimit: 2, atsExportLimit: 1, shareLimit: 1, noWatermark: false };
+  const walletCvPurchase = await UserRepository.purchaseCvPackageWithWalletAsync(walletCvUserId, 250, walletCvPackage, 'cv-wallet-tx-1');
+  assert.equal(walletCvPurchase.ok, true, 'wallet purchase grants the CV package');
+  assert.equal(walletCvPurchase.user.walletBalance, 750, 'wallet CV purchase deducts the exact amount');
+  const repeatedWalletCvPurchase = await UserRepository.purchaseCvPackageWithWalletAsync(walletCvUserId, 250, walletCvPackage, 'cv-wallet-tx-1');
+  assert.equal(repeatedWalletCvPurchase.user.walletBalance, 750, 'replayed wallet purchase does not double-charge');
+  assert.equal(repeatedWalletCvPurchase.user.cvPackageEntitlements.length, 1, 'replayed wallet purchase does not duplicate the package');
+
+  console.log('Subscription entitlement tests passed (21 assertions).');
 }
 
 run().catch((error) => { console.error(error); process.exitCode = 1; });

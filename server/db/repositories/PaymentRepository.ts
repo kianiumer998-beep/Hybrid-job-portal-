@@ -1068,6 +1068,32 @@ export class PaymentRepository {
           throw new Error('Cannot approve Subscription: failed to activate user membership.');
         }
 
+        if (snapshot.cvBenefitsEnabled === true) {
+          const benefits = snapshot.cvBenefits || {};
+          try {
+            const cvGrant = await UserRepository.grantCvPackageEntitlementAsync(user.id, {
+              packageId: `subscription:${snapshot.id}`,
+              packageName: `${membershipTier} CV Benefits`,
+              pricePkr: snapPrice,
+              durationDays,
+              cvCreateLimit: Number(benefits.cvCreateLimit ?? 0),
+              editLimit: Number(benefits.editLimit ?? 0),
+              pdfExportLimit: Number(benefits.pdfExportLimit ?? 0),
+              atsExportLimit: Number(benefits.atsExportLimit ?? 0),
+              shareLimit: Number(benefits.shareLimit ?? 0),
+              noWatermark: benefits.noWatermark === true
+            }, String(tx.id));
+            if (!cvGrant) throw new Error('Subscription activated, but its CV benefits could not be saved to the account.');
+          } catch (cvBenefitErr: any) {
+            await this.updateAsync(id, {
+              status: 'VerificationUncertain',
+              rejectionReason: cvBenefitErr?.message || 'Subscription CV benefit activation is uncertain; manual reconciliation is required.',
+              updatedAt: new Date().toISOString()
+            });
+            throw cvBenefitErr;
+          }
+        }
+
         await this.updateAsync(id, {
           userId: user.id,
           status: 'Success',

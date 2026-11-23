@@ -463,6 +463,7 @@ export interface CvPackageEntitlement {
     shareLimit: number;
   };
   noWatermark: boolean;
+  premiumDesignIds?: string[];
 }
 
 export const GOVT_DEPT_OPTIONS = [

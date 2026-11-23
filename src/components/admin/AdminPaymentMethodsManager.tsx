@@ -663,6 +663,15 @@ export const AdminPaymentMethodsManager: React.FC = () => {
                       />
                       <span>Allow users to enter a custom amount for {method.name}</span>
                     </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <label className="block text-[10px] font-bold text-slate-400">Custom deposit minimum (PKR)
+                        <input type="number" min="1" max="100000000" step="1" value={method.walletDepositMinimumAmount ?? ''} onChange={(e) => handleUpdateMethod(key, { walletDepositMinimumAmount: e.target.value === '' ? undefined : Math.max(1, Math.floor(Number(e.target.value) || 1)) })} placeholder="No minimum" className="mt-1 w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white font-mono" />
+                      </label>
+                      <label className="block text-[10px] font-bold text-slate-400">Custom deposit maximum (PKR)
+                        <input type="number" min="1" max="100000000" step="1" value={method.walletDepositMaximumAmount ?? ''} onChange={(e) => handleUpdateMethod(key, { walletDepositMaximumAmount: e.target.value === '' ? undefined : Math.max(1, Math.floor(Number(e.target.value) || 1)) })} placeholder="No maximum" className="mt-1 w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white font-mono" />
+                      </label>
+                    </div>
+                    <p className="text-[10px] text-slate-500">Limits apply to custom deposits only. Fixed amounts must be paid exactly as configured; package purchases from wallet balance are not affected.</p>
                     <div className="space-y-1.5">
                       <label className="block text-[10px] font-bold text-slate-400">Add / update fixed amounts (PKR, comma separated)</label>
                       <input

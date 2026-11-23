@@ -1795,7 +1795,12 @@ jobRouter.get('/slug/:slug', async (req, res) => {
     }
 
     const user = (req as any).user;
-    const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    const isPrivilegedUser = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(user.role));
+    const isPremium = isPrivilegedUser || await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    const pricing = await PricingRepository.get();
+    if (!isPremium && isEarlyAccessJobLocked(job, pricing?.earlyAccess)) {
+      return res.status(404).json({ success: false, message: 'This job is reserved for Premium Early Access and is not yet publicly available.' });
+    }
     const policyAppliedJob = await JobVisibilityRepository.applyPolicyToJob(job);
     let filteredJob = JobVisibilityRepository.filterJobForUser(policyAppliedJob, user, isPremium);
 

@@ -962,6 +962,87 @@ export class UserRepository {
     return Database.updateUser(cleanUserId, { cvPackageEntitlements: updatedList, updatedAt });
   }
 
+  /** Atomically activates a subscription and its optional CV quota grant with one wallet deduction. */
+  static async purchaseSubscriptionWithCvBenefitsAsync(
+    userId: string,
+    amount: number,
+    membershipUpdates: Record<string, any>,
+    packageSnapshot: Record<string, any>,
+    transactionId: string
+  ): Promise<any | null> {
+    const cleanUserId = String(userId || '').trim();
+    const cleanTransactionId = String(transactionId || '').trim();
+    const packageId = String(packageSnapshot?.id || '').trim();
+    const durationDays = Number(packageSnapshot?.durationDays);
+    if (!cleanUserId || !cleanTransactionId || !packageId || !Number.isFinite(amount) || amount <= 0 ||
+      !Number.isInteger(durationDays) || durationDays <= 0 || durationDays > 3650) {
+      throw new Error('Subscription CV benefit purchase snapshot is invalid.');
+    }
+    const benefits = packageSnapshot.cvBenefits || {};
+    const limits: Record<string, number> = {};
+    for (const field of ['cvCreateLimit', 'editLimit', 'pdfExportLimit', 'atsExportLimit', 'shareLimit']) {
+      const value = Number(benefits[field] ?? 0);
+      if (!Number.isInteger(value) || value < 0 || value > 10000) throw new Error(`Invalid subscription CV benefit quota: ${field}.`);
+      limits[field] = value;
+    }
+    const grantedAt = new Date().toISOString();
+    const entitlement = {
+      packageId: `subscription:${packageId}`,
+      packageName: `${String(packageSnapshot.name || packageId).slice(0, 70)} CV Benefits`,
+      transactionId: cleanTransactionId,
+      pricePkr: amount,
+      grantedAt,
+      expiresAt: new Date(Date.now() + durationDays * 86400000).toISOString(),
+      durationDays,
+      limits,
+      usage: { cvCreateLimit: 0, editLimit: 0, pdfExportLimit: 0, atsExportLimit: 0, shareLimit: 0 },
+      noWatermark: benefits.noWatermark === true
+    };
+    const setPayload: Record<string, any> = { ...(membershipUpdates || {}), updatedAt: grantedAt };
+    delete setPayload.id;
+    delete setPayload._id;
+    delete setPayload.walletBalance;
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const current = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+      if (current.some((item: any) => item?.transactionId === cleanTransactionId)) return existing;
+      const balance = Number(existing.walletBalance || 0);
+      if (!Number.isFinite(balance) || balance < amount) return null;
+      const updated = {
+        ...existing, ...setPayload, walletBalance: balance - amount,
+        cvPackageEntitlements: [...current, entitlement]
+      };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        { id: cleanUserId, walletBalance: { $gte: amount }, 'cvPackageEntitlements.transactionId': { $ne: cleanTransactionId } },
+        { $inc: { walletBalance: -amount }, $set: setPayload, $push: { cvPackageEntitlements: entitlement } },
+        { returnDocument: 'after' }
+      );
+      if (updatedDoc) { const { _id, ...safe } = updatedDoc; return safe; }
+      const existing = await coll.findOne({ id: cleanUserId });
+      if (existing && (Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : []).some((item: any) => item?.transactionId === cleanTransactionId)) {
+        const { _id, ...safe } = existing; return safe;
+      }
+      return null;
+    }
+    const existing = Database.getUserById(cleanUserId);
+    if (!existing) return null;
+    const current = Array.isArray(existing.cvPackageEntitlements) ? existing.cvPackageEntitlements : [];
+    if (current.some((item: any) => item?.transactionId === cleanTransactionId)) return existing;
+    const balance = Number(existing.walletBalance || 0);
+    if (!Number.isFinite(balance) || balance < amount) return null;
+    return Database.updateUser(cleanUserId, {
+      ...setPayload,
+      walletBalance: balance - amount,
+      cvPackageEntitlements: [...current, entitlement]
+    });
+  }
+
   static update(id: string, updates: any): any | null {
     if (isMongoActive()) {
       throw new Error('MongoDB is configured. Synchronous update is prohibited to ensure authoritative persistence; use updateAsync.');

@@ -915,19 +915,25 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
       const templateEditUsage: Record<string, { count: number; limit: number }> = {};
       const templateCreateUsage: Record<string, { count: number; limit: number }> = {};
       for (const document of changedDocs) {
-        const templateId = String(document?.data?.templateStyle || '').trim();
-        const templateConfig = templateConfigs.find((item: any) => String(item?.id || '') === templateId);
-        const editMode = templateConfig?.editMode || 'unlimited';
-        if (editMode === 'disabled') {
-          return res.status(403).json({ success: false, message: `Editing is disabled for the ${templateConfig?.name || templateId || 'selected'} CV design.` });
-        }
-        if (editMode === 'limited') {
-          const limit = Math.max(0, Math.min(10000, Math.floor(Number(templateConfig?.editLimit || 0))));
-          if (!templateId || limit <= 0) return res.status(403).json({ success: false, message: 'This CV design has no remaining edit allowance configured.' });
-          const used = Number(cvOwner.cvTemplateUsage?.[templateId]?.editCount || 0);
-          const pending = templateEditUsage[templateId]?.count || 0;
-          if (used + pending + 1 > limit) return res.status(403).json({ success: false, message: `The ${templateConfig?.name || templateId} design edit quota has been reached.` });
-          templateEditUsage[templateId] = { count: pending + 1, limit };
+        const previous: any = previousById.get(String(document.id));
+        const templateIds = Array.from(new Set([
+          String(previous?.data?.templateStyle || '').trim(),
+          String(document?.data?.templateStyle || '').trim()
+        ].filter(Boolean)));
+        for (const templateId of templateIds) {
+          const templateConfig = templateConfigs.find((item: any) => String(item?.id || '') === templateId);
+          const editMode = templateConfig?.editMode || 'unlimited';
+          if (editMode === 'disabled') {
+            return res.status(403).json({ success: false, message: `Editing is disabled for the ${templateConfig?.name || templateId} CV design.` });
+          }
+          if (editMode === 'limited') {
+            const limit = Math.max(0, Math.min(10000, Math.floor(Number(templateConfig?.editLimit || 0))));
+            if (limit <= 0) return res.status(403).json({ success: false, message: 'This CV design has no remaining edit allowance configured.' });
+            const used = Number(cvOwner.cvTemplateUsage?.[templateId]?.editCount || 0);
+            const pending = templateEditUsage[templateId]?.count || 0;
+            if (used + pending + 1 > limit) return res.status(403).json({ success: false, message: `The ${templateConfig?.name || templateId} design edit quota has been reached.` });
+            templateEditUsage[templateId] = { count: pending + 1, limit };
+          }
         }
       }
       for (const document of createdDocs) {

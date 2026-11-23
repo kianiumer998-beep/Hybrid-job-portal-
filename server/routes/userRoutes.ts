@@ -336,7 +336,10 @@ userRouter.post('/cv/export/:format', requireAuth, async (req: any, res) => {
     const templateId = String(cvData.templateStyle || '');
     const templates = Array.isArray(settings.templates) ? settings.templates : [];
     const template = templates.find((item: any) => String(item?.id || '') === templateId);
-    const ownsDesign = (Array.isArray(user.cvDesignEntitlements) ? user.cvDesignEntitlements : []).some((item: any) => String(item?.templateId || '') === templateId);
+    const activePackageDesignIds = (Array.isArray(user.cvPackageEntitlements) ? user.cvPackageEntitlements : [])
+      .filter((grant: any) => Date.parse(String(grant?.expiresAt || '')) > Date.now())
+      .flatMap((grant: any) => Array.isArray(grant?.premiumDesignIds) ? grant.premiumDesignIds.map(String) : []);
+    const ownsDesign = (Array.isArray(user.cvDesignEntitlements) ? user.cvDesignEntitlements : []).some((item: any) => String(item?.templateId || '') === templateId) || activePackageDesignIds.includes(templateId);
     const inactive = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled', 'Revoked']);
     const premium = !inactive.has(String(user.membershipStatus || '')) && ((user.membershipStatus === 'Active' && Boolean(user.membershipTier) && String(user.membershipTier).toLowerCase() !== 'free') || user.plan === 'Premium' || (user.paymentStatus === 'Paid' && user.membershipStatus === 'Active'));
     const freeDesignLimit = Math.min(5, Math.max(0, Math.floor(Number(settings.freeDesignLimit ?? 2))));
@@ -389,7 +392,10 @@ userRouter.post('/cv/consume', requireAuth, async (req: any, res) => {
     const settings = pricing.cvBuilder || {};
     const templates = Array.isArray(settings.templates) ? settings.templates : [];
     const template = templates.find((item: any) => String(item?.id || '') === templateId);
-    const ownsDesign = (Array.isArray(user.cvDesignEntitlements) ? user.cvDesignEntitlements : []).some((item: any) => String(item?.templateId || '') === templateId);
+    const activePackageDesignIds = (Array.isArray(user.cvPackageEntitlements) ? user.cvPackageEntitlements : [])
+      .filter((grant: any) => Date.parse(String(grant?.expiresAt || '')) > Date.now())
+      .flatMap((grant: any) => Array.isArray(grant?.premiumDesignIds) ? grant.premiumDesignIds.map(String) : []);
+    const ownsDesign = (Array.isArray(user.cvDesignEntitlements) ? user.cvDesignEntitlements : []).some((item: any) => String(item?.templateId || '') === templateId) || activePackageDesignIds.includes(templateId);
     const inactive = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled', 'Revoked']);
     const premium = !inactive.has(String(user.membershipStatus || '')) && ((user.membershipStatus === 'Active' && Boolean(user.membershipTier) && String(user.membershipTier).toLowerCase() !== 'free') || user.plan === 'Premium' || (user.paymentStatus === 'Paid' && user.membershipStatus === 'Active'));
     const freeDesignLimit = Math.min(5, Math.max(0, Math.floor(Number(settings.freeDesignLimit ?? 2))));
@@ -1042,8 +1048,13 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
           .filter((item: any) => item && item.enabled !== false && item.free === true)
           .slice(0, freeDesignLimit)
           .map((item: any) => String(item.id)));
-        const purchasedTemplateIds = new Set((Array.isArray(cvOwner.cvDesignEntitlements) ? cvOwner.cvDesignEntitlements : [])
-          .map((item: any) => String(item?.templateId || '')));
+        const activePackageDesignIds = (Array.isArray(cvOwner.cvPackageEntitlements) ? cvOwner.cvPackageEntitlements : [])
+          .filter((grant: any) => Date.parse(String(grant?.expiresAt || '')) > Date.now())
+          .flatMap((grant: any) => Array.isArray(grant?.premiumDesignIds) ? grant.premiumDesignIds.map(String) : []);
+        const purchasedTemplateIds = new Set([
+          ...(Array.isArray(cvOwner.cvDesignEntitlements) ? cvOwner.cvDesignEntitlements : []).map((item: any) => String(item?.templateId || '')),
+          ...activePackageDesignIds
+        ]);
         const membershipStatusForAccess = String(cvOwner.membershipStatus || '').trim();
         const membershipTierForAccess = String(cvOwner.membershipTier || '').trim();
         const inactiveStatusesForAccess = new Set(['Inactive', 'Expired', 'Suspended', 'Cancelled']);

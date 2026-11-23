@@ -246,7 +246,16 @@ function deepMergePricing(base: any, incoming: any): any {
         name: String(item.name || fallback.name || fallback.id).trim().slice(0, 80) || String(fallback.id),
         enabled: item.enabled === undefined ? fallback.enabled !== false : item.enabled === true,
         free: item.free === undefined ? fallback.free === true : item.free === true,
-        pricePkr: Number.isFinite(price) ? Math.min(10000000, Math.max(0, price)) : 0
+        pricePkr: Number.isFinite(price) ? Math.min(10000000, Math.max(0, price)) : 0,
+        pdfExportEnabled: item.pdfExportEnabled !== false,
+        atsExportEnabled: item.atsExportEnabled !== false,
+        exportWatermarkMode: ['inherit', 'always', 'never'].includes(String(item.exportWatermarkMode))
+          ? String(item.exportWatermarkMode)
+          : 'inherit',
+        watermarkText: typeof item.watermarkText === 'string' ? item.watermarkText.trim().slice(0, 80) : '',
+        watermarkOpacity: Number.isFinite(Number(item.watermarkOpacity))
+          ? Math.min(0.35, Math.max(0.05, Number(item.watermarkOpacity)))
+          : Number(baseCvBuilder.watermarkOpacity ?? 0.16)
       };
     });
   const cvBuilder = {

@@ -117,7 +117,7 @@ jobRouter.get('/early-access', async (req: any, res: any) => {
     const maxJobs = landingConfig.maxJobs;
     const nextReleaseAt = earlyJobs
       .map((job: any) => {
-        const rawStart = job.approvedAt || job.publishedAt || job.createdAt || job.postedAt || job.datePosted;
+        const rawStart = job.approvedAt || job.verifiedDate || job.publishedAt || job.createdAt || job.postedAt || job.datePosted;
         const start = rawStart ? new Date(rawStart).getTime() : Number.NaN;
         return Number.isFinite(start) ? start + landingConfig.durationHours * 60 * 60 * 1000 : Number.NaN;
       })

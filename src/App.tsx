@@ -4661,6 +4661,12 @@ export default function App() {
                                 <span>{feat}</span>
                               </li>
                             ))}
+                            {(pkg.featureLabels || []).map((feat: string, i: number) => (
+                              <li key={`catalog-feature-${i}`} className="flex items-center space-x-2">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                                <span>{feat}</span>
+                              </li>
+                            ))}
                             {(!pkg.features || pkg.features.length === 0) && (
                               <>
                                 <li className="flex items-center space-x-2">

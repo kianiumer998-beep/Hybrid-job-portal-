@@ -132,7 +132,7 @@ async function startServer() {
             ? 'jobs'
             : /user|auth|role|permission/.test(pathLower)
               ? 'users'
-              : /ad|campaign|banner/.test(pathLower)
+              : /(^|\\/)(ads?|campaigns?)(\\/|$)|banner/.test(pathLower)
                 ? 'ads'
                 : /kyc|badge|verification/.test(pathLower)
                   ? 'kyc'

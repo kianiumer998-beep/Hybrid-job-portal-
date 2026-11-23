@@ -1,10 +1,11 @@
 process.env.IS_TEST = 'true';
 
 import assert from 'node:assert/strict';
+import type { EarlyAccessConfig } from '../services/earlyAccessPolicy';
 
 async function run() {
   const { isEarlyAccessJobLocked, buildEarlyAccessDisplayJob, getEarlyAccessLandingConfig } = await import('../services/earlyAccessPolicy');
-  const config = {
+  const config: EarlyAccessConfig = {
     enabled: true,
     sourceTypes: ['scraped', 'user_posted'],
     durationHours: 24,

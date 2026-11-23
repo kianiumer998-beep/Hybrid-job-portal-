@@ -467,7 +467,10 @@ function withComputedSubscriptionPrices(pricing: any): any {
   const subscriptionPackages = (Array.isArray(pricing?.subscriptionPackages) ? pricing.subscriptionPackages : []).map((pkg: any) => {
     const configuredPricePkr = Number(pkg?.configuredPricePkr ?? pkg?.pricePkr ?? 0);
     if (pkg?.pricingMode !== 'catalog') {
-      return { ...pkg, configuredPricePkr, displayPricePkr: configuredPricePkr };
+      const ids = Array.isArray(pkg.featureIds) ? Array.from(new Set(pkg.featureIds.map((id: any) => String(id)))) : [];
+      const selected = ids.map((id: string) => catalog.find((item) => item.id === id && item.enabled));
+      const complete = ids.length > 0 && selected.every(Boolean);
+      return { ...pkg, configuredPricePkr, displayPricePkr: configuredPricePkr, featureLabels: complete ? selected.map((item: any) => item.label) : [] };
     }
     const ids = Array.isArray(pkg.featureIds) ? Array.from(new Set(pkg.featureIds.map((id: any) => String(id)))) : [];
     const selected = ids.map((id: string) => catalog.find((item) => item.id === id && item.enabled));

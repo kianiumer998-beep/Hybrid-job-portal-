@@ -805,7 +805,7 @@ transactionRouter.post('/', async (req, res) => {
           pricePkr: targetPackage.pricePkr,
           durationDays: targetPackage.durationDays,
           cvBenefitsEnabled: targetPackage.cvBenefitsEnabled === true,
-          ...(targetPackage.cvBenefitsEnabled === true ? { cvBenefits: targetPackage.cvBenefits || {} } : {}),
+          ...(targetPackage.cvBenefitsEnabled === true ? { cvBenefits: targetPackage.cvBenefits || {}, cvBenefitsDescription: String(targetPackage.cvBenefitsDescription || '').slice(0, 240) } : {}),
           timestamp: new Date().toISOString()
         };
       } else {

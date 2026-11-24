@@ -736,7 +736,7 @@ export class PricingRepository {
       if (reminder.daysBefore !== undefined && (!Number.isInteger(Number(reminder.daysBefore)) || Number(reminder.daysBefore) < 1 || Number(reminder.daysBefore) > 30)) throw new Error('subscriptionReminderSettings.daysBefore must be a whole number between 1 and 30.');
     }
     if (updates.subscriptionFeatureCatalog !== undefined) {
-      if (!Array.isArray(updates.subscriptionFeatureCatalog) || updates.subscriptionFeatureCatalog.length > 8) throw new Error('subscriptionFeatureCatalog must contain no more than 8 features.');
+      if (!Array.isArray(updates.subscriptionFeatureCatalog) || updates.subscriptionFeatureCatalog.length > SUBSCRIPTION_FEATURES.length) throw new Error(`subscriptionFeatureCatalog must contain no more than ${SUBSCRIPTION_FEATURES.length} supported features.`);
       const normalized = normalizeSubscriptionFeatureCatalog(updates.subscriptionFeatureCatalog);
       if (normalized.length !== updates.subscriptionFeatureCatalog.length) throw new Error('subscriptionFeatureCatalog contains an unsupported or duplicate feature ID.');
       for (const feature of normalized) {

@@ -267,7 +267,7 @@ jobRouter.post('/:id/resubmit', requireAuth, async (req: any, res: any) => {
     if (!userId) return res.status(401).json({ success: false, message: 'Authentication required.' });
 
     const editableFields = [
-      'title', 'company', 'companyLogo', 'jobType', 'region', 'country', 'province', 'city', 'district',
+      'title', 'company', 'jobType', 'region', 'country', 'province', 'city', 'district',
       'salary', 'salaryNumericMin', 'currency', 'experienceLevel', 'department', 'tags', 'description',
       'requirements', 'responsibilities', 'benefits', 'applicationType', 'applicationUrl', 'externalApplyUrl',
       'originalApplyUrl', 'contactEmailOrPhone', 'contactEmail', 'deadlineDate', 'applicationStartDate',
@@ -282,7 +282,7 @@ jobRouter.post('/:id/resubmit', requireAuth, async (req: any, res: any) => {
     }
 
     const stringLimits: Record<string, number> = {
-      title: 180, company: 180, companyLogo: 2000, country: 80, province: 100, city: 100, district: 100,
+      title: 180, company: 180, country: 80, province: 100, city: 100, district: 100,
       salary: 120, department: 120, description: 30000, contactEmailOrPhone: 254, contactEmail: 254,
       applicationUrl: 2000, externalApplyUrl: 2000, originalApplyUrl: 2000, deadlineDate: 40,
       applicationStartDate: 40, expiryDate: 40, jobCategory: 100, govtDepartment: 160, govtScale: 40,
@@ -337,10 +337,11 @@ jobRouter.post('/:id/resubmit', requireAuth, async (req: any, res: any) => {
       }
     }
 
-    for (const field of ['applicationUrl', 'externalApplyUrl', 'originalApplyUrl', 'clippingImageUrl', 'companyLogo']) {
+    for (const field of ['applicationUrl', 'externalApplyUrl', 'originalApplyUrl', 'clippingImageUrl']) {
       const value = updates[field];
       if (typeof value === 'string' && value) {
         try {
+          if (value.startsWith('/') && !value.startsWith('//')) continue;
           const parsed = new URL(value);
           if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('invalid protocol');
           updates[field] = parsed.toString();

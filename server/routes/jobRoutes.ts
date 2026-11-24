@@ -354,7 +354,7 @@ jobRouter.post('/:id/resubmit', requireAuth, async (req: any, res: any) => {
     if (!String(updates.title || '').trim() || !String(updates.company || '').trim() || !String(updates.description || '').trim()) {
       return res.status(400).json({ success: false, message: 'Job title, company and description are required.' });
     }
-    if (updates.contactEmail && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(updates.contactEmail)) {
+    if (updates.contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(updates.contactEmail)) {
       return res.status(400).json({ success: false, message: 'Please enter a valid contact email address.' });
     }
 

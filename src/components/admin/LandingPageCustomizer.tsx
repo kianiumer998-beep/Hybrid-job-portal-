@@ -71,6 +71,8 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
   const [jobCardDesignForm, setJobCardDesignForm] = useState<JobCardDesignConfig>(() => mergeJobCardDesign(config.jobCardDesign));
   const [mobileFilterColumns, setMobileFilterColumns] = useState<1 | 2 | 3 | 4>(config.mobileFilterColumns || 2);
   const [showPostsPerPageSelector, setShowPostsPerPageSelector] = useState(config.showPostsPerPageSelector !== false);
+  const [showLandingPromoCardDesktop, setShowLandingPromoCardDesktop] = useState(config.showLandingPromoCardDesktop === true);
+  const [showLandingPromoCardMobile, setShowLandingPromoCardMobile] = useState(config.showLandingPromoCardMobile === true);
   const [promoBanners, setPromoBanners] = useState<PromoDiscountBanner[]>(campaignConfig.promoBanners || []);
   const [saveToast, setSaveToast] = useState<string | null>(null);
   const [activeDesignId, setActiveDesignId] = useState<LandingDesignSystem['activeDesignId']>(designSystem?.activeDesignId || 'legacy');
@@ -88,6 +90,8 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
     setJobCardDesignForm(mergeJobCardDesign(config.jobCardDesign));
     setMobileFilterColumns(([1, 2, 3, 4].includes(Number(config.mobileFilterColumns)) ? Number(config.mobileFilterColumns) : 2) as 1 | 2 | 3 | 4);
     setShowPostsPerPageSelector(config.showPostsPerPageSelector !== false);
+    setShowLandingPromoCardDesktop(config.showLandingPromoCardDesktop === true);
+    setShowLandingPromoCardMobile(config.showLandingPromoCardMobile === true);
   }, [config]);
 
   useEffect(() => {
@@ -113,6 +117,8 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
       setJobCardDesignForm(mergeJobCardDesign(selected.config.jobCardDesign));
       setMobileFilterColumns(selected.config.mobileFilterColumns || 2);
       setShowPostsPerPageSelector(selected.config.showPostsPerPageSelector !== false);
+      setShowLandingPromoCardDesktop(selected.config.showLandingPromoCardDesktop === true);
+      setShowLandingPromoCardMobile(selected.config.showLandingPromoCardMobile === true);
       setSaveToast('Selected design is now published.');
       setTimeout(() => setSaveToast(null), 3500);
     } catch (error: any) {
@@ -224,7 +230,9 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
       customCards,
       jobCardDesign: jobCardDesignForm,
       mobileFilterColumns,
-      showPostsPerPageSelector
+      showPostsPerPageSelector,
+      showLandingPromoCardDesktop,
+      showLandingPromoCardMobile
     };
 
     const newCampaignConfig: CampaignCustomizationConfig = {
@@ -264,6 +272,8 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
     const previousJobCardDesign = jobCardDesignForm;
     const previousMobileFilterColumns = mobileFilterColumns;
     const previousShowPostsPerPageSelector = showPostsPerPageSelector;
+    const previousShowLandingPromoCardDesktop = showLandingPromoCardDesktop;
+    const previousShowLandingPromoCardMobile = showLandingPromoCardMobile;
 
     const selectedDesignDefaults = createDefaultLandingDesignSystem(DEFAULT_LANDING_PAGE_CONFIG).designs.find((design) => design.id === activeDesignId)?.config || DEFAULT_LANDING_PAGE_CONFIG;
     const newLandingConfig: LandingPageConfig = {
@@ -279,6 +289,8 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
     setJobCardDesignForm(newLandingConfig.jobCardDesign);
     setMobileFilterColumns(newLandingConfig.mobileFilterColumns || 2);
     setShowPostsPerPageSelector(newLandingConfig.showPostsPerPageSelector !== false);
+    setShowLandingPromoCardDesktop(newLandingConfig.showLandingPromoCardDesktop === true);
+    setShowLandingPromoCardMobile(newLandingConfig.showLandingPromoCardMobile === true);
 
     try {
       setSaveToast('⏳ Resetting and saving default configuration to database...');
@@ -429,6 +441,12 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
           <div className="rounded-2xl border border-cyan-500/25 bg-slate-900/80 p-4 space-y-3">
             <div><h4 className="text-sm font-black text-white">Visitor Jobs-Per-Page Control</h4><p className="text-xs text-slate-400">Admin can show or hide the 10 / 15 / 20 jobs-per-page selector above the live jobs feed. Hiding it keeps the admin-configured page size in effect.</p></div>
             <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-950 p-3"><span className="text-xs font-bold text-slate-200">Show page-size selector to visitors</span><input type="checkbox" checked={showPostsPerPageSelector} onChange={(event) => setShowPostsPerPageSelector(event.target.checked)} className="h-5 w-5 accent-emerald-500" /></label>
+          </div>
+
+          <div className="rounded-2xl border border-rose-500/25 bg-slate-900/80 p-4 space-y-3">
+            <div><h4 className="text-sm font-black text-white">Editable Discount Promotion Card</h4><p className="text-xs text-slate-400">The card uses the active promotion configured under Top Promo Discount Banners. Desktop fills the spare grid position only when the announcement count is odd. Mobile visibility is controlled separately.</p></div>
+            <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-950 p-3"><span className="text-xs font-bold text-slate-200">Show promotion card on desktop (odd card count only)</span><input type="checkbox" checked={showLandingPromoCardDesktop} onChange={(event) => setShowLandingPromoCardDesktop(event.target.checked)} className="h-5 w-5 accent-rose-500" /></label>
+            <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-950 p-3"><span className="text-xs font-bold text-slate-200">Show promotion card on mobile</span><input type="checkbox" checked={showLandingPromoCardMobile} onChange={(event) => setShowLandingPromoCardMobile(event.target.checked)} className="h-5 w-5 accent-rose-500" /></label>
           </div>
 
           <div className="space-y-3">
@@ -1144,8 +1162,8 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
               {sections.find((section) => section.id === 'custom-announcements')?.isEnabled !== false && customCards.filter((card) => card.isEnabled).length > 0 && (
                 <section className={`grid gap-3 p-4 sm:p-6 ${previewMode === 'mobile' ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-3'}`}>
                   {customCards.filter((card) => card.isEnabled).sort((a, b) => a.order - b.order).map((card) => (
-                    <article key={card.id} className={`rounded-2xl bg-gradient-to-br ${card.bgGradient} p-4 text-white shadow-lg`}>
-                      {card.imageUrl && <img src={card.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="mb-3 max-h-36 w-full rounded-xl object-cover" />}
+                    <article key={card.id} className={`rounded-xl bg-gradient-to-br ${card.bgGradient} p-3 sm:p-4 text-white shadow-lg space-y-1.5`}>
+                      {card.imageUrl && <img src={card.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="mb-2 max-h-32 w-full rounded-lg object-cover" />}
                       {card.badge && <span className="text-[9px] font-black uppercase tracking-wider text-white/80">{card.badge}</span>}
                       <h2 className="mt-2 text-sm font-black">{card.title}</h2>
                       <p className="mt-2 text-xs leading-relaxed text-white/80">{card.description}</p>

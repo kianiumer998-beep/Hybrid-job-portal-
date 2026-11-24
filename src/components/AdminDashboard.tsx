@@ -1817,7 +1817,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [pendingSearchQuery, setPendingSearchQuery] = useState('');
   const [pendingCategoryFilter, setPendingCategoryFilter] = useState('all');
   const [pendingSourceFilter, setPendingSourceFilter] = useState('all');
+  const [resubmissionMaxAttempts, setResubmissionMaxAttempts] = useState(3);
+  const [resubmissionSettingsBusy, setResubmissionSettingsBusy] = useState(false);
+  const [resubmissionSettingsLoaded, setResubmissionSettingsLoaded] = useState(false);
   const [pendingPortalFilter, setPendingPortalFilter] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    api.jobs.getResubmissionSettings().then((result: any) => {
+      if (!active || !result?.success) return;
+      const value = Number(result.settings?.maxAttempts);
+      if (Number.isInteger(value) && value >= 0 && value <= 10) setResubmissionMaxAttempts(value);
+      setResubmissionSettingsLoaded(true);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
   const [pendingBatchFilter, setPendingBatchFilter] = useState('');
   const [pendingCityFilter, setPendingCityFilter] = useState('');
   const [pendingProvinceFilter, setPendingProvinceFilter] = useState('all');
@@ -4288,6 +4302,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <option value="Education & Academic">Education & Academic</option>
                     <option value="International Remote">International Remote</option>
                   </select>
+
+                  <div className="flex items-center gap-2 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl">
+                    <label className="text-[10px] text-slate-300 font-semibold whitespace-nowrap" htmlFor="job-resubmission-limit">Resubmission limit</label>
+                    <select
+                      id="job-resubmission-limit"
+                      value={resubmissionMaxAttempts}
+                      disabled={resubmissionSettingsBusy || !resubmissionSettingsLoaded}
+                      onChange={async (e) => {
+                        const nextValue = Number(e.target.value);
+                        const previousValue = resubmissionMaxAttempts;
+                        setResubmissionMaxAttempts(nextValue);
+                        setResubmissionSettingsBusy(true);
+                        try {
+                          const result: any = await api.jobs.saveResubmissionSettings(nextValue);
+                          if (!result?.success) throw new Error(result?.message || 'Could not save resubmission limit.');
+                        } catch (error: any) {
+                          setResubmissionMaxAttempts(previousValue);
+                          window.alert(error?.message || 'Could not save resubmission limit.');
+                        } finally {
+                          setResubmissionSettingsBusy(false);
+                        }
+                      }}
+                      className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white"
+                    >
+                      {[0,1,2,3,4,5,6,7,8,9,10].map((count) => <option key={count} value={count}>{count}</option>)}
+                    </select>
+                    <span className="text-[10px] text-slate-500">0 = disabled</span>
+                  </div>
 
                   <select
                     value={pendingSourceFilter}

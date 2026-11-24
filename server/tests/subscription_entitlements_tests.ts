@@ -16,7 +16,7 @@ async function run() {
   ]);
   assert.equal(catalog.length, 4, 'unsupported IDs are excluded while campaign credits are supported');
   assert.equal(catalog[2].id, 'sms_alerts');
-  assert.equal(catalog[1].unlimitedMessages, true, 'legacy catalog entries preserve unmetered compatibility');
+  assert.equal(catalog[1].unlimitedMessages, undefined, 'legacy catalog entries keep their unconfigured state instead of silently selecting Unlimited');
   assert.equal(catalog[2].monthlyMessageQuota, 2, 'explicit monthly quotas are normalized');
   assert.deepEqual(catalog[3].campaignCredits, [{ placement: 'sidebar', durationHours: 168, quantity: 2 }], 'placement-specific campaign credits are normalized');
 
@@ -35,6 +35,14 @@ async function run() {
     () => resolveSubscriptionPackage({ id: 'bad', pricingMode: 'catalog', featureIds: ['untrusted'] }, pricing),
     /Unsupported subscription feature/,
     'unknown feature IDs are rejected'
+  );
+
+  const legacyEmailPackage = resolveSubscriptionPackage({ id: 'legacy-email-plan', pricingMode: 'catalog', featureIds: ['whatsapp_alerts'], durationDays: 30 }, { subscriptionFeatureCatalog: catalog });
+  assert.equal(legacyEmailPackage.featureSnapshots[0].unlimitedMessages, undefined, 'legacy package snapshots preserve pre-quota access compatibility');
+  assert.throws(
+    () => resolveSubscriptionPackage({ id: 'unconfigured-sms-plan', pricingMode: 'catalog', featureIds: ['sms_alerts'] }, { subscriptionFeatureCatalog: catalog.map((item: any) => item.id === 'sms_alerts' ? { ...item, unlimitedMessages: false, monthlyMessageQuota: undefined } : item) }),
+    /positive monthly message quota or explicitly enable Unlimited/,
+    'new limited notification plans cannot be sold with an empty quota'
   );
 
   const campaignPackage = resolveSubscriptionPackage({ id: 'campaign-plan', pricingMode: 'catalog', featureIds: ['campaign_credits'], durationDays: 30 }, { subscriptionFeatureCatalog: catalog });
@@ -103,6 +111,16 @@ async function run() {
   const repeatedWalletCvPurchase = await UserRepository.purchaseCvPackageWithWalletAsync(walletCvUserId, 250, walletCvPackage, 'cv-wallet-tx-1');
   assert.equal(repeatedWalletCvPurchase.user.walletBalance, 750, 'replayed wallet purchase does not double-charge');
   assert.equal(repeatedWalletCvPurchase.user.cvPackageEntitlements.length, 1, 'replayed wallet purchase does not duplicate the package');
+
+  const legacyQuotaUserId = 'subscription-message-legacy-test-user';
+  await UserRepository.createAsync({
+    id: legacyQuotaUserId, walletBalance: 0, membershipStatus: 'Active', subscriptionExpiresAt: future,
+    subscriptionFeatureIds: ['email_alerts'],
+    subscriptionEntitlements: { email_alerts: { enabled: true, expiresAt: future } }
+  });
+  const legacyReservation = await SubscriptionUsageRepository.reserveMessageQuota(legacyQuotaUserId, 'email_alerts', 'legacy-event');
+  assert.equal(legacyReservation.ok, true, 'existing purchased notification entitlements remain unmetered until renewal or reconfiguration');
+  assert.equal(await SubscriptionUsageRepository.completeMessageQuota(legacyQuotaUserId, 'email_alerts', 'legacy-event'), true, 'legacy notification delivery is recorded idempotently');
 
   const quotaUserId = 'subscription-message-quota-test-user';
   const future = new Date(Date.now() + 86400000).toISOString();
@@ -209,7 +227,7 @@ async function run() {
   const noExpiryReservation = await SubscriptionUsageRepository.reserveMessageQuota(noExpiryUserId, 'sms_alerts', 'no-expiry-event');
   assert.equal(noExpiryReservation.reason, 'unavailable', 'missing subscription expiry fails closed');
 
-  console.log('Subscription entitlement tests passed (50 assertions).');
+  console.log('Subscription entitlement tests passed (54 assertions).');
 }
 
 run().catch((error) => { console.error(error); process.exitCode = 1; });

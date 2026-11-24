@@ -69,7 +69,7 @@ export async function sendConfiguredPremiumAlert(user: any, channel: DeliveryCha
       return response.ok;
     }
 
-    if (config.whatsappProvider === 'twilio') {
+    if (channel === 'whatsapp' && config.whatsappProvider === 'twilio') {
       const sid = String(config.twilioAccountSid || '').trim();
       const token = await CommunicationProviderRepository.getDecryptedSecret('twilioAuthToken');
       const from = String(config.twilioPhoneNumber || '').trim();
@@ -83,6 +83,17 @@ export async function sendConfiguredPremiumAlert(user: any, channel: DeliveryCha
         headers: { Authorization: 'Basic ' + basicAuth(sid + ':' + token), 'Content-Type': 'application/x-www-form-urlencoded' },
         body: form.toString()
       });
+      return response.ok;
+    }
+
+    if (channel === 'sms' && config.smsProvider === 'twilio') {
+      const sid = String(config.twilioAccountSid || '').trim();
+      const token = await CommunicationProviderRepository.getDecryptedSecret('twilioAuthToken');
+      const from = String(config.smsFromNumber || config.twilioPhoneNumber || '').trim();
+      if (!sid || !token || !from) return false;
+      const formattedPhone = rawPhone.startsWith('+') ? rawPhone : '+' + rawPhone;
+      const form = new URLSearchParams({ To: formattedPhone, From: from, Body: message.slice(0, 1500) });
+      const response = await fetch('https://api.twilio.com/2010-04-01/Accounts/' + encodeURIComponent(sid) + '/Messages.json', { method: 'POST', headers: { Authorization: 'Basic ' + basicAuth(sid + ':' + token), 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });
       return response.ok;
     }
     return false;

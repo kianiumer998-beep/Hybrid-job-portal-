@@ -266,14 +266,15 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
             return res.status(201).json({ success: true, advertisement: createdCreditCampaign, auditPersisted: false,
               auditWarning: 'Campaign was saved; its audit record may require administrator reconciliation.' });
           }
+          let creditCompensated = false;
           if (redeemedCredit) {
-            const restored = await SubscriptionUsageRepository.restoreCampaignCredit(
+            creditCompensated = await SubscriptionUsageRepository.restoreCampaignCredit(
               String(authUserId), campaignCalc.placement, campaignCalc.durationHours, idempotencyKey, campaignCalc.smsRecipientsCount
             ).catch(() => false);
-            if (!restored) console.error('[Ad Campaign] Subscription credit restoration requires reconciliation:', idempotencyKey);
+            if (!creditCompensated) console.error('[Ad Campaign] Subscription credit restoration requires reconciliation:', idempotencyKey);
           }
           const statusCode = typeof creditErr?.statusCode === 'number' && creditErr.statusCode >= 400 ? creditErr.statusCode : 500;
-          return res.status(statusCode).json({ success: false, message: creditErr?.message || 'Unable to redeem subscription campaign credit.' });
+          return res.status(statusCode).json({ success: false, compensated: creditCompensated, message: creditErr?.message || 'Unable to redeem subscription campaign credit.' });
         } finally {
           if (creditPlacementLockKey) activePlacementCreationLocks.delete(creditPlacementLockKey);
         }

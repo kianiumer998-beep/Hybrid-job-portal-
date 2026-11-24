@@ -292,13 +292,23 @@ export class SubscriptionUsageRepository {
         }]
       } as any);
       if (result.modifiedCount === 1) return true;
-      return Boolean(await coll.findOne({ id: uid, [marker]: 'RESTORED' }));
+      return Boolean(await coll.findOne({
+        id: uid, [marker]: 'RESTORED',
+        [detailPath]: {
+          placement: cleanPlacement, durationHours,
+          smsRecipientsCount: cleanPlacement === 'sms-broadcast' ? smsRecipientsCount : 0
+        }
+      }));
     }
     const user = await UserRepository.getByIdAsync(uid);
     if (!user) return false;
-    if (user.subscriptionCampaignOperations?.[markerKey] === 'RESTORED') return true;
-    if (user.subscriptionCampaignOperations?.[markerKey] !== 'CONSUMED') return false;
     const previousDetails = user.subscriptionCampaignOperationDetails?.[markerKey];
+    if (user.subscriptionCampaignOperations?.[markerKey] === 'RESTORED') {
+      return Boolean(previousDetails && previousDetails.placement === cleanPlacement &&
+        Number(previousDetails.durationHours) === durationHours &&
+        Number(previousDetails.smsRecipientsCount || 0) === (cleanPlacement === 'sms-broadcast' ? smsRecipientsCount : 0));
+    }
+    if (user.subscriptionCampaignOperations?.[markerKey] !== 'CONSUMED') return false;
     if (!previousDetails || previousDetails.placement !== cleanPlacement ||
         Number(previousDetails.durationHours) !== durationHours ||
         Number(previousDetails.smsRecipientsCount || 0) !== (cleanPlacement === 'sms-broadcast' ? smsRecipientsCount : 0)) return false;

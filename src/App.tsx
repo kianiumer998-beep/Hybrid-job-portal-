@@ -3695,6 +3695,7 @@ export default function App() {
     transaction?: PaymentTransaction;
     chargedAmount?: number;
     message?: string;
+    compensated?: boolean;
   }> => {
     if (!currentUser) {
       return { success: false, message: 'Authentication required.' };
@@ -3763,7 +3764,7 @@ export default function App() {
         }
         const creditError = creditRes?.message || 'No matching subscription campaign credit is available.';
         alert(creditError);
-        return { success: false, message: creditError };
+        return { success: false, message: creditError, compensated: Boolean((creditRes as any)?.compensated) };
       }
 
       // 1. Create and complete Advertisement wallet transaction via authoritative backend pricing & wallet balance

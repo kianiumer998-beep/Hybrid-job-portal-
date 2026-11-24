@@ -2105,6 +2105,95 @@ export class JobRepository {
   }
 
   /**
+   * Returns a user's own submissions, including rejected records retained in pending_jobs.
+   * Ownership is always matched against the authenticated user ID.
+   */
+  static async getUserSubmissions(userId: string): Promise<any[]> {
+    const safeUserId = String(userId || '').trim();
+    if (!safeUserId) return [];
+    if (!isMongoConfigured()) {
+      return Database.getPendingJobs().filter((job: any) =>
+        String(job.submittedByUserId || '') === safeUserId
+      );
+    }
+    assertMongoAvailable();
+    const pendingColl = await getPendingJobsCollection();
+    const docs = await withMongoTimeout(
+      pendingColl.find({ submittedByUserId: safeUserId }).sort({ updatedAt: -1 }).limit(200).toArray(),
+      30000,
+      'getUserSubmissions'
+    );
+    return docs.map(normalizeMongoJob);
+  }
+
+  /**
+   * Reopens a rejected user-owned submission after validating its resubmission limit.
+   * The previous rejection is appended to immutable moderation history before status changes.
+   */
+  static async resubmitRejectedPending(
+    id: string,
+    userId: string,
+    updates: Record<string, any>,
+    maxAttempts: number
+  ): Promise<{ job: any | null; reason?: 'not_found' | 'not_rejected' | 'limit_reached' }> {
+    const safeId = String(id || '').trim();
+    const safeUserId = String(userId || '').trim();
+    const safeMaxAttempts = Math.max(0, Math.min(20, Math.floor(Number(maxAttempts) || 0)));
+    if (!safeId || !safeUserId) return { job: null, reason: 'not_found' };
+    if (!isMongoConfigured()) {
+      const pending = Database.getPendingJobs();
+      const index = pending.findIndex((job: any) => job.id === safeId && String(job.submittedByUserId || '') === safeUserId);
+      if (index < 0) return { job: null, reason: 'not_found' };
+      const existing = pending[index];
+      if (existing.status !== 'Rejected') return { job: null, reason: 'not_rejected' };
+      const attempts = Number(existing.resubmissionCount || 0);
+      if (attempts >= safeMaxAttempts) return { job: null, reason: 'limit_reached' };
+      const now = new Date().toISOString();
+      const history = Array.isArray(existing.moderationHistory) ? existing.moderationHistory : [];
+      pending[index] = {
+        ...existing, ...updates, id: existing.id, submittedByUserId: safeUserId,
+        status: 'Pending', rejectionReason: '', resubmissionCount: attempts + 1,
+        moderationHistory: [...history, { action: 'resubmitted', reason: existing.rejectionReason || '', at: now, attempt: attempts + 1 }],
+        updatedAt: now, resubmittedAt: now
+      };
+      Database.savePendingJobs(pending);
+      return { job: pending[index] };
+    }
+    assertMongoAvailable();
+    const pendingColl = await getPendingJobsCollection();
+    const existing = await pendingColl.findOne({ id: safeId, submittedByUserId: safeUserId, status: 'Rejected' });
+    if (!existing) {
+      const owned = await pendingColl.findOne({ id: safeId, submittedByUserId: safeUserId });
+      return { job: null, reason: owned ? 'not_rejected' : 'not_found' };
+    }
+    const attempts = Number(existing.resubmissionCount || 0);
+    if (attempts >= safeMaxAttempts) return { job: null, reason: 'limit_reached' };
+    const now = new Date().toISOString();
+    const historyEntry = {
+      action: 'resubmitted',
+      reason: String(existing.rejectionReason || ''),
+      rejectedAt: existing.rejectedAt || null,
+      at: now,
+      attempt: attempts + 1
+    };
+    const safeUpdates = { ...updates };
+    for (const key of ['id', '_id', 'submittedByUserId', 'sourceType', 'status', 'moderationHistory', 'resubmissionCount', 'rejectionReason']) delete safeUpdates[key];
+    const result = await pendingColl.findOneAndUpdate(
+      { id: safeId, submittedByUserId: safeUserId, status: 'Rejected', resubmissionCount: { $lt: safeMaxAttempts } },
+      {
+        $set: { ...safeUpdates, status: 'Pending', rejectionReason: '', resubmissionCount: attempts + 1, resubmittedAt: now, updatedAt: now },
+        $push: { moderationHistory: historyEntry }
+      },
+      { returnDocument: 'after' }
+    );
+    if (!result) {
+      const latest = await pendingColl.findOne({ id: safeId, submittedByUserId: safeUserId });
+      return { job: null, reason: Number(latest?.resubmissionCount || 0) >= safeMaxAttempts ? 'limit_reached' : 'not_rejected' };
+    }
+    return { job: normalizeMongoJob(result) };
+  }
+
+  /**
    * Rejects a pending job in MongoDB.
    */
   static async rejectPending(id: string, reason?: string): Promise<boolean> {

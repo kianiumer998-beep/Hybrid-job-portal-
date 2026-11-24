@@ -477,6 +477,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       setFormDiscountPercent(10);
       setFormPromoCode('');
       setUseSubscriptionCredit(false);
+      setCampaignDraftSeed(`${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 8)}`);
       changeActiveSubTab('my-campaigns');
       alert(
         `Campaign "${newAd.title}" submitted successfully! ${chargedAmount > 0

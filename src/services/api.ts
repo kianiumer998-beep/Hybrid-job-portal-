@@ -1340,6 +1340,18 @@ export const api = {
         headers: getAuthHeader(),
         body: JSON.stringify(payload)
       });
+    },
+    async test(payload: { channel: 'email' | 'whatsapp' | 'sms'; recipient: string }) {
+      return safeFetchJson<{
+        success: boolean;
+        message?: string;
+        auditPersisted?: boolean;
+        auditWarning?: string;
+      }>(`${API_BASE}/settings/communication/providers/test`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(payload)
+      });
     }
   },
   chat: {

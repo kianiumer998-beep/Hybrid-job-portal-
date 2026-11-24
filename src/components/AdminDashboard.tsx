@@ -2954,7 +2954,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Synchronized Rejection with Audit Trail
   const handleRejectPrompt = async (jobId: string, customReason?: string) => {
-    const reason = (customReason || prompt('Enter a clear correction reason for the submitter:', 'Please correct the incomplete or inaccurate job details.'))?.trim();
+    const reason = (customReason || prompt('Enter a clear correction reason for the submitter:', ''))?.trim();
     if (!reason) return { success: false, message: 'A rejection reason is required.' };
     try {
       const result = await onRejectJob(jobId, reason);
@@ -4161,7 +4161,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         const handleBulkReject = () => {
           if (selectedPendingIds.length === 0) return;
-          const reason = (prompt(`Enter a clear correction reason for ${selectedPendingIds.length} selected postings:`, 'Please correct the incomplete or inaccurate job details.') || '').trim();
+          const reason = (prompt(`Enter a clear correction reason for ${selectedPendingIds.length} selected postings:`, '') || '').trim();
           if (reason) {
             if (onBulkRejectPendingJobs) {
               onBulkRejectPendingJobs(selectedPendingIds, reason);

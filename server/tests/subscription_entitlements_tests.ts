@@ -20,7 +20,7 @@ async function run() {
   assert.equal(catalog[2].monthlyMessageQuota, 2, 'explicit monthly quotas are normalized');
   assert.deepEqual(catalog[3].campaignCredits, [{ placement: 'sidebar', durationHours: 168, quantity: 2 }], 'placement-specific campaign credits are normalized');
 
-  const pricing = { subscriptionFeatureCatalog: catalog, subscriptionBundleDiscountPercent: 10 };
+  const pricing = { subscriptionFeatureCatalog: catalog.map((item: any) => item.id === 'whatsapp_alerts' ? { ...item, unlimitedMessages: true } : item), subscriptionBundleDiscountPercent: 10 };
   const bundle = resolveSubscriptionPackage({ id: 'bundle', name: 'Bundle', pricingMode: 'catalog', featureIds: ['early_access', 'whatsapp_alerts'], durationDays: 30 }, pricing);
   assert.equal(bundle.undiscountedPricePkr, 800, 'bundle subtotal is derived from admin-configured feature prices');
   assert.equal(bundle.pricePkr, 720, 'configured bundle discount is applied server-side');

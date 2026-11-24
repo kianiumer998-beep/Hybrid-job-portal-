@@ -998,7 +998,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   >('analytics');
 
   const [jobsAdsWorkspaceArea, setJobsAdsWorkspaceArea] = useState<'jobs' | 'campaigns'>('jobs');
-  const [jobsWorkspaceSection, setJobsWorkspaceSection] = useState<'pending' | 'jobs' | 'add-job' | 'ai-enhancer' | 'pricing-controller' | 'fee-logs'>('pending');
+  const [jobsWorkspaceSection, setJobsWorkspaceSection] = useState<'pending' | 'jobs' | 'add-job' | 'ai-enhancer' | 'pricing-controller' | 'fee-logs' | 'new'>('pending');
+  const [newWorkspaceSection, setNewWorkspaceSection] = useState<'pricing-controller' | 'fee-management' | 'advertisements' | 'campaign-center' | 'subscription-studio' | 'cv-settings' | 'landing-customizer'>('pricing-controller');
   const [campaignWorkspaceSection, setCampaignWorkspaceSection] = useState<'advertisements' | 'campaign-center' | 'landing-customizer'>('advertisements');
 
   const [activeCategory, setActiveCategory] = useState<AdminCategory>('jobs');
@@ -1051,13 +1052,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return checkAdminTabPermission(effectiveAdminRole, effectiveAdminPerms, isVerifiedAdmin, tabId);
   };
 
-  const jobsWorkspaceTabIds = ['pending', 'jobs', 'add-job', 'ai-enhancer', 'pricing-controller', 'fee-logs'];
+  const jobsWorkspaceTabIds = ['pending', 'jobs', 'add-job', 'ai-enhancer', 'pricing-controller', 'fee-management', 'fee-logs', 'subscription-studio', 'cv-settings'];
   const campaignWorkspaceTabIds = ['advertisements', 'campaign-center', 'landing-customizer'];
   const canAccessJobsWorkspace = jobsWorkspaceTabIds.some(canAccessAdminTab);
   const canAccessCampaignWorkspace = campaignWorkspaceTabIds.some(canAccessAdminTab);
   const effectiveAdminTab = adminTab === 'jobs-ads-control-center'
     ? (jobsAdsWorkspaceArea === 'jobs' && canAccessJobsWorkspace
-        ? (canAccessAdminTab(jobsWorkspaceSection) ? jobsWorkspaceSection : jobsWorkspaceTabIds.find(canAccessAdminTab) || 'jobs')
+        ? (jobsWorkspaceSection === 'new' ? (canAccessAdminTab(newWorkspaceSection) ? newWorkspaceSection : ['pricing-controller', 'fee-management', 'advertisements', 'campaign-center', 'subscription-studio', 'cv-settings', 'landing-customizer'].find(canAccessAdminTab) || 'pricing-controller') : (canAccessAdminTab(jobsWorkspaceSection) ? jobsWorkspaceSection : jobsWorkspaceTabIds.find(canAccessAdminTab) || 'jobs'))
         : (canAccessCampaignWorkspace
             ? (canAccessAdminTab(campaignWorkspaceSection) ? campaignWorkspaceSection : campaignWorkspaceTabIds.find(canAccessAdminTab) || 'campaign-center')
             : jobsWorkspaceTabIds.find(canAccessAdminTab) || 'jobs'))
@@ -3751,7 +3752,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 ['add-job', 'Manual Job Posting'],
                 ['ai-enhancer', 'Quality & Spam'],
                 ['pricing-controller', 'Job Rates & Fees'],
-                ['fee-logs', 'Job Fee Logs']
+                ['fee-logs', 'Job Fee Logs'],
+                ['new', 'NEW • Central Settings']
               ] as const).filter(([id]) => canAccessAdminTab(id)).map(([id, label]) => (
                 <button key={id} type="button" onClick={() => setJobsWorkspaceSection(id)} className={`px-3 py-2 rounded-lg text-[11px] sm:text-xs font-bold ${jobsWorkspaceSection === id ? 'bg-amber-500/20 text-amber-200 border border-amber-500/40' : 'bg-slate-950 text-slate-300 border border-slate-800'}`}>{label}</button>
               ))}
@@ -3767,7 +3769,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               ))}
             </div>
           )}
-          <p className="text-[10px] text-slate-500">All controls below reuse their existing permissions, data sources and save actions. Job rates and category fees are shown together; campaign slots, sizes, placement settings, schedules and active campaign rates remain in the Campaign Setup tab.</p>
+          {jobsAdsWorkspaceArea === 'jobs' && jobsWorkspaceSection === 'new' && (
+            <div className="space-y-3 rounded-xl border border-emerald-500/30 bg-slate-950/80 p-3 sm:p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-black text-emerald-300">NEW — Central Jobs & Ads Settings</h3>
+                  <p className="text-[10px] text-slate-400">Existing settings are grouped here first. Legacy tabs remain available until review and approval.</p>
+                </div>
+                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[9px] font-bold text-emerald-300">PHASE 1 · NO LEGACY REMOVALS</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+                {([
+                  ['pricing-controller', '1. Job Posting Rates'],
+                  ['fee-management', '2. Category Fees'],
+                  ['advertisements', '3. Ad Rates & Slots'],
+                  ['campaign-center', '4. Campaign Operations'],
+                  ['subscription-studio', '5. Subscription Plans'],
+                  ['cv-settings', '6. CV Builder & Benefits'],
+                  ['landing-customizer', '7. Homepage & Placement']
+                ] as const).filter(([id]) => canAccessAdminTab(id)).map(([id, label]) => (
+                  <button key={id} type="button" onClick={() => setNewWorkspaceSection(id)} className={'min-h-11 rounded-lg border px-2 py-2 text-left text-[10px] font-bold sm:text-xs ' + (newWorkspaceSection === id ? 'border-emerald-400 bg-emerald-500/15 text-emerald-200' : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-emerald-500/50')}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-slate-500">Path: Admin Panel / Jobs & Ads Control Center / Jobs Management / NEW / {({ 'pricing-controller':'Job Posting Rates', 'fee-management':'Category Fees', 'advertisements':'Ad Rates & Slots', 'campaign-center':'Campaign Operations', 'subscription-studio':'Subscription Plans', 'cv-settings':'CV Builder & Benefits', 'landing-customizer':'Homepage & Placement' } as Record<string,string>)[newWorkspaceSection]}</p>
+            </div>
+          )}
+          <p className="text-[10px] text-slate-500">All controls below reuse their existing permissions, data sources and save actions. Legacy tabs are intentionally retained during this first organization phase.</p>
         </section>
       )}
 

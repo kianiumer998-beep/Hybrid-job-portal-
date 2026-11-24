@@ -137,7 +137,7 @@ export const AdminSubscriptionStudio: React.FC<{ onPricingSaved?: (pricing: any)
         setError(`"${feature.label || feature.id}" ke price, duration ya slots mein invalid value hai.`);
         return;
       }
-      if (['email_alerts', 'whatsapp_alerts', 'sms_alerts'].includes(feature.id) &&
+      if (feature.enabled === true && ['email_alerts', 'whatsapp_alerts', 'sms_alerts'].includes(feature.id) &&
           feature.unlimitedMessages !== true && !numberIsValid(feature.monthlyMessageQuota, 1, 1000000)) {
         setError(`"${feature.label || feature.id}" ke liye Unlimited enable karein ya monthly quota 1 se 1,000,000 set karein.`);
         return;

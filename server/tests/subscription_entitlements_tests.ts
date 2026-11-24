@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { normalizeSubscriptionFeatureCatalog, resolveSubscriptionPackage } from '../services/subscriptionEntitlements';
 import { UserRepository } from '../db/repositories/UserRepository';
 import { SubscriptionUsageRepository } from '../db/repositories/SubscriptionUsageRepository';
+import { PaymentRepository } from '../db/repositories/PaymentRepository';
 
 async function run() {
   const catalog = normalizeSubscriptionFeatureCatalog([
@@ -162,6 +163,35 @@ async function run() {
   assert.equal(smsCampaignRedemption?.credit.smsRecipientsCount, 50, 'SMS campaign credit matches its configured recipient cap');
   assert.equal(await SubscriptionUsageRepository.restoreCampaignCredit(smsCampaignUserId, 'sms-broadcast', 24, 'sms-campaign-1', 50), true, 'rejected SMS campaign restores the exact recipient credit');
 
+  const manualActivationUserId = 'manual-subscription-activation-test-user';
+  await UserRepository.createAsync({ id: manualActivationUserId, email: 'manual-subscription-test@example.com', walletBalance: 0, membershipStatus: 'Inactive' });
+  const manualTransaction = PaymentRepository.create({
+    id: 'manual-subscription-activation-transaction',
+    type: 'Subscription',
+    status: 'Pending',
+    userId: manualActivationUserId,
+    userEmail: 'manual-subscription-test@example.com',
+    plan: 'Master Notification + Campaign Plan',
+    amount: 1000,
+    paymentMethod: 'Bank Transfer',
+    packageSnapshot: {
+      id: 'master-notification-campaign-plan',
+      name: 'Master Notification + Campaign Plan',
+      pricePkr: 1000,
+      durationDays: 30,
+      featureSnapshots: [
+        { id: 'sms_alerts', label: 'SMS Alerts', durationDays: 30, includedSlots: 0, slotDurationDays: 30, unlimitedMessages: false, monthlyMessageQuota: 50 },
+        { id: 'campaign_credits', label: 'Campaign Credits', durationDays: 30, includedSlots: 0, slotDurationDays: 30, campaignCredits: [{ placement: 'sidebar', durationHours: 168, quantity: 2 }] }
+      ]
+    }
+  });
+  const approvedManualTransaction = await PaymentRepository.verify(manualTransaction.id, 'approve');
+  assert.equal(approvedManualTransaction.status, 'Success', 'manual subscription approval completes successfully');
+  const activatedManualUser = await UserRepository.getByIdAsync(manualActivationUserId);
+  assert.deepEqual(activatedManualUser.subscriptionFeatureIds, ['sms_alerts', 'campaign_credits'], 'manual approval grants all purchased feature IDs');
+  assert.equal(activatedManualUser.subscriptionEntitlements.sms_alerts.monthlyMessageQuota, 50, 'manual approval grants the purchased message quota');
+  assert.equal(activatedManualUser.subscriptionEntitlements.campaign_credits.campaignCredits[0].remaining, 2, 'manual approval grants campaign credits');
+
   const unlimitedUserId = 'subscription-message-unlimited-test-user';
   await UserRepository.createAsync({
     id: unlimitedUserId, walletBalance: 0, membershipStatus: 'Active', subscriptionExpiresAt: future,
@@ -178,7 +208,7 @@ async function run() {
   const noExpiryReservation = await SubscriptionUsageRepository.reserveMessageQuota(noExpiryUserId, 'sms_alerts', 'no-expiry-event');
   assert.equal(noExpiryReservation.reason, 'unavailable', 'missing subscription expiry fails closed');
 
-  console.log('Subscription entitlement tests passed (46 assertions).');
+  console.log('Subscription entitlement tests passed (50 assertions).');
 }
 
 run().catch((error) => { console.error(error); process.exitCode = 1; });

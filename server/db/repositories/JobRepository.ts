@@ -2192,7 +2192,7 @@ export class JobRepository {
       {
         $set: { ...safeUpdates, status: 'Pending', rejectionReason: '', resubmissionCount: attempts + 1, resubmittedAt: now, updatedAt: now },
         $push: { moderationHistory: historyEntry }
-      },
+      } as any,
       { returnDocument: 'after' }
     );
     if (!result) {
@@ -2250,7 +2250,7 @@ export class JobRepository {
           updatedAt: now
         },
         $push: { moderationHistory: historyEntry }
-      }
+      } as any
     );
     return res.matchedCount > 0;
   }

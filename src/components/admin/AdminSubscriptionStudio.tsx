@@ -245,7 +245,7 @@ export const AdminSubscriptionStudio: React.FC<{ onPricingSaved?: (pricing: any)
         ))}
         {!packages.length && <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center text-xs text-slate-500">No master plans configured yet.</div>}
       </section>
-      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-[11px] text-amber-100">Campaign placement credits abhi plans mein offer nahi kiye ja rahe. Unke liye separate placement-specific redemption, duration accounting aur refund controls complete hona zaroori hai. Email, WhatsApp aur SMS ke monthly quotas backend par enforce hotay hain.</div>
+      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-[11px] text-amber-100">Campaign credits exact placement aur duration ke sath redeem hotay hain. Credit use hone par normal campaign price dobara charge nahi hoti; admin rejection par credit restore hota hai. Email, WhatsApp aur SMS ke monthly quotas bhi backend par enforce hotay hain.</div>
     </div>
   );
 };

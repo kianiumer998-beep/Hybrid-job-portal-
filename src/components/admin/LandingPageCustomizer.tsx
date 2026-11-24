@@ -310,6 +310,8 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
       setJobCardDesignForm(previousJobCardDesign);
       setMobileFilterColumns(previousMobileFilterColumns);
       setShowPostsPerPageSelector(previousShowPostsPerPageSelector);
+      setShowLandingPromoCardDesktop(previousShowLandingPromoCardDesktop);
+      setShowLandingPromoCardMobile(previousShowLandingPromoCardMobile);
       setSaveToast(null);
       alert('❌ Failed to reset landing page configuration. The database could not be updated. Changes have been rolled back.');
     }

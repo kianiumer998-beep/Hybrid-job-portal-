@@ -547,8 +547,7 @@ jobRouter.post('/queue/pending/:id/reject', requireAdminPermission('jobs.manage'
     const { id } = req.params;
     const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 4000) : '';
 
-    const pendingJobs = await JobRepository.getPending();
-    const target = pendingJobs.find(j => j.id === id);
+    const target = await JobRepository.getPendingById(id);
     const sourceType = deriveJobSourceType(target);
     const isScraped = isScrapedJob(target);
     if (target && sourceType === 'user_posted' && !reason) {
@@ -819,9 +818,9 @@ jobRouter.post('/bulk-reject', requireAdminPermission('jobs.manage'), async (req
     }
     const safeIds = ids.slice(0, 500).map(String);
     if (!reason) {
-      const pendingBefore = await JobRepository.getPending();
+      const pendingBefore = await JobRepository.getJobsByIds(safeIds);
       const includesUserSubmission = pendingBefore.some((job: any) =>
-        safeIds.includes(String(job.id)) && deriveJobSourceType(job) === 'user_posted' && Boolean(job.submittedByUserId)
+        job.status === 'Pending' && deriveJobSourceType(job) === 'user_posted' && Boolean(job.submittedByUserId)
       );
       if (includesUserSubmission) {
         return res.status(400).json({ success: false, message: 'Please provide a clear correction reason before bulk-rejecting user-submitted jobs.' });

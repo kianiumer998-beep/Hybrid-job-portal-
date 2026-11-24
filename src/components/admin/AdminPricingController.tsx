@@ -179,12 +179,10 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
       const duration = Number(rawDuration);
       if (typeof rawDuration === 'string' && rawDuration.trim() === '') return true;
       if (!Number.isInteger(duration) || duration < 1 || duration > 3650) return true;
-      if (pkg?.pricingMode !== 'catalog') {
-        const rawPrice = pkg?.configuredPricePkr ?? pkg?.pricePkr;
-        const price = Number(rawPrice);
-        if (typeof rawPrice === 'string' && rawPrice.trim() === '') return true;
-        if (!Number.isSafeInteger(price) || price < 0) return true;
-      }
+      const rawPrice = pkg?.configuredPricePkr ?? pkg?.pricePkr;
+      const price = Number(rawPrice);
+      if (typeof rawPrice === 'string' && rawPrice.trim() === '') return true;
+      if (!Number.isSafeInteger(price) || price < 0) return true;
       return false;
     });
     if (invalidPackage) {

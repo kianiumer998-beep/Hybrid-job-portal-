@@ -175,14 +175,15 @@ export class SubscriptionUsageRepository {
       return { user: safe, credit: { placement: cleanPlacement, durationHours, smsRecipientsCount, campaignId: campaign } };
     }
     const user = await UserRepository.getByIdAsync(uid);
-    const membershipExpiry = Date.parse(String(user?.subscriptionExpiresAt || ''));
-    const featureExpiry = Date.parse(String(user?.subscriptionEntitlements?.campaign_credits?.expiresAt || ''));
-    if (!user || user.membershipStatus !== 'Active' || !Number.isFinite(membershipExpiry) || membershipExpiry <= Date.now() ||
-        user.subscriptionEntitlements?.campaign_credits?.enabled !== true ||
-        !Number.isFinite(featureExpiry) || featureExpiry <= Date.now()) return null;
+    if (!user) return null;
     const ops = user.subscriptionCampaignOperations || {};
     if (ops[markerKey] === 'CONSUMED') return { user, credit: { placement: cleanPlacement, durationHours, smsRecipientsCount, campaignId: campaign } };
     if (ops[markerKey] === 'RESTORED') return null;
+    const membershipExpiry = Date.parse(String(user.subscriptionExpiresAt || ''));
+    const featureExpiry = Date.parse(String(user.subscriptionEntitlements?.campaign_credits?.expiresAt || ''));
+    if (user.membershipStatus !== 'Active' || !Number.isFinite(membershipExpiry) || membershipExpiry <= Date.now() ||
+        user.subscriptionEntitlements?.campaign_credits?.enabled !== true ||
+        !Number.isFinite(featureExpiry) || featureExpiry <= Date.now()) return null;
     const credits = user.subscriptionEntitlements.campaign_credits.campaignCredits || [];
     const index = credits.findIndex((item: any) => item?.placement === cleanPlacement &&
       Number(item?.durationHours) === durationHours &&

@@ -104,6 +104,14 @@ async function deliverConfiguredPremiumAlert(user: any, channel: DeliveryChannel
 }
 
 
+/** Sends a single administrator-requested provider test without consuming a customer subscription quota. */
+export async function sendProviderTestMessage(channel: DeliveryChannel, recipient: string, subject: string, message: string): Promise<boolean> {
+  const cleanRecipient = String(recipient || '').trim();
+  if (!cleanRecipient || !String(message || '').trim()) return false;
+  const testUser = channel === 'email' ? { email: cleanRecipient } : { phone: cleanRecipient };
+  return deliverConfiguredPremiumAlert(testUser, channel, String(subject || 'Hybrid Job Portal provider test').slice(0, 120), String(message).slice(0, 1500));
+}
+
 /** Applies the paid subscription quota around a real provider delivery. Failed provider
  * attempts release their reservation; repeated event IDs cannot send twice. */
 export async function sendConfiguredPremiumAlert(user: any, channel: DeliveryChannel, subject: string, message: string, eventId: string): Promise<boolean> {

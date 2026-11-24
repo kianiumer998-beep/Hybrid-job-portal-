@@ -5,6 +5,7 @@ on:
     branches:
       - feature/premium-early-access-subscription-wallet
       - feature/job-control-center-moderation
+      - feature/subscription-pricing-control-center
   pull_request:
     branches:
       - main

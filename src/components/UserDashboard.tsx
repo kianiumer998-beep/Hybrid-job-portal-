@@ -3937,6 +3937,18 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                         {j.status === 'Rejected' && (
                           <div className="mt-2 p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300 space-y-2">
                             <div><span className="font-bold">Admin Rejection Reason:</span> {j.rejectionReason || 'Please review and correct the submitted details.'}</div>
+                            {Array.isArray((j as any).moderationHistory) && (j as any).moderationHistory.length > 0 && (
+                              <div className="pt-2 border-t border-rose-500/20 space-y-1.5">
+                                <div className="font-bold text-rose-200">Moderation History</div>
+                                {(j as any).moderationHistory.map((entry: any, index: number) => (
+                                  <div key={index} className="text-[10px] text-rose-100/80">
+                                    <span className="font-semibold">{String(entry.action || 'Update').replace(/_/g, ' ')}</span>
+                                    {entry.at ? ` • ${new Date(entry.at).toLocaleString()}` : ''}
+                                    {entry.reason ? <div className="whitespace-pre-wrap">{entry.reason}</div> : null}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                             <div className="text-[10px] text-rose-200/80">Resubmissions used: {Number((j as any).resubmissionCount || 0)} / {resubmissionLimit}</div>
                             {Number((j as any).resubmissionCount || 0) < resubmissionLimit && (
                               <button

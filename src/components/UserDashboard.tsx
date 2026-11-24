@@ -176,6 +176,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [ownSubmissionHistory, setOwnSubmissionHistory] = useState<Job[]>([]);
   const [resubmissionLimit, setResubmissionLimit] = useState(3);
   const [resubmittingJobId, setResubmittingJobId] = useState<string | null>(null);
+  const [resubmissionDraft, setResubmissionDraft] = useState<Job | null>(null);
+  const [resubmissionTitle, setResubmissionTitle] = useState('');
+  const [resubmissionCompany, setResubmissionCompany] = useState('');
+  const [resubmissionDescription, setResubmissionDescription] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -3954,32 +3958,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                               <button
                                 type="button"
                                 disabled={resubmittingJobId === jobId}
-                                onClick={async () => {
-                                  const correctedTitle = window.prompt('Correct job title:', j.title || '');
-                                  if (correctedTitle === null) return;
-                                  const correctedCompany = window.prompt('Correct company name:', j.company || '');
-                                  if (correctedCompany === null) return;
-                                  const correctedDescription = window.prompt('Correct job description:', j.description || '');
-                                  if (correctedDescription === null) return;
-                                  if (!correctedTitle.trim() || !correctedCompany.trim() || !correctedDescription.trim()) {
-                                    window.alert('Title, company and description are required.');
-                                    return;
-                                  }
-                                  setResubmittingJobId(jobId);
-                                  try {
-                                    const result: any = await api.jobs.resubmitRejected(jobId, {
-                                      title: correctedTitle.trim(),
-                                      company: correctedCompany.trim(),
-                                      description: correctedDescription.trim()
-                                    });
-                                    if (!result?.success) throw new Error(result?.message || 'Resubmission failed.');
-                                    setOwnSubmissionHistory((current) => current.map((item) => item.id === jobId ? result.job : item));
-                                    window.alert('Corrected job submitted again. It is now Pending admin review.');
-                                  } catch (error: any) {
-                                    window.alert(error?.message || 'Could not resubmit this job.');
-                                  } finally {
-                                    setResubmittingJobId(null);
-                                  }
+                                onClick={() => {
+                                  setResubmissionDraft(j);
+                                  setResubmissionTitle(j.title || '');
+                                  setResubmissionCompany(j.company || '');
+                                  setResubmissionDescription(j.description || '');
                                 }}
                                 className="px-3 py-1.5 rounded-lg bg-rose-500/15 border border-rose-400/40 text-rose-200 font-bold disabled:opacity-50"
                               >
@@ -4712,6 +4695,63 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   </div>
                 ))
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {resubmissionDraft && (
+        <div className="fixed inset-0 z-[90] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-rose-500/30 bg-slate-900 shadow-2xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-slate-800 bg-slate-950 px-4 py-3">
+              <div>
+                <h3 className="text-sm font-black text-white">Correct & Resubmit Job</h3>
+                <p className="text-[10px] text-slate-400">Update the details requested by the admin. Your previous rejection remains in moderation history.</p>
+              </div>
+              <button type="button" onClick={() => setResubmissionDraft(null)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="space-y-3 p-4">
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-300">Job Title</label>
+                <input value={resubmissionTitle} onChange={(e) => setResubmissionTitle(e.target.value)} maxLength={180} className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-300">Company</label>
+                <input value={resubmissionCompany} onChange={(e) => setResubmissionCompany(e.target.value)} maxLength={180} className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-300">Job Description</label>
+                <textarea value={resubmissionDescription} onChange={(e) => setResubmissionDescription(e.target.value)} rows={8} maxLength={30000} className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500" />
+              </div>
+            </div>
+            <div className="flex flex-col-reverse gap-2 border-t border-slate-800 p-4 sm:flex-row sm:justify-end">
+              <button type="button" onClick={() => setResubmissionDraft(null)} className="rounded-xl border border-slate-700 px-4 py-2.5 text-xs font-bold text-slate-300 hover:bg-slate-800">Cancel</button>
+              <button
+                type="button"
+                disabled={Boolean(resubmittingJobId) || !resubmissionTitle.trim() || !resubmissionCompany.trim() || !resubmissionDescription.trim()}
+                onClick={async () => {
+                  const jobId = String(resubmissionDraft.id);
+                  setResubmittingJobId(jobId);
+                  try {
+                    const result: any = await api.jobs.resubmitRejected(jobId, {
+                      title: resubmissionTitle.trim(),
+                      company: resubmissionCompany.trim(),
+                      description: resubmissionDescription.trim()
+                    });
+                    if (!result?.success) throw new Error(result?.message || 'Resubmission failed.');
+                    setOwnSubmissionHistory((current) => current.map((item) => item.id === jobId ? result.job : item));
+                    setResubmissionDraft(null);
+                    window.alert('Corrected job submitted again. It is now Pending admin review.');
+                  } catch (error: any) {
+                    window.alert(error?.message || 'Could not resubmit this job.');
+                  } finally {
+                    setResubmittingJobId(null);
+                  }
+                }}
+                className="rounded-xl bg-emerald-500 px-4 py-2.5 text-xs font-black text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {resubmittingJobId ? 'Submitting…' : 'Submit for Admin Review'}
+              </button>
             </div>
           </div>
         </div>

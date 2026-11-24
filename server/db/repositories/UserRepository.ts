@@ -2312,7 +2312,9 @@ export class UserRepository {
     if (!uid || !cleanPlacement || !Number.isInteger(durationHours) || durationHours < 1 || !markerKey) return false;
     if (isTest()) {
       const user = inMemoryUsers.get(uid);
-      if (!user || user.subscriptionCampaignOperations?.[markerKey] !== 'CONSUMED') return false;
+      if (!user) return false;
+      if (user.subscriptionCampaignOperations?.[markerKey] === 'RESTORED') return true;
+      if (user.subscriptionCampaignOperations?.[markerKey] !== 'CONSUMED') return false;
       const credits = user.subscriptionEntitlements?.campaign_credits?.campaignCredits || [];
       let restored = false;
       const updatedCredits = credits.map((item: any) => {
@@ -2332,10 +2334,14 @@ export class UserRepository {
         $inc: { 'subscriptionEntitlements.campaign_credits.campaignCredits.$[credit].remaining': 1 },
         $set: { [marker]: 'RESTORED', updatedAt: now }
       } as any, { arrayFilters: [{ 'credit.placement': cleanPlacement, 'credit.durationHours': durationHours }] } as any);
-      return result.modifiedCount === 1;
+      if (result.modifiedCount === 1) return true;
+      const existing = await coll.findOne({ id: uid, [marker]: 'RESTORED' });
+      return Boolean(existing);
     }
     const user = Database.getUserById(uid);
-    if (!user || user.subscriptionCampaignOperations?.[markerKey] !== 'CONSUMED') return false;
+    if (!user) return false;
+    if (user.subscriptionCampaignOperations?.[markerKey] === 'RESTORED') return true;
+    if (user.subscriptionCampaignOperations?.[markerKey] !== 'CONSUMED') return false;
     const credits = user.subscriptionEntitlements?.campaign_credits?.campaignCredits || [];
     let restored = false;
     const updatedCredits = credits.map((item: any) => {

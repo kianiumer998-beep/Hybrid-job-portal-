@@ -1557,12 +1557,13 @@ export class UserRepository {
       if (ops[markerKey] === 'RESERVED' || ops[markerKey] === 'SENT') return { ok: false, reason: 'already_processed', month };
       const entitlement = user.subscriptionEntitlements?.[featureId];
       const expiry = Date.parse(String(entitlement?.expiresAt || ''));
+      const legacyAccess = !Array.isArray(user.subscriptionFeatureIds) || user.subscriptionFeatureIds.length === 0;
       if (user.membershipStatus !== 'Active' || Date.parse(String(user.subscriptionExpiresAt || '')) <= now.getTime() ||
-          entitlement?.enabled !== true || !Number.isFinite(expiry) || expiry <= now.getTime()) return { ok: false, reason: 'unavailable', month };
+          (!legacyAccess && (entitlement?.enabled !== true || !Number.isFinite(expiry) || expiry <= now.getTime()))) return { ok: false, reason: 'unavailable', month };
       const usage = user.subscriptionMessageUsage || {};
       const used = Number(usage[featureId]?.[month]?.used) || 0;
-      const quota = Number(entitlement.monthlyMessageQuota);
-      const legacyUnmetered = entitlement.unlimitedMessages === undefined && entitlement.monthlyMessageQuota === undefined;
+      const quota = Number(entitlement?.monthlyMessageQuota);
+      const legacyUnmetered = legacyAccess || (!entitlement || (entitlement.unlimitedMessages === undefined && entitlement.monthlyMessageQuota === undefined));
       if (!legacyUnmetered && entitlement.unlimitedMessages !== true && (!Number.isInteger(quota) || quota <= 0 || used >= quota)) return { ok: false, reason: 'quota_exhausted', month };
       inMemoryUsers.set(uid, { ...user,
         subscriptionMessageUsage: { ...usage, [featureId]: { ...(usage[featureId] || {}), [month]: { ...(usage[featureId]?.[month] || {}), used: used + 1 } } },
@@ -1574,7 +1575,12 @@ export class UserRepository {
       const coll = await getUsersCollection();
       const result = await coll.findOneAndUpdate({
         id: uid, membershipStatus: 'Active', subscriptionExpiresAt: { $gt: nowIso },
-        [enabledPath]: true, [expiryPath]: { $gt: nowIso }, [marker]: { $nin: ['RESERVED', 'SENT'] },
+        $or: [
+          { [enabledPath]: true, [expiryPath]: { $gt: nowIso } },
+          { subscriptionFeatureIds: { $exists: false } },
+          { subscriptionFeatureIds: { $size: 0 } }
+        ],
+        [marker]: { $nin: ['RESERVED', 'SENT'] },
         $expr: { $or: [
           { $eq: [{ $ifNull: ['
     params: RoleMutationParams,
@@ -2162,12 +2168,13 @@ export class UserRepository {
     if (ops[markerKey] === 'RESERVED' || ops[markerKey] === 'SENT') return { ok: false, reason: 'already_processed', month };
     const entitlement = user.subscriptionEntitlements?.[featureId];
     const expiry = Date.parse(String(entitlement?.expiresAt || ''));
+    const legacyAccess = !Array.isArray(user.subscriptionFeatureIds) || user.subscriptionFeatureIds.length === 0;
     if (user.membershipStatus !== 'Active' || Date.parse(String(user.subscriptionExpiresAt || '')) <= now.getTime() ||
-        entitlement?.enabled !== true || !Number.isFinite(expiry) || expiry <= now.getTime()) return { ok: false, reason: 'unavailable', month };
+        (!legacyAccess && (entitlement?.enabled !== true || !Number.isFinite(expiry) || expiry <= now.getTime()))) return { ok: false, reason: 'unavailable', month };
     const usage = user.subscriptionMessageUsage || {};
     const used = Number(usage[featureId]?.[month]?.used) || 0;
-    const quota = Number(entitlement.monthlyMessageQuota);
-    const legacyUnmetered = entitlement.unlimitedMessages === undefined && entitlement.monthlyMessageQuota === undefined;
+    const quota = Number(entitlement?.monthlyMessageQuota);
+    const legacyUnmetered = legacyAccess || (!entitlement || (entitlement.unlimitedMessages === undefined && entitlement.monthlyMessageQuota === undefined));
     if (!legacyUnmetered && entitlement.unlimitedMessages !== true && (!Number.isInteger(quota) || quota <= 0 || used >= quota)) return { ok: false, reason: 'quota_exhausted', month };
     await UserRepository.updateAsync(uid, {
       subscriptionMessageUsage: { ...usage, [featureId]: { ...(usage[featureId] || {}), [month]: { ...(usage[featureId]?.[month] || {}), used: used + 1 } } },

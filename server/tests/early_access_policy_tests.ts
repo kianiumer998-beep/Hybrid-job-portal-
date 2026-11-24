@@ -24,6 +24,8 @@ async function run() {
   assert.equal(isEarlyAccessJobLocked(scraped, config, now), true, 'selected scraped source is held during the early window');
   const approvedAfterPending = { id: 'u2', title: 'Approved user job', submittedByUserId: 'user-2', createdAt: '2026-11-20T00:00:00.000Z', verifiedDate: '2026-11-23T00:00:00.000Z' };
   assert.equal(isEarlyAccessJobLocked(approvedAfterPending, config, now), true, 'user job early-access window starts from approval verification, not initial submission');
+  assert.equal(getEarlyAccessReleaseAt(approvedAfterPending, config), '2026-11-24T00:00:00.000Z', 'release timestamp uses approval verification rather than original submission time');
+  assert.equal(getEarlyAccessReleaseAt(scraped, { ...config, jobOverrides: [{ jobId: 's1', enabled: false }] }), null, 'disabled per-job override removes that job from early-access release timers');
   assert.equal(isEarlyAccessJobLocked(approvedAfterPending, config, Date.parse('2026-11-24T01:00:00.000Z')), false, 'user job becomes public 24 hours after approval verification');
   assert.equal(isEarlyAccessJobLocked(userPosted, config, now), true, 'selected user source is held during the early window');
 
@@ -47,7 +49,7 @@ async function run() {
   assert.equal(landing.maxJobs, 5);
   assert.equal(landing.showCountdown, true);
 
-  console.log('Premium early access policy tests passed (18 assertions).');
+  console.log('Premium early access policy tests passed (20 assertions).');
 }
 
 run().catch((error) => {

@@ -1132,7 +1132,8 @@ export class PaymentRepository {
             membershipStatus: 'Active',
             subscriptionExpiresAt,
             subscriptionEntitlements,
-            subscriptionFeatureIds
+            // A newly purchased featureless plan must not inherit the legacy all-features fallback.
+            subscriptionFeatureIds: subscriptionFeatureIds.length ? subscriptionFeatureIds : ['__no_features__']
           });
         } catch (subErr: any) {
           await this.updateAsync(id, {

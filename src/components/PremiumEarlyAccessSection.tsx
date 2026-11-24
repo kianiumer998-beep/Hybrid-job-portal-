@@ -82,6 +82,7 @@ export const PremiumEarlyAccessSection: React.FC<Props> = ({ onUpgrade, onExplor
 
   const config = payload.config || {};
   const count = Number(payload.count || 0);
+  const earlyHours = Math.max(1, Number(config.durationHours) || 24);
 
   return (
     <section aria-label="Premium early access jobs" className="mx-auto w-full max-w-7xl">
@@ -93,7 +94,7 @@ export const PremiumEarlyAccessSection: React.FC<Props> = ({ onUpgrade, onExplor
             </span>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                <span className="text-xs font-black text-white">Get selected new jobs 24 hours early</span>
+                <span className="text-xs font-black text-white">Get selected new jobs {earlyHours} hours early</span>
                 {config.showJobCount !== false && (
                   <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] font-bold text-emerald-200">
                     {count} early-access jobs
@@ -143,7 +144,7 @@ export const PremiumEarlyAccessSection: React.FC<Props> = ({ onUpgrade, onExplor
             )
           ) : (
             <div className="border-t border-white/5 p-3">
-              <p className="mb-2 text-[10px] leading-relaxed text-slate-400">Each selected job has its own 24-hour early-access period. New jobs start their timer when approved or published; one new job never resets another job's timer.</p>
+              <p className="mb-2 text-[10px] leading-relaxed text-slate-400">Each selected job has its own {earlyHours}-hour early-access period. Its timer starts when approved or published; a new job never resets another job's timer.</p>
               {previews.length > 0 ? (
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
                   {previews.map((item) => (

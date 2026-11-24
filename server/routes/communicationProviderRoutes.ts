@@ -1,8 +1,10 @@
 import { Router } from 'express';
-import { CommunicationProviderRepository, AuditRepository } from '../db/repositories';
+import { CommunicationProviderRepository, AuditRepository, SubscriptionUsageRepository } from '../db/repositories';
 import { requireAdminPermission } from '../auth/authManager';
+import { sendProviderTestMessage } from '../services/communicationDeliveryService';
 
 export const communicationProviderRouter = Router();
+const providerTestLastSentAt = new Map<string, number>();
 
 // GET /api/settings/communication/providers (Admin only)
 communicationProviderRouter.get('/', requireAdminPermission('settings.manage'), async (req, res) => {
@@ -19,6 +21,19 @@ communicationProviderRouter.get('/', requireAdminPermission('settings.manage'), 
       success: false,
       message: err?.message || 'Failed to fetch communication provider settings.'
     });
+  }
+});
+
+// GET /api/settings/communication/providers/logs (Admin only)
+communicationProviderRouter.get('/logs', requireAdminPermission('settings.manage'), async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const limit = Number(req.query?.limit || 50);
+    const logs = await SubscriptionUsageRepository.getRecentMessageDeliveryLogs(limit);
+    return res.json({ success: true, logs });
+  } catch (error: any) {
+    console.error('[CommunicationProviderRoutes] Failed to fetch delivery logs:', error?.message || error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch communication delivery logs.' });
   }
 });
 
@@ -41,6 +56,19 @@ communicationProviderRouter.put('/', requireAdminPermission('settings.manage'), 
       return res.status(400).json({
         success: false,
         message: 'Validation Error: whatsappProvider must be one of "meta-cloud" or "twilio".'
+      });
+    }
+    if (body.smsProvider && !['disabled', 'twilio'].includes(body.smsProvider)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation Error: smsProvider must be one of "disabled" or "twilio".'
+      });
+    }
+    if (body.smsFromNumber && typeof body.smsFromNumber === 'string' &&
+        !/^\+?[1-9][0-9]{7,14}$/.test(body.smsFromNumber.trim())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation Error: smsFromNumber must be a valid international sender number.'
       });
     }
 
@@ -111,5 +139,51 @@ communicationProviderRouter.put('/', requireAdminPermission('settings.manage'), 
       success: false,
       message: err?.message || 'Failed to update communication provider settings.'
     });
+  }
+});
+
+
+/** POST /api/settings/communication/providers/test — one rate-limited admin test send. */
+communicationProviderRouter.post('/test', requireAdminPermission('settings.manage'), async (req: any, res) => {
+  const channel = String(req.body?.channel || '');
+  const recipient = String(req.body?.recipient || '').trim();
+  const adminKey = String(req.user?.userId || req.user?.id || req.user?.email || 'admin');
+  if (!['email', 'whatsapp', 'sms'].includes(channel)) {
+    return res.status(400).json({ success: false, message: 'Channel must be email, whatsapp or sms.' });
+  }
+  if (channel === 'email') {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient) || recipient.length > 254) {
+      return res.status(400).json({ success: false, message: 'Enter a valid test email address.' });
+    }
+  } else {
+    const digits = recipient.replace(/[^0-9]/g, '');
+    if (digits.length < 8 || digits.length > 15) {
+      return res.status(400).json({ success: false, message: 'Enter a valid international phone number for the test recipient.' });
+    }
+  }
+  const lastSentAt = providerTestLastSentAt.get(adminKey) || 0;
+  if (Date.now() - lastSentAt < 30000) {
+    return res.status(429).json({ success: false, message: 'Please wait 30 seconds before sending another provider test.' });
+  }
+  providerTestLastSentAt.set(adminKey, Date.now());
+  const subject = 'Hybrid Job Portal — Provider Test';
+  const message = 'This is a test message from Hybrid Job Portal. Your selected communication provider accepted this test.';
+  try {
+    const sent = await sendProviderTestMessage(channel as 'email' | 'whatsapp' | 'sms', recipient, subject, message);
+    const maskedRecipient = channel === 'email'
+      ? recipient.replace(/^(.{1,2})[^@]*(@.*)$/, '$1***$2')
+      : '***' + recipient.replace(/[^0-9]/g, '').slice(-4);
+    const audit = await AuditRepository.addAfterPrimaryOperation({
+      user: req.user?.name || req.user?.email || 'Administrator',
+      role: req.user?.role || 'Administrator',
+      action: 'Communication Provider Test',
+      target: channel,
+      status: sent ? 'Success' : 'Warning',
+      metadata: { channel, recipient: maskedRecipient, acceptedByProvider: sent }
+    }, 'POST /api/settings/communication/providers/test');
+    if (!sent) return res.status(502).json({ success: false, message: 'The provider did not accept the test. Check its enabled state, sender details and saved credentials.' });
+    return res.json({ success: true, message: 'Test message accepted by the selected provider.', ...(audit.persisted ? {} : { auditPersisted: false, auditWarning: audit.auditWarning }) });
+  } catch (error: any) {
+    return res.status(502).json({ success: false, message: error?.message || 'Provider test failed.' });
   }
 });

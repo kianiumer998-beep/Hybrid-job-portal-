@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { AdRepository, AuditRepository, PaymentRepository, PricingRepository } from '../db/repositories';
+import { AdRepository, AuditRepository, PaymentRepository, PricingRepository, SubscriptionUsageRepository } from '../db/repositories';
 import { requireAdminPermission, requireAuth, authMiddleware, hasAdminPermission } from '../auth/authManager';
 
 export const adRouter = Router();
@@ -168,6 +168,117 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
                   ? adData.smsRecipientsCount
                   : 0
             };
+
+      // Subscription campaign credits are an alternative prepaid route; the placement and exact
+      // duration are verified against the server-side campaign pricing engine before redemption.
+      if (!isAdmin && !walletTxId && !(idempotencyKey && PaymentRepository.findByIdempotencyKey(idempotencyKey))) {
+        if (!idempotencyKey || idempotencyKey.length > 200) {
+          return res.status(400).json({ success: false, message: 'A valid idempotency key (maximum 200 characters) is required when redeeming a subscription campaign credit.' });
+        }
+        let redeemedCredit: any = null;
+        let campaignCalc: any = null;
+        let createdCreditCampaign: any = null;
+        let creditPlacementLockKey: string | undefined;
+        try {
+          const requestedPlacement = String(adPricingInput.placement || adData.placement || '');
+          if (requestedPlacement === 'promo-discount-banner' || requestedPlacement === 'dynamic-announcement-card') {
+            creditPlacementLockKey = requestedPlacement;
+            if (activePlacementCreationLocks.has(creditPlacementLockKey)) {
+              const slotLockError: any = new Error('A campaign for this placement is currently being booked. Please retry in a moment.');
+              slotLockError.statusCode = 409; throw slotLockError;
+            }
+            activePlacementCreationLocks.add(creditPlacementLockKey);
+          }
+          campaignCalc = await PricingRepository.calculateAdPrice(adPricingInput);
+          if (!Number.isInteger(campaignCalc.durationHours)) {
+            const durationErr: any = new Error('Subscription campaign credits require a whole-hour duration. Select a preset or enter whole hours.');
+            durationErr.statusCode = 400; throw durationErr;
+          }
+          if (!adData.title || typeof adData.title !== 'string' || !adData.title.trim()) {
+            const titleErr: any = new Error('A valid campaign title is required to create an advertisement.');
+            titleErr.statusCode = 400; throw titleErr;
+          }
+          if (campaignCalc.placement === 'promo-discount-banner' || campaignCalc.placement === 'dynamic-announcement-card') {
+            if (typeof adData.headline !== 'string' || !adData.headline.trim()) {
+              const creativeErr: any = new Error('A campaign headline is required for this landing page placement.');
+              creativeErr.statusCode = 400; throw creativeErr;
+            }
+          }
+          if (campaignCalc.placement === 'promo-discount-banner') {
+            const discountPercent = Number(adData.discountPercent);
+            if (!Number.isInteger(discountPercent) || discountPercent < 1 || discountPercent > 100) {
+              const discountErr: any = new Error('Promotional discount must be a whole number between 1 and 100.');
+              discountErr.statusCode = 400; throw discountErr;
+            }
+            adData.discountPercent = discountPercent;
+            if (typeof adData.promoCode === 'string') adData.promoCode = adData.promoCode.trim().slice(0, 40) || undefined;
+          }
+
+          redeemedCredit = await SubscriptionUsageRepository.consumeCampaignCredit(
+            String(authUserId), campaignCalc.placement, campaignCalc.durationHours, idempotencyKey, campaignCalc.smsRecipientsCount
+          );
+          if (!redeemedCredit) {
+            const creditErr: any = new Error('No active subscription campaign credit matches this placement and exact duration.');
+            creditErr.statusCode = 402; throw creditErr;
+          }
+
+          delete adData.id;
+          adData.submittedByUserId = String(authUserId);
+          adData.submittedByUserName = req.user.name || adData.submittedByUserName;
+          adData.submittedByUserEmail = req.user.email || adData.submittedByUserEmail;
+          adData.status = 'pending';
+          adData.approvalStatus = 'Pending';
+          adData.placement = campaignCalc.placement;
+          adData.durationUnit = campaignCalc.durationUnit;
+          adData.durationValue = campaignCalc.durationValue;
+          adData.durationDisplay = campaignCalc.durationDisplay;
+          adData.targetPages = campaignCalc.targetPages;
+          if (adData.type === 'sms' || campaignCalc.placement === 'sms-broadcast') adData.smsRecipientsCount = campaignCalc.smsRecipientsCount;
+          adData.campaignCostPkr = campaignCalc.finalPrice;
+          adData.budget = campaignCalc.finalPrice;
+          adData.paymentStatus = 'Subscription Credit';
+          adData.subscriptionCreditRedemption = {
+            featureId: 'campaign_credits',
+            placement: campaignCalc.placement,
+            durationHours: campaignCalc.durationHours,
+            smsRecipientsCount: campaignCalc.smsRecipientsCount,
+            durationDisplay: campaignCalc.durationDisplay,
+            idempotencyKey,
+            creditValuePkr: campaignCalc.finalPrice,
+            redeemedAt: new Date().toISOString()
+          };
+          adData.idempotencyKey = idempotencyKey;
+          const created = await AdRepository.createAsync(adData);
+          createdCreditCampaign = created || null;
+          if (!created?.id) throw new Error('Campaign credit was reserved but the campaign record could not be saved.');
+          const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
+            user: req.user?.name || 'Advertiser', role: req.user?.role || 'Advertiser',
+            action: 'Ad Campaign Created Using Subscription Credit', target: created.title, status: 'Success',
+            metadata: { adId: created.id, placement: campaignCalc.placement, durationHours: campaignCalc.durationHours, creditValuePkr: campaignCalc.finalPrice }
+          }, 'POST /api/ads (subscription credit)');
+          return res.status(201).json({ success: true, advertisement: created,
+            ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning }) });
+        } catch (creditErr: any) {
+          if (!createdCreditCampaign) {
+            createdCreditCampaign = AdRepository.findByIdempotencyKey(idempotencyKey);
+          }
+          if (createdCreditCampaign?.id) {
+            return res.status(201).json({ success: true, advertisement: createdCreditCampaign, auditPersisted: false,
+              auditWarning: 'Campaign was saved; its audit record may require administrator reconciliation.' });
+          }
+          let creditCompensated = false;
+          if (redeemedCredit) {
+            creditCompensated = await SubscriptionUsageRepository.restoreCampaignCredit(
+              String(authUserId), campaignCalc.placement, campaignCalc.durationHours, idempotencyKey, campaignCalc.smsRecipientsCount
+            ).catch(() => false);
+            if (!creditCompensated) console.error('[Ad Campaign] Subscription credit restoration requires reconciliation:', idempotencyKey);
+          }
+          const statusCode = typeof creditErr?.statusCode === 'number' && creditErr.statusCode >= 400 ? creditErr.statusCode : 500;
+          return res.status(statusCode).json({ success: false, compensated: creditCompensated, message: creditErr?.message || 'Unable to redeem subscription campaign credit.' });
+        } finally {
+          if (creditPlacementLockKey) activePlacementCreationLocks.delete(creditPlacementLockKey);
+        }
+      }
 
       // 2. Strictly enforce verified Advertisement wallet transaction for non-admin campaigns (and any campaign supplying walletTxId)
       if (!isAdmin || walletTxId) {
@@ -499,8 +610,22 @@ adRouter.patch('/:id/review', requireAuth, async (req: any, res) => {
       };
     }
 
-    const updated = await AdRepository.updateAsync(String(req.params.id), updates);
+    let updated = await AdRepository.updateAsync(String(req.params.id), updates);
     if (!updated) return res.status(404).json({ success: false, message: 'Campaign could not be updated.' });
+    if (action === 'refund' && existingAd.subscriptionCreditRedemption && !existingAd.subscriptionCreditRedemption.creditRestoredAt) {
+      const redemption = existingAd.subscriptionCreditRedemption;
+      const restored = await SubscriptionUsageRepository.restoreCampaignCredit(
+        String(existingAd.submittedByUserId || ''), String(redemption.placement || ''),
+        Number(redemption.durationHours), String(redemption.idempotencyKey || ''), Number(redemption.smsRecipientsCount || 0)
+      ).catch(() => false);
+      if (!restored) {
+        return res.status(503).json({ success: false, advertisement: updated, creditRestored: false,
+          message: 'Campaign was rejected, but its subscription credit restoration needs administrator reconciliation.' });
+      }
+      updated = await AdRepository.updateAsync(String(req.params.id), {
+        subscriptionCreditRedemption: { ...redemption, creditRestoredAt: new Date().toISOString() }
+      }) || updated;
+    }
     return res.json({
       success: true,
       advertisement: updated,
@@ -534,6 +659,18 @@ adRouter.put('/:id', requireAuth, async (req: any, res) => {
     }
 
     const updates = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    if (existingAd.subscriptionCreditRedemption && (
+      (Object.prototype.hasOwnProperty.call(updates, 'placement') && updates.placement !== existingAd.placement) ||
+      (Object.prototype.hasOwnProperty.call(updates, 'durationUnit') && updates.durationUnit !== existingAd.durationUnit) ||
+      (Object.prototype.hasOwnProperty.call(updates, 'durationValue') && Number(updates.durationValue) !== Number(existingAd.durationValue)) ||
+      Object.prototype.hasOwnProperty.call(updates, 'subscriptionCreditRedemption') ||
+      (Object.prototype.hasOwnProperty.call(updates, 'paymentStatus') && updates.paymentStatus !== existingAd.paymentStatus)
+    )) {
+      return res.status(409).json({
+        success: false,
+        message: 'Subscription-credit campaign placement, duration and redemption record are locked. Use the dedicated review action for approval or rejection.'
+      });
+    }
     if (
       existingAd.paymentStatus === 'Escrow' &&
       (['active', 'rejected'].includes(String(updates.status || '')) ||
@@ -656,11 +793,12 @@ adRouter.delete('/:id', requireAuth, async (req: any, res) => {
 
     if (
       existingAd.paymentStatus === 'Escrow' ||
-      (Boolean(existingAd.walletTxId || existingAd.paymentTransactionId) && existingAd.approvalStatus === 'Pending')
+      (Boolean(existingAd.walletTxId || existingAd.paymentTransactionId) && existingAd.approvalStatus === 'Pending') ||
+      (Boolean(existingAd.subscriptionCreditRedemption) && existingAd.approvalStatus === 'Pending' && !existingAd.subscriptionCreditRedemption.creditRestoredAt)
     ) {
       return res.status(409).json({
         success: false,
-        message: 'This wallet-backed campaign is awaiting review. It must be approved or rejected with refund before it can be deleted.'
+        message: 'This wallet-backed or subscription-credit campaign is awaiting review. It must be approved or rejected (restoring any subscription credit) before it can be deleted.'
       });
     }
 

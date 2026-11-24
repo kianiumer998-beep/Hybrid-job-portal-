@@ -171,7 +171,7 @@ function buildAuthoritativeDefaults(): any {
       govtAlertsWeeklyPkr: 400
     },
     subscriptionPackages: [],
-    subscriptionFeatureCatalog: SUBSCRIPTION_FEATURES.map((feature) => ({ id: feature.id, label: feature.label, enabled: false, pricePkr: 0, durationDays: 30, includedSlots: 0, slotDurationDays: 30 })),
+    subscriptionFeatureCatalog: SUBSCRIPTION_FEATURES.map((feature) => ({ id: feature.id, label: feature.label, enabled: false, pricePkr: 0, durationDays: 30, includedSlots: 0, slotDurationDays: 30, ...(feature.id === 'campaign_credits' ? { campaignCredits: [] } : {}) })),
     subscriptionBundleDiscountPercent: 0,
     subscriptionReminderSettings: { enabled: false, daysBefore: 3 },
     earlyAccess: {
@@ -295,7 +295,8 @@ function deepMergePricing(base: any, incoming: any): any {
     pdfExportLimit: Number.isInteger(Number(pkg?.pdfExportLimit)) ? Math.min(1000, Math.max(0, Number(pkg.pdfExportLimit))) : 0,
     atsExportLimit: Number.isInteger(Number(pkg?.atsExportLimit)) ? Math.min(1000, Math.max(0, Number(pkg.atsExportLimit))) : 0,
     shareLimit: Number.isInteger(Number(pkg?.shareLimit)) ? Math.min(1000, Math.max(0, Number(pkg.shareLimit))) : 0,
-    noWatermark: pkg?.noWatermark === true
+    noWatermark: pkg?.noWatermark === true,
+    premiumDesignIds: Array.isArray(pkg?.premiumDesignIds) ? Array.from(new Set(pkg.premiumDesignIds.filter((id: any) => typeof id === 'string').map((id: string) => id.trim()).filter((id: string) => /^[a-zA-Z0-9_-]{1,80}$/.test(id)))).slice(0, 30) : []
   })) : (Array.isArray(baseCvBuilder.packages) ? baseCvBuilder.packages : []);
   const cvBuilder = {
     ...baseCvBuilder,
@@ -399,6 +400,13 @@ function deepMergePricing(base: any, incoming: any): any {
       categoryPostingFees: syncedCategories,
       exemptUserEmails: syncedExemptEmails
     },
+    subscriptionFeatureCatalog: normalizeSubscriptionFeatureCatalog(
+      SUBSCRIPTION_FEATURES.map((feature: any) => {
+        const baseFeature = (Array.isArray(base.subscriptionFeatureCatalog) ? base.subscriptionFeatureCatalog : []).find((item: any) => item?.id === feature.id) || {};
+        const savedFeature = (Array.isArray(src.subscriptionFeatureCatalog) ? src.subscriptionFeatureCatalog : []).find((item: any) => item?.id === feature.id) || {};
+        return { ...baseFeature, ...savedFeature, id: feature.id, label: savedFeature.label || baseFeature.label || feature.label };
+      })
+    ),
     subscriptionPackages: Array.isArray(src.subscriptionPackages)
       ? src.subscriptionPackages.map((pkg: any) => ({
           ...pkg,
@@ -515,14 +523,14 @@ function withComputedSubscriptionPrices(pricing: any): any {
       const ids = Array.isArray(pkg.featureIds) ? Array.from(new Set(pkg.featureIds.map((id: any) => String(id)))) : [];
       const selected = ids.map((id: string) => catalog.find((item) => item.id === id && item.enabled));
       const complete = ids.length > 0 && selected.every(Boolean);
-      return { ...pkg, configuredPricePkr, displayPricePkr: configuredPricePkr, featureLabels: complete ? selected.map((item: any) => item.label) : [] };
+      return { ...pkg, configuredPricePkr, displayPricePkr: configuredPricePkr, featureLabels: complete ? selected.flatMap((item: any) => [item.label, ...(item.id === 'campaign_credits' ? (item.campaignCredits || []).map((credit: any) => credit.placement + ' · ' + credit.durationHours + 'h × ' + credit.quantity + (credit.placement === 'sms-broadcast' ? ' · ' + credit.smsRecipientsCount + ' recipients' : '')) : [])]) : [] };
     }
     const ids = Array.isArray(pkg.featureIds) ? Array.from(new Set(pkg.featureIds.map((id: any) => String(id)))) : [];
     const selected = ids.map((id: string) => catalog.find((item) => item.id === id && item.enabled));
     const complete = ids.length > 0 && selected.every(Boolean);
     const subtotal = complete ? selected.reduce((sum: number, item: any) => sum + Number(item.pricePkr || 0), 0) : 0;
     const calculated = complete ? Math.max(0, Math.round(subtotal * (1 - discount / 100))) : 0;
-    return { ...pkg, configuredPricePkr, pricePkr: calculated, displayPricePkr: calculated, featureLabels: complete ? selected.map((item: any) => item.label) : [], undiscountedPricePkr: subtotal, bundleDiscountPercent: discount };
+    return { ...pkg, configuredPricePkr, pricePkr: calculated, displayPricePkr: calculated, featureLabels: complete ? selected.flatMap((item: any) => [item.label, ...(item.id === 'campaign_credits' ? (item.campaignCredits || []).map((credit: any) => credit.placement + ' · ' + credit.durationHours + 'h × ' + credit.quantity + (credit.placement === 'sms-broadcast' ? ' · ' + credit.smsRecipientsCount + ' recipients' : '')) : [])]) : [], undiscountedPricePkr: subtotal, bundleDiscountPercent: discount };
   });
   return { ...pricing, subscriptionPackages };
 }
@@ -728,7 +736,7 @@ export class PricingRepository {
       if (reminder.daysBefore !== undefined && (!Number.isInteger(Number(reminder.daysBefore)) || Number(reminder.daysBefore) < 1 || Number(reminder.daysBefore) > 30)) throw new Error('subscriptionReminderSettings.daysBefore must be a whole number between 1 and 30.');
     }
     if (updates.subscriptionFeatureCatalog !== undefined) {
-      if (!Array.isArray(updates.subscriptionFeatureCatalog) || updates.subscriptionFeatureCatalog.length > 8) throw new Error('subscriptionFeatureCatalog must contain no more than 8 features.');
+      if (!Array.isArray(updates.subscriptionFeatureCatalog) || updates.subscriptionFeatureCatalog.length > SUBSCRIPTION_FEATURES.length) throw new Error(`subscriptionFeatureCatalog must contain no more than ${SUBSCRIPTION_FEATURES.length} supported features.`);
       const normalized = normalizeSubscriptionFeatureCatalog(updates.subscriptionFeatureCatalog);
       if (normalized.length !== updates.subscriptionFeatureCatalog.length) throw new Error('subscriptionFeatureCatalog contains an unsupported or duplicate feature ID.');
       for (const feature of normalized) {

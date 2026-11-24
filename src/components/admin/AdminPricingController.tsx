@@ -173,6 +173,22 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
       setSaveError('Cannot save while pricing failed to load. Please reload first.');
       return;
     }
+    const packages = Array.isArray(pricing.subscriptionPackages) ? pricing.subscriptionPackages : [];
+    const invalidPackage = packages.find((pkg: any) => {
+      const rawDuration = pkg?.durationDays;
+      const duration = Number(rawDuration);
+      if (typeof rawDuration === 'string' && rawDuration.trim() === '') return true;
+      if (!Number.isInteger(duration) || duration < 1 || duration > 3650) return true;
+      const rawPrice = pkg?.configuredPricePkr ?? pkg?.pricePkr;
+      const price = Number(rawPrice);
+      if (typeof rawPrice === 'string' && rawPrice.trim() === '') return true;
+      if (!Number.isSafeInteger(price) || price < 0) return true;
+      return false;
+    });
+    if (invalidPackage) {
+      setSaveError('Please enter a valid whole-number package price (0 or more) and duration (1–3650 days) before saving.');
+      return;
+    }
     setSaving(true);
     setSaveError(null);
     setSaveSuccess(false);
@@ -901,10 +917,11 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                     <label className="text-[10px] text-slate-500 font-bold uppercase block mb-1">Price (PKR)</label>
                     <input
                       type="number"
-                      value={pkg.configuredPricePkr ?? pkg.pricePkr}
+                      value={pkg.configuredPricePkr ?? pkg.pricePkr ?? ''}
                       onChange={(e) => {
+                        const rawValue = e.target.value;
                         const newList = [...pricing.subscriptionPackages];
-                        newList[idx] = { ...newList[idx], pricePkr: Number(e.target.value), configuredPricePkr: Number(e.target.value) };
+                        newList[idx] = { ...newList[idx], pricePkr: rawValue === '' ? '' : Number(rawValue), configuredPricePkr: rawValue === '' ? '' : Number(rawValue) };
                         setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
                       }}
                       className="w-full px-2 py-1 bg-slate-900 border border-slate-800 rounded text-white text-xs font-mono"
@@ -914,10 +931,11 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                     <label className="text-[10px] text-slate-500 font-bold uppercase block mb-1">Duration (Days)</label>
                     <input
                       type="number"
-                      value={pkg.durationDays}
+                      value={pkg.durationDays ?? ''}
                       onChange={(e) => {
+                        const rawValue = e.target.value;
                         const newList = [...pricing.subscriptionPackages];
-                        newList[idx] = { ...newList[idx], durationDays: Number(e.target.value) };
+                        newList[idx] = { ...newList[idx], durationDays: rawValue === '' ? '' : Number(rawValue) };
                         setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
                       }}
                       className="w-full px-2 py-1 bg-slate-900 border border-slate-800 rounded text-white text-xs font-mono"

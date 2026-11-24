@@ -7,6 +7,7 @@ const DOC_KEY = 'communication_provider_config';
 
 export type EmailProviderType = 'smtp' | 'sendgrid' | 'resend';
 export type WhatsAppProviderType = 'meta-cloud' | 'twilio';
+export type SmsProviderType = 'disabled' | 'twilio';
 
 export interface EncryptedSecretEnvelope {
   version: 1;
@@ -22,6 +23,8 @@ export interface SafeCommunicationProviderConfig {
   smtpUser: string;
   smtpSenderEmail: string;
   whatsappProvider: WhatsAppProviderType;
+  smsProvider: SmsProviderType;
+  smsFromNumber: string;
   whatsappPhoneNumberId: string;
   whatsappBusinessAccountId: string;
   twilioAccountSid: string;
@@ -43,6 +46,8 @@ export interface StoredCommunicationProviderDocument {
   smtpUser: string;
   smtpSenderEmail: string;
   whatsappProvider: WhatsAppProviderType;
+  smsProvider?: SmsProviderType;
+  smsFromNumber?: string;
   whatsappPhoneNumberId: string;
   whatsappBusinessAccountId: string;
   twilioAccountSid: string;
@@ -65,6 +70,8 @@ export const DEFAULT_COMMUNICATION_PROVIDER_CONFIG: SafeCommunicationProviderCon
   smtpUser: '',
   smtpSenderEmail: '',
   whatsappProvider: 'meta-cloud',
+  smsProvider: 'disabled',
+  smsFromNumber: '',
   whatsappPhoneNumberId: '',
   whatsappBusinessAccountId: '',
   twilioAccountSid: '',
@@ -185,6 +192,8 @@ export class CommunicationProviderRepository {
       smtpUser: typeof raw.smtpUser === 'string' ? raw.smtpUser : '',
       smtpSenderEmail: typeof raw.smtpSenderEmail === 'string' ? raw.smtpSenderEmail : '',
       whatsappProvider: ['meta-cloud', 'twilio'].includes(raw.whatsappProvider) ? raw.whatsappProvider : 'meta-cloud',
+      smsProvider: raw.smsProvider === 'twilio' || raw.smsProvider === 'disabled' ? raw.smsProvider : (raw.whatsappProvider === 'twilio' && raw.twilioPhoneNumber ? 'twilio' : 'disabled'),
+      smsFromNumber: typeof raw.smsFromNumber === 'string' && raw.smsFromNumber.trim() ? raw.smsFromNumber : (raw.twilioPhoneNumber || ''),
       whatsappPhoneNumberId: typeof raw.whatsappPhoneNumberId === 'string' ? raw.whatsappPhoneNumberId : '',
       whatsappBusinessAccountId: typeof raw.whatsappBusinessAccountId === 'string' ? raw.whatsappBusinessAccountId : '',
       twilioAccountSid: typeof raw.twilioAccountSid === 'string' ? raw.twilioAccountSid : '',
@@ -215,6 +224,8 @@ export class CommunicationProviderRepository {
       'smtpUser',
       'smtpSenderEmail',
       'whatsappProvider',
+      'smsProvider',
+      'smsFromNumber',
       'whatsappPhoneNumberId',
       'whatsappBusinessAccountId',
       'twilioAccountSid',
@@ -255,6 +266,8 @@ export class CommunicationProviderRepository {
       whatsappProvider: ['meta-cloud', 'twilio'].includes(updates.whatsappProvider)
         ? updates.whatsappProvider
         : (currentRaw?.whatsappProvider || 'meta-cloud'),
+      smsProvider: updates.smsProvider === 'twilio' || updates.smsProvider === 'disabled' ? updates.smsProvider : (currentRaw?.smsProvider || (currentRaw?.whatsappProvider === 'twilio' && currentRaw?.twilioPhoneNumber ? 'twilio' : 'disabled')),
+      smsFromNumber: typeof updates.smsFromNumber === 'string' ? updates.smsFromNumber.trim() : (currentRaw?.smsFromNumber || currentRaw?.twilioPhoneNumber || ''),
       whatsappPhoneNumberId: typeof updates.whatsappPhoneNumberId === 'string'
         ? updates.whatsappPhoneNumberId.trim()
         : (currentRaw?.whatsappPhoneNumberId || ''),

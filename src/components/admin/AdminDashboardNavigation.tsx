@@ -70,6 +70,7 @@ export type AdminCanonicalTabId =
   | 'advertisements'
   | 'landing-customizer'
   | 'pricing-controller'
+  | 'subscription-studio'
   | 'cv-settings'
   | 'admin-payment-methods'
   | 'payment-proofs'
@@ -425,6 +426,16 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     isNew: true,
     keywords: ['pricing', 'rates', 'packages', 'subscription', 'plans', 'tiers', 'پیکیجز', 'ریٹ', 'فیسیں'],
     hideInProfessionalNav: true,
+  },
+  {
+    id: 'subscription-studio',
+    classicCategory: 'payments',
+    proCategory: 'finance-payments',
+    label: 'Master Subscription Studio',
+    description: 'Build combined subscription plans from existing paid services, job entitlements and CV benefits.',
+    urdu: 'ماسٹر سبسکرپشن پلانز',
+    icon: ShieldCheck,
+    keywords: ['master subscription', 'subscription studio', 'packages', 'plans', 'job benefits', 'cv benefits', 'سبسکرپشن', 'پلانز']
   },
   {
     id: 'cv-settings',

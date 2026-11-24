@@ -19,7 +19,8 @@ systemSettingsRouter.get('/communication', async (req, res) => {
 
     const channelAvailability = {
       email: flags.enableEmailAlerts === true,
-      whatsapp: flags.enableWhatsAppAlerts === true
+      whatsapp: flags.enableWhatsAppAlerts === true,
+      sms: flags.enableSmsAlerts === true
     };
     
     return res.json({

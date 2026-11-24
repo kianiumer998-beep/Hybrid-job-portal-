@@ -15,7 +15,7 @@ function basicAuth(value: string): string {
   return Buffer.from(value, 'utf8').toString('base64');
 }
 
-export async function sendConfiguredPremiumAlert(user: any, channel: DeliveryChannel, subject: string, message: string): Promise<boolean> {
+async function deliverConfiguredPremiumAlert(user: any, channel: DeliveryChannel, subject: string, message: string): Promise<boolean> {
   try {
     const config = await CommunicationProviderRepository.getConfig();
     if (channel === 'email') {
@@ -69,7 +69,7 @@ export async function sendConfiguredPremiumAlert(user: any, channel: DeliveryCha
       return response.ok;
     }
 
-    if (config.whatsappProvider === 'twilio') {
+    if (channel === 'whatsapp' && config.whatsappProvider === 'twilio') {
       const sid = String(config.twilioAccountSid || '').trim();
       const token = await CommunicationProviderRepository.getDecryptedSecret('twilioAuthToken');
       const from = String(config.twilioPhoneNumber || '').trim();
@@ -85,9 +85,70 @@ export async function sendConfiguredPremiumAlert(user: any, channel: DeliveryCha
       });
       return response.ok;
     }
+
+    if (channel === 'sms' && config.smsProvider === 'twilio') {
+      const sid = String(config.twilioAccountSid || '').trim();
+      const token = await CommunicationProviderRepository.getDecryptedSecret('twilioAuthToken');
+      const from = String(config.smsFromNumber || config.twilioPhoneNumber || '').trim();
+      if (!sid || !token || !from) return false;
+      const formattedPhone = rawPhone.startsWith('+') ? rawPhone : '+' + rawPhone;
+      const form = new URLSearchParams({ To: formattedPhone, From: from, Body: message.slice(0, 1500) });
+      const response = await fetch('https://api.twilio.com/2010-04-01/Accounts/' + encodeURIComponent(sid) + '/Messages.json', { method: 'POST', headers: { Authorization: 'Basic ' + basicAuth(sid + ':' + token), 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });
+      return response.ok;
+    }
     return false;
   } catch (error: any) {
     console.error('[Communication Delivery] Delivery attempt failed:', error?.message || error);
     return false;
   }
+}
+
+
+/** Sends a single administrator-requested provider test without consuming a customer subscription quota. */
+export async function sendProviderTestMessage(channel: DeliveryChannel, recipient: string, subject: string, message: string): Promise<boolean> {
+  const cleanRecipient = String(recipient || '').trim();
+  if (!cleanRecipient || !String(message || '').trim()) return false;
+  const testUser = channel === 'email' ? { email: cleanRecipient } : { phone: cleanRecipient };
+  return deliverConfiguredPremiumAlert(testUser, channel, String(subject || 'Hybrid Job Portal provider test').slice(0, 120), String(message).slice(0, 1500));
+}
+
+/** Applies the paid subscription quota around a real provider delivery. Failed provider
+ * attempts release their reservation; repeated event IDs cannot send twice. */
+export async function sendConfiguredPremiumAlert(user: any, channel: DeliveryChannel, subject: string, message: string, eventId: string): Promise<boolean> {
+  const cleanEventId = String(eventId || '').trim();
+  if (!user?.id || !cleanEventId) return false;
+  const featureId = channel === 'email' ? 'email_alerts' : channel === 'whatsapp' ? 'whatsapp_alerts' : 'sms_alerts';
+  const { SubscriptionUsageRepository } = await import('../db/repositories/SubscriptionUsageRepository');
+  let reservation: { ok: boolean; reason: string; month: string };
+  try {
+    reservation = await SubscriptionUsageRepository.reserveMessageQuota(String(user.id), featureId, cleanEventId);
+  } catch (error: any) {
+    console.error('[Communication Delivery] Subscription quota reservation failed:', error?.message || error);
+    return false;
+  }
+  if (!reservation.ok) return false;
+  const delivered = await deliverConfiguredPremiumAlert(user, channel, subject, message);
+  try {
+    const providerConfig = await CommunicationProviderRepository.getConfig();
+    const provider = channel === 'email' ? providerConfig.emailProvider : channel === 'whatsapp' ? providerConfig.whatsappProvider : providerConfig.smsProvider;
+    await SubscriptionUsageRepository.logMessageDelivery({
+      eventId: cleanEventId,
+      userId: String(user.id),
+      featureId,
+      channel,
+      provider: String(provider || 'disabled'),
+      status: delivered ? 'SENT' : 'FAILED'
+    });
+  } catch (logError: any) {
+    console.error('[Communication Delivery] Could not persist provider delivery log:', logError?.message || logError);
+  }
+  if (delivered) {
+    const completed = await SubscriptionUsageRepository.completeMessageQuota(String(user.id), featureId, cleanEventId);
+    if (!completed) console.error('[Communication Delivery] Provider accepted a message but quota completion needs reconciliation:', cleanEventId);
+    return true;
+  }
+  await SubscriptionUsageRepository.releaseMessageQuota(String(user.id), featureId, cleanEventId, reservation.month).catch((error: any) => {
+    console.error('[Communication Delivery] Failed to release message quota reservation:', error?.message || error);
+  });
+  return false;
 }

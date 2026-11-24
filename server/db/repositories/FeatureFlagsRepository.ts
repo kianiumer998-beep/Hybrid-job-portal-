@@ -16,6 +16,8 @@ export const DEFAULT_FEATURE_FLAGS: AdminFeatureFlags = {
   deduplicationEnabled: true,
   enableEmailAlerts: false,
   enableWhatsAppAlerts: false,
+  // Preserve legacy SMS availability; actual sending still requires an explicitly configured SMS gateway.
+  enableSmsAlerts: true,
 };
 
 export class FeatureFlagsRepository {

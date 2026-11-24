@@ -692,10 +692,11 @@ export interface Advertisement {
   
   // Financial & Wallet
   campaignCostPkr?: number;
-  paymentStatus?: 'Paid' | 'Pending Wallet Deduction' | 'Escrow' | 'Refunded' | 'Exempt';
+  paymentStatus?: 'Paid' | 'Pending Wallet Deduction' | 'Escrow' | 'Refunded' | 'Exempt' | 'Subscription Credit';
   escrowStatus?: 'HELD' | 'CAPTURED' | 'RELEASED' | string;
   escrowAmountPkr?: number;
   walletTxId?: string;
+  subscriptionCreditRedemption?: { featureId: 'campaign_credits'; placement: AdPlacement; durationHours: number; durationDisplay?: string; idempotencyKey: string; creditValuePkr: number; redeemedAt: string; creditRestoredAt?: string };
   
   // Visual & Content Details
   headline: string;
@@ -1298,7 +1299,7 @@ export function isAdCurrentlyRunning(ad: Advertisement, nowIso?: string): boolea
   // Preserve legacy admin-created ads with omitted fields, but never display
   // campaigns explicitly awaiting approval or payment.
   if (ad.approvalStatus && ad.approvalStatus !== 'Approved') return false;
-  if (ad.paymentStatus && !['Paid', 'Exempt'].includes(ad.paymentStatus)) return false;
+  if (ad.paymentStatus && !['Paid', 'Exempt', 'Subscription Credit'].includes(ad.paymentStatus)) return false;
 
   // Preserve legacy admin ads with no schedule, but enforce whichever
   // boundary is supplied. A malformed explicit date must fail closed.

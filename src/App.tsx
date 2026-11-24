@@ -3695,6 +3695,7 @@ export default function App() {
     transaction?: PaymentTransaction;
     chargedAmount?: number;
     message?: string;
+    compensated?: boolean;
   }> => {
     if (!currentUser) {
       return { success: false, message: 'Authentication required.' };
@@ -3727,6 +3728,45 @@ export default function App() {
         : `ad-pay-${currentUser.id}-${newAd.id || Date.now()}`;
 
     try {
+      if (adAny.useSubscriptionCredit === true) {
+        const {
+          paymentStatus: _ignoredCreditPaymentStatus,
+          campaignCostPkr: _ignoredCreditClientCost,
+          useSubscriptionCredit: _ignoredCreditFlag,
+          ...safeCreditAdDraft
+        } = adAny;
+        const creditPayload = {
+          ...safeCreditAdDraft,
+          submittedByUserId: currentUser.id,
+          submittedByUserName: currentUser.name,
+          submittedByUserEmail: currentUser.email,
+          adPricingOptions,
+          idempotencyKey: stableIdempotencyKey
+        };
+        const creditRes = await api.ads.create(creditPayload);
+        if (creditRes && creditRes.success && creditRes.advertisement) {
+          const createdAd = normalizeBackendAd(creditRes.advertisement);
+          setAdvertisements((prev) => [createdAd, ...prev.filter((a) => a.id !== createdAd.id)]);
+          await loadBackendUserProfile(currentUser.id);
+          const confirmMsg = {
+            id: 'msg-' + Date.now(),
+            userId: currentUser.id,
+            userName: 'Portal Admin',
+            senderRole: 'admin' as const,
+            text: `Your campaign "${createdAd.title}" has been submitted for admin approval using one matching subscription campaign credit. No wallet deduction was made.`,
+            timestamp: new Date().toISOString()
+          };
+          api.chat.adminSendReply(confirmMsg).then(res => {
+            if (res?.success) setChatMessages(prev => [...prev, res.message]);
+            else console.error('[App] Persistent chat notification failed for subscription-credit campaign:', res?.message);
+          }).catch(err => console.warn('[App] Subscription-credit campaign notification failed:', err));
+          return { success: true, advertisement: createdAd, chargedAmount: 0 };
+        }
+        const creditError = creditRes?.message || 'No matching subscription campaign credit is available.';
+        alert(creditError);
+        return { success: false, message: creditError, compensated: Boolean((creditRes as any)?.compensated) };
+      }
+
       // 1. Create and complete Advertisement wallet transaction via authoritative backend pricing & wallet balance
       const txRes = await api.transactions.submit({
         currency: 'PKR',

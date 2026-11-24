@@ -16,6 +16,7 @@ export interface AdminFeatureFlags {
   deduplicationEnabled: boolean;
   enableEmailAlerts: boolean;
   enableWhatsAppAlerts: boolean;
+  enableSmsAlerts?: boolean;
 }
 
 export interface PakistanLocation {
@@ -139,6 +140,9 @@ export interface UserAccount {
   plan: 'Free' | 'Premium';
   paymentStatus?: 'Paid' | 'Unpaid' | 'Overdue';
   membershipStatus?: 'Active' | 'Revoked' | 'Expired' | 'Unpaid';
+  subscriptionExpiresAt?: string;
+  subscriptionFeatureIds?: string[];
+  subscriptionEntitlements?: Record<string, any>;
   activationDate?: string; // "YYYY-MM-DD HH:MM"
   expiryDate?: string;     // "YYYY-MM-DD HH:MM"
   renewalCount?: number;   // counter

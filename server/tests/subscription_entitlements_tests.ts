@@ -3,18 +3,25 @@ process.env.IS_TEST = 'true';
 import assert from 'node:assert/strict';
 import { normalizeSubscriptionFeatureCatalog, resolveSubscriptionPackage } from '../services/subscriptionEntitlements';
 import { UserRepository } from '../db/repositories/UserRepository';
+import { SubscriptionUsageRepository } from '../db/repositories/SubscriptionUsageRepository';
+import { PaymentRepository } from '../db/repositories/PaymentRepository';
 
 async function run() {
+  const future = new Date(Date.now() + 86400000).toISOString();
   const catalog = normalizeSubscriptionFeatureCatalog([
     { id: 'early_access', label: 'Early Access', enabled: true, pricePkr: 500, durationDays: 30, includedSlots: 0, slotDurationDays: 30 },
     { id: 'whatsapp_alerts', label: 'WhatsApp Alerts', enabled: true, pricePkr: 300, durationDays: 30, includedSlots: 0, slotDurationDays: 30 },
-    { id: 'sms_alerts', label: 'SMS Alerts', enabled: false, pricePkr: 200, durationDays: 30, includedSlots: 0, slotDurationDays: 30 },
+    { id: 'sms_alerts', label: 'SMS Alerts', enabled: false, pricePkr: 200, durationDays: 30, includedSlots: 0, slotDurationDays: 30, unlimitedMessages: false, monthlyMessageQuota: 2 },
+    { id: 'campaign_credits', label: 'Campaign Credits', enabled: true, pricePkr: 900, durationDays: 30, includedSlots: 0, slotDurationDays: 30, campaignCredits: [{ placement: 'sidebar', durationHours: 168, quantity: 2 }] },
     { id: 'unknown_feature', label: 'Unsupported', enabled: true, pricePkr: 1 }
   ]);
-  assert.equal(catalog.length, 3, 'unsupported IDs are excluded from the feature catalog');
+  assert.equal(catalog.length, 4, 'unsupported IDs are excluded while campaign credits are supported');
   assert.equal(catalog[2].id, 'sms_alerts');
+  assert.equal(catalog[1].unlimitedMessages, undefined, 'legacy catalog entries keep their unconfigured state instead of silently selecting Unlimited');
+  assert.equal(catalog[2].monthlyMessageQuota, 2, 'explicit monthly quotas are normalized');
+  assert.deepEqual(catalog[3].campaignCredits, [{ placement: 'sidebar', durationHours: 168, quantity: 2 }], 'placement-specific campaign credits are normalized');
 
-  const pricing = { subscriptionFeatureCatalog: catalog, subscriptionBundleDiscountPercent: 10 };
+  const pricing = { subscriptionFeatureCatalog: catalog.map((item: any) => item.id === 'whatsapp_alerts' ? { ...item, unlimitedMessages: true } : item), subscriptionBundleDiscountPercent: 10 };
   const bundle = resolveSubscriptionPackage({ id: 'bundle', name: 'Bundle', pricingMode: 'catalog', featureIds: ['early_access', 'whatsapp_alerts'], durationDays: 30 }, pricing);
   assert.equal(bundle.undiscountedPricePkr, 800, 'bundle subtotal is derived from admin-configured feature prices');
   assert.equal(bundle.pricePkr, 720, 'configured bundle discount is applied server-side');
@@ -29,6 +36,26 @@ async function run() {
     () => resolveSubscriptionPackage({ id: 'bad', pricingMode: 'catalog', featureIds: ['untrusted'] }, pricing),
     /Unsupported subscription feature/,
     'unknown feature IDs are rejected'
+  );
+
+  assert.throws(
+    () => resolveSubscriptionPackage({ id: 'legacy-email-plan', pricingMode: 'catalog', featureIds: ['whatsapp_alerts'], durationDays: 30 }, { subscriptionFeatureCatalog: catalog }),
+    /positive monthly message quota or explicitly enable Unlimited/,
+    'new notification purchases require an explicit quota or Unlimited selection'
+  );
+  assert.throws(
+    () => resolveSubscriptionPackage({ id: 'unconfigured-sms-plan', pricingMode: 'catalog', featureIds: ['sms_alerts'] }, { subscriptionFeatureCatalog: catalog.map((item: any) => item.id === 'sms_alerts' ? { ...item, enabled: true, unlimitedMessages: false, monthlyMessageQuota: undefined } : item) }),
+    /positive monthly message quota or explicitly enable Unlimited/,
+    'new limited notification plans cannot be sold with an empty quota'
+  );
+
+  const campaignPackage = resolveSubscriptionPackage({ id: 'campaign-plan', pricingMode: 'catalog', featureIds: ['campaign_credits'], durationDays: 30 }, { subscriptionFeatureCatalog: catalog });
+  assert.equal(campaignPackage.pricePkr, 900, 'campaign credit catalog price is calculated server-side');
+  assert.equal(campaignPackage.featureSnapshots[0].campaignCredits?.[0].quantity, 2, 'campaign credit rules are frozen in the purchase snapshot');
+  assert.throws(
+    () => resolveSubscriptionPackage({ id: 'bad-campaign', pricingMode: 'catalog', featureIds: ['campaign_credits'] }, { subscriptionFeatureCatalog: catalog.map((item: any) => item.id === 'campaign_credits' ? { ...item, campaignCredits: [] } : item) }),
+    /Configure at least one placement/,
+    'campaign credit feature cannot be sold without redemption rules'
   );
 
   const fixed = resolveSubscriptionPackage({ id: 'fixed', pricingMode: 'fixed', pricePkr: 999, configuredPricePkr: 850, featureIds: [] }, pricing);
@@ -89,7 +116,130 @@ async function run() {
   assert.equal(repeatedWalletCvPurchase.user.walletBalance, 750, 'replayed wallet purchase does not double-charge');
   assert.equal(repeatedWalletCvPurchase.user.cvPackageEntitlements.length, 1, 'replayed wallet purchase does not duplicate the package');
 
-  console.log('Subscription entitlement tests passed (21 assertions).');
+  const legacyQuotaUserId = 'subscription-message-legacy-test-user';
+  await UserRepository.createAsync({
+    id: legacyQuotaUserId, walletBalance: 0, membershipStatus: 'Active', subscriptionExpiresAt: future,
+    subscriptionFeatureIds: ['email_alerts'],
+    subscriptionEntitlements: { email_alerts: { enabled: true, expiresAt: future } }
+  });
+  const legacyReservation = await SubscriptionUsageRepository.reserveMessageQuota(legacyQuotaUserId, 'email_alerts', 'legacy-event');
+  assert.equal(legacyReservation.ok, true, 'existing purchased notification entitlements remain unmetered until renewal or reconfiguration');
+  assert.equal(await SubscriptionUsageRepository.completeMessageQuota(legacyQuotaUserId, 'email_alerts', 'legacy-event'), true, 'legacy notification delivery is recorded idempotently');
+
+  const quotaUserId = 'subscription-message-quota-test-user';
+  await UserRepository.createAsync({
+    id: quotaUserId,
+    walletBalance: 0,
+    membershipStatus: 'Active',
+    subscriptionExpiresAt: future,
+    subscriptionEntitlements: {
+      sms_alerts: { enabled: true, expiresAt: future, unlimitedMessages: false, monthlyMessageQuota: 2 }
+    }
+  });
+  const firstReservation = await SubscriptionUsageRepository.reserveMessageQuota(quotaUserId, 'sms_alerts', 'event-1');
+  assert.equal(firstReservation.ok, true, 'first paid message reserves one quota unit');
+  const duplicateReservation = await SubscriptionUsageRepository.reserveMessageQuota(quotaUserId, 'sms_alerts', 'event-1');
+  assert.equal(duplicateReservation.reason, 'already_processed', 'duplicate event cannot reserve or send twice');
+  assert.equal(await SubscriptionUsageRepository.completeMessageQuota(quotaUserId, 'sms_alerts', 'event-1'), true, 'successful provider delivery finalizes reservation');
+  const failedReservation = await SubscriptionUsageRepository.reserveMessageQuota(quotaUserId, 'sms_alerts', 'event-2');
+  assert.equal(failedReservation.ok, true, 'second message can reserve remaining quota');
+  assert.equal(await SubscriptionUsageRepository.releaseMessageQuota(quotaUserId, 'sms_alerts', 'event-2', failedReservation.month), true, 'provider failure releases reserved quota');
+  const retryReservation = await SubscriptionUsageRepository.reserveMessageQuota(quotaUserId, 'sms_alerts', 'event-2');
+  assert.equal(retryReservation.ok, true, 'failed provider event can be retried safely');
+  assert.equal(await SubscriptionUsageRepository.completeMessageQuota(quotaUserId, 'sms_alerts', 'event-2'), true, 'retried successful delivery finalizes quota');
+  const exhaustedReservation = await SubscriptionUsageRepository.reserveMessageQuota(quotaUserId, 'sms_alerts', 'event-3');
+  assert.equal(exhaustedReservation.reason, 'quota_exhausted', 'monthly message quota blocks further sends');
+  const quotaUser = await UserRepository.getByIdAsync(quotaUserId);
+  assert.equal(quotaUser.subscriptionMessageUsage.sms_alerts[retryReservation.month].used, 2, 'failed provider attempt did not consume quota');
+
+  const campaignCreditUserId = 'subscription-campaign-credit-test-user';
+  await UserRepository.createAsync({
+    id: campaignCreditUserId, walletBalance: 0, membershipStatus: 'Active', subscriptionExpiresAt: future,
+    subscriptionFeatureIds: ['campaign_credits'],
+    subscriptionEntitlements: {
+      campaign_credits: { enabled: true, expiresAt: future, campaignCredits: [
+        { placement: 'sidebar', durationHours: 168, includedQuantity: 1, remaining: 1 }
+      ] }
+    }
+  });
+  const campaignRedemption = await SubscriptionUsageRepository.consumeCampaignCredit(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1');
+  assert.equal(campaignRedemption?.credit.placement, 'sidebar', 'campaign credit matches the requested placement');
+  assert.equal(campaignRedemption?.user.subscriptionEntitlements.campaign_credits.campaignCredits[0].remaining, 0, 'campaign credit is consumed atomically');
+  const duplicateCampaignRedemption = await SubscriptionUsageRepository.consumeCampaignCredit(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1');
+  assert.equal(duplicateCampaignRedemption?.user.subscriptionEntitlements.campaign_credits.campaignCredits[0].remaining, 0, 'repeated campaign redemption does not consume a second credit');
+  assert.equal(await SubscriptionUsageRepository.consumeCampaignCredit(campaignCreditUserId, 'top-header', 168, 'campaign-event-1'), null, 'reusing a campaign idempotency key with a different placement is rejected');
+  assert.equal(await SubscriptionUsageRepository.consumeCampaignCredit(campaignCreditUserId, 'sidebar', 24, 'campaign-event-1'), null, 'reusing a campaign idempotency key with a different duration is rejected');
+  assert.equal(await SubscriptionUsageRepository.restoreCampaignCredit(campaignCreditUserId, 'top-header', 168, 'campaign-event-1'), false, 'a mismatched placement cannot restore another placement credit');
+  assert.equal(await SubscriptionUsageRepository.restoreCampaignCredit(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1'), true, 'rejected campaign restores its credit');
+  assert.equal(await SubscriptionUsageRepository.restoreCampaignCredit(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1'), true, 'repeated campaign restoration is idempotent');
+  assert.equal(await SubscriptionUsageRepository.consumeCampaignCredit(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1'), null, 'a restored idempotency key cannot be replayed to create another campaign');
+
+  const smsCampaignUserId = 'subscription-sms-campaign-credit-test-user';
+  await UserRepository.createAsync({
+    id: smsCampaignUserId, walletBalance: 0, membershipStatus: 'Active', subscriptionExpiresAt: future,
+    subscriptionFeatureIds: ['campaign_credits'],
+    subscriptionEntitlements: {
+      campaign_credits: { enabled: true, expiresAt: future, campaignCredits: [
+        { placement: 'sms-broadcast', durationHours: 24, smsRecipientsCount: 50, includedQuantity: 1, remaining: 1 }
+      ] }
+    }
+  });
+  assert.equal(await SubscriptionUsageRepository.consumeCampaignCredit(smsCampaignUserId, 'sms-broadcast', 24, 'sms-campaign-1', 49), null, 'SMS campaign credit rejects a different recipient count');
+  const smsCampaignRedemption = await SubscriptionUsageRepository.consumeCampaignCredit(smsCampaignUserId, 'sms-broadcast', 24, 'sms-campaign-1', 50);
+  assert.equal(smsCampaignRedemption?.credit.smsRecipientsCount, 50, 'SMS campaign credit matches its configured recipient cap');
+  assert.equal(await SubscriptionUsageRepository.restoreCampaignCredit(smsCampaignUserId, 'sms-broadcast', 24, 'sms-campaign-1', 50), true, 'rejected SMS campaign restores the exact recipient credit');
+
+  const manualActivationUserId = 'manual-subscription-activation-test-user';
+  await UserRepository.createAsync({ id: manualActivationUserId, email: 'manual-subscription-test@example.com', walletBalance: 0, membershipStatus: 'Inactive' });
+  const manualTransaction = PaymentRepository.create({
+    id: 'manual-subscription-activation-transaction',
+    type: 'Subscription',
+    status: 'Pending',
+    userId: manualActivationUserId,
+    userEmail: 'manual-subscription-test@example.com',
+    plan: 'Master Notification + Campaign Plan',
+    amount: 1000,
+    paymentMethod: 'Bank Transfer',
+    packageSnapshot: {
+      id: 'master-notification-campaign-plan',
+      name: 'Master Notification + Campaign Plan',
+      pricePkr: 1000,
+      durationDays: 30,
+      featureSnapshots: [
+        { id: 'sms_alerts', label: 'SMS Alerts', durationDays: 30, includedSlots: 0, slotDurationDays: 30, unlimitedMessages: false, monthlyMessageQuota: 50 },
+        { id: 'email_alerts', label: 'Email Alerts', durationDays: 30, includedSlots: 0, slotDurationDays: 30 },
+        { id: 'campaign_credits', label: 'Campaign Credits', durationDays: 30, includedSlots: 0, slotDurationDays: 30, campaignCredits: [{ placement: 'sidebar', durationHours: 168, quantity: 2 }] }
+      ]
+    }
+  });
+  const approvedManualTransaction = await PaymentRepository.verify(manualTransaction.id, 'approve');
+  assert.equal(approvedManualTransaction.status, 'Success', 'manual subscription approval completes successfully');
+  const activatedManualUser = await UserRepository.getByIdAsync(manualActivationUserId);
+  assert.deepEqual(activatedManualUser.subscriptionFeatureIds, ['sms_alerts', 'email_alerts', 'campaign_credits'], 'manual approval grants all purchased feature IDs');
+  assert.equal(activatedManualUser.subscriptionEntitlements.sms_alerts.monthlyMessageQuota, 50, 'manual approval grants the purchased message quota');
+  assert.equal(activatedManualUser.subscriptionEntitlements.campaign_credits.campaignCredits[0].remaining, 2, 'manual approval grants campaign credits');
+  assert.equal(activatedManualUser.subscriptionEntitlements.email_alerts.unlimitedMessages, undefined, 'older payment snapshots preserve legacy notification entitlements without quota fields');
+  const legacyApprovedEmailReservation = await SubscriptionUsageRepository.reserveMessageQuota(manualActivationUserId, 'email_alerts', 'legacy-approved-email-event');
+  assert.equal(legacyApprovedEmailReservation.ok, true, 'manually approved legacy email entitlement remains usable');
+  assert.equal(await SubscriptionUsageRepository.completeMessageQuota(manualActivationUserId, 'email_alerts', 'legacy-approved-email-event'), true, 'legacy email delivery can be finalized');
+
+  const unlimitedUserId = 'subscription-message-unlimited-test-user';
+  await UserRepository.createAsync({
+    id: unlimitedUserId, walletBalance: 0, membershipStatus: 'Active', subscriptionExpiresAt: future,
+    subscriptionFeatureIds: ['whatsapp_alerts'],
+    subscriptionEntitlements: { whatsapp_alerts: { enabled: true, expiresAt: future, unlimitedMessages: true } }
+  });
+  const unlimitedReservation = await SubscriptionUsageRepository.reserveMessageQuota(unlimitedUserId, 'whatsapp_alerts', 'unlimited-event');
+  assert.equal(unlimitedReservation.ok, true, 'explicit Unlimited entitlement does not enforce a numeric cap');
+  const noExpiryUserId = 'subscription-message-no-expiry-test-user';
+  await UserRepository.createAsync({
+    id: noExpiryUserId, walletBalance: 0, membershipStatus: 'Active',
+    subscriptionEntitlements: { sms_alerts: { enabled: true, unlimitedMessages: true } }
+  });
+  const noExpiryReservation = await SubscriptionUsageRepository.reserveMessageQuota(noExpiryUserId, 'sms_alerts', 'no-expiry-event');
+  assert.equal(noExpiryReservation.reason, 'unavailable', 'missing subscription expiry fails closed');
+
+  console.log('Subscription entitlement tests passed (56 assertions).');
 }
 
 run().catch((error) => { console.error(error); process.exitCode = 1; });

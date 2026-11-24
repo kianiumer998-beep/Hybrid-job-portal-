@@ -1354,6 +1354,9 @@ transactionRouter.post('/', async (req, res) => {
                 includedSlots: Number.isInteger(Number(feature.includedSlots)) ? Math.max(0, Number(feature.includedSlots)) : 0,
                 remainingSlots: Number.isInteger(Number(feature.includedSlots)) ? Math.max(0, Number(feature.includedSlots)) : 0,
                 slotDurationDays: Number.isInteger(Number(feature.slotDurationDays)) ? Math.max(1, Number(feature.slotDurationDays)) : subDurationDays,
+                ...(typeof feature.unlimitedMessages === 'boolean' ? { unlimitedMessages: feature.unlimitedMessages } : {}),
+                ...(Number.isInteger(Number(feature.monthlyMessageQuota)) && Number(feature.monthlyMessageQuota) >= 1 ? { monthlyMessageQuota: Number(feature.monthlyMessageQuota) } : {}),
+                ...(featureId === 'campaign_credits' && Array.isArray(feature.campaignCredits) ? { campaignCredits: feature.campaignCredits.map((credit: any) => ({ placement: String(credit.placement), durationHours: Number(credit.durationHours), smsRecipientsCount: Number(credit.smsRecipientsCount || 0), includedQuantity: Number(credit.quantity), remaining: Number(credit.quantity) })) } : {}),
                 sourcePackageId: String(walletPackageSnapshot.id || '')
               };
             }
@@ -1366,10 +1369,11 @@ transactionRouter.post('/', async (req, res) => {
                   membershipTier: safeSubscriptionPlan || 'Pro Alerts',
                   membershipStatus: 'Active',
                   subscriptionExpiresAt,
-                  ...(walletFeatureSnapshots.length ? {
-                    subscriptionEntitlements: walletEntitlements,
-                    subscriptionFeatureIds: walletFeatureSnapshots.map((feature: any) => String(feature.id))
-                  } : {})
+                  subscriptionEntitlements: walletEntitlements,
+                  // New featureless plans are explicitly empty; legacy fallback applies only to older records.
+                  subscriptionFeatureIds: walletFeatureSnapshots.length
+                    ? walletFeatureSnapshots.map((feature: any) => String(feature.id))
+                    : ['__no_features__']
                 }
               );
             } catch (deductErr) {

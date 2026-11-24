@@ -70,6 +70,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   // Channel Gating Statuses (Fail-closed: explicit true required)
   const emailEnabled = featureFlags?.enableEmailAlerts === true;
   const whatsappEnabled = featureFlags?.enableWhatsAppAlerts === true;
+  const smsEnabled = featureFlags?.enableSmsAlerts === true;
   const multiChannelEnabled = emailEnabled && whatsappEnabled;
 
   const [channel, setChannel] = useState<'Email' | 'WhatsApp' | 'SMS' | 'Push Notification' | 'Multi-Channel'>('SMS');
@@ -78,16 +79,23 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   useEffect(() => {
     if (channel === 'Email' && !emailEnabled) {
       if (whatsappEnabled) setChannel('WhatsApp');
-      else setChannel('SMS');
+      else if (smsEnabled) setChannel('SMS');
+      else setChannel('Push Notification');
     } else if (channel === 'WhatsApp' && !whatsappEnabled) {
       if (emailEnabled) setChannel('Email');
-      else setChannel('SMS');
+      else if (smsEnabled) setChannel('SMS');
+      else setChannel('Push Notification');
+    } else if (channel === 'SMS' && !smsEnabled) {
+      if (emailEnabled) setChannel('Email');
+      else if (whatsappEnabled) setChannel('WhatsApp');
+      else setChannel('Push Notification');
     } else if (channel === 'Multi-Channel' && !multiChannelEnabled) {
       if (emailEnabled) setChannel('Email');
       else if (whatsappEnabled) setChannel('WhatsApp');
-      else setChannel('SMS');
+      else if (smsEnabled) setChannel('SMS');
+      else setChannel('Push Notification');
     }
-  }, [emailEnabled, whatsappEnabled, multiChannelEnabled, channel]);
+  }, [emailEnabled, whatsappEnabled, smsEnabled, multiChannelEnabled, channel]);
 
   // Synchronize campaign list whenever prop updates
   useEffect(() => {
@@ -114,6 +122,8 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
     smtpUser: '',
     smtpSenderEmail: '',
     whatsappProvider: 'meta-cloud',
+    smsProvider: 'disabled',
+    smsFromNumber: '',
     whatsappPhoneNumberId: '',
     whatsappBusinessAccountId: '',
     twilioAccountSid: '',
@@ -132,6 +142,8 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const [smtpUser, setSmtpUser] = useState('');
   const [smtpSenderEmail, setSmtpSenderEmail] = useState('');
   const [whatsappProvider, setWhatsappProvider] = useState<WhatsAppProviderType>('meta-cloud');
+  const [smsProvider, setSmsProvider] = useState<'disabled' | 'twilio'>('disabled');
+  const [smsFromNumber, setSmsFromNumber] = useState('');
   const [whatsappPhoneNumberId, setWhatsappPhoneNumberId] = useState('');
   const [whatsappBusinessAccountId, setWhatsappBusinessAccountId] = useState('');
   const [twilioAccountSid, setTwilioAccountSid] = useState('');
@@ -150,6 +162,12 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const [providerSaveSuccess, setProviderSaveSuccess] = useState(false);
   const [providerSaveError, setProviderSaveError] = useState<string | null>(null);
   const [isLoadingProviders, setIsLoadingProviders] = useState(false);
+  const [testChannel, setTestChannel] = useState<'email' | 'whatsapp' | 'sms'>('email');
+  const [testRecipient, setTestRecipient] = useState('');
+  const [isProviderTesting, setIsProviderTesting] = useState(false);
+  const [providerTestMessage, setProviderTestMessage] = useState<string | null>(null);
+  const [providerTestError, setProviderTestError] = useState<string | null>(null);
+  const [deliveryLogs, setDeliveryLogs] = useState<any[]>([]);
 
   // Load authoritative provider config from server
   const loadProviderConfig = async () => {
@@ -157,6 +175,8 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
     setProviderSaveError(null);
     try {
       const res = await api.communicationProviders.get();
+      const logsResult = await api.communicationProviders.logs(50).catch(() => null);
+      if (logsResult?.success && Array.isArray(logsResult.logs)) setDeliveryLogs(logsResult.logs);
       if (res && res.success && res.config) {
         setSafeProviderConfig(res.config);
         setEmailProvider(res.config.emailProvider || 'smtp');
@@ -165,6 +185,8 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
         setSmtpUser(res.config.smtpUser || '');
         setSmtpSenderEmail(res.config.smtpSenderEmail || '');
         setWhatsappProvider(res.config.whatsappProvider || 'meta-cloud');
+        setSmsProvider(res.config.smsProvider || 'disabled');
+        setSmsFromNumber(res.config.smsFromNumber || '');
         setWhatsappPhoneNumberId(res.config.whatsappPhoneNumberId || '');
         setWhatsappBusinessAccountId(res.config.whatsappBusinessAccountId || '');
         setTwilioAccountSid(res.config.twilioAccountSid || '');
@@ -337,6 +359,25 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
     );
   };
 
+  const handleProviderTest = async () => {
+    if (!testRecipient.trim()) {
+      setProviderTestError('Enter a test recipient first.');
+      return;
+    }
+    setIsProviderTesting(true);
+    setProviderTestError(null);
+    setProviderTestMessage(null);
+    try {
+      const result = await api.communicationProviders.test({ channel: testChannel, recipient: testRecipient.trim() });
+      if (result?.success) setProviderTestMessage(result.message || 'Test accepted by provider.');
+      else setProviderTestError(result?.message || 'Provider did not accept the test message.');
+    } catch (err: any) {
+      setProviderTestError(err?.message || 'Provider test request failed.');
+    } finally {
+      setIsProviderTesting(false);
+    }
+  };
+
   const handleSaveProviders = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsProviderSaving(true);
@@ -350,6 +391,8 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
       smtpUser: smtpUser.trim(),
       smtpSenderEmail: smtpSenderEmail.trim(),
       whatsappProvider,
+      smsProvider,
+      smsFromNumber: smsFromNumber.trim(),
       whatsappPhoneNumberId: whatsappPhoneNumberId.trim(),
       whatsappBusinessAccountId: whatsappBusinessAccountId.trim(),
       twilioAccountSid: twilioAccountSid.trim(),
@@ -387,6 +430,8 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
             smtpUser: res.config.smtpUser,
             smtpSenderEmail: res.config.smtpSenderEmail,
             whatsappPhoneNumberId: res.config.whatsappPhoneNumberId,
+            smsProvider: res.config.smsProvider,
+            smsFromNumber: res.config.smsFromNumber,
             twilioAccountSid: res.config.twilioAccountSid,
             twilioPhoneNumber: res.config.twilioPhoneNumber
           });
@@ -523,7 +568,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                   >
                     <option value="Email" disabled={!emailEnabled}>📧 Email Campaign {!emailEnabled ? '(Disabled)' : ''}</option>
                     <option value="WhatsApp" disabled={!whatsappEnabled}>💬 Official WhatsApp Alerts {!whatsappEnabled ? '(Disabled)' : ''}</option>
-                    <option value="SMS">📱 Direct SMS Blast</option>
+                    <option value="SMS" disabled={!smsEnabled}>📱 Direct SMS Blast {!smsEnabled ? '(Disabled)' : ''}</option>
                     <option value="Push Notification">🔔 Browser Web Push Notification</option>
                     <option value="Multi-Channel" disabled={!multiChannelEnabled}>⚡ Multi-Channel {!multiChannelEnabled ? '(Disabled - Requires Email & WhatsApp)' : ''}</option>
                   </select>
@@ -860,7 +905,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                 <span>MongoDB Encrypted Provider Configuration (AES-256-GCM)</span>
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                Manage authoritative Email & WhatsApp gateways. All API keys and secrets are encrypted server-side with AES-256-GCM.
+                Manage authoritative Email, WhatsApp and independent SMS gateways. All API keys and secrets are encrypted server-side with AES-256-GCM.
               </p>
             </div>
             <button
@@ -871,6 +916,28 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
               <Lock className="w-3.5 h-3.5" />
               <span>{isProviderSaving ? 'Encrypting & Saving...' : 'Save Provider Settings'}</span>
             </button>
+          </div>
+
+          <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-4 space-y-3">
+            <div><h4 className="text-xs font-black text-sky-200">Test Provider Connection</h4><p className="mt-1 text-[10px] text-slate-400">Send one test to an address or phone number you control. Limit: one test per admin every 30 seconds.</p></div>
+            <div className="grid gap-2 sm:grid-cols-[150px_1fr_auto]">
+              <select value={testChannel} onChange={e => setTestChannel(e.target.value as 'email' | 'whatsapp' | 'sms')} className="rounded-lg border border-slate-700 bg-slate-950 p-2 text-xs text-white">
+                <option value="email">Email</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option>
+              </select>
+              <input type={testChannel === 'email' ? 'email' : 'tel'} value={testRecipient} onChange={e => setTestRecipient(e.target.value)} placeholder={testChannel === 'email' ? 'your@email.com' : '+923001234567'} className="rounded-lg border border-slate-700 bg-slate-950 p-2 text-xs text-white" />
+              <button type="button" onClick={handleProviderTest} disabled={isProviderTesting || !testRecipient.trim()} className="rounded-lg bg-sky-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{isProviderTesting ? 'Testing...' : 'Send Test'}</button>
+            </div>
+            {providerTestMessage && <p role="status" className="text-[11px] text-emerald-300">{providerTestMessage}</p>}
+            {providerTestError && <p role="alert" className="text-[11px] text-rose-300">{providerTestError}</p>}
+            {testChannel === 'email' && emailProvider === 'smtp' && <p className="text-[10px] text-amber-300">SMTP transport is not implemented yet. Use Resend or SendGrid for an email test.</p>}
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 space-y-3">
+            <div className="flex items-center justify-between"><h4 className="text-xs font-black text-white">Recent Paid Alert Delivery Logs</h4><span className="text-[9px] text-slate-500">MongoDB · 90-day retention</span></div>
+            {deliveryLogs.length === 0 ? <p className="text-[10px] text-slate-500">No paid alert delivery attempts are recorded yet.</p> : <div className="overflow-x-auto"><table className="w-full text-left text-[10px]">
+              <thead className="text-slate-500"><tr><th className="p-2">Channel</th><th className="p-2">Provider</th><th className="p-2">Result</th><th className="p-2">Attempts</th><th className="p-2">Last attempt</th></tr></thead>
+              <tbody>{deliveryLogs.slice(0, 20).map((log: any) => <tr key={log.eventId + log.channel} className="border-t border-slate-800 text-slate-300"><td className="p-2 uppercase">{log.channel}</td><td className="p-2">{log.provider}</td><td className={`p-2 font-bold ${log.status === 'SENT' ? 'text-emerald-300' : 'text-rose-300'}`}>{log.status}</td><td className="p-2">{log.attempts}</td><td className="p-2">{log.lastAttemptAt ? new Date(log.lastAttemptAt).toLocaleString() : '—'}</td></tr>)}</tbody>
+            </table></div>}
           </div>
 
           {isLoadingProviders ? (
@@ -1189,6 +1256,14 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
             </>
           )}
 
+          <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-4 text-xs">
+            <div className="flex items-center justify-between border-b border-slate-900 pb-2"><span className="font-bold text-slate-200 uppercase text-[11px] tracking-wider flex items-center space-x-1.5"><Smartphone className="w-4 h-4 text-indigo-400" /><span>SMS Gateway Configuration</span></span><span className="text-[10px] text-slate-500 font-mono">Provider: {smsProvider.toUpperCase()}</span></div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <label className="block font-bold text-slate-300">SMS Provider Adapter<select value={smsProvider} onChange={(e) => setSmsProvider(e.target.value as 'disabled' | 'twilio')} className="mt-1 w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-bold"><option value="disabled">Disabled</option><option value="twilio">Twilio SMS</option></select></label>
+              <label className="block font-bold text-slate-300">SMS Sender Number<input type="text" value={smsFromNumber} onChange={(e) => setSmsFromNumber(e.target.value)} placeholder="+92... (Twilio verified sender)" className="mt-1 w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono" /></label>
+            </div>
+            <p className="text-[10px] text-slate-500">SMS uses the securely stored Twilio Account SID and Auth Token above, but has its own provider switch and sender number. It does not depend on WhatsApp provider selection.</p>
+          </div>
           <div className="flex justify-end pt-2">
             <button
               type="submit"

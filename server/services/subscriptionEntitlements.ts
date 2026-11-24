@@ -6,7 +6,8 @@ export const SUBSCRIPTION_FEATURES = [
   { id: 'cv_builder', label: 'Premium CV Builder' },
   { id: 'urgent_job_posting', label: 'Urgent Job Posting' },
   { id: 'featured_job_posting', label: 'Featured Job Posting' },
-  { id: 'premium_job_posting', label: 'Premium Job Posting' }
+  { id: 'premium_job_posting', label: 'Premium Job Posting' },
+  { id: 'campaign_credits', label: 'Advertisement Campaign Credits' }
 ] as const;
 
 export type SubscriptionFeatureId = typeof SUBSCRIPTION_FEATURES[number]['id'];
@@ -19,9 +20,13 @@ export interface SubscriptionFeatureConfig {
   durationDays: number;
   includedSlots: number;
   slotDurationDays: number;
+  unlimitedMessages?: boolean;
+  monthlyMessageQuota?: number;
+  campaignCredits?: Array<{ placement: string; durationHours: number; quantity: number; smsRecipientsCount?: number }>;
 }
 
 const FEATURE_IDS = new Set<string>(SUBSCRIPTION_FEATURES.map((item) => item.id));
+const CAMPAIGN_PLACEMENTS = new Set(['top-header', 'feed-inline', 'sidebar', 'popup-modal', 'toast-float', 'sms-broadcast', 'promo-discount-banner', 'dynamic-announcement-card']);
 
 export function normalizeSubscriptionFeatureCatalog(raw: unknown): SubscriptionFeatureConfig[] {
   if (!Array.isArray(raw)) return [];
@@ -38,7 +43,22 @@ export function normalizeSubscriptionFeatureCatalog(raw: unknown): SubscriptionF
     pricePkr: Number.isSafeInteger(Number(item.pricePkr)) && Number(item.pricePkr) >= 0 ? Number(item.pricePkr) : 0,
     durationDays: Number.isInteger(Number(item.durationDays)) && Number(item.durationDays) > 0 && Number(item.durationDays) <= 3650 ? Number(item.durationDays) : 30,
     includedSlots: Number.isInteger(Number(item.includedSlots)) && Number(item.includedSlots) >= 0 && Number(item.includedSlots) <= 1000 ? Number(item.includedSlots) : 0,
-    slotDurationDays: Number.isInteger(Number(item.slotDurationDays)) && Number(item.slotDurationDays) > 0 && Number(item.slotDurationDays) <= 3650 ? Number(item.slotDurationDays) : 30
+    slotDurationDays: Number.isInteger(Number(item.slotDurationDays)) && Number(item.slotDurationDays) > 0 && Number(item.slotDurationDays) <= 3650 ? Number(item.slotDurationDays) : 30,
+    // Missing values are preserved as legacy settings; new admin saves must explicitly choose Unlimited or a quota.
+    unlimitedMessages: typeof item.unlimitedMessages === 'boolean' ? item.unlimitedMessages : undefined,
+    monthlyMessageQuota: Number.isInteger(Number(item.monthlyMessageQuota)) && Number(item.monthlyMessageQuota) >= 1 && Number(item.monthlyMessageQuota) <= 1000000 ? Number(item.monthlyMessageQuota) : undefined,
+    campaignCredits: Array.isArray(item.campaignCredits) ? item.campaignCredits.filter((credit: any) =>
+      CAMPAIGN_PLACEMENTS.has(String(credit?.placement || '')) &&
+      Number.isInteger(Number(credit.durationHours)) && Number(credit.durationHours) >= 1 && Number(credit.durationHours) <= 8760 &&
+      Number.isInteger(Number(credit.quantity)) && Number(credit.quantity) >= 1 && Number(credit.quantity) <= 1000 &&
+      (credit.placement !== 'sms-broadcast' || (Number.isInteger(Number(credit.smsRecipientsCount)) && Number(credit.smsRecipientsCount) >= 1 && Number(credit.smsRecipientsCount) <= 100000))
+    ).map((credit: any) => ({
+      placement: String(credit.placement), durationHours: Number(credit.durationHours), quantity: Number(credit.quantity),
+      ...(credit.placement === 'sms-broadcast' ? { smsRecipientsCount: Number(credit.smsRecipientsCount) } : {})
+    })).filter((credit: any, index: number, all: any[]) => all.findIndex((other: any) =>
+      other.placement === credit.placement && other.durationHours === credit.durationHours &&
+      Number(other.smsRecipientsCount || 0) === Number(credit.smsRecipientsCount || 0)
+    ) === index) : []
   }));
 }
 
@@ -60,6 +80,16 @@ export function resolveSubscriptionPackage(pkg: any, pricing: any): {
     if (!feature) throw new Error(`Subscription feature "${id}" is unavailable or disabled.`);
     return feature;
   });
+  if (selected.some((item) =>
+    ['email_alerts', 'whatsapp_alerts', 'sms_alerts'].includes(item.id) &&
+    item.unlimitedMessages !== true &&
+    (!Number.isInteger(item.monthlyMessageQuota) || Number(item.monthlyMessageQuota) < 1)
+  )) {
+    throw new Error('Configure a positive monthly message quota or explicitly enable Unlimited for every selected notification channel.');
+  }
+  if (selected.some((item) => item.id === 'campaign_credits' && (!Array.isArray(item.campaignCredits) || item.campaignCredits.length === 0))) {
+    throw new Error('Configure at least one placement and duration credit before including Campaign Credits in a subscription.');
+  }
   const undiscountedPricePkr = selected.reduce((sum, item) => sum + item.pricePkr, 0);
   const rawDiscount = Number(pkg?.bundleDiscountPercent ?? pricing?.subscriptionBundleDiscountPercent ?? 0);
   const bundleDiscountPercent = Number.isFinite(rawDiscount) ? Math.min(100, Math.max(0, rawDiscount)) : 0;

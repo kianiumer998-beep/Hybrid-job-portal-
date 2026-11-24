@@ -1261,7 +1261,7 @@ export const api = {
       return safeFetchJson<{
         success: boolean;
         whatsAppSupportConfig?: any;
-        channelAvailability?: { email: boolean; whatsapp: boolean };
+        channelAvailability?: { email: boolean; whatsapp: boolean; sms?: boolean };
         message?: string;
       }>(`${API_BASE}/settings/communication`, { headers: getAuthHeader() });
     },
@@ -1340,6 +1340,22 @@ export const api = {
         headers: getAuthHeader(),
         body: JSON.stringify(payload)
       });
+    },
+    async test(payload: { channel: 'email' | 'whatsapp' | 'sms'; recipient: string }) {
+      return safeFetchJson<{
+        success: boolean;
+        message?: string;
+        auditPersisted?: boolean;
+        auditWarning?: string;
+      }>(`${API_BASE}/settings/communication/providers/test`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(payload)
+      });
+    },
+    async logs(limit = 50) {
+      const qs = new URLSearchParams({ limit: String(limit) }).toString();
+      return safeFetchJson<{ success: boolean; logs?: Array<{ eventId: string; userId: string; featureId: string; channel: string; provider: string; status: string; attempts: number; lastAttemptAt: string }> }>(`${API_BASE}/settings/communication/providers/logs?${qs}`, { headers: getAuthHeader() });
     }
   },
   chat: {

@@ -1092,12 +1092,70 @@ export class PaymentRepository {
         durationDays = snapDuration;
         membershipTier = snapshot.name;
 
+        const subscriptionActivatedAt = new Date().toISOString();
+        const subscriptionExpiresAt = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString();
+        const featureSnapshots = Array.isArray(snapshot.featureSnapshots) ? snapshot.featureSnapshots : [];
+        const subscriptionEntitlements: Record<string, any> = {};
+        const subscriptionFeatureIds: string[] = [];
+        for (const feature of featureSnapshots) {
+          const featureId = String(feature?.id || '').trim();
+          const featureDuration = Number(feature?.durationDays);
+          const includedSlots = Number(feature?.includedSlots);
+          const slotDurationDays = Number(feature?.slotDurationDays);
+          if (!/^(early_access|whatsapp_alerts|email_alerts|sms_alerts|cv_builder|urgent_job_posting|featured_job_posting|premium_job_posting|campaign_credits)$/.test(featureId) ||
+              subscriptionFeatureIds.includes(featureId) ||
+              !Number.isInteger(featureDuration) || featureDuration <= 0 || featureDuration > 3650 ||
+              !Number.isInteger(includedSlots) || includedSlots < 0 || includedSlots > 1000 ||
+              !Number.isInteger(slotDurationDays) || slotDurationDays <= 0 || slotDurationDays > 3650) {
+            await failSnapshot('Invalid or unsupported feature entitlement in package snapshot.');
+          }
+          if (featureId === 'campaign_credits') {
+            const allowedPlacements = new Set(['top-header', 'feed-inline', 'sidebar', 'popup-modal', 'toast-float', 'sms-broadcast', 'promo-discount-banner', 'dynamic-announcement-card']);
+            const credits = Array.isArray(feature.campaignCredits) ? feature.campaignCredits : [];
+            const seenCredits = new Set<string>();
+            if (!credits.length || credits.some((credit: any) => {
+              const placement = String(credit?.placement || '');
+              const creditDuration = Number(credit?.durationHours);
+              const quantity = Number(credit?.quantity);
+              const recipients = Number(credit?.smsRecipientsCount || 0);
+              const key = placement + ':' + creditDuration + ':' + recipients;
+              const invalid = !allowedPlacements.has(placement) ||
+                !Number.isInteger(creditDuration) || creditDuration < 1 || creditDuration > 8760 ||
+                !Number.isInteger(quantity) || quantity < 1 || quantity > 1000 ||
+                (placement === 'sms-broadcast' && (!Number.isInteger(recipients) || recipients < 1 || recipients > 100000)) ||
+                seenCredits.has(key);
+              seenCredits.add(key);
+              return invalid;
+            })) {
+              await failSnapshot('Invalid campaign credit rules in package snapshot.');
+            }
+          }
+          const entitlementDays = Math.min(durationDays, featureDuration);
+          subscriptionFeatureIds.push(featureId);
+          subscriptionEntitlements[featureId] = {
+            enabled: true,
+            grantedAt: subscriptionActivatedAt,
+            expiresAt: new Date(Date.now() + entitlementDays * 24 * 60 * 60 * 1000).toISOString(),
+            includedSlots,
+            remainingSlots: includedSlots,
+            slotDurationDays: Math.min(slotDurationDays, durationDays),
+            sourcePackageId: snapshot.id,
+            ...(typeof feature.unlimitedMessages === 'boolean' ? { unlimitedMessages: feature.unlimitedMessages } : {}),
+            ...(Number.isInteger(Number(feature.monthlyMessageQuota)) && Number(feature.monthlyMessageQuota) >= 0
+              ? { monthlyMessageQuota: Number(feature.monthlyMessageQuota) } : {}),
+            ...(featureId === 'campaign_credits' && Array.isArray(feature.campaignCredits) ? { campaignCredits: feature.campaignCredits.map((credit: any) => ({ placement: String(credit.placement), durationHours: Number(credit.durationHours), smsRecipientsCount: Number(credit.smsRecipientsCount || 0), includedQuantity: Number(credit.quantity), remaining: Number(credit.quantity) })) } : {})
+          };
+        }
+
         let updatedUser: any = null;
         try {
           updatedUser = await UserRepository.updateAsync(user.id, {
             membershipTier: membershipTier,
             membershipStatus: 'Active',
-            subscriptionExpiresAt: new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString()
+            subscriptionExpiresAt,
+            subscriptionEntitlements,
+            // A newly purchased featureless plan must not inherit the legacy all-features fallback.
+            subscriptionFeatureIds: subscriptionFeatureIds.length ? subscriptionFeatureIds : ['__no_features__']
           });
         } catch (subErr: any) {
           await this.updateAsync(id, {

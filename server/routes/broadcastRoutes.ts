@@ -47,6 +47,8 @@ broadcastRouter.post('/', requireAdminPermission('settings.manage'), async (req,
       });
     }
 
+    if (cleanChannel === 'SMS' && flags.enableSmsAlerts !== true) return res.status(403).json({ success: false, message: 'Channel Disabled: SMS broadcasts are currently disabled by administrator.' });
+
     if (cleanChannel === 'Multi-Channel' && (!flags.enableEmailAlerts || !flags.enableWhatsAppAlerts)) {
       return res.status(403).json({
         success: false,

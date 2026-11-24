@@ -118,6 +118,23 @@ async function run() {
   const quotaUser = await UserRepository.getByIdAsync(quotaUserId);
   assert.equal(quotaUser.subscriptionMessageUsage.sms_alerts[retryReservation.month].used, 2, 'failed provider attempt did not consume quota');
 
+  const campaignCreditUserId = 'subscription-campaign-credit-test-user';
+  await UserRepository.createAsync({
+    id: campaignCreditUserId, walletBalance: 0, membershipStatus: 'Active', subscriptionExpiresAt: future,
+    subscriptionFeatureIds: ['campaign_credits'],
+    subscriptionEntitlements: {
+      campaign_credits: { enabled: true, expiresAt: future, campaignCredits: [
+        { placement: 'sidebar', durationHours: 168, includedQuantity: 1, remaining: 1 }
+      ] }
+    }
+  });
+  const campaignRedemption = await UserRepository.consumeSubscriptionCampaignCreditAsync(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1');
+  assert.equal(campaignRedemption?.credit.placement, 'sidebar', 'campaign credit matches the requested placement');
+  assert.equal(campaignRedemption?.user.subscriptionEntitlements.campaign_credits.campaignCredits[0].remaining, 0, 'campaign credit is consumed atomically');
+  assert.equal(await UserRepository.consumeSubscriptionCampaignCreditAsync(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1'), null, 'campaign redemption is idempotent');
+  assert.equal(await UserRepository.restoreSubscriptionCampaignCreditAsync(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1'), true, 'rejected campaign restores its credit');
+  assert.equal(await UserRepository.restoreSubscriptionCampaignCreditAsync(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1'), true, 'repeated campaign restoration is idempotent');
+
   const unlimitedUserId = 'subscription-message-unlimited-test-user';
   await UserRepository.createAsync({
     id: unlimitedUserId, walletBalance: 0, membershipStatus: 'Active', subscriptionExpiresAt: future,
@@ -134,7 +151,7 @@ async function run() {
   const noExpiryReservation = await UserRepository.reserveSubscriptionMessageQuotaAsync(noExpiryUserId, 'sms_alerts', 'no-expiry-event');
   assert.equal(noExpiryReservation.reason, 'unavailable', 'missing subscription expiry fails closed');
 
-  console.log('Subscription entitlement tests passed (34 assertions).');
+  console.log('Subscription entitlement tests passed (39 assertions).');
 }
 
 run().catch((error) => { console.error(error); process.exitCode = 1; });

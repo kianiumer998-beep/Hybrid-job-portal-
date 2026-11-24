@@ -2,7 +2,7 @@ import { Database } from '../db/database';
 import { NotificationRepository, UserRepository } from '../db/repositories';
 import { hasActiveSubscriptionFeature } from './subscriptionEntitlements';
 import { sendConfiguredPremiumAlert } from './communicationDeliveryService';
-import { JobRepository, PricingRepository } from '../db/repositories';
+import { FeatureFlagsRepository, JobRepository, PricingRepository } from '../db/repositories';
 import { isEarlyAccessJobLocked } from './earlyAccessPolicy';
 
 function matchesAlert(alert: any, job: any): boolean {
@@ -20,7 +20,7 @@ export async function dispatchPremiumInstantJobAlerts(job: any): Promise<{ match
   if (!job?.id || job?.status !== 'Approved') return { matchedUsers: 0, deliveredChannels: 0 };
   let matchedUsers = 0;
   let deliveredChannels = 0;
-  const users = await UserRepository.getAllAsync();
+  const [users, channelFlags] = await Promise.all([UserRepository.getAllAsync(), FeatureFlagsRepository.getFlags()]);
   const jobUrl = String(process.env.FRONTEND_URL || 'https://hybrid-job-portal.vercel.app').replace(/\/+$/, '') + '/jobs/' + encodeURIComponent(String(job.slug || job.id));
   const message = [
     'A new job matching your saved alert is now available.',
@@ -46,13 +46,13 @@ export async function dispatchPremiumInstantJobAlerts(job: any): Promise<{ match
         eventId: 'premium-instant-job-alert:' + String(job.id) + ':' + String(user.id),
         metadata: { jobId: String(job.id), jobTitle: String(job.title || ''), jobUrl }
       });
-      if (user.emailAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'email_alerts')) {
+      if (channelFlags.enableEmailAlerts === true && user.emailAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'email_alerts')) {
         if (await sendConfiguredPremiumAlert(user, 'email', 'New job matching your alert: ' + String(job.title || ''), message)) deliveredChannels += 1;
       }
-      if (user.whatsappAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'whatsapp_alerts')) {
+      if (channelFlags.enableWhatsAppAlerts === true && user.whatsappAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'whatsapp_alerts')) {
         if (await sendConfiguredPremiumAlert(user, 'whatsapp', 'New job alert', message)) deliveredChannels += 1;
       }
-      if (user.smsAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'sms_alerts')) {
+      if (channelFlags.enableSmsAlerts === true && user.smsAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'sms_alerts')) {
         if (await sendConfiguredPremiumAlert(user, 'sms', 'New job alert', message)) deliveredChannels += 1;
       }
     } catch (error: any) {
@@ -65,10 +65,11 @@ export async function dispatchPremiumInstantJobAlerts(job: any): Promise<{ match
 export async function dispatchPremiumJobAlertDigests(now = new Date()): Promise<number> {
   let digestCount = 0;
   const nowMs = now.getTime();
-  const [users, jobsResult, pricing] = await Promise.all([
+  const [users, jobsResult, pricing, channelFlags] = await Promise.all([
     UserRepository.getAllAsync(),
     JobRepository.getAll({ page: 1, limit: 1000, status: 'Approved' }),
-    PricingRepository.get()
+    PricingRepository.get(),
+    FeatureFlagsRepository.getFlags()
   ]);
   const jobs = jobsResult?.jobs || [];
   for (const user of users || []) {
@@ -109,13 +110,13 @@ export async function dispatchPremiumJobAlertDigests(now = new Date()): Promise<
         eventId,
         metadata: { frequency, matchedJobCount: matchedJobs.length, jobIds: matchedJobs.map((job: any) => String(job.id)) }
       });
-      if (user.emailAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'email_alerts')) {
+      if (channelFlags.enableEmailAlerts === true && user.emailAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'email_alerts')) {
         await sendConfiguredPremiumAlert(user, 'email', frequency === 'daily' ? 'Your Daily Job Alert Digest' : 'Your Weekly Job Round-up', message);
       }
-      if (user.whatsappAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'whatsapp_alerts')) {
+      if (channelFlags.enableWhatsAppAlerts === true && user.whatsappAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'whatsapp_alerts')) {
         await sendConfiguredPremiumAlert(user, 'whatsapp', 'Your job alert digest', message);
       }
-      if (user.smsAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'sms_alerts')) {
+      if (channelFlags.enableSmsAlerts === true && user.smsAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'sms_alerts')) {
         await sendConfiguredPremiumAlert(user, 'sms', 'Your job alert digest', message);
       }
       digestCount += 1;

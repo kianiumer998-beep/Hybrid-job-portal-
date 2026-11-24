@@ -1121,7 +1121,8 @@ export class PaymentRepository {
             sourcePackageId: snapshot.id,
             ...(typeof feature.unlimitedMessages === 'boolean' ? { unlimitedMessages: feature.unlimitedMessages } : {}),
             ...(Number.isInteger(Number(feature.monthlyMessageQuota)) && Number(feature.monthlyMessageQuota) >= 0
-              ? { monthlyMessageQuota: Number(feature.monthlyMessageQuota) } : {})
+              ? { monthlyMessageQuota: Number(feature.monthlyMessageQuota) } : {}),
+            ...(featureId === 'campaign_credits' && Array.isArray(feature.campaignCredits) ? { campaignCredits: feature.campaignCredits.map((credit: any) => ({ placement: String(credit.placement), durationHours: Number(credit.durationHours), includedQuantity: Number(credit.quantity), remaining: Number(credit.quantity) })) } : {})
           };
         }
 

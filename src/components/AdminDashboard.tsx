@@ -184,7 +184,7 @@ interface AdminDashboardProps {
   allApplications?: JobApplication[];
   onReloadJobs?: () => Promise<any>;
   onApproveJob: (jobId: string) => void;
-  onRejectJob: (jobId: string, reason: string) => void;
+  onRejectJob: (jobId: string, reason: string) => Promise<any> | any;
   onAddJob: (newJob: Job) => void;
   onAddPendingJob?: (newJob: Job) => void;
   onBulkAddJobs?: (jobs: Job[]) => void;
@@ -2953,10 +2953,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   // Synchronized Rejection with Audit Trail
-  const handleRejectPrompt = (jobId: string, customReason?: string) => {
-    const reason = customReason || prompt('Enter Rejection Reason for user notification:', 'Job details incomplete or invalid salary range.');
-    if (reason) {
-      onRejectJob(jobId, reason);
+  const handleRejectPrompt = async (jobId: string, customReason?: string) => {
+    const reason = (customReason || prompt('Enter a clear correction reason for the submitter:', 'Please correct the incomplete or inaccurate job details.'))?.trim();
+    if (!reason) return { success: false, message: 'A rejection reason is required.' };
+    try {
+      const result = await onRejectJob(jobId, reason);
+      if (result?.success === false) {
+        alert(result.message || 'The job could not be rejected. Please try again.');
+        return result;
+      }
       setScrapedAuditLogs(prev => prev.map(entry => {
         if (entry.jobId === jobId) {
           const newAction: ScrapedJobAuditAction = {
@@ -2979,11 +2984,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }
         return entry;
       }));
+      return result || { success: true };
+    } catch (error: any) {
+      const failure = { success: false, message: error?.message || 'The job could not be rejected.' };
+      alert(failure.message);
+      return failure;
     }
   };
 
   const handleAdminRejectJob = (jobId: string, customReason?: string) => {
-    handleRejectPrompt(jobId, customReason);
+    return handleRejectPrompt(jobId, customReason);
   };
 
   // Batch Import PDF Scraped Vacancies

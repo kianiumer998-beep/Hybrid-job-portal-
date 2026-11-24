@@ -115,7 +115,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
 
   // Provider Settings state loaded from backend API
-  const [safeProviderConfig, setSafeProviderConfig] = useState<SafeCommunicationProviderConfig & { smsProvider?: 'disabled' | 'twilio'; smsFromNumber?: string }>({
+  const [safeProviderConfig, setSafeProviderConfig] = useState<SafeCommunicationProviderConfig>({
     emailProvider: 'smtp',
     smtpHost: '',
     smtpPort: 587,
@@ -177,8 +177,8 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
         setSmtpUser(res.config.smtpUser || '');
         setSmtpSenderEmail(res.config.smtpSenderEmail || '');
         setWhatsappProvider(res.config.whatsappProvider || 'meta-cloud');
-        setSmsProvider((res.config as any).smsProvider || 'disabled');
-        setSmsFromNumber((res.config as any).smsFromNumber || '');
+        setSmsProvider(res.config.smsProvider || 'disabled');
+        setSmsFromNumber(res.config.smsFromNumber || '');
         setWhatsappPhoneNumberId(res.config.whatsappPhoneNumberId || '');
         setWhatsappBusinessAccountId(res.config.whatsappBusinessAccountId || '');
         setTwilioAccountSid(res.config.twilioAccountSid || '');
@@ -357,7 +357,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
     setProviderSaveError(null);
     setProviderSaveSuccess(false);
 
-    const payload = {
+    const payload: UpdateCommunicationProviderPayload = {
       emailProvider,
       smtpHost: smtpHost.trim(),
       smtpPort: Number(smtpPort) || 587,
@@ -379,7 +379,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
       twilioAuthToken: twilioAuthTokenInput.trim() || undefined,
 
       clearSecrets: clearSecrets.length > 0 ? clearSecrets : undefined
-    } as UpdateCommunicationProviderPayload & { smsProvider: 'disabled' | 'twilio'; smsFromNumber: string };
+    };
 
     try {
       const res = await api.communicationProviders.update(payload);
@@ -403,6 +403,8 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
             smtpUser: res.config.smtpUser,
             smtpSenderEmail: res.config.smtpSenderEmail,
             whatsappPhoneNumberId: res.config.whatsappPhoneNumberId,
+            smsProvider: res.config.smsProvider,
+            smsFromNumber: res.config.smsFromNumber,
             twilioAccountSid: res.config.twilioAccountSid,
             twilioPhoneNumber: res.config.twilioPhoneNumber
           });

@@ -22,7 +22,7 @@ export interface SubscriptionFeatureConfig {
   slotDurationDays: number;
   unlimitedMessages?: boolean;
   monthlyMessageQuota?: number;
-  campaignCredits?: Array<{ placement: string; durationHours: number; quantity: number }>;
+  campaignCredits?: Array<{ placement: string; durationHours: number; quantity: number; smsRecipientsCount?: number }>;
 }
 
 const FEATURE_IDS = new Set<string>(SUBSCRIPTION_FEATURES.map((item) => item.id));
@@ -47,7 +47,18 @@ export function normalizeSubscriptionFeatureCatalog(raw: unknown): SubscriptionF
     // Existing catalog entries remain unmetered until an administrator configures an explicit quota.
     unlimitedMessages: item.unlimitedMessages === true || (item.unlimitedMessages === undefined && item.monthlyMessageQuota === undefined),
     monthlyMessageQuota: Number.isInteger(Number(item.monthlyMessageQuota)) && Number(item.monthlyMessageQuota) >= 1 && Number(item.monthlyMessageQuota) <= 1000000 ? Number(item.monthlyMessageQuota) : 0,
-    campaignCredits: Array.isArray(item.campaignCredits) ? item.campaignCredits.filter((credit: any) => CAMPAIGN_PLACEMENTS.has(String(credit?.placement || '')) && Number.isInteger(Number(credit.durationHours)) && Number(credit.durationHours) >= 1 && Number(credit.durationHours) <= 8760 && Number.isInteger(Number(credit.quantity)) && Number(credit.quantity) >= 1 && Number(credit.quantity) <= 1000).map((credit: any) => ({ placement: String(credit.placement), durationHours: Number(credit.durationHours), quantity: Number(credit.quantity) })).filter((credit: any, index: number, all: any[]) => all.findIndex((other: any) => other.placement === credit.placement && other.durationHours === credit.durationHours) === index) : []
+    campaignCredits: Array.isArray(item.campaignCredits) ? item.campaignCredits.filter((credit: any) =>
+      CAMPAIGN_PLACEMENTS.has(String(credit?.placement || '')) &&
+      Number.isInteger(Number(credit.durationHours)) && Number(credit.durationHours) >= 1 && Number(credit.durationHours) <= 8760 &&
+      Number.isInteger(Number(credit.quantity)) && Number(credit.quantity) >= 1 && Number(credit.quantity) <= 1000 &&
+      (credit.placement !== 'sms-broadcast' || (Number.isInteger(Number(credit.smsRecipientsCount)) && Number(credit.smsRecipientsCount) >= 1 && Number(credit.smsRecipientsCount) <= 100000))
+    ).map((credit: any) => ({
+      placement: String(credit.placement), durationHours: Number(credit.durationHours), quantity: Number(credit.quantity),
+      ...(credit.placement === 'sms-broadcast' ? { smsRecipientsCount: Number(credit.smsRecipientsCount) } : {})
+    })).filter((credit: any, index: number, all: any[]) => all.findIndex((other: any) =>
+      other.placement === credit.placement && other.durationHours === credit.durationHours &&
+      Number(other.smsRecipientsCount || 0) === Number(credit.smsRecipientsCount || 0)
+    ) === index) : []
   }));
 }
 

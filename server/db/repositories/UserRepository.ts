@@ -2237,6 +2237,121 @@ export class UserRepository {
     return true;
   }
 
+  /** Atomically redeems one exact placement/duration campaign credit. */
+  static async consumeSubscriptionCampaignCreditAsync(userId: string, placement: string, durationHours: number, campaignId: string): Promise<{ user: any; credit: any } | null> {
+    const uid = String(userId || '').trim();
+    const cleanPlacement = String(placement || '').trim();
+    const campaign = String(campaignId || '').trim();
+    if (!uid || !cleanPlacement || !Number.isInteger(durationHours) || durationHours < 1 || durationHours > 8760 || !campaign || campaign.length > 200) {
+      throw new Error('Valid user, campaign placement, duration and campaign reference are required.');
+    }
+    const markerKey = Buffer.from(campaign, 'utf8').toString('base64url').slice(0, 220);
+    const marker = 'subscriptionCampaignOperations.' + markerKey;
+    const now = new Date().toISOString();
+    const creditsPath = 'subscriptionEntitlements.campaign_credits.campaignCredits';
+    const creditQuery = { placement: cleanPlacement, durationHours, remaining: { $gt: 0 } };
+    if (isTest()) {
+      const user = inMemoryUsers.get(uid);
+      if (!user || user.membershipStatus !== 'Active' || Date.parse(String(user.subscriptionExpiresAt || '')) <= Date.now() ||
+          user.subscriptionEntitlements?.campaign_credits?.enabled !== true ||
+          Date.parse(String(user.subscriptionEntitlements?.campaign_credits?.expiresAt || '')) <= Date.now()) return null;
+      const ops = user.subscriptionCampaignOperations || {};
+      if (ops[markerKey] === 'CONSUMED' || ops[markerKey] === 'RESTORED') return null;
+      const credits = user.subscriptionEntitlements.campaign_credits.campaignCredits || [];
+      const index = credits.findIndex((item: any) => item?.placement === cleanPlacement && Number(item?.durationHours) === durationHours && Number(item?.remaining) > 0);
+      if (index < 0) return null;
+      const updatedCredits = credits.map((item: any, i: number) => i === index ? { ...item, remaining: Number(item.remaining) - 1 } : item);
+      const updated = { ...user, subscriptionEntitlements: { ...user.subscriptionEntitlements, campaign_credits: { ...user.subscriptionEntitlements.campaign_credits, campaignCredits: updatedCredits } },
+        subscriptionCampaignOperations: { ...ops, [markerKey]: 'CONSUMED' }, updatedAt: now };
+      inMemoryUsers.set(uid, updated);
+      return { user: updated, credit: { placement: cleanPlacement, durationHours, campaignId: campaign } };
+    }
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const updatedDoc = await coll.findOneAndUpdate({
+        id: uid, membershipStatus: 'Active', subscriptionExpiresAt: { $gt: now },
+        'subscriptionEntitlements.campaign_credits.enabled': true,
+        'subscriptionEntitlements.campaign_credits.expiresAt': { $gt: now },
+        [creditsPath]: { $elemMatch: creditQuery },
+        [marker]: { $ne: 'CONSUMED' }
+      }, {
+        $inc: { 'subscriptionEntitlements.campaign_credits.campaignCredits.$[credit].remaining': -1 },
+        $set: { [marker]: 'CONSUMED', updatedAt: now }
+      } as any, {
+        returnDocument: 'after', includeResultMetadata: false,
+        arrayFilters: [{ 'credit.placement': cleanPlacement, 'credit.durationHours': durationHours, 'credit.remaining': { $gt: 0 } }]
+      } as any);
+      if (!updatedDoc) return null;
+      const { _id, ...safe } = updatedDoc;
+      return { user: safe, credit: { placement: cleanPlacement, durationHours, campaignId: campaign } };
+    }
+    const user = Database.getUserById(uid);
+    if (!user || user.membershipStatus !== 'Active' || Date.parse(String(user.subscriptionExpiresAt || '')) <= Date.now() ||
+        user.subscriptionEntitlements?.campaign_credits?.enabled !== true ||
+        Date.parse(String(user.subscriptionEntitlements?.campaign_credits?.expiresAt || '')) <= Date.now()) return null;
+    const ops = user.subscriptionCampaignOperations || {};
+    if (ops[markerKey] === 'CONSUMED' || ops[markerKey] === 'RESTORED') return null;
+    const credits = user.subscriptionEntitlements.campaign_credits.campaignCredits || [];
+    const index = credits.findIndex((item: any) => item?.placement === cleanPlacement && Number(item?.durationHours) === durationHours && Number(item?.remaining) > 0);
+    if (index < 0) return null;
+    const updatedCredits = credits.map((item: any, i: number) => i === index ? { ...item, remaining: Number(item.remaining) - 1 } : item);
+    const updated = await UserRepository.updateAsync(uid, {
+      subscriptionEntitlements: { ...user.subscriptionEntitlements, campaign_credits: { ...user.subscriptionEntitlements.campaign_credits, campaignCredits: updatedCredits } },
+      subscriptionCampaignOperations: { ...ops, [markerKey]: 'CONSUMED' }
+    });
+    return updated ? { user: updated, credit: { placement: cleanPlacement, durationHours, campaignId: campaign } } : null;
+  }
+
+  /** Restores a redeemed campaign credit exactly once when campaign persistence fails or is refunded. */
+  static async restoreSubscriptionCampaignCreditAsync(userId: string, placement: string, durationHours: number, campaignId: string): Promise<boolean> {
+    const uid = String(userId || '').trim();
+    const cleanPlacement = String(placement || '').trim();
+    const markerKey = Buffer.from(String(campaignId || '').trim(), 'utf8').toString('base64url').slice(0, 220);
+    const marker = 'subscriptionCampaignOperations.' + markerKey;
+    const now = new Date().toISOString();
+    if (!uid || !cleanPlacement || !Number.isInteger(durationHours) || durationHours < 1 || !markerKey) return false;
+    if (isTest()) {
+      const user = inMemoryUsers.get(uid);
+      if (!user || user.subscriptionCampaignOperations?.[markerKey] !== 'CONSUMED') return false;
+      const credits = user.subscriptionEntitlements?.campaign_credits?.campaignCredits || [];
+      let restored = false;
+      const updatedCredits = credits.map((item: any) => {
+        if (!restored && item?.placement === cleanPlacement && Number(item?.durationHours) === durationHours) {
+          restored = true; return { ...item, remaining: Number(item.remaining || 0) + 1 };
+        }
+        return item;
+      });
+      if (!restored) return false;
+      inMemoryUsers.set(uid, { ...user, subscriptionEntitlements: { ...user.subscriptionEntitlements, campaign_credits: { ...user.subscriptionEntitlements.campaign_credits, campaignCredits: updatedCredits } },
+        subscriptionCampaignOperations: { ...user.subscriptionCampaignOperations, [markerKey]: 'RESTORED' }, updatedAt: now });
+      return true;
+    }
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const result = await coll.updateOne({ id: uid, [marker]: 'CONSUMED' }, {
+        $inc: { 'subscriptionEntitlements.campaign_credits.campaignCredits.$[credit].remaining': 1 },
+        $set: { [marker]: 'RESTORED', updatedAt: now }
+      } as any, { arrayFilters: [{ 'credit.placement': cleanPlacement, 'credit.durationHours': durationHours }] } as any);
+      return result.modifiedCount === 1;
+    }
+    const user = Database.getUserById(uid);
+    if (!user || user.subscriptionCampaignOperations?.[markerKey] !== 'CONSUMED') return false;
+    const credits = user.subscriptionEntitlements?.campaign_credits?.campaignCredits || [];
+    let restored = false;
+    const updatedCredits = credits.map((item: any) => {
+      if (!restored && item?.placement === cleanPlacement && Number(item?.durationHours) === durationHours) {
+        restored = true; return { ...item, remaining: Number(item.remaining || 0) + 1 };
+      }
+      return item;
+    });
+    if (!restored) return false;
+    const updated = await UserRepository.updateAsync(uid, {
+      subscriptionEntitlements: { ...user.subscriptionEntitlements, campaign_credits: { ...user.subscriptionEntitlements.campaign_credits, campaignCredits: updatedCredits } },
+      subscriptionCampaignOperations: { ...user.subscriptionCampaignOperations, [markerKey]: 'RESTORED' }
+    });
+    return Boolean(updated);
+  }
+
   static async updateRoleWithLastSuperAdminGuard(
     params: RoleMutationParams,
     mongoOverride?: { client: any; db?: any }

@@ -583,8 +583,22 @@ adRouter.patch('/:id/review', requireAuth, async (req: any, res) => {
       };
     }
 
-    const updated = await AdRepository.updateAsync(String(req.params.id), updates);
+    let updated = await AdRepository.updateAsync(String(req.params.id), updates);
     if (!updated) return res.status(404).json({ success: false, message: 'Campaign could not be updated.' });
+    if (action === 'refund' && existingAd.subscriptionCreditRedemption && !existingAd.subscriptionCreditRedemption.creditRestoredAt) {
+      const redemption = existingAd.subscriptionCreditRedemption;
+      const restored = await UserRepository.restoreSubscriptionCampaignCreditAsync(
+        String(existingAd.submittedByUserId || ''), String(redemption.placement || ''),
+        Number(redemption.durationHours), String(redemption.idempotencyKey || '')
+      ).catch(() => false);
+      if (!restored) {
+        return res.status(503).json({ success: false, advertisement: updated, creditRestored: false,
+          message: 'Campaign was rejected, but its subscription credit restoration needs administrator reconciliation.' });
+      }
+      updated = await AdRepository.updateAsync(String(req.params.id), {
+        subscriptionCreditRedemption: { ...redemption, creditRestoredAt: new Date().toISOString() }
+      }) || updated;
+    }
     return res.json({
       success: true,
       advertisement: updated,

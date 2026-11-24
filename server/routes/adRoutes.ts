@@ -200,7 +200,7 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
           }
 
           redeemedCredit = await UserRepository.consumeSubscriptionCampaignCreditAsync(
-            String(authUserId), campaignCalc.placement, campaignCalc.durationHours, idempotencyKey
+            String(authUserId), campaignCalc.placement, campaignCalc.durationHours, idempotencyKey, campaignCalc.smsRecipientsCount
           );
           if (!redeemedCredit) {
             const creditErr: any = new Error('No active subscription campaign credit matches this placement and exact duration.');
@@ -226,6 +226,7 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
             featureId: 'campaign_credits',
             placement: campaignCalc.placement,
             durationHours: campaignCalc.durationHours,
+            smsRecipientsCount: campaignCalc.smsRecipientsCount,
             durationDisplay: campaignCalc.durationDisplay,
             idempotencyKey,
             creditValuePkr: campaignCalc.finalPrice,
@@ -244,7 +245,7 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
         } catch (creditErr: any) {
           if (redeemedCredit) {
             const restored = await UserRepository.restoreSubscriptionCampaignCreditAsync(
-              String(authUserId), campaignCalc.placement, campaignCalc.durationHours, idempotencyKey
+              String(authUserId), campaignCalc.placement, campaignCalc.durationHours, idempotencyKey, campaignCalc.smsRecipientsCount
             ).catch(() => false);
             if (!restored) console.error('[Ad Campaign] Subscription credit restoration requires reconciliation:', idempotencyKey);
           }
@@ -589,7 +590,7 @@ adRouter.patch('/:id/review', requireAuth, async (req: any, res) => {
       const redemption = existingAd.subscriptionCreditRedemption;
       const restored = await UserRepository.restoreSubscriptionCampaignCreditAsync(
         String(existingAd.submittedByUserId || ''), String(redemption.placement || ''),
-        Number(redemption.durationHours), String(redemption.idempotencyKey || '')
+        Number(redemption.durationHours), String(redemption.idempotencyKey || ''), Number(redemption.smsRecipientsCount || 0)
       ).catch(() => false);
       if (!restored) {
         return res.status(503).json({ success: false, advertisement: updated, creditRestored: false,

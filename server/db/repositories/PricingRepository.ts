@@ -171,7 +171,7 @@ function buildAuthoritativeDefaults(): any {
       govtAlertsWeeklyPkr: 400
     },
     subscriptionPackages: [],
-    subscriptionFeatureCatalog: SUBSCRIPTION_FEATURES.map((feature) => ({ id: feature.id, label: feature.label, enabled: false, pricePkr: 0, durationDays: 30, includedSlots: 0, slotDurationDays: 30 })),
+    subscriptionFeatureCatalog: SUBSCRIPTION_FEATURES.map((feature) => ({ id: feature.id, label: feature.label, enabled: false, pricePkr: 0, durationDays: 30, includedSlots: 0, slotDurationDays: 30, ...(feature.id === 'campaign_credits' ? { campaignCredits: [] } : {}) })),
     subscriptionBundleDiscountPercent: 0,
     subscriptionReminderSettings: { enabled: false, daysBefore: 3 },
     earlyAccess: {

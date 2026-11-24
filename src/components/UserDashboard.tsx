@@ -173,6 +173,27 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [renewalPreferenceBusy, setRenewalPreferenceBusy] = useState(false);
   const [renewalPreferenceMessage, setRenewalPreferenceMessage] = useState('');
   const [postingSlotBusyJobId, setPostingSlotBusyJobId] = useState<string | null>(null);
+  const [ownSubmissionHistory, setOwnSubmissionHistory] = useState<Job[]>([]);
+  const [resubmissionLimit, setResubmissionLimit] = useState(3);
+  const [resubmittingJobId, setResubmittingJobId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    api.jobs.getMySubmissions().then((result: any) => {
+      if (!active || !result?.success) return;
+      setOwnSubmissionHistory(Array.isArray(result.jobs) ? result.jobs : []);
+      setResubmissionLimit(Number.isInteger(result.maxResubmissionAttempts) ? result.maxResubmissionAttempts : 3);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [currentUser.id]);
+
+  const displayUserJobs = useMemo(() => {
+    const merged = new Map<string, Job>();
+    [...userJobs, ...ownSubmissionHistory].forEach((job) => merged.set(String(job.id), job));
+    return Array.from(merged.values()).sort((a: any, b: any) =>
+      Date.parse(String(b.updatedAt || b.createdAt || 0)) - Date.parse(String(a.updatedAt || a.createdAt || 0))
+    );
+  }, [userJobs, ownSubmissionHistory]);
 
   const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => 
     safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_${currentUser.id}`, 'classic')
@@ -3875,13 +3896,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       {activeTab === 'my-jobs' && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 space-y-3 sm:space-y-4 text-white shadow-xl">
           <h3 className="text-base font-bold">My Submitted Job Listings</h3>
-          {userJobs.length === 0 ? (
+          {displayUserJobs.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-xs bg-slate-950 rounded-xl border border-slate-800">
               You have not submitted any jobs yet. Switch to "Post a New Job" to list a job opening!
             </div>
           ) : (
             <div className="space-y-3">
-              {userJobs.map((j) => {
+              {displayUserJobs.map((j) => {
                 const jobId = String(j.id);
                 const isExpanded = Boolean(expandedJobApps[jobId]);
                 const isLoadingApps = Boolean(jobApplicationsLoading[jobId]);
@@ -3913,9 +3934,49 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                         </div>
                         <p className="text-xs text-slate-400 mt-1">{j.company} • {j.city ? `${j.city}, ${j.province}` : j.region} • {j.salary}</p>
                         
-                        {j.status === 'Rejected' && j.rejectionReason && (
-                          <div className="mt-2 p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300">
-                            <span className="font-bold">Admin Rejection Reason:</span> {j.rejectionReason}
+                        {j.status === 'Rejected' && (
+                          <div className="mt-2 p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300 space-y-2">
+                            <div><span className="font-bold">Admin Rejection Reason:</span> {j.rejectionReason || 'Please review and correct the submitted details.'}</div>
+                            <div className="text-[10px] text-rose-200/80">Resubmissions used: {Number((j as any).resubmissionCount || 0)} / {resubmissionLimit}</div>
+                            {Number((j as any).resubmissionCount || 0) < resubmissionLimit && (
+                              <button
+                                type="button"
+                                disabled={resubmittingJobId === jobId}
+                                onClick={async () => {
+                                  const correctedTitle = window.prompt('Correct job title:', j.title || '');
+                                  if (correctedTitle === null) return;
+                                  const correctedCompany = window.prompt('Correct company name:', j.company || '');
+                                  if (correctedCompany === null) return;
+                                  const correctedDescription = window.prompt('Correct job description:', j.description || '');
+                                  if (correctedDescription === null) return;
+                                  if (!correctedTitle.trim() || !correctedCompany.trim() || !correctedDescription.trim()) {
+                                    window.alert('Title, company and description are required.');
+                                    return;
+                                  }
+                                  setResubmittingJobId(jobId);
+                                  try {
+                                    const result: any = await api.jobs.resubmitRejected(jobId, {
+                                      title: correctedTitle.trim(),
+                                      company: correctedCompany.trim(),
+                                      description: correctedDescription.trim()
+                                    });
+                                    if (!result?.success) throw new Error(result?.message || 'Resubmission failed.');
+                                    setOwnSubmissionHistory((current) => current.map((item) => item.id === jobId ? result.job : item));
+                                    window.alert('Corrected job submitted again. It is now Pending admin review.');
+                                  } catch (error: any) {
+                                    window.alert(error?.message || 'Could not resubmit this job.');
+                                  } finally {
+                                    setResubmittingJobId(null);
+                                  }
+                                }}
+                                className="px-3 py-1.5 rounded-lg bg-rose-500/15 border border-rose-400/40 text-rose-200 font-bold disabled:opacity-50"
+                              >
+                                {resubmittingJobId === jobId ? 'Submitting…' : 'Correct & Resubmit'}
+                              </button>
+                            )}
+                            {Number((j as any).resubmissionCount || 0) >= resubmissionLimit && (
+                              <div className="font-semibold">Maximum resubmission attempts reached. Please contact support.</div>
+                            )}
                           </div>
                         )}
                       </div>

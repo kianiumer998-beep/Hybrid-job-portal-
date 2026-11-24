@@ -1109,6 +1109,27 @@ export class PaymentRepository {
               !Number.isInteger(slotDurationDays) || slotDurationDays <= 0 || slotDurationDays > 3650) {
             await failSnapshot('Invalid or unsupported feature entitlement in package snapshot.');
           }
+          if (featureId === 'campaign_credits') {
+            const allowedPlacements = new Set(['top-header', 'feed-inline', 'sidebar', 'popup-modal', 'toast-float', 'sms-broadcast', 'promo-discount-banner', 'dynamic-announcement-card']);
+            const credits = Array.isArray(feature.campaignCredits) ? feature.campaignCredits : [];
+            const seenCredits = new Set<string>();
+            if (!credits.length || credits.some((credit: any) => {
+              const placement = String(credit?.placement || '');
+              const creditDuration = Number(credit?.durationHours);
+              const quantity = Number(credit?.quantity);
+              const recipients = Number(credit?.smsRecipientsCount || 0);
+              const key = placement + ':' + creditDuration + ':' + recipients;
+              const invalid = !allowedPlacements.has(placement) ||
+                !Number.isInteger(creditDuration) || creditDuration < 1 || creditDuration > 8760 ||
+                !Number.isInteger(quantity) || quantity < 1 || quantity > 1000 ||
+                (placement === 'sms-broadcast' && (!Number.isInteger(recipients) || recipients < 1 || recipients > 100000)) ||
+                seenCredits.has(key);
+              seenCredits.add(key);
+              return invalid;
+            })) {
+              await failSnapshot('Invalid campaign credit rules in package snapshot.');
+            }
+          }
           const entitlementDays = Math.min(durationDays, featureDuration);
           subscriptionFeatureIds.push(featureId);
           subscriptionEntitlements[featureId] = {

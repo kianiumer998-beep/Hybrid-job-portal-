@@ -399,6 +399,13 @@ function deepMergePricing(base: any, incoming: any): any {
       categoryPostingFees: syncedCategories,
       exemptUserEmails: syncedExemptEmails
     },
+    subscriptionFeatureCatalog: normalizeSubscriptionFeatureCatalog(
+      SUBSCRIPTION_FEATURES.map((feature: any) => {
+        const baseFeature = (Array.isArray(base.subscriptionFeatureCatalog) ? base.subscriptionFeatureCatalog : []).find((item: any) => item?.id === feature.id) || {};
+        const savedFeature = (Array.isArray(src.subscriptionFeatureCatalog) ? src.subscriptionFeatureCatalog : []).find((item: any) => item?.id === feature.id) || {};
+        return { ...baseFeature, ...savedFeature, id: feature.id, label: savedFeature.label || baseFeature.label || feature.label };
+      })
+    ),
     subscriptionPackages: Array.isArray(src.subscriptionPackages)
       ? src.subscriptionPackages.map((pkg: any) => ({
           ...pkg,

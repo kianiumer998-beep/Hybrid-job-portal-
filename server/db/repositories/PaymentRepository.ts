@@ -1119,7 +1119,7 @@ export class PaymentRepository {
             remainingSlots: includedSlots,
             slotDurationDays: Math.min(slotDurationDays, durationDays),
             sourcePackageId: snapshot.id,
-            ...(feature.unlimitedMessages === true ? { unlimitedMessages: true } : { unlimitedMessages: false }),
+            ...(typeof feature.unlimitedMessages === 'boolean' ? { unlimitedMessages: feature.unlimitedMessages } : {}),
             ...(Number.isInteger(Number(feature.monthlyMessageQuota)) && Number(feature.monthlyMessageQuota) >= 0
               ? { monthlyMessageQuota: Number(feature.monthlyMessageQuota) } : {})
           };

@@ -69,6 +69,9 @@ export function resolveSubscriptionPackage(pkg: any, pricing: any): {
     if (!feature) throw new Error(`Subscription feature "${id}" is unavailable or disabled.`);
     return feature;
   });
+  if (selected.some((item) => item.id === 'campaign_credits' && (!Array.isArray(item.campaignCredits) || item.campaignCredits.length === 0))) {
+    throw new Error('Configure at least one placement and duration credit before including Campaign Credits in a subscription.');
+  }
   const undiscountedPricePkr = selected.reduce((sum, item) => sum + item.pricePkr, 0);
   const rawDiscount = Number(pkg?.bundleDiscountPercent ?? pricing?.subscriptionBundleDiscountPercent ?? 0);
   const bundleDiscountPercent = Number.isFinite(rawDiscount) ? Math.min(100, Math.max(0, rawDiscount)) : 0;

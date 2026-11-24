@@ -2179,7 +2179,15 @@ export class JobRepository {
     const safeUpdates = { ...updates };
     for (const key of ['id', '_id', 'submittedByUserId', 'sourceType', 'status', 'moderationHistory', 'resubmissionCount', 'rejectionReason']) delete safeUpdates[key];
     const result = await pendingColl.findOneAndUpdate(
-      { id: safeId, submittedByUserId: safeUserId, status: 'Rejected', resubmissionCount: { $lt: safeMaxAttempts } },
+      {
+        id: safeId,
+        submittedByUserId: safeUserId,
+        status: 'Rejected',
+        $or: [
+          { resubmissionCount: { $lt: safeMaxAttempts } },
+          { resubmissionCount: { $exists: false } }
+        ]
+      },
       {
         $set: { ...safeUpdates, status: 'Pending', rejectionReason: '', resubmissionCount: attempts + 1, resubmittedAt: now, updatedAt: now },
         $push: { moderationHistory: historyEntry }

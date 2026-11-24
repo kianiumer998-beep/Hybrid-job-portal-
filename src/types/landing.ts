@@ -161,6 +161,10 @@ export interface LandingPageConfig {
   mobileFilterColumns?: 1 | 2 | 3 | 4;
   /** Whether visitors can change the number of jobs shown per page. */
   showPostsPerPageSelector?: boolean;
+  /** Show the editable discount promotion card in the empty desktop grid slot when announcement count is odd. */
+  showLandingPromoCardDesktop?: boolean;
+  /** Independently control the discount promotion card on mobile. */
+  showLandingPromoCardMobile?: boolean;
 }
 
 export const DEFAULT_CATEGORY_POSTING_FEES: CategoryPostingFee[] = [

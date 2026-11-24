@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { AdRepository, AuditRepository, PaymentRepository, PricingRepository, UserRepository } from '../db/repositories';
+import { AdRepository, AuditRepository, PaymentRepository, PricingRepository, SubscriptionUsageRepository } from '../db/repositories';
 import { requireAdminPermission, requireAuth, authMiddleware, hasAdminPermission } from '../auth/authManager';
 
 export const adRouter = Router();
@@ -209,7 +209,7 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
             if (typeof adData.promoCode === 'string') adData.promoCode = adData.promoCode.trim().slice(0, 40) || undefined;
           }
 
-          redeemedCredit = await UserRepository.consumeSubscriptionCampaignCreditAsync(
+          redeemedCredit = await SubscriptionUsageRepository.consumeCampaignCredit(
             String(authUserId), campaignCalc.placement, campaignCalc.durationHours, idempotencyKey, campaignCalc.smsRecipientsCount
           );
           if (!redeemedCredit) {
@@ -254,7 +254,7 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
             ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning }) });
         } catch (creditErr: any) {
           if (redeemedCredit) {
-            const restored = await UserRepository.restoreSubscriptionCampaignCreditAsync(
+            const restored = await SubscriptionUsageRepository.restoreCampaignCredit(
               String(authUserId), campaignCalc.placement, campaignCalc.durationHours, idempotencyKey, campaignCalc.smsRecipientsCount
             ).catch(() => false);
             if (!restored) console.error('[Ad Campaign] Subscription credit restoration requires reconciliation:', idempotencyKey);
@@ -600,7 +600,7 @@ adRouter.patch('/:id/review', requireAuth, async (req: any, res) => {
     if (!updated) return res.status(404).json({ success: false, message: 'Campaign could not be updated.' });
     if (action === 'refund' && existingAd.subscriptionCreditRedemption && !existingAd.subscriptionCreditRedemption.creditRestoredAt) {
       const redemption = existingAd.subscriptionCreditRedemption;
-      const restored = await UserRepository.restoreSubscriptionCampaignCreditAsync(
+      const restored = await SubscriptionUsageRepository.restoreCampaignCredit(
         String(existingAd.submittedByUserId || ''), String(redemption.placement || ''),
         Number(redemption.durationHours), String(redemption.idempotencyKey || ''), Number(redemption.smsRecipientsCount || 0)
       ).catch(() => false);

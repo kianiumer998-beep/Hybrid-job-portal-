@@ -766,11 +766,12 @@ adRouter.delete('/:id', requireAuth, async (req: any, res) => {
 
     if (
       existingAd.paymentStatus === 'Escrow' ||
-      (Boolean(existingAd.walletTxId || existingAd.paymentTransactionId) && existingAd.approvalStatus === 'Pending')
+      (Boolean(existingAd.walletTxId || existingAd.paymentTransactionId) && existingAd.approvalStatus === 'Pending') ||
+      (Boolean(existingAd.subscriptionCreditRedemption) && existingAd.approvalStatus === 'Pending' && !existingAd.subscriptionCreditRedemption.creditRestoredAt)
     ) {
       return res.status(409).json({
         success: false,
-        message: 'This wallet-backed campaign is awaiting review. It must be approved or rejected with refund before it can be deleted.'
+        message: 'This wallet-backed or subscription-credit campaign is awaiting review. It must be approved or rejected (restoring any subscription credit) before it can be deleted.'
       });
     }
 

@@ -6,7 +6,8 @@ export const SUBSCRIPTION_FEATURES = [
   { id: 'cv_builder', label: 'Premium CV Builder' },
   { id: 'urgent_job_posting', label: 'Urgent Job Posting' },
   { id: 'featured_job_posting', label: 'Featured Job Posting' },
-  { id: 'premium_job_posting', label: 'Premium Job Posting' }
+  { id: 'premium_job_posting', label: 'Premium Job Posting' },
+  { id: 'campaign_credits', label: 'Advertisement Campaign Credits' }
 ] as const;
 
 export type SubscriptionFeatureId = typeof SUBSCRIPTION_FEATURES[number]['id'];
@@ -21,9 +22,11 @@ export interface SubscriptionFeatureConfig {
   slotDurationDays: number;
   unlimitedMessages?: boolean;
   monthlyMessageQuota?: number;
+  campaignCredits?: Array<{ placement: string; durationHours: number; quantity: number }>;
 }
 
 const FEATURE_IDS = new Set<string>(SUBSCRIPTION_FEATURES.map((item) => item.id));
+const CAMPAIGN_PLACEMENTS = new Set(['top-header', 'feed-inline', 'sidebar', 'popup-modal', 'toast-float', 'sms-broadcast', 'promo-discount-banner', 'dynamic-announcement-card']);
 
 export function normalizeSubscriptionFeatureCatalog(raw: unknown): SubscriptionFeatureConfig[] {
   if (!Array.isArray(raw)) return [];
@@ -43,7 +46,8 @@ export function normalizeSubscriptionFeatureCatalog(raw: unknown): SubscriptionF
     slotDurationDays: Number.isInteger(Number(item.slotDurationDays)) && Number(item.slotDurationDays) > 0 && Number(item.slotDurationDays) <= 3650 ? Number(item.slotDurationDays) : 30,
     // Existing catalog entries remain unmetered until an administrator configures an explicit quota.
     unlimitedMessages: item.unlimitedMessages === true || (item.unlimitedMessages === undefined && item.monthlyMessageQuota === undefined),
-    monthlyMessageQuota: Number.isInteger(Number(item.monthlyMessageQuota)) && Number(item.monthlyMessageQuota) >= 1 && Number(item.monthlyMessageQuota) <= 1000000 ? Number(item.monthlyMessageQuota) : 0
+    monthlyMessageQuota: Number.isInteger(Number(item.monthlyMessageQuota)) && Number(item.monthlyMessageQuota) >= 1 && Number(item.monthlyMessageQuota) <= 1000000 ? Number(item.monthlyMessageQuota) : 0,
+    campaignCredits: Array.isArray(item.campaignCredits) ? item.campaignCredits.filter((credit: any) => CAMPAIGN_PLACEMENTS.has(String(credit?.placement || '')) && Number.isInteger(Number(credit.durationHours)) && Number(credit.durationHours) >= 1 && Number(credit.durationHours) <= 8760 && Number.isInteger(Number(credit.quantity)) && Number(credit.quantity) >= 1 && Number(credit.quantity) <= 1000).map((credit: any) => ({ placement: String(credit.placement), durationHours: Number(credit.durationHours), quantity: Number(credit.quantity) })).filter((credit: any, index: number, all: any[]) => all.findIndex((other: any) => other.placement === credit.placement && other.durationHours === credit.durationHours) === index) : []
   }));
 }
 

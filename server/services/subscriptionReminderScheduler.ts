@@ -243,14 +243,15 @@ export async function runSubscriptionReminderTick(now = new Date()): Promise<{ s
         await UserRepository.updateAsync(String(user.id), { subscriptionReminderSentFor: reminderToken });
         notified += 1;
 
+        const reminderEventId = `subscription-expiry-reminder:${String(user.id)}:${expiryKey}:${daysBefore}`;
         if (user.emailAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'email_alerts')) {
-          await sendConfiguredPremiumAlert(user, 'email', 'Your Premium Subscription Is Expiring', reminderMessage);
+          await sendConfiguredPremiumAlert(user, 'email', 'Your Premium Subscription Is Expiring', reminderMessage, reminderEventId + ':email');
         }
         if (user.whatsappAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'whatsapp_alerts')) {
-          await sendConfiguredPremiumAlert(user, 'whatsapp', 'Subscription expiry reminder', reminderMessage);
+          await sendConfiguredPremiumAlert(user, 'whatsapp', 'Subscription expiry reminder', reminderMessage, reminderEventId + ':whatsapp');
         }
         if (user.smsAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'sms_alerts')) {
-          await sendConfiguredPremiumAlert(user, 'sms', 'Subscription expiry reminder', reminderMessage);
+          await sendConfiguredPremiumAlert(user, 'sms', 'Subscription expiry reminder', reminderMessage, reminderEventId + ':sms');
         }
       } catch (notificationError: any) {
         console.error('[Subscription Reminder] Could not process reminder for user:', user.id, notificationError?.message || notificationError);

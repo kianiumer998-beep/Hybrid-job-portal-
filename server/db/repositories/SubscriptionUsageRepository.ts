@@ -1,14 +1,49 @@
-import { getUsersCollection, isMongoConfigured } from '../mongodb';
+import { getMongoDb, getUsersCollection, isMongoConfigured } from '../mongodb';
 import { UserRepository } from './UserRepository';
 
 const isTest = () => process.env.IS_TEST === 'true';
 const isMongoActive = () => isMongoConfigured() && !isTest();
+let deliveryLogIndexesPromise: Promise<void> | null = null;
 
 function operationKey(value: string): string {
   return Buffer.from(String(value || '').trim(), 'utf8').toString('base64url').slice(0, 220);
 }
 
 export class SubscriptionUsageRepository {
+  /** Mongo-backed provider delivery history with 90-day retention. */
+  static async logMessageDelivery(input: { eventId: string; userId: string; featureId: string; channel: string; provider: string; status: 'SENT' | 'FAILED' }): Promise<boolean> {
+    if (!isMongoActive()) return false;
+    const eventId = String(input.eventId || '').trim();
+    const userId = String(input.userId || '').trim();
+    if (!eventId || !userId) return false;
+    const db = await getMongoDb();
+    const coll = db.collection('subscription_message_delivery_logs');
+    if (!deliveryLogIndexesPromise) {
+      deliveryLogIndexesPromise = Promise.all([
+        coll.createIndex({ eventId: 1, channel: 1 }, { unique: true }),
+        coll.createIndex({ createdAt: 1 }, { expireAfterSeconds: 7776000 })
+      ]).then(() => undefined).catch((error: any) => {
+        deliveryLogIndexesPromise = null;
+        throw error;
+      });
+    }
+    await deliveryLogIndexesPromise;
+    const now = new Date().toISOString();
+    await coll.updateOne({ eventId, channel: input.channel }, {
+      $set: {
+        userId,
+        featureId: input.featureId,
+        channel: input.channel,
+        provider: input.provider,
+        status: input.status,
+        lastAttemptAt: now
+      },
+      $setOnInsert: { eventId, createdAt: now },
+      $inc: { attempts: 1 }
+    }, { upsert: true });
+    return true;
+  }
+
   static async reserveMessageQuota(userId: string, featureId: string, eventId: string, now = new Date()): Promise<{ ok: boolean; reason: 'reserved' | 'already_processed' | 'unavailable' | 'quota_exhausted'; month: string }> {
     const allowed = ['email_alerts', 'whatsapp_alerts', 'sms_alerts'];
     const uid = String(userId || '').trim();

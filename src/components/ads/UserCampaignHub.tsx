@@ -232,6 +232,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   const [previewDisplayMode, setPreviewDisplayMode] = useState<'context' | 'card'>('context');
   const [selectedContextPage, setSelectedContextPage] = useState<string>('alerts');
   const [isSubmittingCampaign, setIsSubmittingCampaign] = useState<boolean>(false);
+  const [useSubscriptionCredit, setUseSubscriptionCredit] = useState<boolean>(false);
   const [campaignDraftSeed, setCampaignDraftSeed] = useState<string>(
     () => `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 8)}`
   );
@@ -273,6 +274,26 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       : 0;
   const isWalletSufficient = walletBalance >= costCalculation.totalCostPkr;
   const walletDeficit = costCalculation.totalCostPkr - walletBalance;
+  const campaignCreditEntitlement = currentUser.subscriptionEntitlements?.campaign_credits;
+  const membershipExpiryTime = Date.parse(String(currentUser.subscriptionExpiresAt || currentUser.expiryDate || ''));
+  const campaignCreditExpiryTime = Date.parse(String(campaignCreditEntitlement?.expiresAt || ''));
+  const hasActiveCampaignCreditEntitlement =
+    currentUser.membershipStatus === 'Active' &&
+    Number.isFinite(membershipExpiryTime) && membershipExpiryTime > Date.now() &&
+    campaignCreditEntitlement?.enabled === true &&
+    Number.isFinite(campaignCreditExpiryTime) && campaignCreditExpiryTime > Date.now();
+  const matchingCampaignCredit = hasActiveCampaignCreditEntitlement && Number.isInteger(Number(costCalculation.durationHours))
+    ? (campaignCreditEntitlement.campaignCredits || []).find((credit: any) =>
+        credit?.placement === formPlacement &&
+        Number(credit.durationHours) === Number(costCalculation.durationHours) &&
+        Number(credit.remaining) > 0 &&
+        (formPlacement !== 'sms-broadcast' || Number(credit.smsRecipientsCount) === Number(formType === 'sms' ? formSmsRecipientsCount : 0))
+      )
+    : null;
+  const hasMatchingCampaignCredit = Boolean(matchingCampaignCredit);
+  useEffect(() => {
+    if (!hasMatchingCampaignCredit) setUseSubscriptionCredit(false);
+  }, [hasMatchingCampaignCredit]);
 
   // Handle Preset Select
   const handleApplyPreset = (preset: typeof AD_BANNER_PRESETS[0]) => {
@@ -340,7 +361,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       return;
     }
 
-    if (!isWalletSufficient) {
+    if (!isWalletSufficient && !(useSubscriptionCredit && hasMatchingCampaignCredit)) {
       setDepositAmountInput(Math.max(500, walletDeficit));
       setIsDepositModalOpen(true);
       return;
@@ -365,6 +386,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       selectedDurationId?: string;
       idempotencyKey?: string;
       adPricingOptions?: Record<string, any>;
+      useSubscriptionCredit?: boolean;
     } = {
       id: draftAdId,
       title: formTitle.trim() || `${getPlacementDisplayName(formPlacement)} Campaign`,
@@ -385,6 +407,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       campaignCostPkr: costCalculation.totalCostPkr,
       paymentStatus: 'Pending Wallet Deduction',
       idempotencyKey,
+      useSubscriptionCredit: Boolean(useSubscriptionCredit && hasMatchingCampaignCredit),
       adPricingOptions: {
         placement: formPlacement,
         type: formType,
@@ -1530,7 +1553,15 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
 
               {/* Submit Button & Wallet Deduction Notice */}
               <div className="pt-4 border-t border-slate-800 space-y-3">
-                {isWalletSufficient ? (
+                {hasMatchingCampaignCredit && <label className="flex items-start gap-3 rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-3 text-xs text-indigo-100 cursor-pointer">
+                  <input type="checkbox" checked={useSubscriptionCredit} onChange={e => setUseSubscriptionCredit(e.target.checked)} className="mt-0.5" />
+                  <span><strong>Use subscription campaign credit</strong><span className="block mt-1 text-[10px] text-indigo-200/80">One matching credit is available for {getPlacementDisplayName(formPlacement)} · {costCalculation.durationDisplay}{formPlacement === 'sms-broadcast' ? ` · ${formSmsRecipientsCount.toLocaleString()} recipients` : ''}. No wallet deduction will be made.</span></span>
+                </label>}
+                {useSubscriptionCredit && hasMatchingCampaignCredit ? (
+                  <div className="p-3 bg-indigo-500/10 border border-indigo-500/30 rounded-xl text-xs text-indigo-200">
+                    <CheckCircle2 className="inline w-4 h-4 mr-2" />One subscription campaign credit will cover this exact placement and duration. Your wallet will not be charged.
+                  </div>
+                ) : isWalletSufficient ? (
                   <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between text-xs text-emerald-300">
                     <span className="flex items-center space-x-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400" />
@@ -1559,7 +1590,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
 
                 <button
                   type="submit"
-                  disabled={isSubmittingCampaign || isAtCapacity || !selectedPlacementOpt?.isEnabled}
+                  disabled={isSubmittingCampaign || isAtCapacity || !selectedPlacementOpt?.isEnabled || (!isWalletSufficient && !(useSubscriptionCredit && hasMatchingCampaignCredit))}
                   className={`w-full py-3.5 rounded-2xl font-black text-sm shadow-xl flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${
                     isWalletSufficient
                       ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/20'
@@ -1569,8 +1600,10 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                   <Send className="w-4 h-4" />
                   <span>
                     {isSubmittingCampaign
-                      ? 'Processing Wallet Payment & Submitting Campaign...'
-                      : isWalletSufficient 
+                      ? (useSubscriptionCredit ? 'Redeeming Campaign Credit...' : 'Processing Wallet Payment & Submitting Campaign...')
+                      : useSubscriptionCredit && hasMatchingCampaignCredit
+                      ? 'Submit Campaign Using 1 Subscription Credit'
+                      : isWalletSufficient
                       ? `Submit Campaign for Admin Approval (PKR ${costCalculation.totalCostPkr.toLocaleString()})`
                       : `Deposit Funds to Submit Campaign (Deficit: PKR ${walletDeficit.toLocaleString()})`
                     }

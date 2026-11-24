@@ -193,7 +193,7 @@ export class SubscriptionUsageRepository {
     const creditQuery = { placement: cleanPlacement, durationHours, ...(cleanPlacement === 'sms-broadcast' ? { smsRecipientsCount } : {}), remaining: { $gt: 0 } };
     if (isMongoActive()) {
       const coll = await getUsersCollection();
-      const updatedDoc = await coll.findOneAndUpdate({
+      const updatedDoc: any = await coll.findOneAndUpdate({
         id: uid, membershipStatus: 'Active', subscriptionExpiresAt: { $gt: now },
         'subscriptionEntitlements.campaign_credits.enabled': true,
         'subscriptionEntitlements.campaign_credits.expiresAt': { $gt: now },

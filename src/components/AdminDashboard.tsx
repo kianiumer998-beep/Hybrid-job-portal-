@@ -4161,7 +4161,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         const handleBulkReject = () => {
           if (selectedPendingIds.length === 0) return;
-          const reason = prompt(`Enter rejection reason for ${selectedPendingIds.length} selected postings:`, 'Does not meet posting guidelines or duplicate submission') || '';
+          const reason = (prompt(`Enter a clear correction reason for ${selectedPendingIds.length} selected postings:`, 'Please correct the incomplete or inaccurate job details.') || '').trim();
           if (reason) {
             if (onBulkRejectPendingJobs) {
               onBulkRejectPendingJobs(selectedPendingIds, reason);

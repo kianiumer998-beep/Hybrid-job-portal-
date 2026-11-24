@@ -837,7 +837,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
             </div>
 
             {/* Filter Bar */}
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-3 border-t border-slate-800">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 pt-2.5 border-t border-slate-800">
               <div className="relative">
                 <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
                 <input

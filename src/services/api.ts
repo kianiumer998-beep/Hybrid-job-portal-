@@ -250,6 +250,26 @@ export const api = {
         headers: getAuthHeader()
       });
     },
+    async getMySubmissions() {
+      return safeFetchJson(`${API_BASE}/jobs/my-submissions`, { headers: getAuthHeader() });
+    },
+    async getResubmissionSettings() {
+      return safeFetchJson(`${API_BASE}/jobs/moderation/resubmission-settings`, { headers: getAuthHeader() });
+    },
+    async saveResubmissionSettings(maxAttempts: number) {
+      return safeFetchJson(`${API_BASE}/jobs/moderation/resubmission-settings`, {
+        method: 'PATCH',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ maxAttempts })
+      });
+    },
+    async resubmitRejected(id: string, updates: Record<string, any>) {
+      return safeFetchJson(`${API_BASE}/jobs/${encodeURIComponent(id)}/resubmit`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(updates)
+      });
+    },
     async getPendingQueue(params?: { page?: number; limit?: number }) {
       const queryObj: Record<string, string> = {};
       if (params?.page) queryObj.page = String(params.page);

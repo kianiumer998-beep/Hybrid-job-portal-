@@ -167,6 +167,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const [isProviderTesting, setIsProviderTesting] = useState(false);
   const [providerTestMessage, setProviderTestMessage] = useState<string | null>(null);
   const [providerTestError, setProviderTestError] = useState<string | null>(null);
+  const [deliveryLogs, setDeliveryLogs] = useState<any[]>([]);
 
   // Load authoritative provider config from server
   const loadProviderConfig = async () => {
@@ -174,6 +175,8 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
     setProviderSaveError(null);
     try {
       const res = await api.communicationProviders.get();
+      const logsResult = await api.communicationProviders.logs(50).catch(() => null);
+      if (logsResult?.success && Array.isArray(logsResult.logs)) setDeliveryLogs(logsResult.logs);
       if (res && res.success && res.config) {
         setSafeProviderConfig(res.config);
         setEmailProvider(res.config.emailProvider || 'smtp');
@@ -927,6 +930,14 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
             {providerTestMessage && <p role="status" className="text-[11px] text-emerald-300">{providerTestMessage}</p>}
             {providerTestError && <p role="alert" className="text-[11px] text-rose-300">{providerTestError}</p>}
             {testChannel === 'email' && emailProvider === 'smtp' && <p className="text-[10px] text-amber-300">SMTP transport is not implemented yet. Use Resend or SendGrid for an email test.</p>}
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 space-y-3">
+            <div className="flex items-center justify-between"><h4 className="text-xs font-black text-white">Recent Paid Alert Delivery Logs</h4><span className="text-[9px] text-slate-500">MongoDB · 90-day retention</span></div>
+            {deliveryLogs.length === 0 ? <p className="text-[10px] text-slate-500">No paid alert delivery attempts are recorded yet.</p> : <div className="overflow-x-auto"><table className="w-full text-left text-[10px]">
+              <thead className="text-slate-500"><tr><th className="p-2">Channel</th><th className="p-2">Provider</th><th className="p-2">Result</th><th className="p-2">Attempts</th><th className="p-2">Last attempt</th></tr></thead>
+              <tbody>{deliveryLogs.slice(0, 20).map((log: any) => <tr key={log.eventId + log.channel} className="border-t border-slate-800 text-slate-300"><td className="p-2 uppercase">{log.channel}</td><td className="p-2">{log.provider}</td><td className={`p-2 font-bold ${log.status === 'SENT' ? 'text-emerald-300' : 'text-rose-300'}`}>{log.status}</td><td className="p-2">{log.attempts}</td><td className="p-2">{log.lastAttemptAt ? new Date(log.lastAttemptAt).toLocaleString() : '—'}</td></tr>)}</tbody>
+            </table></div>}
           </div>
 
           {isLoadingProviders ? (

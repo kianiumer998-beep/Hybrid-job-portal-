@@ -4474,7 +4474,7 @@ export default function App() {
                       return (
                         <div key="section-cards" className="w-full max-w-7xl mx-auto px-2 sm:px-4 md:px-6 lg:px-8">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-3 items-stretch">
-                            {activeCards.map((card) => (
+                            {activeCards.map((card, index) => (
                               <div key={card.id} className={`min-w-0 p-3 sm:p-4 rounded-xl bg-gradient-to-r ${card.bgGradient || 'from-slate-900 to-indigo-950'} border border-white/10 text-white flex flex-col justify-between gap-3 shadow-lg ${index === activeCards.length - 1 && (activeCards.length + paidAnnouncementAds.length) % 2 === 1 && !showPromoDesktop && paidAnnouncementAds.length === 0 ? 'md:col-span-2' : ''}`}>
                                 <div className="min-w-0 space-y-1.5">
                                   {card.imageUrl && <img src={card.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="w-full max-h-32 sm:max-h-36 rounded-lg object-cover border border-white/10" />}

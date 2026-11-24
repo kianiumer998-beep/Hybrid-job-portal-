@@ -265,21 +265,100 @@ jobRouter.post('/:id/resubmit', requireAuth, async (req: any, res: any) => {
   try {
     const userId = String(req.user?.userId || req.user?.id || '').trim();
     if (!userId) return res.status(401).json({ success: false, message: 'Authentication required.' });
+
     const editableFields = [
-      'title', 'company', 'jobType', 'region', 'country', 'province', 'city', 'district',
-      'salary', 'currency', 'experienceLevel', 'department', 'tags', 'description',
-      'requirements', 'benefits', 'applicationUrl', 'externalApplyUrl', 'contactEmailOrPhone',
-      'deadlineDate', 'expiryDate', 'jobCategory', 'isGovtJob', 'govtDepartment',
-      'govtScale', 'govtCategory', 'isNewspaperAd', 'newspaperName', 'newspaperDate',
-      'clippingImageUrl'
+      'title', 'company', 'companyLogo', 'jobType', 'region', 'country', 'province', 'city', 'district',
+      'salary', 'salaryNumericMin', 'currency', 'experienceLevel', 'department', 'tags', 'description',
+      'requirements', 'responsibilities', 'benefits', 'applicationType', 'applicationUrl', 'externalApplyUrl',
+      'originalApplyUrl', 'contactEmailOrPhone', 'contactEmail', 'deadlineDate', 'applicationStartDate',
+      'expiryDate', 'jobCategory', 'isGovtJob', 'govtDepartment', 'govtScale', 'govtCategory',
+      'isNewspaperAd', 'newspaperName', 'newspaperDate', 'clippingImageUrl', 'advertisedPositions',
+      'totalVacancies', 'employmentType', 'ageLimit', 'minimumAge', 'maximumAge', 'qualificationSummary',
+      'domicile', 'challanFee', 'ageRelaxationNote', 'futureIntakeDate'
     ];
     const updates: Record<string, any> = {};
     for (const field of editableFields) {
       if (Object.prototype.hasOwnProperty.call(req.body || {}, field)) updates[field] = req.body[field];
     }
+
+    const stringLimits: Record<string, number> = {
+      title: 180, company: 180, companyLogo: 2000, country: 80, province: 100, city: 100, district: 100,
+      salary: 120, department: 120, description: 30000, contactEmailOrPhone: 254, contactEmail: 254,
+      applicationUrl: 2000, externalApplyUrl: 2000, originalApplyUrl: 2000, deadlineDate: 40,
+      applicationStartDate: 40, expiryDate: 40, jobCategory: 100, govtDepartment: 160, govtScale: 40,
+      govtCategory: 80, newspaperName: 120, newspaperDate: 40, clippingImageUrl: 2000,
+      employmentType: 100, ageLimit: 100, qualificationSummary: 2000, domicile: 500, challanFee: 120,
+      ageRelaxationNote: 1000, futureIntakeDate: 80
+    };
+    for (const [field, limit] of Object.entries(stringLimits)) {
+      if (updates[field] !== undefined) {
+        if (typeof updates[field] !== 'string') return res.status(400).json({ success: false, message: `${field} must be text.` });
+        updates[field] = updates[field].trim().slice(0, limit);
+      }
+    }
+
+    const arrayFields = ['tags', 'requirements', 'responsibilities', 'benefits', 'advertisedPositions'];
+    for (const field of arrayFields) {
+      if (updates[field] !== undefined) {
+        if (!Array.isArray(updates[field])) return res.status(400).json({ success: false, message: `${field} must be a list.` });
+        updates[field] = updates[field].filter((item: any) => typeof item === 'string').map((item: string) => item.trim().slice(0, 1000)).filter(Boolean).slice(0, 100);
+      }
+    }
+
+    const numericFields = ['salaryNumericMin', 'totalVacancies', 'minimumAge', 'maximumAge'];
+    for (const field of numericFields) {
+      if (updates[field] !== undefined && updates[field] !== '') {
+        const value = Number(updates[field]);
+        if (!Number.isFinite(value) || value < 0 || value > 1000000000) {
+          return res.status(400).json({ success: false, message: `${field} must be a valid non-negative number.` });
+        }
+        updates[field] = value;
+      } else if (updates[field] === '') {
+        updates[field] = undefined;
+      }
+    }
+
+    for (const field of ['isGovtJob', 'isNewspaperAd']) {
+      if (updates[field] !== undefined && typeof updates[field] !== 'boolean') {
+        return res.status(400).json({ success: false, message: `${field} must be true or false.` });
+      }
+    }
+
+    const enumFields: Record<string, string[]> = {
+      jobType: ['Remote', 'Hybrid', 'On-site'],
+      region: ['Global', 'US', 'UK', 'Pakistan', 'UAE', 'Saudi Arabia', 'Canada', 'Europe', 'Australia'],
+      experienceLevel: ['Entry', 'Mid', 'Senior', 'Lead', 'Executive'],
+      currency: ['USD', 'PKR', 'GBP', 'EUR', 'CAD', 'AUD', 'AED', 'SAR'],
+      applicationType: ['internal', 'external', 'both']
+    };
+    for (const [field, allowed] of Object.entries(enumFields)) {
+      if (updates[field] !== undefined && !allowed.includes(String(updates[field]))) {
+        return res.status(400).json({ success: false, message: `Invalid ${field} selection.` });
+      }
+    }
+
+    for (const field of ['applicationUrl', 'externalApplyUrl', 'originalApplyUrl', 'clippingImageUrl', 'companyLogo']) {
+      const value = updates[field];
+      if (typeof value === 'string' && value) {
+        try {
+          const parsed = new URL(value);
+          if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('invalid protocol');
+          updates[field] = parsed.toString();
+        } catch {
+          return res.status(400).json({ success: false, message: `${field} must be a valid http or https URL.` });
+        }
+      }
+    }
+
     if (!String(updates.title || '').trim() || !String(updates.company || '').trim() || !String(updates.description || '').trim()) {
       return res.status(400).json({ success: false, message: 'Job title, company and description are required.' });
     }
+    if (updates.contactEmail && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(updates.contactEmail)) {
+      return res.status(400).json({ success: false, message: 'Please enter a valid contact email address.' });
+    }
+
+    // Recalculate the slug only from user-editable public fields; ownership and source metadata remain server-controlled.
+    updates.slug = generateJobSlug(updates.title, updates.city, String(req.params.id));
     const settings = await SystemSettingsRepository.getSetting(JOB_RESUBMISSION_SETTINGS_KEY, { maxAttempts: DEFAULT_JOB_RESUBMISSION_LIMIT });
     const maxAttempts = Math.max(0, Math.min(10, Math.floor(Number(settings?.maxAttempts ?? DEFAULT_JOB_RESUBMISSION_LIMIT))));
     const result = await JobRepository.resubmitRejectedPending(String(req.params.id), userId, updates, maxAttempts);
@@ -292,18 +371,42 @@ jobRouter.post('/:id/resubmit', requireAuth, async (req: any, res: any) => {
           : 'Job submission not found.';
       return res.status(status).json({ success: false, message, reason: result.reason });
     }
+
+    let notificationSent = false;
+    try {
+      await NotificationRepository.createAsync({
+        userId,
+        title: 'Job Resubmitted for Review',
+        message: `Your corrected job submission "${result.job.title}" has been received and is waiting for admin review.`,
+        type: 'info',
+        channel: 'in-app',
+        eventId: `notif-job-resubmitted-${result.job.id}-${result.job.resubmissionCount || 0}`,
+        idempotencyKey: `notif-job-resubmitted-${result.job.id}-${result.job.resubmissionCount || 0}`,
+        metadata: { jobId: result.job.id, jobTitle: result.job.title, resubmissionCount: result.job.resubmissionCount }
+      }, 'System - Job Moderation');
+      notificationSent = true;
+    } catch (notificationError) {
+      console.error('Failed to notify job submitter about resubmission:', notificationError);
+    }
+
     const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: req.user?.name || 'Job Submitter',
       role: req.user?.role || 'Employer',
       action: 'Rejected Job Corrected & Resubmitted',
       target: `${result.job.title} at ${result.job.company}`,
       status: 'Success',
-      metadata: { jobId: result.job.id, submittedByUserId: userId, resubmissionCount: result.job.resubmissionCount }
+      metadata: {
+        jobId: result.job.id,
+        submittedByUserId: userId,
+        resubmissionCount: result.job.resubmissionCount,
+        notificationSent
+      }
     }, 'POST /api/jobs/:id/resubmit');
     res.json({
       success: true,
       job: result.job,
       message: 'Your corrected job has been resubmitted for admin review.',
+      notificationSent,
       ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
@@ -441,21 +544,26 @@ jobRouter.post('/queue/pending/:id/approve', requireAdminPermission('jobs.manage
 jobRouter.post('/queue/pending/:id/reject', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { reason } = req.body || {};
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 4000) : '';
 
     const pendingJobs = await JobRepository.getPending();
     const target = pendingJobs.find(j => j.id === id);
+    const sourceType = deriveJobSourceType(target);
+    const isScraped = isScrapedJob(target);
+    if (target && !isScraped && sourceType === 'user_posted' && !reason) {
+      return res.status(400).json({ success: false, message: 'Please provide a clear correction reason so the job owner knows what to fix.' });
+    }
 
-    const rejected = await JobRepository.rejectPending(id, reason);
+    const rejected = await JobRepository.rejectPending(id, reason, {
+      name: (req as any).user?.name || 'Administrator',
+      role: (req as any).user?.role || 'Job Moderator'
+    });
     if (!rejected) {
       return res.status(404).json({ success: false, message: 'Pending job not found.' });
     }
 
     let notificationSent = false;
     // Check source type and scraper flags authoritatively
-    const isScraped = isScrapedJob(target);
-    const sourceType = deriveJobSourceType(target);
-
     // Only notify genuine user-posted listings with a verified submittedByUserId
     if (target && !isScraped && sourceType === 'user_posted' && target.submittedByUserId) {
       try {
@@ -464,7 +572,7 @@ jobRouter.post('/queue/pending/:id/reject', requireAdminPermission('jobs.manage'
         if (recipient) {
           const rejectionReason = reason || 'Details did not meet submission criteria.';
           const body = `Your job submission "${target.title}" was not approved. Reason: ${rejectionReason}`;
-          const stableEventId = `notif-job-reject-${id}`;
+          const stableEventId = `notif-job-reject-${id}-${Date.now()}`;
 
           await NotificationRepository.createAsync({
             userId: recipientUserId,

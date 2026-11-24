@@ -115,8 +115,8 @@ jobRouter.get('/early-access', async (req: any, res: any) => {
     const earlyJobs = result.jobs
       .filter((job: any) => isEarlyAccessJobLocked(job, config))
       .sort((a: any, b: any) => {
-        const aStart = new Date(a.approvedAt || a.publishedAt || a.createdAt || a.postedAt || 0).getTime();
-        const bStart = new Date(b.approvedAt || b.publishedAt || b.createdAt || b.postedAt || 0).getTime();
+        const aStart = new Date(a.approvedAt || a.verifiedDate || a.publishedAt || a.createdAt || a.postedAt || a.datePosted || 0).getTime();
+        const bStart = new Date(b.approvedAt || b.verifiedDate || b.publishedAt || b.createdAt || b.postedAt || b.datePosted || 0).getTime();
         return bStart - aStart;
       });
     const maxJobs = landingConfig.maxJobs;

@@ -1558,7 +1558,8 @@ export class UserRepository {
       const entitlement = user.subscriptionEntitlements?.[featureId];
       const expiry = Date.parse(String(entitlement?.expiresAt || ''));
       const legacyAccess = !Array.isArray(user.subscriptionFeatureIds) || user.subscriptionFeatureIds.length === 0;
-      if (user.membershipStatus !== 'Active' || Date.parse(String(user.subscriptionExpiresAt || '')) <= now.getTime() ||
+      const membershipExpiry = Date.parse(String(user.subscriptionExpiresAt || ''));
+      if (user.membershipStatus !== 'Active' || !Number.isFinite(membershipExpiry) || membershipExpiry <= now.getTime() ||
           (!legacyAccess && (entitlement?.enabled !== true || !Number.isFinite(expiry) || expiry <= now.getTime()))) return { ok: false, reason: 'unavailable', month };
       const usage = user.subscriptionMessageUsage || {};
       const used = Number(usage[featureId]?.[month]?.used) || 0;
@@ -2169,7 +2170,8 @@ export class UserRepository {
     const entitlement = user.subscriptionEntitlements?.[featureId];
     const expiry = Date.parse(String(entitlement?.expiresAt || ''));
     const legacyAccess = !Array.isArray(user.subscriptionFeatureIds) || user.subscriptionFeatureIds.length === 0;
-    if (user.membershipStatus !== 'Active' || Date.parse(String(user.subscriptionExpiresAt || '')) <= now.getTime() ||
+    const membershipExpiry = Date.parse(String(user.subscriptionExpiresAt || ''));
+    if (user.membershipStatus !== 'Active' || !Number.isFinite(membershipExpiry) || membershipExpiry <= now.getTime() ||
         (!legacyAccess && (entitlement?.enabled !== true || !Number.isFinite(expiry) || expiry <= now.getTime()))) return { ok: false, reason: 'unavailable', month };
     const usage = user.subscriptionMessageUsage || {};
     const used = Number(usage[featureId]?.[month]?.used) || 0;

@@ -2203,14 +2203,23 @@ export class JobRepository {
     assertMongoAvailable();
     const pendingColl = await getPendingJobsCollection();
 
+    const now = new Date().toISOString();
+    const rejectionReason = String(reason || 'Rejected by administrator').trim().slice(0, 4000);
     const res = await pendingColl.updateOne(
-      { id },
+      { id, status: 'Pending' },
       {
         $set: {
           status: 'Rejected',
-          rejectionReason: reason || 'Rejected by administrator',
-          rejectedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
+          rejectionReason,
+          rejectedAt: now,
+          updatedAt: now
+        },
+        $push: {
+          moderationHistory: {
+            action: 'rejected',
+            reason: rejectionReason,
+            at: now
+          }
         }
       }
     );

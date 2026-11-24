@@ -1592,7 +1592,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                   type="submit"
                   disabled={isSubmittingCampaign || isAtCapacity || !selectedPlacementOpt?.isEnabled || (!isWalletSufficient && !(useSubscriptionCredit && hasMatchingCampaignCredit))}
                   className={`w-full py-3.5 rounded-2xl font-black text-sm shadow-xl flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${
-                    isWalletSufficient
+                    (isWalletSufficient || (useSubscriptionCredit && hasMatchingCampaignCredit))
                       ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/20'
                       : 'bg-gradient-to-r from-amber-500 to-orange-600 text-slate-950 hover:from-amber-400 hover:to-orange-500'
                   }`}

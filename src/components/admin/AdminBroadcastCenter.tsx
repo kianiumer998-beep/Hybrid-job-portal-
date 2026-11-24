@@ -162,6 +162,11 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const [providerSaveSuccess, setProviderSaveSuccess] = useState(false);
   const [providerSaveError, setProviderSaveError] = useState<string | null>(null);
   const [isLoadingProviders, setIsLoadingProviders] = useState(false);
+  const [testChannel, setTestChannel] = useState<'email' | 'whatsapp' | 'sms'>('email');
+  const [testRecipient, setTestRecipient] = useState('');
+  const [isProviderTesting, setIsProviderTesting] = useState(false);
+  const [providerTestMessage, setProviderTestMessage] = useState<string | null>(null);
+  const [providerTestError, setProviderTestError] = useState<string | null>(null);
 
   // Load authoritative provider config from server
   const loadProviderConfig = async () => {
@@ -349,6 +354,25 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
     setClearSecrets(prev =>
       prev.includes(secretName) ? prev.filter(s => s !== secretName) : [...prev, secretName]
     );
+  };
+
+  const handleProviderTest = async () => {
+    if (!testRecipient.trim()) {
+      setProviderTestError('Enter a test recipient first.');
+      return;
+    }
+    setIsProviderTesting(true);
+    setProviderTestError(null);
+    setProviderTestMessage(null);
+    try {
+      const result = await api.communicationProviders.test({ channel: testChannel, recipient: testRecipient.trim() });
+      if (result?.success) setProviderTestMessage(result.message || 'Test accepted by provider.');
+      else setProviderTestError(result?.message || 'Provider did not accept the test message.');
+    } catch (err: any) {
+      setProviderTestError(err?.message || 'Provider test request failed.');
+    } finally {
+      setIsProviderTesting(false);
+    }
   };
 
   const handleSaveProviders = async (e: React.FormEvent) => {
@@ -889,6 +913,20 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
               <Lock className="w-3.5 h-3.5" />
               <span>{isProviderSaving ? 'Encrypting & Saving...' : 'Save Provider Settings'}</span>
             </button>
+          </div>
+
+          <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-4 space-y-3">
+            <div><h4 className="text-xs font-black text-sky-200">Test Provider Connection</h4><p className="mt-1 text-[10px] text-slate-400">Send one test to an address or phone number you control. Limit: one test per admin every 30 seconds.</p></div>
+            <div className="grid gap-2 sm:grid-cols-[150px_1fr_auto]">
+              <select value={testChannel} onChange={e => setTestChannel(e.target.value as 'email' | 'whatsapp' | 'sms')} className="rounded-lg border border-slate-700 bg-slate-950 p-2 text-xs text-white">
+                <option value="email">Email</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option>
+              </select>
+              <input type={testChannel === 'email' ? 'email' : 'tel'} value={testRecipient} onChange={e => setTestRecipient(e.target.value)} placeholder={testChannel === 'email' ? 'your@email.com' : '+923001234567'} className="rounded-lg border border-slate-700 bg-slate-950 p-2 text-xs text-white" />
+              <button type="button" onClick={handleProviderTest} disabled={isProviderTesting || !testRecipient.trim()} className="rounded-lg bg-sky-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{isProviderTesting ? 'Testing...' : 'Send Test'}</button>
+            </div>
+            {providerTestMessage && <p role="status" className="text-[11px] text-emerald-300">{providerTestMessage}</p>}
+            {providerTestError && <p role="alert" className="text-[11px] text-rose-300">{providerTestError}</p>}
+            {testChannel === 'email' && emailProvider === 'smtp' && <p className="text-[10px] text-amber-300">SMTP transport is not implemented yet. Use Resend or SendGrid for an email test.</p>}
           </div>
 
           {isLoadingProviders ? (

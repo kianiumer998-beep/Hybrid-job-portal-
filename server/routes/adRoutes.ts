@@ -172,8 +172,8 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
       // Subscription campaign credits are an alternative prepaid route; the placement and exact
       // duration are verified against the server-side campaign pricing engine before redemption.
       if (!isAdmin && !walletTxId && !(idempotencyKey && PaymentRepository.findByIdempotencyKey(idempotencyKey))) {
-        if (!idempotencyKey) {
-          return res.status(400).json({ success: false, message: 'An idempotency key is required when redeeming a subscription campaign credit.' });
+        if (!idempotencyKey || idempotencyKey.length > 200) {
+          return res.status(400).json({ success: false, message: 'A valid idempotency key (maximum 200 characters) is required when redeeming a subscription campaign credit.' });
         }
         let redeemedCredit: any = null;
         let campaignCalc: any = null;
@@ -189,6 +189,10 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
             activePlacementCreationLocks.add(creditPlacementLockKey);
           }
           campaignCalc = await PricingRepository.calculateAdPrice(adPricingInput);
+          if (!Number.isInteger(campaignCalc.durationHours)) {
+            const durationErr: any = new Error('Subscription campaign credits require a whole-hour duration. Select a preset or enter whole hours.');
+            durationErr.statusCode = 400; throw durationErr;
+          }
           if (!adData.title || typeof adData.title !== 'string' || !adData.title.trim()) {
             const titleErr: any = new Error('A valid campaign title is required to create an advertisement.');
             titleErr.statusCode = 400; throw titleErr;

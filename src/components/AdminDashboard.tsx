@@ -184,7 +184,7 @@ interface AdminDashboardProps {
   allApplications?: JobApplication[];
   onReloadJobs?: () => Promise<any>;
   onApproveJob: (jobId: string) => void;
-  onRejectJob: (jobId: string, reason: string) => void;
+  onRejectJob: (jobId: string, reason: string) => Promise<any> | any;
   onAddJob: (newJob: Job) => void;
   onAddPendingJob?: (newJob: Job) => void;
   onBulkAddJobs?: (jobs: Job[]) => void;
@@ -1817,7 +1817,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [pendingSearchQuery, setPendingSearchQuery] = useState('');
   const [pendingCategoryFilter, setPendingCategoryFilter] = useState('all');
   const [pendingSourceFilter, setPendingSourceFilter] = useState('all');
+  const [resubmissionMaxAttempts, setResubmissionMaxAttempts] = useState(3);
+  const [resubmissionSettingsBusy, setResubmissionSettingsBusy] = useState(false);
+  const [resubmissionSettingsLoaded, setResubmissionSettingsLoaded] = useState(false);
   const [pendingPortalFilter, setPendingPortalFilter] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    api.jobs.getResubmissionSettings().then((result: any) => {
+      if (!active || !result?.success) return;
+      const value = Number(result.settings?.maxAttempts);
+      if (Number.isInteger(value) && value >= 0 && value <= 10) setResubmissionMaxAttempts(value);
+      setResubmissionSettingsLoaded(true);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
   const [pendingBatchFilter, setPendingBatchFilter] = useState('');
   const [pendingCityFilter, setPendingCityFilter] = useState('');
   const [pendingProvinceFilter, setPendingProvinceFilter] = useState('all');
@@ -2939,10 +2953,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   // Synchronized Rejection with Audit Trail
-  const handleRejectPrompt = (jobId: string, customReason?: string) => {
-    const reason = customReason || prompt('Enter Rejection Reason for user notification:', 'Job details incomplete or invalid salary range.');
-    if (reason) {
-      onRejectJob(jobId, reason);
+  const handleRejectPrompt = async (jobId: string, customReason?: string) => {
+    const reason = (customReason || prompt('Enter a clear correction reason for the submitter:', ''))?.trim();
+    if (!reason) return { success: false, message: 'A rejection reason is required.' };
+    try {
+      const result = await onRejectJob(jobId, reason);
+      if (result?.success === false) {
+        alert(result.message || 'The job could not be rejected. Please try again.');
+        return result;
+      }
       setScrapedAuditLogs(prev => prev.map(entry => {
         if (entry.jobId === jobId) {
           const newAction: ScrapedJobAuditAction = {
@@ -2965,11 +2984,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }
         return entry;
       }));
+      return result || { success: true };
+    } catch (error: any) {
+      const failure = { success: false, message: error?.message || 'The job could not be rejected.' };
+      alert(failure.message);
+      return failure;
     }
   };
 
   const handleAdminRejectJob = (jobId: string, customReason?: string) => {
-    handleRejectPrompt(jobId, customReason);
+    return handleRejectPrompt(jobId, customReason);
   };
 
   // Batch Import PDF Scraped Vacancies
@@ -3186,7 +3210,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-2.5 sm:py-8 space-y-2.5 sm:space-y-6">
+    <div className="admin-dashboard-mobile-compact max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-2.5 sm:py-8 space-y-2.5 sm:space-y-6">
       
       {/* Top Banner */}
       <div className="bg-gradient-to-r from-amber-950 via-slate-900 to-amber-950 border border-amber-500/40 rounded-xl sm:rounded-3xl p-2.5 sm:p-6 text-white shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-2.5 sm:gap-4">
@@ -3988,12 +4012,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           if (pendingCategoryFilter !== 'all' && pJob.jobCategory !== pendingCategoryFilter) {
             return false;
           }
-          if (pendingSourceFilter === 'scraper' && !pJob.sourceUrl && !pJob.scraperSourceId && !pJob.scrapedSourceDomain && !pJob.id.includes('scraped')) {
-            return false;
-          }
-          if (pendingSourceFilter === 'user' && (pJob.sourceUrl || pJob.scraperSourceId || pJob.scrapedSourceDomain || pJob.id.includes('scraped'))) {
-            return false;
-          }
+          // Classify by the persisted source type first; use legacy scraper flags only for older records.
+          const persistedSource = String(pJob.sourceType || '').trim().toLowerCase();
+          // Persisted sourceType is authoritative. Legacy flags are consulted only when it is absent.
+          const isScraperSource = persistedSource
+            ? persistedSource === 'scraped'
+            : Boolean(pJob.isScraped || pJob.isPdfScraped || pJob.sourceUrl || pJob.scraperSourceId || pJob.scrapedSourceDomain || String(pJob.id || '').includes('scraped'));
+          const isAdminSource = persistedSource
+            ? persistedSource === 'admin_created'
+            : pJob.isAdminCreated === true;
+          const isUserSource = persistedSource
+            ? persistedSource === 'user_posted'
+            : !isScraperSource && !isAdminSource;
+          if (pendingSourceFilter === 'scraper' && !isScraperSource) return false;
+          if (pendingSourceFilter === 'user' && !isUserSource) return false;
+          if (pendingSourceFilter === 'admin' && !isAdminSource) return false;
           if (pendingSourceFilter === 'pdf' && !pJob.isPdfScraped && !pJob.pdfCaseNumber) {
             return false;
           }
@@ -4128,7 +4161,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         const handleBulkReject = () => {
           if (selectedPendingIds.length === 0) return;
-          const reason = prompt(`Enter rejection reason for ${selectedPendingIds.length} selected postings:`, 'Does not meet posting guidelines or duplicate submission') || '';
+          const reason = (prompt(`Enter a clear correction reason for ${selectedPendingIds.length} selected postings:`, '') || '').trim();
           if (reason) {
             if (onBulkRejectPendingJobs) {
               onBulkRejectPendingJobs(selectedPendingIds, reason);
@@ -4283,15 +4316,44 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <option value="International Remote">International Remote</option>
                   </select>
 
+                  <div className="flex items-center gap-2 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl">
+                    <label className="text-[10px] text-slate-300 font-semibold whitespace-nowrap" htmlFor="job-resubmission-limit">Resubmission limit</label>
+                    <select
+                      id="job-resubmission-limit"
+                      value={resubmissionMaxAttempts}
+                      disabled={resubmissionSettingsBusy || !resubmissionSettingsLoaded}
+                      onChange={async (e) => {
+                        const nextValue = Number(e.target.value);
+                        const previousValue = resubmissionMaxAttempts;
+                        setResubmissionMaxAttempts(nextValue);
+                        setResubmissionSettingsBusy(true);
+                        try {
+                          const result: any = await api.jobs.saveResubmissionSettings(nextValue);
+                          if (!result?.success) throw new Error(result?.message || 'Could not save resubmission limit.');
+                        } catch (error: any) {
+                          setResubmissionMaxAttempts(previousValue);
+                          window.alert(error?.message || 'Could not save resubmission limit.');
+                        } finally {
+                          setResubmissionSettingsBusy(false);
+                        }
+                      }}
+                      className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white"
+                    >
+                      {[0,1,2,3,4,5,6,7,8,9,10].map((count) => <option key={count} value={count}>{count}</option>)}
+                    </select>
+                    <span className="text-[10px] text-slate-500">0 = disabled</span>
+                  </div>
+
                   <select
                     value={pendingSourceFilter}
                     onChange={(e) => setPendingSourceFilter(e.target.value)}
                     className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium cursor-pointer"
                   >
-                    <option value="all">All Ingestion Sources</option>
-                    <option value="user">User / Employer Submitted</option>
-                    <option value="scraper">Web Scraper Harvested</option>
-                    <option value="pdf">FPSC / WAPDA PDF Parser</option>
+                    <option value="all">All Job Sources</option>
+                    <option value="user">User / Employer Posted</option>
+                    <option value="admin">Admin Posted</option>
+                    <option value="scraper">Web Scraper</option>
+                    <option value="pdf">PDF Parser (FPSC / WAPDA etc.)</option>
                   </select>
 
                   <select

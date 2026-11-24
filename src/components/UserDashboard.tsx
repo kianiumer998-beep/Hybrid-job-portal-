@@ -173,6 +173,44 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [renewalPreferenceBusy, setRenewalPreferenceBusy] = useState(false);
   const [renewalPreferenceMessage, setRenewalPreferenceMessage] = useState('');
   const [postingSlotBusyJobId, setPostingSlotBusyJobId] = useState<string | null>(null);
+  const [ownSubmissionHistory, setOwnSubmissionHistory] = useState<Job[]>([]);
+  const [resubmissionLimit, setResubmissionLimit] = useState(3);
+  const [resubmittingJobId, setResubmittingJobId] = useState<string | null>(null);
+  const [resubmissionDraft, setResubmissionDraft] = useState<Job | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const loadOwnSubmissions = () => {
+      api.jobs.getMySubmissions().then((result: any) => {
+        if (!active || !result?.success) return;
+        setOwnSubmissionHistory(Array.isArray(result.jobs) ? result.jobs : []);
+        setResubmissionLimit(Number.isInteger(result.maxResubmissionAttempts) ? result.maxResubmissionAttempts : 3);
+      }).catch(() => {});
+    };
+    loadOwnSubmissions();
+    const refreshTimer = window.setInterval(loadOwnSubmissions, 60000);
+    window.addEventListener('focus', loadOwnSubmissions);
+    return () => {
+      active = false;
+      window.clearInterval(refreshTimer);
+      window.removeEventListener('focus', loadOwnSubmissions);
+    };
+  }, [currentUser.id]);
+
+  const displayUserJobs = useMemo(() => {
+    const merged = new Map<string, Job>();
+    [...userJobs, ...ownSubmissionHistory].forEach((job) => merged.set(String(job.id), job));
+    return Array.from(merged.values()).sort((a: any, b: any) =>
+      Date.parse(String(b.updatedAt || b.createdAt || 0)) - Date.parse(String(a.updatedAt || a.createdAt || 0))
+    );
+  }, [userJobs, ownSubmissionHistory]);
+
+  const updateResubmissionField = (field: keyof Job, value: any) => {
+    setResubmissionDraft((current) => current ? { ...current, [field]: value } : current);
+  };
+
+  const parseResubmissionLines = (value: string) =>
+    value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).slice(0, 100);
 
   const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => 
     safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_${currentUser.id}`, 'classic')
@@ -3875,13 +3913,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       {activeTab === 'my-jobs' && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 space-y-3 sm:space-y-4 text-white shadow-xl">
           <h3 className="text-base font-bold">My Submitted Job Listings</h3>
-          {userJobs.length === 0 ? (
+          {displayUserJobs.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-xs bg-slate-950 rounded-xl border border-slate-800">
               You have not submitted any jobs yet. Switch to "Post a New Job" to list a job opening!
             </div>
           ) : (
             <div className="space-y-3">
-              {userJobs.map((j) => {
+              {displayUserJobs.map((j) => {
                 const jobId = String(j.id);
                 const isExpanded = Boolean(expandedJobApps[jobId]);
                 const isLoadingApps = Boolean(jobApplicationsLoading[jobId]);
@@ -3913,9 +3951,41 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                         </div>
                         <p className="text-xs text-slate-400 mt-1">{j.company} • {j.city ? `${j.city}, ${j.province}` : j.region} • {j.salary}</p>
                         
-                        {j.status === 'Rejected' && j.rejectionReason && (
-                          <div className="mt-2 p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300">
-                            <span className="font-bold">Admin Rejection Reason:</span> {j.rejectionReason}
+                        {j.status === 'Rejected' && (
+                          <div className="mt-2 p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300 space-y-2">
+                            <div><span className="font-bold">Admin Rejection Reason:</span> {j.rejectionReason || 'Please review and correct the submitted details.'}</div>
+                            {Array.isArray((j as any).moderationHistory) && (j as any).moderationHistory.length > 0 && (
+                              <div className="pt-2 border-t border-rose-500/20 space-y-1.5">
+                                <div className="font-bold text-rose-200">Moderation History</div>
+                                {(j as any).moderationHistory.map((entry: any, index: number) => (
+                                  <div key={index} className="text-[10px] text-rose-100/80">
+                                    <span className="font-semibold">{String(entry.action || 'Update').replace(/_/g, ' ')}</span>
+                                    {entry.at ? ` • ${new Date(entry.at).toLocaleString()}` : ''}
+                                    {entry.actorName ? ` • by ${entry.actorName}` : ''}
+                                    {entry.attempt ? ` • attempt ${entry.attempt}` : ''}
+                                    {entry.reason ? <div className="whitespace-pre-wrap">{entry.reason}</div> : null}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <div className="text-[10px] text-rose-200/80">Resubmissions used: {Number((j as any).resubmissionCount || 0)} / {resubmissionLimit}</div>
+                            {Number((j as any).resubmissionCount || 0) < resubmissionLimit && (
+                              <button
+                                type="button"
+                                disabled={resubmittingJobId === jobId}
+                                onClick={() => {
+                                  setResubmissionDraft({ ...j });
+                                }}
+                                className="px-3 py-1.5 rounded-lg bg-rose-500/15 border border-rose-400/40 text-rose-200 font-bold disabled:opacity-50"
+                              >
+                                {resubmittingJobId === jobId ? 'Submitting…' : 'Correct & Resubmit'}
+                              </button>
+                            )}
+                            {Number((j as any).resubmissionCount || 0) >= resubmissionLimit && (
+                              <div className="font-semibold">
+                                {resubmissionLimit === 0 ? 'Resubmission is currently disabled by the portal administrator.' : 'Maximum resubmission attempts reached. Please contact support.'}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -4644,6 +4714,200 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         </div>
       )}
 
+      {resubmissionDraft && (
+        <div className="fixed inset-0 z-[90] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
+          <div className="w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-2xl border border-rose-500/30 bg-slate-900 shadow-2xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-slate-800 bg-slate-950 px-4 py-3">
+              <div>
+                <h3 className="text-sm font-black text-white">Correct & Resubmit Job</h3>
+                <p className="text-[10px] text-slate-400">Review the admin's reason, correct all relevant details and send the job back for review. Your moderation history is retained.</p>
+              </div>
+              <button type="button" onClick={() => setResubmissionDraft(null)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="space-y-5 p-4">
+              <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-3 text-xs text-rose-200">
+                <strong>Admin's correction request:</strong>
+                <p className="mt-1 whitespace-pre-wrap">{resubmissionDraft.rejectionReason || 'Please review the job details and correct any missing or inaccurate information.'}</p>
+              </div>
+
+              <section className="space-y-3">
+                <h4 className="border-b border-slate-800 pb-2 text-xs font-black uppercase tracking-wide text-emerald-300">Basic job information</h4>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="text-xs font-semibold text-slate-300">Job Title *
+                    <input value={resubmissionDraft.title || ''} onChange={(e) => updateResubmissionField('title', e.target.value)} maxLength={180} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Company / Employer *
+                    <input value={resubmissionDraft.company || ''} onChange={(e) => updateResubmissionField('company', e.target.value)} maxLength={180} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Job Type
+                    <select value={resubmissionDraft.jobType || 'On-site'} onChange={(e) => updateResubmissionField('jobType', e.target.value)} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white">
+                      <option>On-site</option><option>Hybrid</option><option>Remote</option>
+                    </select>
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Region
+                    <select value={resubmissionDraft.region || 'Pakistan'} onChange={(e) => updateResubmissionField('region', e.target.value)} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white">
+                      {['Pakistan','Global','US','UK','UAE','Saudi Arabia','Canada','Europe','Australia'].map((value) => <option key={value}>{value}</option>)}
+                    </select>
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Country
+                    <input value={resubmissionDraft.country || 'Pakistan'} onChange={(e) => updateResubmissionField('country', e.target.value)} maxLength={80} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Province / State
+                    <input value={resubmissionDraft.province || ''} onChange={(e) => updateResubmissionField('province', e.target.value)} maxLength={100} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">City
+                    <input value={resubmissionDraft.city || ''} onChange={(e) => updateResubmissionField('city', e.target.value)} maxLength={100} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">District
+                    <input value={resubmissionDraft.district || ''} onChange={(e) => updateResubmissionField('district', e.target.value)} maxLength={100} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <h4 className="border-b border-slate-800 pb-2 text-xs font-black uppercase tracking-wide text-emerald-300">Salary and requirements</h4>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="text-xs font-semibold text-slate-300">Salary / Pay Range
+                    <input value={resubmissionDraft.salary || ''} onChange={(e) => updateResubmissionField('salary', e.target.value)} maxLength={120} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Currency
+                    <select value={resubmissionDraft.currency || 'PKR'} onChange={(e) => updateResubmissionField('currency', e.target.value)} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white">
+                      {['PKR','USD','GBP','EUR','CAD','AUD','AED','SAR'].map((value) => <option key={value}>{value}</option>)}
+                    </select>
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Experience Level
+                    <select value={resubmissionDraft.experienceLevel || 'Entry'} onChange={(e) => updateResubmissionField('experienceLevel', e.target.value)} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white">
+                      {['Entry','Mid','Senior','Lead','Executive'].map((value) => <option key={value}>{value}</option>)}
+                    </select>
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Department
+                    <input value={resubmissionDraft.department || ''} onChange={(e) => updateResubmissionField('department', e.target.value)} maxLength={120} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Job Category
+                    <input value={resubmissionDraft.jobCategory || ''} onChange={(e) => updateResubmissionField('jobCategory', e.target.value)} maxLength={100} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Total Vacancies
+                    <input type="number" min="0" value={resubmissionDraft.totalVacancies ?? ''} onChange={(e) => updateResubmissionField('totalVacancies', e.target.value === '' ? undefined : Number(e.target.value))} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Minimum Age
+                    <input type="number" min="0" value={resubmissionDraft.minimumAge ?? ''} onChange={(e) => updateResubmissionField('minimumAge', e.target.value === '' ? undefined : Number(e.target.value))} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Maximum Age
+                    <input type="number" min="0" value={resubmissionDraft.maximumAge ?? ''} onChange={(e) => updateResubmissionField('maximumAge', e.target.value === '' ? undefined : Number(e.target.value))} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                </div>
+                <label className="block text-xs font-semibold text-slate-300">Job Description *
+                  <textarea value={resubmissionDraft.description || ''} onChange={(e) => updateResubmissionField('description', e.target.value)} rows={7} maxLength={30000} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                </label>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="text-xs font-semibold text-slate-300">Requirements (one per line)
+                    <textarea value={(resubmissionDraft.requirements || []).join('\n')} onChange={(e) => updateResubmissionField('requirements', parseResubmissionLines(e.target.value))} rows={5} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Responsibilities (one per line)
+                    <textarea value={(resubmissionDraft.responsibilities || []).join('\n')} onChange={(e) => updateResubmissionField('responsibilities', parseResubmissionLines(e.target.value))} rows={5} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Benefits (one per line)
+                    <textarea value={(resubmissionDraft.benefits || []).join('\n')} onChange={(e) => updateResubmissionField('benefits', parseResubmissionLines(e.target.value))} rows={4} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Skills / Tags (one per line)
+                    <textarea value={(resubmissionDraft.tags || []).join('\n')} onChange={(e) => updateResubmissionField('tags', parseResubmissionLines(e.target.value))} rows={4} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <h4 className="border-b border-slate-800 pb-2 text-xs font-black uppercase tracking-wide text-emerald-300">Application and important dates</h4>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="text-xs font-semibold text-slate-300">Application Type
+                    <select value={resubmissionDraft.applicationType || 'external'} onChange={(e) => updateResubmissionField('applicationType', e.target.value)} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white">
+                      <option value="internal">Portal application</option><option value="external">External application</option><option value="both">Both</option>
+                    </select>
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Application URL
+                    <input type="url" value={resubmissionDraft.applicationUrl || ''} onChange={(e) => updateResubmissionField('applicationUrl', e.target.value)} maxLength={2000} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">External Apply URL
+                    <input type="url" value={resubmissionDraft.externalApplyUrl || ''} onChange={(e) => updateResubmissionField('externalApplyUrl', e.target.value)} maxLength={2000} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Original Apply URL
+                    <input type="url" value={resubmissionDraft.originalApplyUrl || ''} onChange={(e) => updateResubmissionField('originalApplyUrl', e.target.value)} maxLength={2000} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Contact Email
+                    <input type="email" value={resubmissionDraft.contactEmail || ''} onChange={(e) => updateResubmissionField('contactEmail', e.target.value)} maxLength={254} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Contact Email / Phone
+                    <input value={resubmissionDraft.contactEmailOrPhone || ''} onChange={(e) => updateResubmissionField('contactEmailOrPhone', e.target.value)} maxLength={254} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                  {[
+                    ['applicationStartDate','Application Start Date'],
+                    ['deadlineDate','Application Deadline'],
+                    ['expiryDate','Listing Expiry Date'],
+                    ['futureIntakeDate','Future Intake Date']
+                  ].map(([field,label]) => (
+                    <label key={field} className="text-xs font-semibold text-slate-300">{label}
+                      <input type="date" value={String((resubmissionDraft as any)[field] || '').slice(0,10)} onChange={(e) => updateResubmissionField(field as keyof Job, e.target.value)} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                    </label>
+                  ))}
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <h4 className="border-b border-slate-800 pb-2 text-xs font-black uppercase tracking-wide text-emerald-300">Government / newspaper details (if applicable)</h4>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-300"><input type="checkbox" checked={Boolean(resubmissionDraft.isGovtJob)} onChange={(e) => updateResubmissionField('isGovtJob', e.target.checked)} /> Government job</label>
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-300"><input type="checkbox" checked={Boolean(resubmissionDraft.isNewspaperAd)} onChange={(e) => updateResubmissionField('isNewspaperAd', e.target.checked)} /> Newspaper advertisement</label>
+                  {[
+                    ['govtDepartment','Government Department'],
+                    ['govtScale','BPS / Scale'],
+                    ['govtCategory','Government Category'],
+                    ['newspaperName','Newspaper Name'],
+                    ['newspaperDate','Newspaper Date'],
+                    ['clippingImageUrl','Newspaper Clipping URL'],
+                    ['employmentType','Employment Type'],
+                    ['ageLimit','Age Limit'],
+                    ['qualificationSummary','Qualification Summary'],
+                    ['domicile','Domicile / Quota'],
+                    ['challanFee','Challan Fee'],
+                    ['ageRelaxationNote','Age Relaxation']
+                  ].map(([field,label]) => (
+                    <label key={field} className="text-xs font-semibold text-slate-300">{label}
+                      <input value={String((resubmissionDraft as any)[field] || '')} onChange={(e) => updateResubmissionField(field as keyof Job, e.target.value)} maxLength={2000} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                    </label>
+                  ))}
+                  <label className="text-xs font-semibold text-slate-300">Advertised Positions (one per line)
+                    <textarea value={(resubmissionDraft.advertisedPositions || []).join('\n')} onChange={(e) => updateResubmissionField('advertisedPositions', parseResubmissionLines(e.target.value))} rows={3} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                </div>
+              </section>
+            </div>
+            <div className="sticky bottom-0 flex flex-col-reverse gap-2 border-t border-slate-800 bg-slate-950 p-4 sm:flex-row sm:justify-end">
+              <button type="button" onClick={() => setResubmissionDraft(null)} className="rounded-xl border border-slate-700 px-4 py-2.5 text-xs font-bold text-slate-300 hover:bg-slate-800">Cancel</button>
+              <button
+                type="button"
+                disabled={Boolean(resubmittingJobId) || !String(resubmissionDraft.title || '').trim() || !String(resubmissionDraft.company || '').trim() || !String(resubmissionDraft.description || '').trim()}
+                onClick={async () => {
+                  const jobId = String(resubmissionDraft.id);
+                  setResubmittingJobId(jobId);
+                  try {
+                    const result: any = await api.jobs.resubmitRejected(jobId, resubmissionDraft);
+                    if (!result?.success) throw new Error(result?.message || 'Resubmission failed.');
+                    setOwnSubmissionHistory((current) => current.map((item) => item.id === jobId ? result.job : item));
+                    setResubmissionDraft(null);
+                    window.alert('Corrected job submitted again. It is now Pending admin review.');
+                  } catch (error: any) {
+                    window.alert(error?.message || 'Could not resubmit this job.');
+                  } finally {
+                    setResubmittingJobId(null);
+                  }
+                }}
+                className="rounded-xl bg-emerald-500 px-4 py-2.5 text-xs font-black text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {resubmittingJobId ? 'Submitting…' : 'Submit corrected job for review'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* USER JOB GOOGLE SEARCH SEO & SCHEMA PREVIEW MODAL */}
       {userJobSeoPreview && (
         <JobSeoPreviewModal

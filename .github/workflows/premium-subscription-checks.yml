@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/premium-early-access-subscription-wallet
+      - feature/job-control-center-moderation
   pull_request:
     branches:
       - main
@@ -31,6 +32,8 @@ jobs:
         run: bun run test:subscription
       - name: Early-access policy tests
         run: bun run test:early-access
+      - name: Job resubmission and moderation tests
+        run: bun run test:job-resubmission
       - name: Ad campaign pricing tests
         run: bun run test:ad-pricing
       - name: Production build

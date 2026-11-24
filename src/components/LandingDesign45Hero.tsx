@@ -1,7 +1,6 @@
 import React from 'react';
 import { LandingHeroConfig, LandingDesignId, SUPPORTED_COUNTRIES } from '../types/landing';
 import { JobFilters } from '../types/job';
-import { PremiumEarlyAccessSection } from './PremiumEarlyAccessSection';
 
 interface Props {
   designId: LandingDesignId;
@@ -71,7 +70,6 @@ export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJo
           <span className="text-sm font-black text-emerald-700">{totalJobsCount.toLocaleString()}+ opportunities on the platform</span>
         </div>
       </section>
-      <PremiumEarlyAccessSection onUpgrade={() => onPremiumClick?.()} onExplore={onExplore} />
       </>
     );
   }
@@ -110,7 +108,6 @@ export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJo
         </div>
       </div>
     </section>
-    <PremiumEarlyAccessSection onUpgrade={() => onPremiumClick?.()} onExplore={onExplore} />
     </>
   );
 };

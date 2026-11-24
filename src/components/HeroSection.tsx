@@ -1,7 +1,6 @@
 import React from 'react';
 import { Search, MapPin, Sparkles, ShieldCheck, MessageSquare, ArrowRight, Building2, PlusCircle } from 'lucide-react';
 import { LandingHeroConfig, LandingDesignId, DEFAULT_LANDING_PAGE_CONFIG } from '../types/landing';
-import { PremiumEarlyAccessSection } from './PremiumEarlyAccessSection';
 
 
 interface HeroDesignStyle {
@@ -234,7 +233,6 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
         </div>
       </div>
     </section>
-    <PremiumEarlyAccessSection onUpgrade={() => onPremiumClick?.()} onExplore={onExploreClick} />
     </>
   );
 };

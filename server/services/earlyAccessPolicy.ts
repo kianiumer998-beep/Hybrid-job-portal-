@@ -20,31 +20,49 @@ const ALLOWED_DISPLAY_FIELDS = new Set([
   'deadlineDate', 'salary', 'totalVacancies', 'experienceLevel', 'jobCategory'
 ]);
 
+export function getEarlyAccessReleaseAt(
+  job: any,
+  config: EarlyAccessConfig | undefined
+): string | null {
+  if (!job || config?.enabled !== true) return null;
+  const jobOverride = Array.isArray(config.jobOverrides)
+    ? config.jobOverrides.find((item) => item && item.jobId === String(job.id || ''))
+    : undefined;
+  if (jobOverride?.enabled === false) return null;
+
+  const source: JobSourceType = JobVisibilityRepository.deriveJobSource(job);
+  const selectedSources = Array.isArray(config.sourceTypes) ? config.sourceTypes : [];
+  if (!selectedSources.includes(source)) return null;
+
+  const durationHours = Number(config.durationHours ?? 24);
+  if (!Number.isInteger(durationHours) || durationHours < 1 || durationHours > 8760) return null;
+
+  // Every job receives its own clock, anchored to its approval/publication timestamp.
+  // A later job never resets the release timer of an earlier job.
+  const rawStart = job.approvedAt || job.verifiedDate || job.publishedAt || job.createdAt || job.postedAt || job.datePosted;
+  const start = rawStart ? new Date(rawStart).getTime() : Number.NaN;
+  if (!Number.isFinite(start)) return null;
+  return new Date(start + durationHours * 60 * 60 * 1000).toISOString();
+}
+
 export function isEarlyAccessJobLocked(
   job: any,
   config: EarlyAccessConfig | undefined,
   now: number = Date.now()
 ): boolean {
   if (!job || config?.enabled !== true) return false;
-
-  const jobOverride = Array.isArray(config.jobOverrides) ? config.jobOverrides.find((item) => item && item.jobId === String(job.id || '')) : undefined;
+  const jobOverride = Array.isArray(config.jobOverrides)
+    ? config.jobOverrides.find((item) => item && item.jobId === String(job.id || ''))
+    : undefined;
   if (jobOverride?.enabled === false) return false;
-
   const source: JobSourceType = JobVisibilityRepository.deriveJobSource(job);
   const selectedSources = Array.isArray(config.sourceTypes) ? config.sourceTypes : [];
   if (!selectedSources.includes(source)) return false;
 
-  const durationHours = Number(config.durationHours);
-  if (!Number.isInteger(durationHours) || durationHours < 1 || durationHours > 8760) {
-    // Invalid persisted policy must fail closed for selected sources.
-    return true;
-  }
-
-  const rawStart = job.approvedAt || job.verifiedDate || job.publishedAt || job.createdAt || job.postedAt || job.datePosted;
-  const start = rawStart ? new Date(rawStart).getTime() : Number.NaN;
-  if (!Number.isFinite(start)) return true;
-
-  return now < start + durationHours * 60 * 60 * 1000;
+  const releaseAt = getEarlyAccessReleaseAt(job, config);
+  // Fail closed when a selected-source job has a missing/invalid timestamp or policy.
+  if (!releaseAt) return true;
+  return now < new Date(releaseAt).getTime();
 }
 
 export function buildEarlyAccessDisplayJob(job: any, config: EarlyAccessConfig): Record<string, any> {
@@ -64,10 +82,7 @@ export function buildEarlyAccessDisplayJob(job: any, config: EarlyAccessConfig):
     display.sourceLabel = String(job.scraperSourceName || job.sourcePortal || job.sourceWebsite || display.sourceType);
   }
 
-  const rawStart = job.approvedAt || job.verifiedDate || job.publishedAt || job.createdAt || job.postedAt || job.datePosted;
-  const start = rawStart ? new Date(rawStart).getTime() : Number.NaN;
-  const durationHours = Math.min(8760, Math.max(1, Number(config.durationHours) || 24));
-  display.earlyAccessEndsAt = Number.isFinite(start) ? new Date(start + durationHours * 60 * 60 * 1000).toISOString() : null;
+  display.earlyAccessEndsAt = getEarlyAccessReleaseAt(job, config);
   return display;
 }
 

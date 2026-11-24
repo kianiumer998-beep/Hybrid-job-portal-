@@ -11,12 +11,13 @@ import { isMongoConfigured } from '../db/mongodb';
 import { saveAttachment, getAttachmentStream, deleteAttachmentFile, validateAttachmentMagicBytes, getAttachmentMimeType } from '../services/attachmentStorage';
 import { JobAttachment } from '../../src/types/job';
 import { getProvinceForCity } from '../../src/utils/locationCatalog';
+import { SystemSettingsRepository } from '../db/repositories/SystemSettingsRepository';
 
 export const jobRouter = Router();
 
 import { JobVisibilityRepository } from '../db/repositories/JobVisibilityRepository';
 import { PricingRepository } from '../db/repositories/PricingRepository';
-import { buildEarlyAccessDisplayJob, getEarlyAccessLandingConfig, isEarlyAccessJobLocked } from '../services/earlyAccessPolicy';
+import { buildEarlyAccessDisplayJob, getEarlyAccessLandingConfig, getEarlyAccessReleaseAt, isEarlyAccessJobLocked } from '../services/earlyAccessPolicy';
 import { hasActiveSubscriptionFeature } from '../services/subscriptionEntitlements';
 import { dispatchPremiumInstantJobAlerts } from '../services/premiumJobAlertService';
 import { evaluateApplyAccess } from '../services/applyAccessPolicy';
@@ -114,19 +115,19 @@ jobRouter.get('/early-access', async (req: any, res: any) => {
     const earlyJobs = result.jobs
       .filter((job: any) => isEarlyAccessJobLocked(job, config))
       .sort((a: any, b: any) => {
-        const aStart = new Date(a.approvedAt || a.publishedAt || a.createdAt || a.postedAt || 0).getTime();
-        const bStart = new Date(b.approvedAt || b.publishedAt || b.createdAt || b.postedAt || 0).getTime();
+        const aStart = new Date(a.approvedAt || a.verifiedDate || a.publishedAt || a.createdAt || a.postedAt || a.datePosted || 0).getTime();
+        const bStart = new Date(b.approvedAt || b.verifiedDate || b.publishedAt || b.createdAt || b.postedAt || b.datePosted || 0).getTime();
         return bStart - aStart;
       });
     const maxJobs = landingConfig.maxJobs;
-    const nextReleaseAt = earlyJobs
-      .map((job: any) => {
-        const rawStart = job.approvedAt || job.verifiedDate || job.publishedAt || job.createdAt || job.postedAt || job.datePosted;
-        const start = rawStart ? new Date(rawStart).getTime() : Number.NaN;
-        return Number.isFinite(start) ? start + landingConfig.durationHours * 60 * 60 * 1000 : Number.NaN;
-      })
+    const previewJobs = earlyJobs.slice(0, maxJobs).map((job: any, index: number) => ({
+      slot: index + 1,
+      earlyAccessEndsAt: getEarlyAccessReleaseAt(job, config)
+    }));
+    const releaseTimes = previewJobs
+      .map((item: any) => item.earlyAccessEndsAt ? new Date(item.earlyAccessEndsAt).getTime() : Number.NaN)
       .filter((value: number) => Number.isFinite(value) && value > Date.now())
-      .sort((a: number, b: number) => a - b)[0];
+      .sort((a: number, b: number) => a - b);
     const jobs = hasEarlyAccess
       ? await Promise.all(earlyJobs.slice(0, maxJobs).map(async (job: any) => {
           const policyApplied = await JobVisibilityRepository.applyPolicyToJob(job);
@@ -139,9 +140,12 @@ jobRouter.get('/early-access', async (req: any, res: any) => {
       success: true,
       enabled: true,
       isPremium,
+      hasEarlyAccess,
       config: landingConfig,
       count: earlyJobs.length,
-      nextReleaseAt: typeof nextReleaseAt === 'number' && Number.isFinite(nextReleaseAt) ? new Date(nextReleaseAt).toISOString() : null,
+      nextReleaseAt: releaseTimes.length ? new Date(releaseTimes[0]).toISOString() : null,
+      // Non-members receive only anonymous release slots; no unreleased job identity or details leak.
+      previewJobs: hasEarlyAccess ? [] : previewJobs,
       jobs
     });
   } catch (err: any) {
@@ -215,6 +219,200 @@ jobRouter.get('/priority', async (req, res) => {
   } catch (err: any) {
     console.error('Error in GET /api/jobs/priority:', err);
     res.status(500).json({ success: false, message: err.message || 'Error fetching priority jobs' });
+  }
+});
+
+// User-owned submission history and resubmission controls.
+const DEFAULT_JOB_RESUBMISSION_LIMIT = 3;
+const JOB_RESUBMISSION_SETTINGS_KEY = 'job_submission_resubmission_settings';
+
+jobRouter.get('/my-submissions', requireAuth, async (req: any, res: any) => {
+  try {
+    const userId = String(req.user?.userId || req.user?.id || '').trim();
+    if (!userId) return res.status(401).json({ success: false, message: 'Authentication required.' });
+    const jobs = await JobRepository.getUserSubmissions(userId);
+    const settings = await SystemSettingsRepository.getSetting(JOB_RESUBMISSION_SETTINGS_KEY, { maxAttempts: DEFAULT_JOB_RESUBMISSION_LIMIT });
+    const maxAttempts = Math.max(0, Math.min(10, Math.floor(Number(settings?.maxAttempts ?? DEFAULT_JOB_RESUBMISSION_LIMIT))));
+    res.json({ success: true, jobs, maxResubmissionAttempts: maxAttempts });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Could not load your job submissions.' });
+  }
+});
+
+jobRouter.patch('/moderation/resubmission-settings', requireAdminPermission('jobs.manage'), async (req: any, res: any) => {
+  try {
+    const raw = Number(req.body?.maxAttempts);
+    if (!Number.isInteger(raw) || raw < 0 || raw > 10) {
+      return res.status(400).json({ success: false, message: 'Maximum resubmission attempts must be a whole number from 0 to 10.' });
+    }
+    const saved = await SystemSettingsRepository.saveSetting(JOB_RESUBMISSION_SETTINGS_KEY, { maxAttempts: raw });
+    res.json({ success: true, settings: saved });
+  } catch (err: any) {
+    res.status(503).json({ success: false, message: err.message || 'Could not save resubmission settings.' });
+  }
+});
+
+jobRouter.get('/moderation/resubmission-settings', requireAdminPermission('jobs.manage'), async (_req: any, res: any) => {
+  try {
+    const settings = await SystemSettingsRepository.getSetting(JOB_RESUBMISSION_SETTINGS_KEY, { maxAttempts: DEFAULT_JOB_RESUBMISSION_LIMIT });
+    res.json({ success: true, settings });
+  } catch (err: any) {
+    res.status(503).json({ success: false, message: err.message || 'Could not load resubmission settings.' });
+  }
+});
+
+jobRouter.post('/:id/resubmit', requireAuth, async (req: any, res: any) => {
+  try {
+    const userId = String(req.user?.userId || req.user?.id || '').trim();
+    if (!userId) return res.status(401).json({ success: false, message: 'Authentication required.' });
+
+    const editableFields = [
+      'title', 'company', 'jobType', 'region', 'country', 'province', 'city', 'district',
+      'salary', 'salaryNumericMin', 'currency', 'experienceLevel', 'department', 'tags', 'description',
+      'requirements', 'responsibilities', 'benefits', 'applicationType', 'applicationUrl', 'externalApplyUrl',
+      'originalApplyUrl', 'contactEmailOrPhone', 'contactEmail', 'deadlineDate', 'applicationStartDate',
+      'expiryDate', 'jobCategory', 'isGovtJob', 'govtDepartment', 'govtScale', 'govtCategory',
+      'isNewspaperAd', 'newspaperName', 'newspaperDate', 'clippingImageUrl', 'advertisedPositions',
+      'totalVacancies', 'employmentType', 'ageLimit', 'minimumAge', 'maximumAge', 'qualificationSummary',
+      'domicile', 'challanFee', 'ageRelaxationNote', 'futureIntakeDate'
+    ];
+    const updates: Record<string, any> = {};
+    for (const field of editableFields) {
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, field)) updates[field] = req.body[field];
+    }
+
+    const stringLimits: Record<string, number> = {
+      title: 180, company: 180, country: 80, province: 100, city: 100, district: 100,
+      salary: 120, department: 120, description: 30000, contactEmailOrPhone: 254, contactEmail: 254,
+      applicationUrl: 2000, externalApplyUrl: 2000, originalApplyUrl: 2000, deadlineDate: 40,
+      applicationStartDate: 40, expiryDate: 40, jobCategory: 100, govtDepartment: 160, govtScale: 40,
+      govtCategory: 80, newspaperName: 120, newspaperDate: 40, clippingImageUrl: 2000,
+      employmentType: 100, ageLimit: 100, qualificationSummary: 2000, domicile: 500, challanFee: 120,
+      ageRelaxationNote: 1000, futureIntakeDate: 80
+    };
+    for (const [field, limit] of Object.entries(stringLimits)) {
+      if (updates[field] !== undefined) {
+        if (typeof updates[field] !== 'string') return res.status(400).json({ success: false, message: `${field} must be text.` });
+        updates[field] = updates[field].trim().slice(0, limit);
+      }
+    }
+
+    const arrayFields = ['tags', 'requirements', 'responsibilities', 'benefits', 'advertisedPositions'];
+    for (const field of arrayFields) {
+      if (updates[field] !== undefined) {
+        if (!Array.isArray(updates[field])) return res.status(400).json({ success: false, message: `${field} must be a list.` });
+        updates[field] = updates[field].filter((item: any) => typeof item === 'string').map((item: string) => item.trim().slice(0, 1000)).filter(Boolean).slice(0, 100);
+      }
+    }
+
+    const numericFields = ['salaryNumericMin', 'totalVacancies', 'minimumAge', 'maximumAge'];
+    for (const field of numericFields) {
+      if (updates[field] !== undefined && updates[field] !== '') {
+        const value = Number(updates[field]);
+        if (!Number.isFinite(value) || value < 0 || value > 1000000000) {
+          return res.status(400).json({ success: false, message: `${field} must be a valid non-negative number.` });
+        }
+        updates[field] = value;
+      } else if (updates[field] === '') {
+        updates[field] = undefined;
+      }
+    }
+
+    for (const field of ['isGovtJob', 'isNewspaperAd']) {
+      if (updates[field] !== undefined && typeof updates[field] !== 'boolean') {
+        return res.status(400).json({ success: false, message: `${field} must be true or false.` });
+      }
+    }
+
+    const enumFields: Record<string, string[]> = {
+      jobType: ['Remote', 'Hybrid', 'On-site'],
+      region: ['Global', 'US', 'UK', 'Pakistan', 'UAE', 'Saudi Arabia', 'Canada', 'Europe', 'Australia'],
+      experienceLevel: ['Entry', 'Mid', 'Senior', 'Lead', 'Executive'],
+      currency: ['USD', 'PKR', 'GBP', 'EUR', 'CAD', 'AUD', 'AED', 'SAR'],
+      applicationType: ['internal', 'external', 'both']
+    };
+    for (const [field, allowed] of Object.entries(enumFields)) {
+      if (updates[field] !== undefined && !allowed.includes(String(updates[field]))) {
+        return res.status(400).json({ success: false, message: `Invalid ${field} selection.` });
+      }
+    }
+
+    for (const field of ['applicationUrl', 'externalApplyUrl', 'originalApplyUrl', 'clippingImageUrl']) {
+      const value = updates[field];
+      if (typeof value === 'string' && value) {
+        try {
+          if (value.startsWith('/') && !value.startsWith('//')) continue;
+          const parsed = new URL(value);
+          if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('invalid protocol');
+          updates[field] = parsed.toString();
+        } catch {
+          return res.status(400).json({ success: false, message: `${field} must be a valid http or https URL.` });
+        }
+      }
+    }
+
+    if (!String(updates.title || '').trim() || !String(updates.company || '').trim() || !String(updates.description || '').trim()) {
+      return res.status(400).json({ success: false, message: 'Job title, company and description are required.' });
+    }
+    if (updates.contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(updates.contactEmail)) {
+      return res.status(400).json({ success: false, message: 'Please enter a valid contact email address.' });
+    }
+
+    // Recalculate the slug only from user-editable public fields; ownership and source metadata remain server-controlled.
+    updates.slug = generateJobSlug(updates.title, updates.city, String(req.params.id));
+    const settings = await SystemSettingsRepository.getSetting(JOB_RESUBMISSION_SETTINGS_KEY, { maxAttempts: DEFAULT_JOB_RESUBMISSION_LIMIT });
+    const maxAttempts = Math.max(0, Math.min(10, Math.floor(Number(settings?.maxAttempts ?? DEFAULT_JOB_RESUBMISSION_LIMIT))));
+    const result = await JobRepository.resubmitRejectedPending(String(req.params.id), userId, updates, maxAttempts);
+    if (!result.job) {
+      const status = result.reason === 'limit_reached' ? 409 : result.reason === 'not_rejected' ? 409 : 404;
+      const message = result.reason === 'limit_reached'
+        ? 'You have reached the maximum number of resubmission attempts for this job.'
+        : result.reason === 'not_rejected'
+          ? 'Only rejected job submissions can be resubmitted.'
+          : 'Job submission not found.';
+      return res.status(status).json({ success: false, message, reason: result.reason });
+    }
+
+    let notificationSent = false;
+    try {
+      await NotificationRepository.createAsync({
+        userId,
+        title: 'Job Resubmitted for Review',
+        message: `Your corrected job submission "${result.job.title}" has been received and is waiting for admin review.`,
+        type: 'info',
+        channel: 'in-app',
+        eventId: `notif-job-resubmitted-${result.job.id}-${result.job.resubmissionCount || 0}`,
+        idempotencyKey: `notif-job-resubmitted-${result.job.id}-${result.job.resubmissionCount || 0}`,
+        metadata: { jobId: result.job.id, jobTitle: result.job.title, resubmissionCount: result.job.resubmissionCount }
+      }, 'System - Job Moderation');
+      notificationSent = true;
+    } catch (notificationError) {
+      console.error('Failed to notify job submitter about resubmission:', notificationError);
+    }
+
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
+      user: req.user?.name || 'Job Submitter',
+      role: req.user?.role || 'Employer',
+      action: 'Rejected Job Corrected & Resubmitted',
+      target: `${result.job.title} at ${result.job.company}`,
+      status: 'Success',
+      metadata: {
+        jobId: result.job.id,
+        submittedByUserId: userId,
+        resubmissionCount: result.job.resubmissionCount,
+        notificationSent
+      }
+    }, 'POST /api/jobs/:id/resubmit');
+    res.json({
+      success: true,
+      job: result.job,
+      message: 'Your corrected job has been resubmitted for admin review.',
+      notificationSent,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
+    });
+  } catch (err: any) {
+    console.error('Error resubmitting rejected job:', err);
+    res.status(500).json({ success: false, message: err.message || 'Could not resubmit job.' });
   }
 });
 
@@ -347,30 +545,34 @@ jobRouter.post('/queue/pending/:id/approve', requireAdminPermission('jobs.manage
 jobRouter.post('/queue/pending/:id/reject', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { reason } = req.body || {};
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 4000) : '';
 
-    const pendingJobs = await JobRepository.getPending();
-    const target = pendingJobs.find(j => j.id === id);
+    const target = await JobRepository.getPendingById(id);
+    const sourceType = deriveJobSourceType(target);
+    const isScraped = isScrapedJob(target);
+    if (target && sourceType === 'user_posted' && !reason) {
+      return res.status(400).json({ success: false, message: 'Please provide a clear correction reason so the job owner knows what to fix.' });
+    }
 
-    const rejected = await JobRepository.rejectPending(id, reason);
+    const rejected = await JobRepository.rejectPending(id, reason, {
+      name: (req as any).user?.name || 'Administrator',
+      role: (req as any).user?.role || 'Job Moderator'
+    });
     if (!rejected) {
       return res.status(404).json({ success: false, message: 'Pending job not found.' });
     }
 
     let notificationSent = false;
     // Check source type and scraper flags authoritatively
-    const isScraped = isScrapedJob(target);
-    const sourceType = deriveJobSourceType(target);
-
     // Only notify genuine user-posted listings with a verified submittedByUserId
-    if (target && !isScraped && sourceType === 'user_posted' && target.submittedByUserId) {
+    if (target && sourceType === 'user_posted' && target.submittedByUserId) {
       try {
         const recipientUserId = String(target.submittedByUserId);
         const recipient = await UserRepository.getByIdAsync(recipientUserId);
         if (recipient) {
           const rejectionReason = reason || 'Details did not meet submission criteria.';
           const body = `Your job submission "${target.title}" was not approved. Reason: ${rejectionReason}`;
-          const stableEventId = `notif-job-reject-${id}`;
+          const stableEventId = `notif-job-reject-${id}-${Date.now()}`;
 
           await NotificationRepository.createAsync({
             userId: recipientUserId,
@@ -435,7 +637,7 @@ jobRouter.post('/bulk-delete', requireAdminPermission('jobs.manage'), async (req
     if (result.userPostedJobs.length > 0) {
       const userJobMap = new Map<string, any[]>();
       for (const job of result.userPostedJobs) {
-        if (job.submittedByUserId && !isScrapedJob(job)) {
+        if (job.submittedByUserId) {
           const uId = String(job.submittedByUserId);
           if (!userJobMap.has(uId)) userJobMap.set(uId, []);
           userJobMap.get(uId)!.push(job);
@@ -609,12 +811,25 @@ jobRouter.post('/bulk-approve', requireAdminPermission('jobs.manage'), async (re
 // 7. Bulk Reject Pending Jobs
 jobRouter.post('/bulk-reject', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
-    const { ids, reason } = req.body;
+    const { ids } = req.body || {};
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 4000) : '';
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ success: false, message: 'Array of job IDs is required.' });
     }
     const safeIds = ids.slice(0, 500).map(String);
-    const result = await JobRepository.bulkRejectPendingWithClassification(safeIds, reason);
+    if (!reason) {
+      const pendingBefore = await JobRepository.getJobsByIds(safeIds);
+      const includesUserSubmission = pendingBefore.some((job: any) =>
+        job.status === 'Pending' && deriveJobSourceType(job) === 'user_posted' && Boolean(job.submittedByUserId)
+      );
+      if (includesUserSubmission) {
+        return res.status(400).json({ success: false, message: 'Please provide a clear correction reason before bulk-rejecting user-submitted jobs.' });
+      }
+    }
+    const result = await JobRepository.bulkRejectPendingWithClassification(safeIds, reason, {
+      name: (req as any).user?.name || 'Administrator',
+      role: (req as any).user?.role || 'Job Moderator'
+    });
 
     let notificationsSent = 0;
     let notificationsSkipped = result.scrapedCount;
@@ -642,7 +857,7 @@ jobRouter.post('/bulk-reject', requireAdminPermission('jobs.manage'), async (req
 
           const rejectionReason = reason || 'Details did not meet submission criteria.';
           const sortedJobIds = Array.from(new Set(userJobs.map(j => j.id))).sort();
-          const hashInput = JSON.stringify(['bulk-reject', userId, sortedJobIds, rejectionReason]);
+          const hashInput = JSON.stringify(['bulk-reject', userId, sortedJobIds, rejectionReason, Date.now()]);
           const hash = crypto.createHash('sha256').update(hashInput).digest('hex');
           const stableEventId = `notif-job-bulk-reject-${hash}`;
 

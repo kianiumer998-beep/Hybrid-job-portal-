@@ -19,6 +19,7 @@ import { Footer } from './components/Footer';
 import { CountrySelectionModal } from './components/CountrySelectionModal';
 import { LegalDisclaimerModal } from './components/LegalDisclaimerModal';
 import { PremiumUpgradeModal } from './components/PremiumUpgradeModal';
+import { PremiumEarlyAccessSection } from './components/PremiumEarlyAccessSection';
 import {
   WhatsAppStickyButton,
   WhatsAppSupportConfig,
@@ -3378,10 +3379,14 @@ export default function App() {
   const handleRejectJob = async (jobId: string, reason: string) => {
     try {
       const rejectedJob = pendingJobs.find(j => j.id === jobId);
-      await api.jobs.rejectPending(jobId, reason);
+      const result = await api.jobs.rejectPending(jobId, reason);
+      if (!result?.success) {
+        await loadBackendJobs();
+        return { success: false, message: result?.message || 'The job could not be rejected.' };
+      }
       await loadBackendJobs();
 
-      // Push persistent notification message into user's chat thread
+      // Keep the existing chat-thread notice in addition to the authoritative in-app notification.
       if (rejectedJob && rejectedJob.submittedByUserId) {
         const chatMsg = {
           id: 'msg-' + Date.now(),
@@ -3394,17 +3399,18 @@ export default function App() {
         api.chat.adminSendReply(chatMsg).then(res => {
           if (res?.success) {
             setChatMessages(prev => [...prev, res.message]);
-            console.log('[App] Chat notification successfully sent for job rejection.');
+            console.log('[App] Persistent chat notification successfully sent for job rejection.');
           } else {
             console.error('[App] Persistent chat notification failed for job rejection:', res?.message);
           }
         }).catch(err => console.warn('[App] Error sending persistent chat notification for job rejection:', err));
       }
 
-      alert(`Job rejected successfully. Notification dispatch initiated.`);
-    } catch (err) {
+      return { success: true, message: result.message || 'Job rejected successfully.' };
+    } catch (err: any) {
       console.error('Error rejecting job on backend:', err);
       await loadBackendJobs();
+      return { success: false, message: err?.message || 'Error rejecting job.' };
     }
   };
 
@@ -3513,12 +3519,22 @@ export default function App() {
   };
 
   const handleBulkRejectPendingJobs = async (jobIds: string[], reason?: string) => {
+    const cleanReason = String(reason || '').trim();
+    if (!cleanReason) {
+      return { success: false, message: 'A clear correction reason is required for bulk rejection.' };
+    }
     try {
-      await api.jobs.bulkReject(jobIds, reason || 'Bulk rejected by administrator');
+      const result = await api.jobs.bulkReject(jobIds, cleanReason);
+      if (!result?.success) {
+        await loadBackendJobs();
+        return { success: false, message: result?.message || 'Bulk rejection could not be completed.' };
+      }
       await loadBackendJobs();
-    } catch (err) {
+      return result;
+    } catch (err: any) {
       console.error('Error bulk rejecting pending jobs on backend:', err);
       await loadBackendJobs();
+      return { success: false, message: err?.message || 'Bulk rejection could not be completed.' };
     }
   };
 
@@ -4444,39 +4460,54 @@ export default function App() {
                     }
 
                     if (section.id === 'custom-announcements') {
-                      const activeCards = (landingConfig.customCards || []).filter(c => c.isEnabled);
+                      const activeCards = (landingConfig.customCards || []).filter(c => c.isEnabled).sort((a, b) => a.order - b.order);
                       const announcementPlacementEnabled = campaignConfig.placementOptions.some((option) => option.id === 'dynamic-announcement-card' && option.isEnabled);
                       const paidAnnouncementAds = announcementPlacementEnabled
                         ? advertisements.filter((ad) => ad.placement === 'dynamic-announcement-card' && isAdCurrentlyRunning(ad))
                         : [];
-                      if (activeCards.length === 0 && paidAnnouncementAds.length === 0) return null;
+                      const activePromo = (campaignConfig.promoBanners || []).find((promo) =>
+                        promo.isEnabled && (!promo.validUntil || new Date(promo.validUntil + 'T23:59:59').getTime() >= Date.now())
+                      );
+                      const showPromoDesktop = landingConfig.showLandingPromoCardDesktop === true && (activeCards.length + paidAnnouncementAds.length) % 2 === 1 && Boolean(activePromo);
+                      const showPromoMobile = landingConfig.showLandingPromoCardMobile === true && Boolean(activePromo);
+                      if (activeCards.length === 0 && paidAnnouncementAds.length === 0 && !showPromoMobile && !showPromoDesktop) return null;
                       return (
-                        <div key="section-cards" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {activeCards.sort((a, b) => a.order - b.order).map((card) => (
-                              <div key={card.id} className={`p-6 rounded-2xl bg-gradient-to-r ${card.bgGradient || 'from-slate-900 to-indigo-950'} border border-white/10 text-white flex flex-col justify-between space-y-4 shadow-xl`}>
-                                <div className="space-y-2">
-                                  {card.imageUrl && <img src={card.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="w-full max-h-48 rounded-xl object-cover border border-white/10" />}
-                                  <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">{card.badge}</span>
-                                  <h4 className="text-lg font-black">{card.title}</h4>
-                                  <p className="text-xs text-slate-300 leading-relaxed">{card.description}</p>
+                        <div key="section-cards" className="w-full max-w-7xl mx-auto px-2 sm:px-4 md:px-6 lg:px-8">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-3 items-stretch">
+                            {activeCards.map((card, index) => (
+                              <div key={card.id} className={`min-w-0 p-3 sm:p-4 rounded-xl bg-gradient-to-r ${card.bgGradient || 'from-slate-900 to-indigo-950'} border border-white/10 text-white flex flex-col justify-between gap-3 shadow-lg ${index === activeCards.length - 1 && (activeCards.length + paidAnnouncementAds.length) % 2 === 1 && !showPromoDesktop && paidAnnouncementAds.length === 0 ? 'md:col-span-2' : ''}`}>
+                                <div className="min-w-0 space-y-1.5">
+                                  {card.imageUrl && <img src={card.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="w-full max-h-32 sm:max-h-36 rounded-lg object-cover border border-white/10" />}
+                                  {card.badge && <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">{card.badge}</span>}
+                                  <h4 className="text-base sm:text-lg font-black leading-snug">{card.title}</h4>
+                                  <p className="text-xs text-slate-300 leading-snug">{card.description}</p>
                                 </div>
-                                <button onClick={() => handleAdDestination(card.buttonUrl)} className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md">{card.buttonText} →</button>
+                                <button onClick={() => handleAdDestination(card.buttonUrl)} className="self-start px-3.5 py-2 rounded-lg bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md">{card.buttonText} →</button>
                               </div>
                             ))}
                             {paidAnnouncementAds.map((ad) => (
-                              <div key={ad.id} className="p-6 rounded-2xl bg-gradient-to-r from-slate-900 to-indigo-950 border border-white/10 text-white flex flex-col justify-between space-y-4 shadow-xl">
-                                <div className="space-y-2">
-                                  {ad.imageUrl && <img src={ad.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="w-full max-h-48 rounded-xl object-cover border border-white/10" />}
-                                  <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">{ad.badgeText || 'SPONSORED ANNOUNCEMENT'}</span>
-                                  <h4 className="text-lg font-black">{ad.headline}</h4>
-                                  <p className="text-xs text-slate-300 leading-relaxed">{ad.bodyText}</p>
+                              <div key={ad.id} className={`min-w-0 p-3 sm:p-4 rounded-xl bg-gradient-to-r from-slate-900 to-indigo-950 border border-white/10 text-white flex flex-col justify-between gap-3 shadow-lg ${ad === paidAnnouncementAds[paidAnnouncementAds.length - 1] && (activeCards.length + paidAnnouncementAds.length) % 2 === 1 && !showPromoDesktop ? 'md:col-span-2' : ''}`}>
+                                <div className="min-w-0 space-y-1.5">
+                                  {ad.imageUrl && <img src={ad.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="w-full max-h-32 sm:max-h-36 rounded-lg object-cover border border-white/10" />}
+                                  <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">{ad.badgeText || 'SPONSORED ANNOUNCEMENT'}</span>
+                                  <h4 className="text-base sm:text-lg font-black leading-snug">{ad.headline}</h4>
+                                  <p className="text-xs text-slate-300 leading-snug">{ad.bodyText}</p>
                                 </div>
-                                <button onClick={() => { void handlePaidAdCta(ad); }} className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md">
-                                  {ad.ctaText || 'Learn More'} →
-                                </button>
+                                <button onClick={() => { void handlePaidAdCta(ad); }} className="self-start px-3.5 py-2 rounded-lg bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md">{ad.ctaText || 'Learn More'} →</button>
                               </div>
                             ))}
+                            {activePromo && (showPromoDesktop || showPromoMobile) && (
+                              <article className={`min-w-0 p-3 sm:p-4 rounded-xl bg-gradient-to-r from-rose-950 via-slate-900 to-amber-950 border border-rose-400/30 text-white flex flex-col justify-between gap-3 shadow-lg ${showPromoMobile ? (showPromoDesktop ? 'flex' : 'flex md:hidden') : (showPromoDesktop ? 'hidden md:flex' : 'hidden')}`}>
+                                <div className="min-w-0 space-y-1.5">
+                                  <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-200 border border-rose-300/30 inline-block">{activePromo.badgeText || 'SPECIAL PROMOTION'}</span>
+                                  <h4 className="text-base sm:text-lg font-black leading-snug">{activePromo.title}</h4>
+                                  <p className="text-xs text-slate-200 leading-snug">{activePromo.description}</p>
+                                  {activePromo.discountPercent > 0 && <p className="text-xl font-black text-amber-300">{activePromo.discountPercent}% OFF</p>}
+                                  {activePromo.promoCode && <p className="text-[11px] text-rose-100">Code: <strong>{activePromo.promoCode}</strong></p>}
+                                </div>
+                                {activePromo.ctaText && <button onClick={() => activePromo.ctaUrl ? handleAdDestination(activePromo.ctaUrl) : undefined} className="self-start px-3.5 py-2 rounded-lg bg-rose-500 text-white font-bold text-xs hover:bg-rose-400 transition-all cursor-pointer shadow-md">{activePromo.ctaText} →</button>}
+                              </article>
+                            )}
                           </div>
                         </div>
                       );
@@ -4500,6 +4531,10 @@ export default function App() {
                             showPostsPerPageSelector={landingConfig.showPostsPerPageSelector !== false}
                           />
 
+                          <PremiumEarlyAccessSection
+                            onUpgrade={() => { setSelectedJobTitleForSub(''); setSelectedGate({ title: 'Premium Early Access', message: 'Unlock selected jobs before they become available to other members.' }); setPremiumUpgradeModalOpen(true); }}
+                            onExplore={() => { const el = document.getElementById('jobs-section'); el?.scrollIntoView({ behavior: 'smooth' }); }}
+                          />
                           {/* Design 4 editorial two-column job feed; all existing filters, cards and ad rules stay intact. */}
                           <div className={landingDesignSystem.activeDesignId === 'design-4' ? 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-6 items-start' : ''}>
                             <div className="min-w-0">

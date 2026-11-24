@@ -12,6 +12,7 @@
     "lint": "tsc --noEmit",
     "test:subscription": "tsx server/tests/subscription_entitlements_tests.ts",
     "test:early-access": "tsx server/tests/early_access_policy_tests.ts",
+    "test:job-resubmission": "tsx server/tests/job_resubmission_policy_tests.ts",
     "test:ad-pricing": "tsx server/tests/ad_campaign_pricing_tests.ts"
   },
   "dependencies": {

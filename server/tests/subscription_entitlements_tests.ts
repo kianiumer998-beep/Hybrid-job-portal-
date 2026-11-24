@@ -146,6 +146,21 @@ async function run() {
   assert.equal(await UserRepository.restoreSubscriptionCampaignCreditAsync(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1'), true, 'rejected campaign restores its credit');
   assert.equal(await UserRepository.restoreSubscriptionCampaignCreditAsync(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1'), true, 'repeated campaign restoration is idempotent');
 
+  const smsCampaignUserId = 'subscription-sms-campaign-credit-test-user';
+  await UserRepository.createAsync({
+    id: smsCampaignUserId, walletBalance: 0, membershipStatus: 'Active', subscriptionExpiresAt: future,
+    subscriptionFeatureIds: ['campaign_credits'],
+    subscriptionEntitlements: {
+      campaign_credits: { enabled: true, expiresAt: future, campaignCredits: [
+        { placement: 'sms-broadcast', durationHours: 24, smsRecipientsCount: 50, includedQuantity: 1, remaining: 1 }
+      ] }
+    }
+  });
+  assert.equal(await UserRepository.consumeSubscriptionCampaignCreditAsync(smsCampaignUserId, 'sms-broadcast', 24, 'sms-campaign-1', 49), null, 'SMS campaign credit rejects a different recipient count');
+  const smsCampaignRedemption = await UserRepository.consumeSubscriptionCampaignCreditAsync(smsCampaignUserId, 'sms-broadcast', 24, 'sms-campaign-1', 50);
+  assert.equal(smsCampaignRedemption?.credit.smsRecipientsCount, 50, 'SMS campaign credit matches its configured recipient cap');
+  assert.equal(await UserRepository.restoreSubscriptionCampaignCreditAsync(smsCampaignUserId, 'sms-broadcast', 24, 'sms-campaign-1', 50), true, 'rejected SMS campaign restores the exact recipient credit');
+
   const unlimitedUserId = 'subscription-message-unlimited-test-user';
   await UserRepository.createAsync({
     id: unlimitedUserId, walletBalance: 0, membershipStatus: 'Active', subscriptionExpiresAt: future,
@@ -162,7 +177,7 @@ async function run() {
   const noExpiryReservation = await UserRepository.reserveSubscriptionMessageQuotaAsync(noExpiryUserId, 'sms_alerts', 'no-expiry-event');
   assert.equal(noExpiryReservation.reason, 'unavailable', 'missing subscription expiry fails closed');
 
-  console.log('Subscription entitlement tests passed (43 assertions).');
+  console.log('Subscription entitlement tests passed (46 assertions).');
 }
 
 run().catch((error) => { console.error(error); process.exitCode = 1; });

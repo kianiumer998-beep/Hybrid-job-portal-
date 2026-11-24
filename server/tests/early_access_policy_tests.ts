@@ -41,12 +41,13 @@ async function run() {
   const display = buildEarlyAccessDisplayJob(scraped, config);
   assert.deepEqual(Object.keys(display).sort(), ['department', 'earlyAccessEndsAt', 'id', 'sourceLabel', 'sourceType', 'title'].sort(), 'display payload includes only configured fields and approved metadata');
   assert.equal(display.paymentStatus, undefined, 'internal payment fields are never included in the landing payload');
+  assert.equal(display.earlyAccessEndsAt, '2026-11-24T00:00:00.000Z', 'premium job details include the exact individual public release time');
 
   const landing = getEarlyAccessLandingConfig(config);
   assert.equal(landing.maxJobs, 5);
   assert.equal(landing.showCountdown, true);
 
-  console.log('Premium early access policy tests passed (17 assertions).');
+  console.log('Premium early access policy tests passed (18 assertions).');
 }
 
 run().catch((error) => {

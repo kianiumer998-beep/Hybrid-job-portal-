@@ -523,14 +523,14 @@ function withComputedSubscriptionPrices(pricing: any): any {
       const ids = Array.isArray(pkg.featureIds) ? Array.from(new Set(pkg.featureIds.map((id: any) => String(id)))) : [];
       const selected = ids.map((id: string) => catalog.find((item) => item.id === id && item.enabled));
       const complete = ids.length > 0 && selected.every(Boolean);
-      return { ...pkg, configuredPricePkr, displayPricePkr: configuredPricePkr, featureLabels: complete ? selected.flatMap((item: any) => [item.label, ...(item.id === 'campaign_credits' ? (item.campaignCredits || []).map((credit: any) => `${credit.placement} · ${credit.durationHours}h × ${credit.quantity}`) : [])]) : [] };
+      return { ...pkg, configuredPricePkr, displayPricePkr: configuredPricePkr, featureLabels: complete ? selected.flatMap((item: any) => [item.label, ...(item.id === 'campaign_credits' ? (item.campaignCredits || []).map((credit: any) => credit.placement + ' · ' + credit.durationHours + 'h × ' + credit.quantity + (credit.placement === 'sms-broadcast' ? ' · ' + credit.smsRecipientsCount + ' recipients' : '')) : [])]) : [] };
     }
     const ids = Array.isArray(pkg.featureIds) ? Array.from(new Set(pkg.featureIds.map((id: any) => String(id)))) : [];
     const selected = ids.map((id: string) => catalog.find((item) => item.id === id && item.enabled));
     const complete = ids.length > 0 && selected.every(Boolean);
     const subtotal = complete ? selected.reduce((sum: number, item: any) => sum + Number(item.pricePkr || 0), 0) : 0;
     const calculated = complete ? Math.max(0, Math.round(subtotal * (1 - discount / 100))) : 0;
-    return { ...pkg, configuredPricePkr, pricePkr: calculated, displayPricePkr: calculated, featureLabels: complete ? selected.flatMap((item: any) => [item.label, ...(item.id === 'campaign_credits' ? (item.campaignCredits || []).map((credit: any) => `${credit.placement} · ${credit.durationHours}h × ${credit.quantity}`) : [])]) : [], undiscountedPricePkr: subtotal, bundleDiscountPercent: discount };
+    return { ...pkg, configuredPricePkr, pricePkr: calculated, displayPricePkr: calculated, featureLabels: complete ? selected.flatMap((item: any) => [item.label, ...(item.id === 'campaign_credits' ? (item.campaignCredits || []).map((credit: any) => credit.placement + ' · ' + credit.durationHours + 'h × ' + credit.quantity + (credit.placement === 'sms-broadcast' ? ' · ' + credit.smsRecipientsCount + ' recipients' : '')) : [])]) : [], undiscountedPricePkr: subtotal, bundleDiscountPercent: discount };
   });
   return { ...pricing, subscriptionPackages };
 }

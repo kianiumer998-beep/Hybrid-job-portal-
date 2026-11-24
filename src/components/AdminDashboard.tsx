@@ -118,6 +118,7 @@ import { AdminWhatsAppManager } from './admin/AdminWhatsAppManager';
 import { AdminWhatsAppSettings } from './admin/AdminWhatsAppSettings';
 import { AdminPaymentVerificationHub, PaymentVerificationResult } from './admin/AdminPaymentVerificationHub';
 import { AdminPricingController } from './admin/AdminPricingController';
+import { AdminSubscriptionStudio } from './admin/AdminSubscriptionStudio';
 import { AdminCvSettingsController } from './admin/AdminCvSettingsController';
 import { AdminApplySettingsManager } from './admin/AdminApplySettingsManager';
 import { AdminModalContentManager } from './admin/AdminModalContentManager';
@@ -303,7 +304,7 @@ export function checkAdminTabPermission(
   if (['payment-proofs', 'fee-logs'].includes(tabId)) {
     return hasPerm('payments.manage') || hasPerm('finance.manage');
   }
-  if (['pricing-controller', 'cv-settings', 'fee-management', 'currency-forex'].includes(tabId)) {
+  if (['pricing-controller', 'subscription-studio', 'cv-settings', 'fee-management', 'currency-forex'].includes(tabId)) {
     return hasPerm('finance.manage');
   }
   if (['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'].includes(tabId)) {
@@ -3814,6 +3815,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* TAB: UNIVERSAL PRICING CONTROLLER */}
       {effectiveAdminTab === 'pricing-controller' && canAccessAdminTab('pricing-controller') && (
         <AdminPricingController onPricingSaved={onSyncAuthoritativePricing} hideCvSettings />
+      )}
+      {effectiveAdminTab === 'subscription-studio' && canAccessAdminTab('subscription-studio') && (
+        <AdminSubscriptionStudio onPricingSaved={onSyncAuthoritativePricing} />
       )}
       {effectiveAdminTab === 'cv-settings' && canAccessAdminTab('cv-settings') && (
         <AdminCvSettingsController onPricingSaved={onSyncAuthoritativePricing} />

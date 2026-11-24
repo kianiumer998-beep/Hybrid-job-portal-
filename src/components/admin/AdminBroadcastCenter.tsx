@@ -902,7 +902,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                 <span>MongoDB Encrypted Provider Configuration (AES-256-GCM)</span>
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                Manage authoritative Email & WhatsApp gateways. All API keys and secrets are encrypted server-side with AES-256-GCM.
+                Manage authoritative Email, WhatsApp and independent SMS gateways. All API keys and secrets are encrypted server-side with AES-256-GCM.
               </p>
             </div>
             <button

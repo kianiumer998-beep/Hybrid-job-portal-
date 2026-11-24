@@ -1123,7 +1123,7 @@ export const AdminProfessionalSidebar: React.FC<AdminProfessionalSidebarProps> =
           </div>
         </div>
       ) : (
-        <div className="p-2 border-b border-slate-800/80 flex justify-center">
+        <div className="px-2 py-1.5 border-b border-slate-800/80 flex justify-center">
           <button
             type="button"
             onClick={onToggleCollapse}
@@ -1329,9 +1329,9 @@ export const AdminProfessionalMobileDrawer: React.FC<AdminProfessionalMobileDraw
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className="relative z-10 w-[min(19rem,88vw)] max-w-[88vw] h-full bg-slate-900 border-r border-slate-800 flex flex-col shadow-2xl overflow-x-hidden">
+      <div className="relative z-10 w-[min(17rem,86vw)] max-w-[86vw] h-full bg-slate-900 border-r border-slate-800 flex flex-col shadow-2xl overflow-x-hidden">
         {/* Drawer Header */}
-        <div className="p-2.5 border-b border-slate-800 flex items-center justify-between gap-2">
+        <div className="px-2.5 py-2 border-b border-slate-800 flex items-center justify-between gap-2">
           <div className="min-w-0">
             <h3 className="text-xs font-black text-white truncate">Professional Admin Menu</h3>
             <p className="text-[10px] text-slate-400 truncate">Choose a category, then a module</p>
@@ -1372,7 +1372,7 @@ export const AdminProfessionalMobileDrawer: React.FC<AdminProfessionalMobileDraw
         </div>
 
         {/* Categories & Modules */}
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-2 space-y-2">
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-1.5 space-y-1.5">
           {categories.length === 0 ? (
             <div className="text-center py-8 text-xs text-slate-400">
               No matching modules found.
@@ -1381,12 +1381,12 @@ export const AdminProfessionalMobileDrawer: React.FC<AdminProfessionalMobileDraw
             categories.map((cat) => {
               const CatIcon = cat.icon;
               return (
-                <div key={cat.id} className="rounded-xl border border-slate-800 overflow-hidden">
+                <div key={cat.id} className="rounded-lg border border-slate-800 overflow-hidden">
                   <button
                     type="button"
                     onClick={() => setExpandedCategoryId((prev) => (prev === cat.id ? null : cat.id))}
                     aria-expanded={searchQuery.trim().length > 0 || expandedCategoryId === cat.id}
-                    className="w-full flex items-center justify-between gap-2 px-2.5 py-2 text-left bg-slate-950/70"
+                    className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-left bg-slate-950/70"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <CatIcon className="w-3.5 h-3.5 text-amber-400 shrink-0" />

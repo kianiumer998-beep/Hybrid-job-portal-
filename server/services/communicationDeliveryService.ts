@@ -128,6 +128,20 @@ export async function sendConfiguredPremiumAlert(user: any, channel: DeliveryCha
   }
   if (!reservation.ok) return false;
   const delivered = await deliverConfiguredPremiumAlert(user, channel, subject, message);
+  try {
+    const providerConfig = await CommunicationProviderRepository.getConfig();
+    const provider = channel === 'email' ? providerConfig.emailProvider : channel === 'whatsapp' ? providerConfig.whatsappProvider : providerConfig.smsProvider;
+    await SubscriptionUsageRepository.logMessageDelivery({
+      eventId: cleanEventId,
+      userId: String(user.id),
+      featureId,
+      channel,
+      provider: String(provider || 'disabled'),
+      status: delivered ? 'SENT' : 'FAILED'
+    });
+  } catch (logError: any) {
+    console.error('[Communication Delivery] Could not persist provider delivery log:', logError?.message || logError);
+  }
   if (delivered) {
     const completed = await SubscriptionUsageRepository.completeMessageQuota(String(user.id), featureId, cleanEventId);
     if (!completed) console.error('[Communication Delivery] Provider accepted a message but quota completion needs reconciliation:', cleanEventId);

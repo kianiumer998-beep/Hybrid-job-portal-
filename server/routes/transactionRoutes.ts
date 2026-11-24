@@ -1356,6 +1356,7 @@ transactionRouter.post('/', async (req, res) => {
                 slotDurationDays: Number.isInteger(Number(feature.slotDurationDays)) ? Math.max(1, Number(feature.slotDurationDays)) : subDurationDays,
                 ...(typeof feature.unlimitedMessages === 'boolean' ? { unlimitedMessages: feature.unlimitedMessages } : {}),
                 ...(Number.isInteger(Number(feature.monthlyMessageQuota)) && Number(feature.monthlyMessageQuota) >= 1 ? { monthlyMessageQuota: Number(feature.monthlyMessageQuota) } : {}),
+                ...(featureId === 'campaign_credits' && Array.isArray(feature.campaignCredits) ? { campaignCredits: feature.campaignCredits.map((credit: any) => ({ placement: String(credit.placement), durationHours: Number(credit.durationHours), includedQuantity: Number(credit.quantity), remaining: Number(credit.quantity) })) } : {}),
                 sourcePackageId: String(walletPackageSnapshot.id || '')
               };
             }

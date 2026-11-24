@@ -8,11 +8,13 @@ async function run() {
   const catalog = normalizeSubscriptionFeatureCatalog([
     { id: 'early_access', label: 'Early Access', enabled: true, pricePkr: 500, durationDays: 30, includedSlots: 0, slotDurationDays: 30 },
     { id: 'whatsapp_alerts', label: 'WhatsApp Alerts', enabled: true, pricePkr: 300, durationDays: 30, includedSlots: 0, slotDurationDays: 30 },
-    { id: 'sms_alerts', label: 'SMS Alerts', enabled: false, pricePkr: 200, durationDays: 30, includedSlots: 0, slotDurationDays: 30 },
+    { id: 'sms_alerts', label: 'SMS Alerts', enabled: false, pricePkr: 200, durationDays: 30, includedSlots: 0, slotDurationDays: 30, unlimitedMessages: false, monthlyMessageQuota: 2 },
     { id: 'unknown_feature', label: 'Unsupported', enabled: true, pricePkr: 1 }
   ]);
   assert.equal(catalog.length, 3, 'unsupported IDs are excluded from the feature catalog');
   assert.equal(catalog[2].id, 'sms_alerts');
+  assert.equal(catalog[1].unlimitedMessages, true, 'legacy catalog entries preserve unmetered compatibility');
+  assert.equal(catalog[2].monthlyMessageQuota, 2, 'explicit monthly quotas are normalized');
 
   const pricing = { subscriptionFeatureCatalog: catalog, subscriptionBundleDiscountPercent: 10 };
   const bundle = resolveSubscriptionPackage({ id: 'bundle', name: 'Bundle', pricingMode: 'catalog', featureIds: ['early_access', 'whatsapp_alerts'], durationDays: 30 }, pricing);
@@ -89,7 +91,34 @@ async function run() {
   assert.equal(repeatedWalletCvPurchase.user.walletBalance, 750, 'replayed wallet purchase does not double-charge');
   assert.equal(repeatedWalletCvPurchase.user.cvPackageEntitlements.length, 1, 'replayed wallet purchase does not duplicate the package');
 
-  console.log('Subscription entitlement tests passed (21 assertions).');
+  const quotaUserId = 'subscription-message-quota-test-user';
+  const future = new Date(Date.now() + 86400000).toISOString();
+  await UserRepository.createAsync({
+    id: quotaUserId,
+    walletBalance: 0,
+    membershipStatus: 'Active',
+    subscriptionExpiresAt: future,
+    subscriptionEntitlements: {
+      sms_alerts: { enabled: true, expiresAt: future, unlimitedMessages: false, monthlyMessageQuota: 2 }
+    }
+  });
+  const firstReservation = await UserRepository.reserveSubscriptionMessageQuotaAsync(quotaUserId, 'sms_alerts', 'event-1');
+  assert.equal(firstReservation.ok, true, 'first paid message reserves one quota unit');
+  const duplicateReservation = await UserRepository.reserveSubscriptionMessageQuotaAsync(quotaUserId, 'sms_alerts', 'event-1');
+  assert.equal(duplicateReservation.reason, 'already_processed', 'duplicate event cannot reserve or send twice');
+  assert.equal(await UserRepository.completeSubscriptionMessageQuotaAsync(quotaUserId, 'sms_alerts', 'event-1'), true, 'successful provider delivery finalizes reservation');
+  const failedReservation = await UserRepository.reserveSubscriptionMessageQuotaAsync(quotaUserId, 'sms_alerts', 'event-2');
+  assert.equal(failedReservation.ok, true, 'second message can reserve remaining quota');
+  assert.equal(await UserRepository.releaseSubscriptionMessageQuotaAsync(quotaUserId, 'sms_alerts', 'event-2', failedReservation.month), true, 'provider failure releases reserved quota');
+  const retryReservation = await UserRepository.reserveSubscriptionMessageQuotaAsync(quotaUserId, 'sms_alerts', 'event-2');
+  assert.equal(retryReservation.ok, true, 'failed provider event can be retried safely');
+  assert.equal(await UserRepository.completeSubscriptionMessageQuotaAsync(quotaUserId, 'sms_alerts', 'event-2'), true, 'retried successful delivery finalizes quota');
+  const exhaustedReservation = await UserRepository.reserveSubscriptionMessageQuotaAsync(quotaUserId, 'sms_alerts', 'event-3');
+  assert.equal(exhaustedReservation.reason, 'quota_exhausted', 'monthly message quota blocks further sends');
+  const quotaUser = await UserRepository.getByIdAsync(quotaUserId);
+  assert.equal(quotaUser.subscriptionMessageUsage.sms_alerts[retryReservation.month].used, 2, 'failed provider attempt did not consume quota');
+
+  console.log('Subscription entitlement tests passed (32 assertions).');
 }
 
 run().catch((error) => { console.error(error); process.exitCode = 1; });

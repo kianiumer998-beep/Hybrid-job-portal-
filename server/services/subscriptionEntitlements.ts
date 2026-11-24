@@ -83,8 +83,7 @@ export function resolveSubscriptionPackage(pkg: any, pricing: any): {
   if (selected.some((item) =>
     ['email_alerts', 'whatsapp_alerts', 'sms_alerts'].includes(item.id) &&
     item.unlimitedMessages !== true &&
-    item.monthlyMessageQuota === undefined &&
-    item.unlimitedMessages === false
+    (!Number.isInteger(item.monthlyMessageQuota) || Number(item.monthlyMessageQuota) < 1)
   )) {
     throw new Error('Configure a positive monthly message quota or explicitly enable Unlimited for every selected notification channel.');
   }

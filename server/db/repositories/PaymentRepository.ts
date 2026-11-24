@@ -1092,12 +1092,47 @@ export class PaymentRepository {
         durationDays = snapDuration;
         membershipTier = snapshot.name;
 
+        const subscriptionActivatedAt = new Date().toISOString();
+        const subscriptionExpiresAt = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString();
+        const featureSnapshots = Array.isArray(snapshot.featureSnapshots) ? snapshot.featureSnapshots : [];
+        const subscriptionEntitlements: Record<string, any> = {};
+        const subscriptionFeatureIds: string[] = [];
+        for (const feature of featureSnapshots) {
+          const featureId = String(feature?.id || '').trim();
+          const featureDuration = Number(feature?.durationDays);
+          const includedSlots = Number(feature?.includedSlots);
+          const slotDurationDays = Number(feature?.slotDurationDays);
+          if (!/^(early_access|whatsapp_alerts|email_alerts|sms_alerts|cv_builder|urgent_job_posting|featured_job_posting|premium_job_posting)$/.test(featureId) ||
+              subscriptionFeatureIds.includes(featureId) ||
+              !Number.isInteger(featureDuration) || featureDuration <= 0 || featureDuration > 3650 ||
+              !Number.isInteger(includedSlots) || includedSlots < 0 || includedSlots > 1000 ||
+              !Number.isInteger(slotDurationDays) || slotDurationDays <= 0 || slotDurationDays > 3650) {
+            await failSnapshot('Invalid or unsupported feature entitlement in package snapshot.');
+          }
+          const entitlementDays = Math.min(durationDays, featureDuration);
+          subscriptionFeatureIds.push(featureId);
+          subscriptionEntitlements[featureId] = {
+            enabled: true,
+            grantedAt: subscriptionActivatedAt,
+            expiresAt: new Date(Date.now() + entitlementDays * 24 * 60 * 60 * 1000).toISOString(),
+            includedSlots,
+            remainingSlots: includedSlots,
+            slotDurationDays: Math.min(slotDurationDays, durationDays),
+            sourcePackageId: snapshot.id,
+            ...(feature.unlimitedMessages === true ? { unlimitedMessages: true } : { unlimitedMessages: false }),
+            ...(Number.isInteger(Number(feature.monthlyMessageQuota)) && Number(feature.monthlyMessageQuota) >= 0
+              ? { monthlyMessageQuota: Number(feature.monthlyMessageQuota) } : {})
+          };
+        }
+
         let updatedUser: any = null;
         try {
           updatedUser = await UserRepository.updateAsync(user.id, {
             membershipTier: membershipTier,
             membershipStatus: 'Active',
-            subscriptionExpiresAt: new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString()
+            subscriptionExpiresAt,
+            subscriptionEntitlements,
+            subscriptionFeatureIds
           });
         } catch (subErr: any) {
           await this.updateAsync(id, {

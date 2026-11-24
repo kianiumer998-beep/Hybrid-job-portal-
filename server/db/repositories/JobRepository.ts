@@ -2140,6 +2140,8 @@ export class JobRepository {
     const safeUserId = String(userId || '').trim();
     const safeMaxAttempts = Math.max(0, Math.min(20, Math.floor(Number(maxAttempts) || 0)));
     if (!safeId || !safeUserId) return { job: null, reason: 'not_found' };
+    const safeUpdates = { ...updates };
+    for (const key of ['id', '_id', 'submittedByUserId', 'sourceType', 'status', 'moderationHistory', 'resubmissionCount', 'rejectionReason']) delete safeUpdates[key];
     if (!isMongoConfigured()) {
       const pending = Database.getPendingJobs();
       const index = pending.findIndex((job: any) => job.id === safeId && String(job.submittedByUserId || '') === safeUserId);
@@ -2151,7 +2153,7 @@ export class JobRepository {
       const now = new Date().toISOString();
       const history = Array.isArray(existing.moderationHistory) ? existing.moderationHistory : [];
       pending[index] = {
-        ...existing, ...updates, id: existing.id, submittedByUserId: safeUserId,
+        ...existing, ...safeUpdates, id: existing.id, submittedByUserId: safeUserId,
         status: 'Pending', rejectionReason: '', resubmissionCount: attempts + 1,
         moderationHistory: [...history, { action: 'resubmitted', reason: existing.rejectionReason || '', at: now, attempt: attempts + 1, submittedByUserId: safeUserId }],
         updatedAt: now, resubmittedAt: now
@@ -2177,8 +2179,6 @@ export class JobRepository {
       attempt: attempts + 1,
       submittedByUserId: safeUserId
     };
-    const safeUpdates = { ...updates };
-    for (const key of ['id', '_id', 'submittedByUserId', 'sourceType', 'status', 'moderationHistory', 'resubmissionCount', 'rejectionReason']) delete safeUpdates[key];
     const result = await pendingColl.findOneAndUpdate(
       {
         id: safeId,

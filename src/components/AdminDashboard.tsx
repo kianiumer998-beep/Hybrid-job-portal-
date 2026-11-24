@@ -3210,7 +3210,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-2.5 sm:py-8 space-y-2.5 sm:space-y-6">
+    <div className="admin-dashboard-mobile-compact max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-2.5 sm:py-8 space-y-2.5 sm:space-y-6">
       
       {/* Top Banner */}
       <div className="bg-gradient-to-r from-amber-950 via-slate-900 to-amber-950 border border-amber-500/40 rounded-xl sm:rounded-3xl p-2.5 sm:p-6 text-white shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-2.5 sm:gap-4">

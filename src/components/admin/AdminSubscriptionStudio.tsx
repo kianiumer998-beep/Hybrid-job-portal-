@@ -233,6 +233,35 @@ export const AdminSubscriptionStudio: React.FC<{ onPricingSaved?: (pricing: any)
             <div className="flex flex-wrap items-center gap-4 text-xs">
               <label className="flex items-center gap-2"><input type="checkbox" checked={pkg.enabled !== false} onChange={e => updatePackage(index, { enabled: e.target.checked })} />Enabled / show on subscription pages</label>
               <label className="flex items-center gap-2"><input type="checkbox" checked={pkg.cvBenefitsEnabled === true} onChange={e => updatePackage(index, { cvBenefitsEnabled: e.target.checked, cvBenefits: { ...CV_BENEFIT_DEFAULTS, ...(pkg.cvBenefits || {}) } })} />Include CV benefits</label>
+              {pkg.cvBenefitsEnabled === true && <label className="text-[10px] text-slate-300">Load existing CV package
+                <select value={pkg.cvPackageId || ''} onChange={e => {
+                  const selectedCvPackage = (pricing.cvBuilder?.packages || []).find((item: any) => item.id === e.target.value && item.enabled !== false);
+                  if (!selectedCvPackage) { updatePackage(index, { cvPackageId: '' }); return; }
+                  const otherFeaturesSelected = (pkg.featureIds || []).some((id: string) => id !== 'cv_builder');
+                  updatePackage(index, {
+                    cvPackageId: selectedCvPackage.id,
+                    cvBenefitsEnabled: true,
+                    cvBenefitsDescription: String(selectedCvPackage.name || 'Existing CV package') + ' benefits included',
+                    cvBenefits: {
+                      cvCreateLimit: Number(selectedCvPackage.cvCreateLimit ?? 0),
+                      editLimit: Number(selectedCvPackage.editLimit ?? 0),
+                      pdfExportLimit: Number(selectedCvPackage.pdfExportLimit ?? 0),
+                      atsExportLimit: Number(selectedCvPackage.atsExportLimit ?? 0),
+                      shareLimit: Number(selectedCvPackage.shareLimit ?? 0),
+                      noWatermark: selectedCvPackage.noWatermark === true,
+                      premiumDesignIds: Array.isArray(selectedCvPackage.premiumDesignIds) ? selectedCvPackage.premiumDesignIds : []
+                    },
+                    ...(!otherFeaturesSelected ? {
+                      durationDays: Number(selectedCvPackage.durationDays || 30),
+                      configuredPricePkr: Number(selectedCvPackage.pricePkr || 0),
+                      pricePkr: Number(selectedCvPackage.pricePkr || 0)
+                    } : {})
+                  });
+                }} className="ml-2 mt-1 rounded bg-slate-900 p-2 text-xs text-white">
+                  <option value="">Custom CV benefits</option>
+                  {(pricing.cvBuilder?.packages || []).filter((item: any) => item.enabled !== false).map((item: any) => <option key={item.id} value={item.id}>{item.name} · Rs. {Number(item.pricePkr || 0).toLocaleString()} · {item.durationDays} days</option>)}
+                </select>
+              </label>}
               <select value={pkg.pricingMode === 'catalog' ? 'catalog' : 'fixed'} onChange={e => updatePackage(index, { pricingMode: e.target.value })} className="rounded bg-slate-900 p-2"><option value="fixed">Fixed price</option><option value="catalog">Catalog price + discount</option></select>
               {pkg.pricingMode === 'catalog' && <label className="text-slate-300">Plan discount %<input type="number" min="0" max="100" value={pkg.bundleDiscountPercent ?? pricing.subscriptionBundleDiscountPercent ?? 0} onChange={e => updatePackage(index, { bundleDiscountPercent: e.target.value === '' ? '' : Number(e.target.value) })} className="ml-2 w-20 rounded bg-slate-900 p-1" /></label>}
             </div>

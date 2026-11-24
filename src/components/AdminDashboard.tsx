@@ -3988,12 +3988,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           if (pendingCategoryFilter !== 'all' && pJob.jobCategory !== pendingCategoryFilter) {
             return false;
           }
-          if (pendingSourceFilter === 'scraper' && !pJob.sourceUrl && !pJob.scraperSourceId && !pJob.scrapedSourceDomain && !pJob.id.includes('scraped')) {
-            return false;
-          }
-          if (pendingSourceFilter === 'user' && (pJob.sourceUrl || pJob.scraperSourceId || pJob.scrapedSourceDomain || pJob.id.includes('scraped'))) {
-            return false;
-          }
+          // Classify by the persisted source type first; use legacy scraper flags only for older records.
+          const persistedSource = String(pJob.sourceType || '').trim().toLowerCase();
+          const isScraperSource = persistedSource === 'scraped' || Boolean(
+            pJob.sourceUrl || pJob.scraperSourceId || pJob.scrapedSourceDomain || pJob.id.includes('scraped')
+          );
+          const isAdminSource = persistedSource === 'admin_created' || pJob.isAdminCreated === true;
+          const isUserSource = persistedSource === 'user_posted' || (
+            !persistedSource && !isScraperSource && !isAdminSource
+          );
+          if (pendingSourceFilter === 'scraper' && !isScraperSource) return false;
+          if (pendingSourceFilter === 'user' && !isUserSource) return false;
+          if (pendingSourceFilter === 'admin' && !isAdminSource) return false;
           if (pendingSourceFilter === 'pdf' && !pJob.isPdfScraped && !pJob.pdfCaseNumber) {
             return false;
           }
@@ -4288,10 +4294,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     onChange={(e) => setPendingSourceFilter(e.target.value)}
                     className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium cursor-pointer"
                   >
-                    <option value="all">All Ingestion Sources</option>
-                    <option value="user">User / Employer Submitted</option>
-                    <option value="scraper">Web Scraper Harvested</option>
-                    <option value="pdf">FPSC / WAPDA PDF Parser</option>
+                    <option value="all">All Job Sources</option>
+                    <option value="user">User / Employer Posted</option>
+                    <option value="admin">Admin Posted</option>
+                    <option value="scraper">Web Scraper</option>
+                    <option value="pdf">PDF Parser (FPSC / WAPDA etc.)</option>
                   </select>
 
                   <select

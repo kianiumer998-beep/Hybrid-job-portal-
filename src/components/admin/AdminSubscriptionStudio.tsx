@@ -123,6 +123,11 @@ export const AdminSubscriptionStudio: React.FC<{ onPricingSaved?: (pricing: any)
         setError(`"${feature.label || feature.id}" ke price, duration ya slots mein invalid value hai.`);
         return;
       }
+      if (['email_alerts', 'whatsapp_alerts', 'sms_alerts'].includes(feature.id) &&
+          feature.unlimitedMessages !== true && !numberIsValid(feature.monthlyMessageQuota, 1, 1000000)) {
+        setError(`"${feature.label || feature.id}" ke liye Unlimited enable karein ya monthly quota 1 se 1,000,000 set karein.`);
+        return;
+      }
     }
 
     setSaving(true);
@@ -176,6 +181,12 @@ export const AdminSubscriptionStudio: React.FC<{ onPricingSaved?: (pricing: any)
                 <label className="text-[10px] text-slate-400">Included slots<input type="number" min="0" max="1000" value={feature.includedSlots ?? ''} onChange={e => updateFeature(index, { includedSlots: e.target.value === '' ? '' : Number(e.target.value) })} className="mt-1 w-full rounded bg-slate-900 p-2 text-xs text-white" /></label>
                 <label className="text-[10px] text-slate-400">Slot duration<input type="number" min="1" max="3650" value={feature.slotDurationDays ?? ''} onChange={e => updateFeature(index, { slotDurationDays: e.target.value === '' ? '' : Number(e.target.value) })} className="mt-1 w-full rounded bg-slate-900 p-2 text-xs text-white" /></label>
               </div>
+              {['email_alerts', 'whatsapp_alerts', 'sms_alerts'].includes(feature.id) && <div className="space-y-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2">
+                <label className="flex items-center gap-2 text-[11px] text-emerald-200"><input type="checkbox" checked={feature.unlimitedMessages === true || (feature.unlimitedMessages === undefined && feature.monthlyMessageQuota === undefined)} onChange={e => updateFeature(index, { unlimitedMessages: e.target.checked, ...(e.target.checked ? {} : { monthlyMessageQuota: feature.monthlyMessageQuota || 0 }) })} />Unlimited messages</label>
+                {feature.unlimitedMessages !== true && !(feature.unlimitedMessages === undefined && feature.monthlyMessageQuota === undefined) && <label className="block text-[10px] text-slate-300">Monthly message quota<input type="number" min="1" max="1000000" value={feature.monthlyMessageQuota ?? ''} onChange={e => updateFeature(index, { monthlyMessageQuota: e.target.value === '' ? '' : Number(e.target.value) })} className="mt-1 w-full rounded bg-slate-900 p-2 text-xs text-white" /></label>}
+                <p className="text-[9px] text-slate-500">Quota is reserved before provider delivery and released if the provider fails. Existing older subscriptions retain their legacy access.</p>
+              </div>}
+
             </div>
           ))}
         </div>
@@ -206,7 +217,7 @@ export const AdminSubscriptionStudio: React.FC<{ onPricingSaved?: (pricing: any)
         ))}
         {!packages.length && <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center text-xs text-slate-500">No master plans configured yet.</div>}
       </section>
-      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-[11px] text-amber-100">Campaign placement credits aur monthly SMS/WhatsApp message quotas ko tab tak master plans mein offer nahi kiya ja raha jab tak unki backend usage-metering aur redemption enforcement complete na ho. Is se paid customers ko unsupported benefits sell nahi honge.</div>
+      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-[11px] text-amber-100">Campaign placement credits abhi plans mein offer nahi kiye ja rahe. Unke liye separate placement-specific redemption, duration accounting aur refund controls complete hona zaroori hai. Email, WhatsApp aur SMS ke monthly quotas backend par enforce hotay hain.</div>
     </div>
   );
 };

@@ -1497,6 +1497,7 @@ export class UserRepository {
     }
 
     const oldRole = targetUser.role || 'Job Seeker';
+
     // Only an existing Super Admin can assign the Super Admin role or modify an existing Super Admin
     if (newRole === 'Super Admin' && actorRole !== 'Super Admin') {
       return {
@@ -1720,3 +1721,4 @@ export class UserRepository {
     return queuedPromise;
   }
 }
+

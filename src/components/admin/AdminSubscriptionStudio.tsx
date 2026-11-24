@@ -140,8 +140,9 @@ export const AdminSubscriptionStudio: React.FC<{ onPricingSaved?: (pricing: any)
         if (!credits.length || credits.some((credit: any) =>
           !CAMPAIGN_PLACEMENTS.some(option => option.id === credit.placement) ||
           !numberIsValid(credit.durationHours, 1, 8760) ||
-          !numberIsValid(credit.quantity, 1, 1000)) ||
-          new Set(credits.map((credit: any) => String(credit.placement) + ':' + String(credit.durationHours))).size !== credits.length) {
+          !numberIsValid(credit.quantity, 1, 1000) ||
+          (credit.placement === 'sms-broadcast' && !numberIsValid(credit.smsRecipientsCount, 1, 100000))) ||
+          new Set(credits.map((credit: any) => String(credit.placement) + ':' + String(credit.durationHours) + ':' + String(credit.smsRecipientsCount || 0))).size !== credits.length) {
           setError('Campaign Credits ke liye unique placement + duration combinations aur valid quantity configure karein.');
           return;
         }
@@ -206,13 +207,14 @@ export const AdminSubscriptionStudio: React.FC<{ onPricingSaved?: (pricing: any)
               </div>}
               {feature.id === 'campaign_credits' && <div className="space-y-2 rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-2">
                 <div className="flex items-center justify-between"><p className="text-[10px] font-semibold text-indigo-200">Placement credits</p><button type="button" onClick={() => updateFeature(index, { campaignCredits: [...(feature.campaignCredits || []), { placement: 'sidebar', durationHours: 168, quantity: 1 }] })} className="rounded border border-indigo-400/40 px-2 py-1 text-[9px]">Add credit</button></div>
-                {(feature.campaignCredits || []).map((credit: any, creditIndex: number) => <div key={creditIndex} className="grid grid-cols-1 gap-2 rounded border border-slate-800 p-2 sm:grid-cols-[1fr_90px_75px_auto]">
-                  <select value={credit.placement} onChange={e => updateFeature(index, { campaignCredits: feature.campaignCredits.map((item: any, i: number) => i === creditIndex ? { ...item, placement: e.target.value } : item) })} className="rounded bg-slate-900 p-2 text-[10px]">{CAMPAIGN_PLACEMENTS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select>
+                {(feature.campaignCredits || []).map((credit: any, creditIndex: number) => <div key={creditIndex} className="grid grid-cols-1 gap-2 rounded border border-slate-800 p-2 sm:grid-cols-[1fr_80px_70px_90px_auto]">
+                  <select value={credit.placement} onChange={e => updateFeature(index, { campaignCredits: feature.campaignCredits.map((item: any, i: number) => i === creditIndex ? { ...item, placement: e.target.value, ...(e.target.value === 'sms-broadcast' ? { smsRecipientsCount: item.smsRecipientsCount || 100 } : {}) } : item) })} className="rounded bg-slate-900 p-2 text-[10px]">{CAMPAIGN_PLACEMENTS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select>
                   <label className="text-[9px] text-slate-400">Duration hours<input type="number" min="1" max="8760" value={credit.durationHours ?? ''} onChange={e => updateFeature(index, { campaignCredits: feature.campaignCredits.map((item: any, i: number) => i === creditIndex ? { ...item, durationHours: e.target.value === '' ? '' : Number(e.target.value) } : item) })} className="mt-1 w-full rounded bg-slate-900 p-2 text-[10px] text-white" /></label>
                   <label className="text-[9px] text-slate-400">Quantity<input type="number" min="1" max="1000" value={credit.quantity ?? ''} onChange={e => updateFeature(index, { campaignCredits: feature.campaignCredits.map((item: any, i: number) => i === creditIndex ? { ...item, quantity: e.target.value === '' ? '' : Number(e.target.value) } : item) })} className="mt-1 w-full rounded bg-slate-900 p-2 text-[10px] text-white" /></label>
+                  {credit.placement === 'sms-broadcast' && <label className="text-[9px] text-slate-400">SMS recipients<input type="number" min="1" max="100000" value={credit.smsRecipientsCount ?? ''} onChange={e => updateFeature(index, { campaignCredits: feature.campaignCredits.map((item: any, i: number) => i === creditIndex ? { ...item, smsRecipientsCount: e.target.value === '' ? '' : Number(e.target.value) } : item) })} className="mt-1 w-full rounded bg-slate-900 p-2 text-[10px] text-white" /></label>}
                   <button type="button" onClick={() => updateFeature(index, { campaignCredits: feature.campaignCredits.filter((_: any, i: number) => i !== creditIndex) })} className="self-end rounded px-2 py-2 text-[10px] text-rose-300">Remove</button>
                 </div>)}
-                <p className="text-[9px] text-slate-500">Exact placement and duration are matched at redemption. Custom duration must match a configured credit.</p>
+                <p className="text-[9px] text-slate-500">Exact placement and duration are matched at redemption. SMS broadcast credits also require the exact configured recipient count.</p>
               </div>}
 
             </div>

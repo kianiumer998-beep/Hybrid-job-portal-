@@ -167,8 +167,12 @@ async function run() {
   assert.equal(campaignRedemption?.user.subscriptionEntitlements.campaign_credits.campaignCredits[0].remaining, 0, 'campaign credit is consumed atomically');
   const duplicateCampaignRedemption = await SubscriptionUsageRepository.consumeCampaignCredit(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1');
   assert.equal(duplicateCampaignRedemption?.user.subscriptionEntitlements.campaign_credits.campaignCredits[0].remaining, 0, 'repeated campaign redemption does not consume a second credit');
+  assert.equal(await SubscriptionUsageRepository.consumeCampaignCredit(campaignCreditUserId, 'top-header', 168, 'campaign-event-1'), null, 'reusing a campaign idempotency key with a different placement is rejected');
+  assert.equal(await SubscriptionUsageRepository.consumeCampaignCredit(campaignCreditUserId, 'sidebar', 24, 'campaign-event-1'), null, 'reusing a campaign idempotency key with a different duration is rejected');
+  assert.equal(await SubscriptionUsageRepository.restoreCampaignCredit(campaignCreditUserId, 'top-header', 168, 'campaign-event-1'), false, 'a mismatched placement cannot restore another placement credit');
   assert.equal(await SubscriptionUsageRepository.restoreCampaignCredit(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1'), true, 'rejected campaign restores its credit');
   assert.equal(await SubscriptionUsageRepository.restoreCampaignCredit(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1'), true, 'repeated campaign restoration is idempotent');
+  assert.equal(await SubscriptionUsageRepository.consumeCampaignCredit(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1'), null, 'a restored idempotency key cannot be replayed to create another campaign');
 
   const smsCampaignUserId = 'subscription-sms-campaign-credit-test-user';
   await UserRepository.createAsync({

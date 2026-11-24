@@ -93,8 +93,13 @@ export const AdminSubscriptionStudio: React.FC<{ onPricingSaved?: (pricing: any)
         return;
       }
       const selectedIds = Array.isArray(pkg.featureIds) ? pkg.featureIds : [];
-      if (pkg.pricingMode === 'catalog' && (!selectedIds.length || selectedIds.some((id: string) => !enabledFeatures.some((f: any) => f.id === id)))) {
-        setError(`"${pkg.name}" mein sirf enabled catalog features select karein.`);
+      if (pkg.pricingMode === 'catalog' && pkg.enabled !== false &&
+          (!selectedIds.length || selectedIds.some((id: string) => !enabledFeatures.some((f: any) => f.id === id)))) {
+        setError(`"${pkg.name}" mein sirf enabled catalog features select karein, ya plan ko temporarily disable karein.`);
+        return;
+      }
+      if (pkg.bundleDiscountPercent !== undefined && !numberIsValid(pkg.bundleDiscountPercent, 0, 100)) {
+        setError(`"${pkg.name}" ka discount 0 se 100 percent ke darmiyan hona chahiye.`);
         return;
       }
       if (pkg.cvBenefitsEnabled) {
@@ -105,6 +110,10 @@ export const AdminSubscriptionStudio: React.FC<{ onPricingSaved?: (pricing: any)
           }
         }
       }
+    }
+    if (!numberIsValid(pricing.subscriptionBundleDiscountPercent ?? 0, 0, 100)) {
+      setError('Default bundle discount 0 se 100 percent ke darmiyan hona chahiye.');
+      return;
     }
     for (const feature of catalog) {
       if (!numberIsValid(feature.pricePkr ?? 0, 0, Number.MAX_SAFE_INTEGER) ||

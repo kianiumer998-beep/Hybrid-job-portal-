@@ -7,6 +7,7 @@ import { SubscriptionUsageRepository } from '../db/repositories/SubscriptionUsag
 import { PaymentRepository } from '../db/repositories/PaymentRepository';
 
 async function run() {
+  const future = new Date(Date.now() + 86400000).toISOString();
   const catalog = normalizeSubscriptionFeatureCatalog([
     { id: 'early_access', label: 'Early Access', enabled: true, pricePkr: 500, durationDays: 30, includedSlots: 0, slotDurationDays: 30 },
     { id: 'whatsapp_alerts', label: 'WhatsApp Alerts', enabled: true, pricePkr: 300, durationDays: 30, includedSlots: 0, slotDurationDays: 30 },
@@ -126,7 +127,6 @@ async function run() {
   assert.equal(await SubscriptionUsageRepository.completeMessageQuota(legacyQuotaUserId, 'email_alerts', 'legacy-event'), true, 'legacy notification delivery is recorded idempotently');
 
   const quotaUserId = 'subscription-message-quota-test-user';
-  const future = new Date(Date.now() + 86400000).toISOString();
   await UserRepository.createAsync({
     id: quotaUserId,
     walletBalance: 0,

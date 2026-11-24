@@ -632,6 +632,18 @@ adRouter.put('/:id', requireAuth, async (req: any, res) => {
     }
 
     const updates = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    if (existingAd.subscriptionCreditRedemption && (
+      (Object.prototype.hasOwnProperty.call(updates, 'placement') && updates.placement !== existingAd.placement) ||
+      (Object.prototype.hasOwnProperty.call(updates, 'durationUnit') && updates.durationUnit !== existingAd.durationUnit) ||
+      (Object.prototype.hasOwnProperty.call(updates, 'durationValue') && Number(updates.durationValue) !== Number(existingAd.durationValue)) ||
+      Object.prototype.hasOwnProperty.call(updates, 'subscriptionCreditRedemption') ||
+      (Object.prototype.hasOwnProperty.call(updates, 'paymentStatus') && updates.paymentStatus !== existingAd.paymentStatus)
+    )) {
+      return res.status(409).json({
+        success: false,
+        message: 'Subscription-credit campaign placement, duration and redemption record are locked. Use the dedicated review action for approval or rejection.'
+      });
+    }
     if (
       existingAd.paymentStatus === 'Escrow' &&
       (['active', 'rejected'].includes(String(updates.status || '')) ||

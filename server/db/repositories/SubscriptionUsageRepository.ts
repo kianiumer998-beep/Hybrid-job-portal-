@@ -162,7 +162,12 @@ export class SubscriptionUsageRepository {
           'credit.remaining': { $gt: 0 }
         }]
       } as any);
-      if (!updatedDoc) return null;
+      if (!updatedDoc) {
+        const previouslyConsumed = await coll.findOne({ id: uid, [marker]: 'CONSUMED' });
+        if (!previouslyConsumed) return null;
+        const { _id, ...safePrevious } = previouslyConsumed;
+        return { user: safePrevious, credit: { placement: cleanPlacement, durationHours, smsRecipientsCount, campaignId: campaign } };
+      }
       const { _id, ...safe } = updatedDoc;
       return { user: safe, credit: { placement: cleanPlacement, durationHours, smsRecipientsCount, campaignId: campaign } };
     }
@@ -173,7 +178,8 @@ export class SubscriptionUsageRepository {
         user.subscriptionEntitlements?.campaign_credits?.enabled !== true ||
         !Number.isFinite(featureExpiry) || featureExpiry <= Date.now()) return null;
     const ops = user.subscriptionCampaignOperations || {};
-    if (ops[markerKey] === 'CONSUMED' || ops[markerKey] === 'RESTORED') return null;
+    if (ops[markerKey] === 'CONSUMED') return { user, credit: { placement: cleanPlacement, durationHours, smsRecipientsCount, campaignId: campaign } };
+    if (ops[markerKey] === 'RESTORED') return null;
     const credits = user.subscriptionEntitlements.campaign_credits.campaignCredits || [];
     const index = credits.findIndex((item: any) => item?.placement === cleanPlacement &&
       Number(item?.durationHours) === durationHours &&

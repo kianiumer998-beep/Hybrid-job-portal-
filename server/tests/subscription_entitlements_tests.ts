@@ -3,6 +3,7 @@ process.env.IS_TEST = 'true';
 import assert from 'node:assert/strict';
 import { normalizeSubscriptionFeatureCatalog, resolveSubscriptionPackage } from '../services/subscriptionEntitlements';
 import { UserRepository } from '../db/repositories/UserRepository';
+import { SubscriptionUsageRepository } from '../db/repositories/SubscriptionUsageRepository';
 
 async function run() {
   const catalog = normalizeSubscriptionFeatureCatalog([
@@ -113,18 +114,18 @@ async function run() {
       sms_alerts: { enabled: true, expiresAt: future, unlimitedMessages: false, monthlyMessageQuota: 2 }
     }
   });
-  const firstReservation = await UserRepository.reserveSubscriptionMessageQuotaAsync(quotaUserId, 'sms_alerts', 'event-1');
+  const firstReservation = await SubscriptionUsageRepository.reserveMessageQuota(quotaUserId, 'sms_alerts', 'event-1');
   assert.equal(firstReservation.ok, true, 'first paid message reserves one quota unit');
-  const duplicateReservation = await UserRepository.reserveSubscriptionMessageQuotaAsync(quotaUserId, 'sms_alerts', 'event-1');
+  const duplicateReservation = await SubscriptionUsageRepository.reserveMessageQuota(quotaUserId, 'sms_alerts', 'event-1');
   assert.equal(duplicateReservation.reason, 'already_processed', 'duplicate event cannot reserve or send twice');
-  assert.equal(await UserRepository.completeSubscriptionMessageQuotaAsync(quotaUserId, 'sms_alerts', 'event-1'), true, 'successful provider delivery finalizes reservation');
-  const failedReservation = await UserRepository.reserveSubscriptionMessageQuotaAsync(quotaUserId, 'sms_alerts', 'event-2');
+  assert.equal(await SubscriptionUsageRepository.completeMessageQuota(quotaUserId, 'sms_alerts', 'event-1'), true, 'successful provider delivery finalizes reservation');
+  const failedReservation = await SubscriptionUsageRepository.reserveMessageQuota(quotaUserId, 'sms_alerts', 'event-2');
   assert.equal(failedReservation.ok, true, 'second message can reserve remaining quota');
-  assert.equal(await UserRepository.releaseSubscriptionMessageQuotaAsync(quotaUserId, 'sms_alerts', 'event-2', failedReservation.month), true, 'provider failure releases reserved quota');
-  const retryReservation = await UserRepository.reserveSubscriptionMessageQuotaAsync(quotaUserId, 'sms_alerts', 'event-2');
+  assert.equal(await SubscriptionUsageRepository.releaseMessageQuota(quotaUserId, 'sms_alerts', 'event-2', failedReservation.month), true, 'provider failure releases reserved quota');
+  const retryReservation = await SubscriptionUsageRepository.reserveMessageQuota(quotaUserId, 'sms_alerts', 'event-2');
   assert.equal(retryReservation.ok, true, 'failed provider event can be retried safely');
-  assert.equal(await UserRepository.completeSubscriptionMessageQuotaAsync(quotaUserId, 'sms_alerts', 'event-2'), true, 'retried successful delivery finalizes quota');
-  const exhaustedReservation = await UserRepository.reserveSubscriptionMessageQuotaAsync(quotaUserId, 'sms_alerts', 'event-3');
+  assert.equal(await SubscriptionUsageRepository.completeMessageQuota(quotaUserId, 'sms_alerts', 'event-2'), true, 'retried successful delivery finalizes quota');
+  const exhaustedReservation = await SubscriptionUsageRepository.reserveMessageQuota(quotaUserId, 'sms_alerts', 'event-3');
   assert.equal(exhaustedReservation.reason, 'quota_exhausted', 'monthly message quota blocks further sends');
   const quotaUser = await UserRepository.getByIdAsync(quotaUserId);
   assert.equal(quotaUser.subscriptionMessageUsage.sms_alerts[retryReservation.month].used, 2, 'failed provider attempt did not consume quota');
@@ -139,12 +140,12 @@ async function run() {
       ] }
     }
   });
-  const campaignRedemption = await UserRepository.consumeSubscriptionCampaignCreditAsync(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1');
+  const campaignRedemption = await SubscriptionUsageRepository.consumeCampaignCredit(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1');
   assert.equal(campaignRedemption?.credit.placement, 'sidebar', 'campaign credit matches the requested placement');
   assert.equal(campaignRedemption?.user.subscriptionEntitlements.campaign_credits.campaignCredits[0].remaining, 0, 'campaign credit is consumed atomically');
-  assert.equal(await UserRepository.consumeSubscriptionCampaignCreditAsync(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1'), null, 'campaign redemption is idempotent');
-  assert.equal(await UserRepository.restoreSubscriptionCampaignCreditAsync(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1'), true, 'rejected campaign restores its credit');
-  assert.equal(await UserRepository.restoreSubscriptionCampaignCreditAsync(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1'), true, 'repeated campaign restoration is idempotent');
+  assert.equal(await SubscriptionUsageRepository.consumeCampaignCredit(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1'), null, 'campaign redemption is idempotent');
+  assert.equal(await SubscriptionUsageRepository.restoreCampaignCredit(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1'), true, 'rejected campaign restores its credit');
+  assert.equal(await SubscriptionUsageRepository.restoreCampaignCredit(campaignCreditUserId, 'sidebar', 168, 'campaign-event-1'), true, 'repeated campaign restoration is idempotent');
 
   const smsCampaignUserId = 'subscription-sms-campaign-credit-test-user';
   await UserRepository.createAsync({
@@ -156,10 +157,10 @@ async function run() {
       ] }
     }
   });
-  assert.equal(await UserRepository.consumeSubscriptionCampaignCreditAsync(smsCampaignUserId, 'sms-broadcast', 24, 'sms-campaign-1', 49), null, 'SMS campaign credit rejects a different recipient count');
-  const smsCampaignRedemption = await UserRepository.consumeSubscriptionCampaignCreditAsync(smsCampaignUserId, 'sms-broadcast', 24, 'sms-campaign-1', 50);
+  assert.equal(await SubscriptionUsageRepository.consumeCampaignCredit(smsCampaignUserId, 'sms-broadcast', 24, 'sms-campaign-1', 49), null, 'SMS campaign credit rejects a different recipient count');
+  const smsCampaignRedemption = await SubscriptionUsageRepository.consumeCampaignCredit(smsCampaignUserId, 'sms-broadcast', 24, 'sms-campaign-1', 50);
   assert.equal(smsCampaignRedemption?.credit.smsRecipientsCount, 50, 'SMS campaign credit matches its configured recipient cap');
-  assert.equal(await UserRepository.restoreSubscriptionCampaignCreditAsync(smsCampaignUserId, 'sms-broadcast', 24, 'sms-campaign-1', 50), true, 'rejected SMS campaign restores the exact recipient credit');
+  assert.equal(await SubscriptionUsageRepository.restoreCampaignCredit(smsCampaignUserId, 'sms-broadcast', 24, 'sms-campaign-1', 50), true, 'rejected SMS campaign restores the exact recipient credit');
 
   const unlimitedUserId = 'subscription-message-unlimited-test-user';
   await UserRepository.createAsync({
@@ -167,14 +168,14 @@ async function run() {
     subscriptionFeatureIds: ['whatsapp_alerts'],
     subscriptionEntitlements: { whatsapp_alerts: { enabled: true, expiresAt: future, unlimitedMessages: true } }
   });
-  const unlimitedReservation = await UserRepository.reserveSubscriptionMessageQuotaAsync(unlimitedUserId, 'whatsapp_alerts', 'unlimited-event');
+  const unlimitedReservation = await SubscriptionUsageRepository.reserveMessageQuota(unlimitedUserId, 'whatsapp_alerts', 'unlimited-event');
   assert.equal(unlimitedReservation.ok, true, 'explicit Unlimited entitlement does not enforce a numeric cap');
   const noExpiryUserId = 'subscription-message-no-expiry-test-user';
   await UserRepository.createAsync({
     id: noExpiryUserId, walletBalance: 0, membershipStatus: 'Active',
     subscriptionEntitlements: { sms_alerts: { enabled: true, unlimitedMessages: true } }
   });
-  const noExpiryReservation = await UserRepository.reserveSubscriptionMessageQuotaAsync(noExpiryUserId, 'sms_alerts', 'no-expiry-event');
+  const noExpiryReservation = await SubscriptionUsageRepository.reserveMessageQuota(noExpiryUserId, 'sms_alerts', 'no-expiry-event');
   assert.equal(noExpiryReservation.reason, 'unavailable', 'missing subscription expiry fails closed');
 
   console.log('Subscription entitlement tests passed (46 assertions).');

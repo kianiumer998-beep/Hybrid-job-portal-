@@ -1354,6 +1354,8 @@ transactionRouter.post('/', async (req, res) => {
                 includedSlots: Number.isInteger(Number(feature.includedSlots)) ? Math.max(0, Number(feature.includedSlots)) : 0,
                 remainingSlots: Number.isInteger(Number(feature.includedSlots)) ? Math.max(0, Number(feature.includedSlots)) : 0,
                 slotDurationDays: Number.isInteger(Number(feature.slotDurationDays)) ? Math.max(1, Number(feature.slotDurationDays)) : subDurationDays,
+                ...(typeof feature.unlimitedMessages === 'boolean' ? { unlimitedMessages: feature.unlimitedMessages } : {}),
+                ...(Number.isInteger(Number(feature.monthlyMessageQuota)) && Number(feature.monthlyMessageQuota) >= 1 ? { monthlyMessageQuota: Number(feature.monthlyMessageQuota) } : {}),
                 sourcePackageId: String(walletPackageSnapshot.id || '')
               };
             }

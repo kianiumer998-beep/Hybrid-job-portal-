@@ -48,7 +48,7 @@ export class SubscriptionUsageRepository {
         status: input.status,
         lastAttemptAt: now
       },
-      $setOnInsert: { eventId, createdAt: now },
+      $setOnInsert: { eventId, createdAt: new Date() },
       $inc: { attempts: 1 }
     }, { upsert: true });
     return true;

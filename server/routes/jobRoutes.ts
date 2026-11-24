@@ -551,7 +551,7 @@ jobRouter.post('/queue/pending/:id/reject', requireAdminPermission('jobs.manage'
     const target = pendingJobs.find(j => j.id === id);
     const sourceType = deriveJobSourceType(target);
     const isScraped = isScrapedJob(target);
-    if (target && !isScraped && sourceType === 'user_posted' && !reason) {
+    if (target && sourceType === 'user_posted' && !reason) {
       return res.status(400).json({ success: false, message: 'Please provide a clear correction reason so the job owner knows what to fix.' });
     }
 
@@ -566,7 +566,7 @@ jobRouter.post('/queue/pending/:id/reject', requireAdminPermission('jobs.manage'
     let notificationSent = false;
     // Check source type and scraper flags authoritatively
     // Only notify genuine user-posted listings with a verified submittedByUserId
-    if (target && !isScraped && sourceType === 'user_posted' && target.submittedByUserId) {
+    if (target && sourceType === 'user_posted' && target.submittedByUserId) {
       try {
         const recipientUserId = String(target.submittedByUserId);
         const recipient = await UserRepository.getByIdAsync(recipientUserId);
@@ -638,7 +638,7 @@ jobRouter.post('/bulk-delete', requireAdminPermission('jobs.manage'), async (req
     if (result.userPostedJobs.length > 0) {
       const userJobMap = new Map<string, any[]>();
       for (const job of result.userPostedJobs) {
-        if (job.submittedByUserId && !isScrapedJob(job)) {
+        if (job.submittedByUserId) {
           const uId = String(job.submittedByUserId);
           if (!userJobMap.has(uId)) userJobMap.set(uId, []);
           userJobMap.get(uId)!.push(job);
@@ -821,8 +821,7 @@ jobRouter.post('/bulk-reject', requireAdminPermission('jobs.manage'), async (req
     if (!reason) {
       const pendingBefore = await JobRepository.getPending();
       const includesUserSubmission = pendingBefore.some((job: any) =>
-        safeIds.includes(String(job.id)) && !isScrapedJob(job) &&
-        deriveJobSourceType(job) === 'user_posted' && Boolean(job.submittedByUserId)
+        safeIds.includes(String(job.id)) && deriveJobSourceType(job) === 'user_posted' && Boolean(job.submittedByUserId)
       );
       if (includesUserSubmission) {
         return res.status(400).json({ success: false, message: 'Please provide a clear correction reason before bulk-rejecting user-submitted jobs.' });

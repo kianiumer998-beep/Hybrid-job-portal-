@@ -16,6 +16,7 @@ export interface AdminFeatureFlags {
   deduplicationEnabled: boolean;
   enableEmailAlerts: boolean;
   enableWhatsAppAlerts: boolean;
+  enableSmsAlerts?: boolean;
 }
 
 export interface PakistanLocation {

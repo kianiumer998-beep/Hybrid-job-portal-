@@ -4776,6 +4776,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   <label className="text-xs font-semibold text-slate-300">Total Vacancies
                     <input type="number" min="0" value={resubmissionDraft.totalVacancies ?? ''} onChange={(e) => updateResubmissionField('totalVacancies', e.target.value === '' ? undefined : Number(e.target.value))} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
                   </label>
+                  <label className="text-xs font-semibold text-slate-300">Minimum Age
+                    <input type="number" min="0" value={resubmissionDraft.minimumAge ?? ''} onChange={(e) => updateResubmissionField('minimumAge', e.target.value === '' ? undefined : Number(e.target.value))} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">Maximum Age
+                    <input type="number" min="0" value={resubmissionDraft.maximumAge ?? ''} onChange={(e) => updateResubmissionField('maximumAge', e.target.value === '' ? undefined : Number(e.target.value))} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+                  </label>
                 </div>
                 <label className="block text-xs font-semibold text-slate-300">Job Description *
                   <textarea value={resubmissionDraft.description || ''} onChange={(e) => updateResubmissionField('description', e.target.value)} rows={7} maxLength={30000} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
@@ -4822,7 +4828,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   {[
                     ['applicationStartDate','Application Start Date'],
                     ['deadlineDate','Application Deadline'],
-                    ['expiryDate','Listing Expiry Date']
+                    ['expiryDate','Listing Expiry Date'],
+                    ['futureIntakeDate','Future Intake Date']
                   ].map(([field,label]) => (
                     <label key={field} className="text-xs font-semibold text-slate-300">{label}
                       <input type="date" value={String((resubmissionDraft as any)[field] || '').slice(0,10)} onChange={(e) => updateResubmissionField(field as keyof Job, e.target.value)} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />

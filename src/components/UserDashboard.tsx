@@ -3952,6 +3952,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                                   <div key={index} className="text-[10px] text-rose-100/80">
                                     <span className="font-semibold">{String(entry.action || 'Update').replace(/_/g, ' ')}</span>
                                     {entry.at ? ` • ${new Date(entry.at).toLocaleString()}` : ''}
+                                    {entry.actorName ? ` • by ${entry.actorName}` : ''}
+                                    {entry.attempt ? ` • attempt ${entry.attempt}` : ''}
                                     {entry.reason ? <div className="whitespace-pre-wrap">{entry.reason}</div> : null}
                                   </div>
                                 ))}

@@ -2285,7 +2285,7 @@ export class UserRepository {
       } as any);
       if (!updatedDoc) return null;
       const { _id, ...safe } = updatedDoc;
-      return { user: safe, credit: { placement: cleanPlacement, durationHours, campaignId: campaign } };
+      return { user: safe, credit: { placement: cleanPlacement, durationHours, smsRecipientsCount, campaignId: campaign } };
     }
     const user = Database.getUserById(uid);
     const membershipExpiry = Date.parse(String(user?.subscriptionExpiresAt || ''));
@@ -2296,7 +2296,7 @@ export class UserRepository {
     const ops = user.subscriptionCampaignOperations || {};
     if (ops[markerKey] === 'CONSUMED' || ops[markerKey] === 'RESTORED') return null;
     const credits = user.subscriptionEntitlements.campaign_credits.campaignCredits || [];
-    const index = credits.findIndex((item: any) => item?.placement === cleanPlacement && Number(item?.durationHours) === durationHours && Number(item?.remaining) > 0);
+    const index = credits.findIndex((item: any) => item?.placement === cleanPlacement && Number(item?.durationHours) === durationHours && (cleanPlacement !== 'sms-broadcast' || Number(item?.smsRecipientsCount) === smsRecipientsCount) && Number(item?.remaining) > 0);
     if (index < 0) return null;
     const updatedCredits = credits.map((item: any, i: number) => i === index ? { ...item, remaining: Number(item.remaining) - 1 } : item);
     const updated = await UserRepository.updateAsync(uid, {
@@ -2349,7 +2349,7 @@ export class UserRepository {
     const credits = user.subscriptionEntitlements?.campaign_credits?.campaignCredits || [];
     let restored = false;
     const updatedCredits = credits.map((item: any) => {
-      if (!restored && item?.placement === cleanPlacement && Number(item?.durationHours) === durationHours) {
+      if (!restored && item?.placement === cleanPlacement && Number(item?.durationHours) === durationHours && (cleanPlacement !== 'sms-broadcast' || Number(item?.smsRecipientsCount) === smsRecipientsCount)) {
         restored = true; return { ...item, remaining: Number(item.remaining || 0) + 1 };
       }
       return item;

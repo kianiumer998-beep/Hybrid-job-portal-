@@ -171,7 +171,7 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
 
       // Subscription campaign credits are an alternative prepaid route; the placement and exact
       // duration are verified against the server-side campaign pricing engine before redemption.
-      if (!isAdmin && !walletTxId) {
+      if (!isAdmin && !walletTxId && !(idempotencyKey && PaymentRepository.findByIdempotencyKey(idempotencyKey))) {
         if (!idempotencyKey) {
           return res.status(400).json({ success: false, message: 'An idempotency key is required when redeeming a subscription campaign credit.' });
         }

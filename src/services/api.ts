@@ -1261,7 +1261,7 @@ export const api = {
       return safeFetchJson<{
         success: boolean;
         whatsAppSupportConfig?: any;
-        channelAvailability?: { email: boolean; whatsapp: boolean };
+        channelAvailability?: { email: boolean; whatsapp: boolean; sms?: boolean };
         message?: string;
       }>(`${API_BASE}/settings/communication`, { headers: getAuthHeader() });
     },

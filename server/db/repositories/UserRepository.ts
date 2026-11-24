@@ -2252,9 +2252,11 @@ export class UserRepository {
     const creditQuery = { placement: cleanPlacement, durationHours, remaining: { $gt: 0 } };
     if (isTest()) {
       const user = inMemoryUsers.get(uid);
-      if (!user || user.membershipStatus !== 'Active' || Date.parse(String(user.subscriptionExpiresAt || '')) <= Date.now() ||
+      const membershipExpiry = Date.parse(String(user?.subscriptionExpiresAt || ''));
+      const featureExpiry = Date.parse(String(user?.subscriptionEntitlements?.campaign_credits?.expiresAt || ''));
+      if (!user || user.membershipStatus !== 'Active' || !Number.isFinite(membershipExpiry) || membershipExpiry <= Date.now() ||
           user.subscriptionEntitlements?.campaign_credits?.enabled !== true ||
-          Date.parse(String(user.subscriptionEntitlements?.campaign_credits?.expiresAt || '')) <= Date.now()) return null;
+          !Number.isFinite(featureExpiry) || featureExpiry <= Date.now()) return null;
       const ops = user.subscriptionCampaignOperations || {};
       if (ops[markerKey] === 'CONSUMED' || ops[markerKey] === 'RESTORED') return null;
       const credits = user.subscriptionEntitlements.campaign_credits.campaignCredits || [];
@@ -2286,9 +2288,11 @@ export class UserRepository {
       return { user: safe, credit: { placement: cleanPlacement, durationHours, campaignId: campaign } };
     }
     const user = Database.getUserById(uid);
-    if (!user || user.membershipStatus !== 'Active' || Date.parse(String(user.subscriptionExpiresAt || '')) <= Date.now() ||
+    const membershipExpiry = Date.parse(String(user?.subscriptionExpiresAt || ''));
+    const featureExpiry = Date.parse(String(user?.subscriptionEntitlements?.campaign_credits?.expiresAt || ''));
+    if (!user || user.membershipStatus !== 'Active' || !Number.isFinite(membershipExpiry) || membershipExpiry <= Date.now() ||
         user.subscriptionEntitlements?.campaign_credits?.enabled !== true ||
-        Date.parse(String(user.subscriptionEntitlements?.campaign_credits?.expiresAt || '')) <= Date.now()) return null;
+        !Number.isFinite(featureExpiry) || featureExpiry <= Date.now()) return null;
     const ops = user.subscriptionCampaignOperations || {};
     if (ops[markerKey] === 'CONSUMED' || ops[markerKey] === 'RESTORED') return null;
     const credits = user.subscriptionEntitlements.campaign_credits.campaignCredits || [];

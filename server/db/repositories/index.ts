@@ -17,3 +17,5 @@ export * from './BroadcastRepository';
 export * from './CommunicationProviderRepository';
 export * from './SeoRepository';
 
+
+export * from './SubscriptionUsageRepository';

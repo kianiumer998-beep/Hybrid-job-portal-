@@ -3519,12 +3519,22 @@ export default function App() {
   };
 
   const handleBulkRejectPendingJobs = async (jobIds: string[], reason?: string) => {
+    const cleanReason = String(reason || '').trim();
+    if (!cleanReason) {
+      return { success: false, message: 'A clear correction reason is required for bulk rejection.' };
+    }
     try {
-      await api.jobs.bulkReject(jobIds, reason || 'Bulk rejected by administrator');
+      const result = await api.jobs.bulkReject(jobIds, cleanReason);
+      if (!result?.success) {
+        await loadBackendJobs();
+        return { success: false, message: result?.message || 'Bulk rejection could not be completed.' };
+      }
       await loadBackendJobs();
-    } catch (err) {
+      return result;
+    } catch (err: any) {
       console.error('Error bulk rejecting pending jobs on backend:', err);
       await loadBackendJobs();
+      return { success: false, message: err?.message || 'Bulk rejection could not be completed.' };
     }
   };
 

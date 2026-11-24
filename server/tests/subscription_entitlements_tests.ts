@@ -118,7 +118,23 @@ async function run() {
   const quotaUser = await UserRepository.getByIdAsync(quotaUserId);
   assert.equal(quotaUser.subscriptionMessageUsage.sms_alerts[retryReservation.month].used, 2, 'failed provider attempt did not consume quota');
 
-  console.log('Subscription entitlement tests passed (32 assertions).');
+  const unlimitedUserId = 'subscription-message-unlimited-test-user';
+  await UserRepository.createAsync({
+    id: unlimitedUserId, walletBalance: 0, membershipStatus: 'Active', subscriptionExpiresAt: future,
+    subscriptionFeatureIds: ['whatsapp_alerts'],
+    subscriptionEntitlements: { whatsapp_alerts: { enabled: true, expiresAt: future, unlimitedMessages: true } }
+  });
+  const unlimitedReservation = await UserRepository.reserveSubscriptionMessageQuotaAsync(unlimitedUserId, 'whatsapp_alerts', 'unlimited-event');
+  assert.equal(unlimitedReservation.ok, true, 'explicit Unlimited entitlement does not enforce a numeric cap');
+  const noExpiryUserId = 'subscription-message-no-expiry-test-user';
+  await UserRepository.createAsync({
+    id: noExpiryUserId, walletBalance: 0, membershipStatus: 'Active',
+    subscriptionEntitlements: { sms_alerts: { enabled: true, unlimitedMessages: true } }
+  });
+  const noExpiryReservation = await UserRepository.reserveSubscriptionMessageQuotaAsync(noExpiryUserId, 'sms_alerts', 'no-expiry-event');
+  assert.equal(noExpiryReservation.reason, 'unavailable', 'missing subscription expiry fails closed');
+
+  console.log('Subscription entitlement tests passed (34 assertions).');
 }
 
 run().catch((error) => { console.error(error); process.exitCode = 1; });

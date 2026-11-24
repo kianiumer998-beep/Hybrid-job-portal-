@@ -110,10 +110,10 @@ export async function sendConfiguredPremiumAlert(user: any, channel: DeliveryCha
   const cleanEventId = String(eventId || '').trim();
   if (!user?.id || !cleanEventId) return false;
   const featureId = channel === 'email' ? 'email_alerts' : channel === 'whatsapp' ? 'whatsapp_alerts' : 'sms_alerts';
-  const { UserRepository } = await import('../db/repositories/UserRepository');
+  const { SubscriptionUsageRepository } = await import('../db/repositories/SubscriptionUsageRepository');
   let reservation: { ok: boolean; reason: string; month: string };
   try {
-    reservation = await UserRepository.reserveSubscriptionMessageQuotaAsync(String(user.id), featureId, cleanEventId);
+    reservation = await SubscriptionUsageRepository.reserveMessageQuota(String(user.id), featureId, cleanEventId);
   } catch (error: any) {
     console.error('[Communication Delivery] Subscription quota reservation failed:', error?.message || error);
     return false;
@@ -121,11 +121,11 @@ export async function sendConfiguredPremiumAlert(user: any, channel: DeliveryCha
   if (!reservation.ok) return false;
   const delivered = await deliverConfiguredPremiumAlert(user, channel, subject, message);
   if (delivered) {
-    const completed = await UserRepository.completeSubscriptionMessageQuotaAsync(String(user.id), featureId, cleanEventId);
+    const completed = await SubscriptionUsageRepository.completeMessageQuota(String(user.id), featureId, cleanEventId);
     if (!completed) console.error('[Communication Delivery] Provider accepted a message but quota completion needs reconciliation:', cleanEventId);
     return true;
   }
-  await UserRepository.releaseSubscriptionMessageQuotaAsync(String(user.id), featureId, cleanEventId, reservation.month).catch((error: any) => {
+  await SubscriptionUsageRepository.releaseMessageQuota(String(user.id), featureId, cleanEventId, reservation.month).catch((error: any) => {
     console.error('[Communication Delivery] Failed to release message quota reservation:', error?.message || error);
   });
   return false;

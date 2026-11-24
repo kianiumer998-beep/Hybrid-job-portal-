@@ -19,6 +19,8 @@ export interface SubscriptionFeatureConfig {
   durationDays: number;
   includedSlots: number;
   slotDurationDays: number;
+  unlimitedMessages?: boolean;
+  monthlyMessageQuota?: number;
 }
 
 const FEATURE_IDS = new Set<string>(SUBSCRIPTION_FEATURES.map((item) => item.id));
@@ -38,7 +40,10 @@ export function normalizeSubscriptionFeatureCatalog(raw: unknown): SubscriptionF
     pricePkr: Number.isSafeInteger(Number(item.pricePkr)) && Number(item.pricePkr) >= 0 ? Number(item.pricePkr) : 0,
     durationDays: Number.isInteger(Number(item.durationDays)) && Number(item.durationDays) > 0 && Number(item.durationDays) <= 3650 ? Number(item.durationDays) : 30,
     includedSlots: Number.isInteger(Number(item.includedSlots)) && Number(item.includedSlots) >= 0 && Number(item.includedSlots) <= 1000 ? Number(item.includedSlots) : 0,
-    slotDurationDays: Number.isInteger(Number(item.slotDurationDays)) && Number(item.slotDurationDays) > 0 && Number(item.slotDurationDays) <= 3650 ? Number(item.slotDurationDays) : 30
+    slotDurationDays: Number.isInteger(Number(item.slotDurationDays)) && Number(item.slotDurationDays) > 0 && Number(item.slotDurationDays) <= 3650 ? Number(item.slotDurationDays) : 30,
+    // Existing catalog entries remain unmetered until an administrator configures an explicit quota.
+    unlimitedMessages: item.unlimitedMessages === true || (item.unlimitedMessages === undefined && item.monthlyMessageQuota === undefined),
+    monthlyMessageQuota: Number.isInteger(Number(item.monthlyMessageQuota)) && Number(item.monthlyMessageQuota) >= 1 && Number(item.monthlyMessageQuota) <= 1000000 ? Number(item.monthlyMessageQuota) : 0
   }));
 }
 

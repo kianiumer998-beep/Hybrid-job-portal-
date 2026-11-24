@@ -180,12 +180,21 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
   useEffect(() => {
     let active = true;
-    api.jobs.getMySubmissions().then((result: any) => {
-      if (!active || !result?.success) return;
-      setOwnSubmissionHistory(Array.isArray(result.jobs) ? result.jobs : []);
-      setResubmissionLimit(Number.isInteger(result.maxResubmissionAttempts) ? result.maxResubmissionAttempts : 3);
-    }).catch(() => {});
-    return () => { active = false; };
+    const loadOwnSubmissions = () => {
+      api.jobs.getMySubmissions().then((result: any) => {
+        if (!active || !result?.success) return;
+        setOwnSubmissionHistory(Array.isArray(result.jobs) ? result.jobs : []);
+        setResubmissionLimit(Number.isInteger(result.maxResubmissionAttempts) ? result.maxResubmissionAttempts : 3);
+      }).catch(() => {});
+    };
+    loadOwnSubmissions();
+    const refreshTimer = window.setInterval(loadOwnSubmissions, 60000);
+    window.addEventListener('focus', loadOwnSubmissions);
+    return () => {
+      active = false;
+      window.clearInterval(refreshTimer);
+      window.removeEventListener('focus', loadOwnSubmissions);
+    };
   }, [currentUser.id]);
 
   const displayUserJobs = useMemo(() => {
@@ -3973,7 +3982,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                               </button>
                             )}
                             {Number((j as any).resubmissionCount || 0) >= resubmissionLimit && (
-                              <div className="font-semibold">Maximum resubmission attempts reached. Please contact support.</div>
+                              <div className="font-semibold">
+                                {resubmissionLimit === 0 ? 'Resubmission is currently disabled by the portal administrator.' : 'Maximum resubmission attempts reached. Please contact support.'}
+                              </div>
                             )}
                           </div>
                         )}

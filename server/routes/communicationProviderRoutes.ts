@@ -45,6 +45,19 @@ communicationProviderRouter.put('/', requireAdminPermission('settings.manage'), 
         message: 'Validation Error: whatsappProvider must be one of "meta-cloud" or "twilio".'
       });
     }
+    if (body.smsProvider && !['disabled', 'twilio'].includes(body.smsProvider)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation Error: smsProvider must be one of "disabled" or "twilio".'
+      });
+    }
+    if (body.smsFromNumber && typeof body.smsFromNumber === 'string' &&
+        !/^\+?[1-9][0-9]{7,14}$/.test(body.smsFromNumber.trim())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation Error: smsFromNumber must be a valid international sender number.'
+      });
+    }
 
     // SMTP Port Validation
     if (body.smtpPort !== undefined && body.smtpPort !== null && body.smtpPort !== '') {

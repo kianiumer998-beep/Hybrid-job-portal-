@@ -15,7 +15,7 @@ function basicAuth(value: string): string {
   return Buffer.from(value, 'utf8').toString('base64');
 }
 
-export async function sendConfiguredPremiumAlert(user: any, channel: DeliveryChannel, subject: string, message: string): Promise<boolean> {
+async function deliverConfiguredPremiumAlert(user: any, channel: DeliveryChannel, subject: string, message: string): Promise<boolean> {
   try {
     const config = await CommunicationProviderRepository.getConfig();
     if (channel === 'email') {
@@ -101,4 +101,32 @@ export async function sendConfiguredPremiumAlert(user: any, channel: DeliveryCha
     console.error('[Communication Delivery] Delivery attempt failed:', error?.message || error);
     return false;
   }
+}
+
+
+/** Applies the paid subscription quota around a real provider delivery. Failed provider
+ * attempts release their reservation; repeated event IDs cannot send twice. */
+export async function sendConfiguredPremiumAlert(user: any, channel: DeliveryChannel, subject: string, message: string, eventId: string): Promise<boolean> {
+  const cleanEventId = String(eventId || '').trim();
+  if (!user?.id || !cleanEventId) return false;
+  const featureId = channel === 'email' ? 'email_alerts' : channel === 'whatsapp' ? 'whatsapp_alerts' : 'sms_alerts';
+  const { UserRepository } = await import('../db/repositories/UserRepository');
+  let reservation: { ok: boolean; reason: string; month: string };
+  try {
+    reservation = await UserRepository.reserveSubscriptionMessageQuotaAsync(String(user.id), featureId, cleanEventId);
+  } catch (error: any) {
+    console.error('[Communication Delivery] Subscription quota reservation failed:', error?.message || error);
+    return false;
+  }
+  if (!reservation.ok) return false;
+  const delivered = await deliverConfiguredPremiumAlert(user, channel, subject, message);
+  if (delivered) {
+    const completed = await UserRepository.completeSubscriptionMessageQuotaAsync(String(user.id), featureId, cleanEventId);
+    if (!completed) console.error('[Communication Delivery] Provider accepted a message but quota completion needs reconciliation:', cleanEventId);
+    return true;
+  }
+  await UserRepository.releaseSubscriptionMessageQuotaAsync(String(user.id), featureId, cleanEventId, reservation.month).catch((error: any) => {
+    console.error('[Communication Delivery] Failed to release message quota reservation:', error?.message || error);
+  });
+  return false;
 }

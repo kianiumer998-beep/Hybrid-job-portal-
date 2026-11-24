@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/premium-early-access-subscription-wallet
+      - feature/job-control-center-moderation
   pull_request:
     branches:
       - main

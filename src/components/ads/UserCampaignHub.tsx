@@ -372,7 +372,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
 
     const resolvedTargetPages: AdTargetPage[] = formTargetPages.length > 0 ? formTargetPages : ['all'];
     const smsCount = formType === 'sms' ? formSmsRecipientsCount : 0;
-    const idempotencyKey = `ad-campaign-${currentUser.id}-${campaignDraftSeed}`;
+    const idempotencyKey = `ad-campaign-${currentUser.id}-${campaignDraftSeed}${useSubscriptionCredit ? '-credit' : '-wallet'}`;
     const draftAdId = `ad-user-${campaignDraftSeed}`;
 
     const newAd: Advertisement & {

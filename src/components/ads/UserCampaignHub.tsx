@@ -294,6 +294,9 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   useEffect(() => {
     if (!hasMatchingCampaignCredit) setUseSubscriptionCredit(false);
   }, [hasMatchingCampaignCredit]);
+  useEffect(() => {
+    setUseSubscriptionCredit(false);
+  }, [formPlacement, costCalculation.durationHours, formSmsRecipientsCount]);
 
   // Handle Preset Select
   const handleApplyPreset = (preset: typeof AD_BANNER_PRESETS[0]) => {
@@ -473,6 +476,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       setFormBodyText('');
       setFormDiscountPercent(10);
       setFormPromoCode('');
+      setUseSubscriptionCredit(false);
       changeActiveSubTab('my-campaigns');
       alert(
         `Campaign "${newAd.title}" submitted successfully! ${chargedAmount > 0

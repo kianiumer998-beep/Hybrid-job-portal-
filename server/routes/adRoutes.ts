@@ -177,6 +177,7 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
         }
         let redeemedCredit: any = null;
         let campaignCalc: any = null;
+        let createdCreditCampaign: any = null;
         let creditPlacementLockKey: string | undefined;
         try {
           const requestedPlacement = String(adPricingInput.placement || adData.placement || '');
@@ -248,6 +249,7 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
           };
           adData.idempotencyKey = idempotencyKey;
           const created = await AdRepository.createAsync(adData);
+          createdCreditCampaign = created || null;
           if (!created?.id) throw new Error('Campaign credit was reserved but the campaign record could not be saved.');
           const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
             user: req.user?.name || 'Advertiser', role: req.user?.role || 'Advertiser',
@@ -257,6 +259,13 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
           return res.status(201).json({ success: true, advertisement: created,
             ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning }) });
         } catch (creditErr: any) {
+          if (!createdCreditCampaign) {
+            createdCreditCampaign = AdRepository.findByIdempotencyKey(idempotencyKey);
+          }
+          if (createdCreditCampaign?.id) {
+            return res.status(201).json({ success: true, advertisement: createdCreditCampaign, auditPersisted: false,
+              auditWarning: 'Campaign was saved; its audit record may require administrator reconciliation.' });
+          }
           if (redeemedCredit) {
             const restored = await SubscriptionUsageRepository.restoreCampaignCredit(
               String(authUserId), campaignCalc.placement, campaignCalc.durationHours, idempotencyKey, campaignCalc.smsRecipientsCount

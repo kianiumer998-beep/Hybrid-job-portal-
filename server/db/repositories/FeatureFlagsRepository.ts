@@ -16,6 +16,7 @@ export const DEFAULT_FEATURE_FLAGS: AdminFeatureFlags = {
   deduplicationEnabled: true,
   enableEmailAlerts: false,
   enableWhatsAppAlerts: false,
+  enableSmsAlerts: false,
 };
 
 export class FeatureFlagsRepository {

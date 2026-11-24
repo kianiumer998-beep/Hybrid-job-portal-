@@ -812,12 +812,26 @@ jobRouter.post('/bulk-approve', requireAdminPermission('jobs.manage'), async (re
 // 7. Bulk Reject Pending Jobs
 jobRouter.post('/bulk-reject', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
-    const { ids, reason } = req.body;
+    const { ids } = req.body || {};
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 4000) : '';
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ success: false, message: 'Array of job IDs is required.' });
     }
     const safeIds = ids.slice(0, 500).map(String);
-    const result = await JobRepository.bulkRejectPendingWithClassification(safeIds, reason);
+    if (!reason) {
+      const pendingBefore = await JobRepository.getPending();
+      const includesUserSubmission = pendingBefore.some((job: any) =>
+        safeIds.includes(String(job.id)) && !isScrapedJob(job) &&
+        deriveJobSourceType(job) === 'user_posted' && Boolean(job.submittedByUserId)
+      );
+      if (includesUserSubmission) {
+        return res.status(400).json({ success: false, message: 'Please provide a clear correction reason before bulk-rejecting user-submitted jobs.' });
+      }
+    }
+    const result = await JobRepository.bulkRejectPendingWithClassification(safeIds, reason, {
+      name: (req as any).user?.name || 'Administrator',
+      role: (req as any).user?.role || 'Job Moderator'
+    });
 
     let notificationsSent = 0;
     let notificationsSkipped = result.scrapedCount;
@@ -845,7 +859,7 @@ jobRouter.post('/bulk-reject', requireAdminPermission('jobs.manage'), async (req
 
           const rejectionReason = reason || 'Details did not meet submission criteria.';
           const sortedJobIds = Array.from(new Set(userJobs.map(j => j.id))).sort();
-          const hashInput = JSON.stringify(['bulk-reject', userId, sortedJobIds, rejectionReason]);
+          const hashInput = JSON.stringify(['bulk-reject', userId, sortedJobIds, rejectionReason, Date.now()]);
           const hash = crypto.createHash('sha256').update(hashInput).digest('hex');
           const stableEventId = `notif-job-bulk-reject-${hash}`;
 

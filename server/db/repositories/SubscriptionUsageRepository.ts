@@ -10,6 +10,16 @@ function operationKey(value: string): string {
 }
 
 export class SubscriptionUsageRepository {
+  static async getRecentMessageDeliveryLogs(limit = 50): Promise<any[]> {
+    if (!isMongoActive()) return [];
+    const safeLimit = Math.min(200, Math.max(1, Math.floor(Number(limit) || 50)));
+    const db = await getMongoDb();
+    const coll = db.collection('subscription_message_delivery_logs');
+    return coll.find({}, {
+      projection: { _id: 0, eventId: 1, userId: 1, featureId: 1, channel: 1, provider: 1, status: 1, attempts: 1, createdAt: 1, lastAttemptAt: 1 }
+    }).sort({ lastAttemptAt: -1 }).limit(safeLimit).toArray();
+  }
+
   /** Mongo-backed provider delivery history with 90-day retention. */
   static async logMessageDelivery(input: { eventId: string; userId: string; featureId: string; channel: string; provider: string; status: 'SENT' | 'FAILED' }): Promise<boolean> {
     if (!isMongoActive()) return false;

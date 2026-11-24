@@ -37,8 +37,11 @@ async function run() {
     'unknown feature IDs are rejected'
   );
 
-  const legacyEmailPackage = resolveSubscriptionPackage({ id: 'legacy-email-plan', pricingMode: 'catalog', featureIds: ['whatsapp_alerts'], durationDays: 30 }, { subscriptionFeatureCatalog: catalog });
-  assert.equal(legacyEmailPackage.featureSnapshots[0].unlimitedMessages, undefined, 'legacy package snapshots preserve pre-quota access compatibility');
+  assert.throws(
+    () => resolveSubscriptionPackage({ id: 'legacy-email-plan', pricingMode: 'catalog', featureIds: ['whatsapp_alerts'], durationDays: 30 }, { subscriptionFeatureCatalog: catalog }),
+    /positive monthly message quota or explicitly enable Unlimited/,
+    'new notification purchases require an explicit quota or Unlimited selection'
+  );
   assert.throws(
     () => resolveSubscriptionPackage({ id: 'unconfigured-sms-plan', pricingMode: 'catalog', featureIds: ['sms_alerts'] }, { subscriptionFeatureCatalog: catalog.map((item: any) => item.id === 'sms_alerts' ? { ...item, unlimitedMessages: false, monthlyMessageQuota: undefined } : item) }),
     /positive monthly message quota or explicitly enable Unlimited/,
@@ -200,6 +203,7 @@ async function run() {
       durationDays: 30,
       featureSnapshots: [
         { id: 'sms_alerts', label: 'SMS Alerts', durationDays: 30, includedSlots: 0, slotDurationDays: 30, unlimitedMessages: false, monthlyMessageQuota: 50 },
+        { id: 'email_alerts', label: 'Email Alerts', durationDays: 30, includedSlots: 0, slotDurationDays: 30 },
         { id: 'campaign_credits', label: 'Campaign Credits', durationDays: 30, includedSlots: 0, slotDurationDays: 30, campaignCredits: [{ placement: 'sidebar', durationHours: 168, quantity: 2 }] }
       ]
     }
@@ -207,9 +211,13 @@ async function run() {
   const approvedManualTransaction = await PaymentRepository.verify(manualTransaction.id, 'approve');
   assert.equal(approvedManualTransaction.status, 'Success', 'manual subscription approval completes successfully');
   const activatedManualUser = await UserRepository.getByIdAsync(manualActivationUserId);
-  assert.deepEqual(activatedManualUser.subscriptionFeatureIds, ['sms_alerts', 'campaign_credits'], 'manual approval grants all purchased feature IDs');
+  assert.deepEqual(activatedManualUser.subscriptionFeatureIds, ['sms_alerts', 'email_alerts', 'campaign_credits'], 'manual approval grants all purchased feature IDs');
   assert.equal(activatedManualUser.subscriptionEntitlements.sms_alerts.monthlyMessageQuota, 50, 'manual approval grants the purchased message quota');
   assert.equal(activatedManualUser.subscriptionEntitlements.campaign_credits.campaignCredits[0].remaining, 2, 'manual approval grants campaign credits');
+  assert.equal(activatedManualUser.subscriptionEntitlements.email_alerts.unlimitedMessages, undefined, 'older payment snapshots preserve legacy notification entitlements without quota fields');
+  const legacyApprovedEmailReservation = await SubscriptionUsageRepository.reserveMessageQuota(manualActivationUserId, 'email_alerts', 'legacy-approved-email-event');
+  assert.equal(legacyApprovedEmailReservation.ok, true, 'manually approved legacy email entitlement remains usable');
+  assert.equal(await SubscriptionUsageRepository.completeMessageQuota(manualActivationUserId, 'email_alerts', 'legacy-approved-email-event'), true, 'legacy email delivery can be finalized');
 
   const unlimitedUserId = 'subscription-message-unlimited-test-user';
   await UserRepository.createAsync({
@@ -227,7 +235,7 @@ async function run() {
   const noExpiryReservation = await SubscriptionUsageRepository.reserveMessageQuota(noExpiryUserId, 'sms_alerts', 'no-expiry-event');
   assert.equal(noExpiryReservation.reason, 'unavailable', 'missing subscription expiry fails closed');
 
-  console.log('Subscription entitlement tests passed (54 assertions).');
+  console.log('Subscription entitlement tests passed (56 assertions).');
 }
 
 run().catch((error) => { console.error(error); process.exitCode = 1; });

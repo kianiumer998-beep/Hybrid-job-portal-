@@ -44,9 +44,9 @@ export function normalizeSubscriptionFeatureCatalog(raw: unknown): SubscriptionF
     durationDays: Number.isInteger(Number(item.durationDays)) && Number(item.durationDays) > 0 && Number(item.durationDays) <= 3650 ? Number(item.durationDays) : 30,
     includedSlots: Number.isInteger(Number(item.includedSlots)) && Number(item.includedSlots) >= 0 && Number(item.includedSlots) <= 1000 ? Number(item.includedSlots) : 0,
     slotDurationDays: Number.isInteger(Number(item.slotDurationDays)) && Number(item.slotDurationDays) > 0 && Number(item.slotDurationDays) <= 3650 ? Number(item.slotDurationDays) : 30,
-    // Existing catalog entries remain unmetered until an administrator configures an explicit quota.
-    unlimitedMessages: item.unlimitedMessages === true || (item.unlimitedMessages === undefined && item.monthlyMessageQuota === undefined),
-    monthlyMessageQuota: Number.isInteger(Number(item.monthlyMessageQuota)) && Number(item.monthlyMessageQuota) >= 1 && Number(item.monthlyMessageQuota) <= 1000000 ? Number(item.monthlyMessageQuota) : 0,
+    // Missing values are preserved as legacy settings; new admin saves must explicitly choose Unlimited or a quota.
+    unlimitedMessages: typeof item.unlimitedMessages === 'boolean' ? item.unlimitedMessages : undefined,
+    monthlyMessageQuota: Number.isInteger(Number(item.monthlyMessageQuota)) && Number(item.monthlyMessageQuota) >= 1 && Number(item.monthlyMessageQuota) <= 1000000 ? Number(item.monthlyMessageQuota) : undefined,
     campaignCredits: Array.isArray(item.campaignCredits) ? item.campaignCredits.filter((credit: any) =>
       CAMPAIGN_PLACEMENTS.has(String(credit?.placement || '')) &&
       Number.isInteger(Number(credit.durationHours)) && Number(credit.durationHours) >= 1 && Number(credit.durationHours) <= 8760 &&
@@ -80,6 +80,14 @@ export function resolveSubscriptionPackage(pkg: any, pricing: any): {
     if (!feature) throw new Error(`Subscription feature "${id}" is unavailable or disabled.`);
     return feature;
   });
+  if (selected.some((item) =>
+    ['email_alerts', 'whatsapp_alerts', 'sms_alerts'].includes(item.id) &&
+    item.unlimitedMessages !== true &&
+    item.monthlyMessageQuota === undefined &&
+    item.unlimitedMessages === false
+  )) {
+    throw new Error('Configure a positive monthly message quota or explicitly enable Unlimited for every selected notification channel.');
+  }
   if (selected.some((item) => item.id === 'campaign_credits' && (!Array.isArray(item.campaignCredits) || item.campaignCredits.length === 0))) {
     throw new Error('Configure at least one placement and duration credit before including Campaign Credits in a subscription.');
   }

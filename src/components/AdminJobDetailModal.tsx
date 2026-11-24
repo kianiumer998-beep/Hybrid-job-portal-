@@ -1044,10 +1044,24 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
             </div>
           )}
 
-          {job.rejectionReason && (
-            <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300">
-              <strong className="block font-bold mb-1">Rejection Reason Note:</strong>
-              <p>{job.rejectionReason}</p>
+          {(job.rejectionReason || Array.isArray((job as any).moderationHistory)) && (
+            <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 space-y-2">
+              {job.rejectionReason && <>
+                <strong className="block font-bold">Rejection Reason Note:</strong>
+                <p>{job.rejectionReason}</p>
+              </>}
+              {Array.isArray((job as any).moderationHistory) && (job as any).moderationHistory.length > 0 && (
+                <div className="pt-2 border-t border-rose-500/20 space-y-1.5">
+                  <strong className="block">Moderation History</strong>
+                  {(job as any).moderationHistory.map((entry: any, index: number) => (
+                    <div key={index} className="text-[10px] text-rose-100/80">
+                      <span className="font-semibold">{String(entry.action || 'Update').replace(/_/g, ' ')}</span>
+                      {entry.at ? ` • ${new Date(entry.at).toLocaleString()}` : ''}
+                      {entry.reason ? <p className="whitespace-pre-wrap">{entry.reason}</p> : null}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

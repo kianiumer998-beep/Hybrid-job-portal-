@@ -100,7 +100,7 @@ export class SubscriptionUsageRepository {
       if (current.subscriptionMessageOperations?.[markerKey] === 'RESERVED' || current.subscriptionMessageOperations?.[markerKey] === 'SENT') return { ok: false, reason: 'already_processed', month };
       const legacyAccess = !Array.isArray(current.subscriptionFeatureIds) || current.subscriptionFeatureIds.length === 0;
       const entitlement = current.subscriptionEntitlements?.[featureId];
-      const legacyEntitlement = legacyAccess || (!entitlement && current.subscriptionFeatureIds?.includes(featureId));
+      const legacyEntitlement = !entitlement && (legacyAccess || current.subscriptionFeatureIds?.includes(featureId));
       const featureExpiry = Date.parse(String(entitlement?.expiresAt || ''));
       const membershipExpiry = Date.parse(String(current.subscriptionExpiresAt || ''));
       if (current.membershipStatus !== 'Active' || !Number.isFinite(membershipExpiry) || membershipExpiry <= now.getTime() ||
@@ -116,7 +116,7 @@ export class SubscriptionUsageRepository {
     const featureExpiry = Date.parse(String(entitlement?.expiresAt || ''));
     const membershipExpiry = Date.parse(String(user.subscriptionExpiresAt || ''));
     const legacyAccess = !Array.isArray(user.subscriptionFeatureIds) || user.subscriptionFeatureIds.length === 0;
-    const legacyEntitlement = legacyAccess || (!entitlement && user.subscriptionFeatureIds?.includes(featureId));
+    const legacyEntitlement = !entitlement && (legacyAccess || user.subscriptionFeatureIds?.includes(featureId));
     if (user.membershipStatus !== 'Active' || !Number.isFinite(membershipExpiry) || membershipExpiry <= now.getTime() ||
         (!legacyEntitlement && (entitlement?.enabled !== true || !Number.isFinite(featureExpiry) || featureExpiry <= now.getTime()))) return { ok: false, reason: 'unavailable', month };
     const usage = user.subscriptionMessageUsage || {};

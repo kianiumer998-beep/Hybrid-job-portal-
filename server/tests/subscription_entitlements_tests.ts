@@ -43,7 +43,7 @@ async function run() {
     'new notification purchases require an explicit quota or Unlimited selection'
   );
   assert.throws(
-    () => resolveSubscriptionPackage({ id: 'unconfigured-sms-plan', pricingMode: 'catalog', featureIds: ['sms_alerts'] }, { subscriptionFeatureCatalog: catalog.map((item: any) => item.id === 'sms_alerts' ? { ...item, unlimitedMessages: false, monthlyMessageQuota: undefined } : item) }),
+    () => resolveSubscriptionPackage({ id: 'unconfigured-sms-plan', pricingMode: 'catalog', featureIds: ['sms_alerts'] }, { subscriptionFeatureCatalog: catalog.map((item: any) => item.id === 'sms_alerts' ? { ...item, enabled: true, unlimitedMessages: false, monthlyMessageQuota: undefined } : item) }),
     /positive monthly message quota or explicitly enable Unlimited/,
     'new limited notification plans cannot be sold with an empty quota'
   );

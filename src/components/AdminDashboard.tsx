@@ -4014,13 +4014,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }
           // Classify by the persisted source type first; use legacy scraper flags only for older records.
           const persistedSource = String(pJob.sourceType || '').trim().toLowerCase();
-          const isScraperSource = persistedSource === 'scraped' || Boolean(
-            pJob.sourceUrl || pJob.scraperSourceId || pJob.scrapedSourceDomain || pJob.id.includes('scraped')
-          );
-          const isAdminSource = persistedSource === 'admin_created' || pJob.isAdminCreated === true;
-          const isUserSource = persistedSource === 'user_posted' || (
-            !persistedSource && !isScraperSource && !isAdminSource
-          );
+          // Persisted sourceType is authoritative. Legacy flags are consulted only when it is absent.
+          const isScraperSource = persistedSource
+            ? persistedSource === 'scraped'
+            : Boolean(pJob.isScraped || pJob.isPdfScraped || pJob.sourceUrl || pJob.scraperSourceId || pJob.scrapedSourceDomain || String(pJob.id || '').includes('scraped'));
+          const isAdminSource = persistedSource
+            ? persistedSource === 'admin_created'
+            : pJob.isAdminCreated === true;
+          const isUserSource = persistedSource
+            ? persistedSource === 'user_posted'
+            : !isScraperSource && !isAdminSource;
           if (pendingSourceFilter === 'scraper' && !isScraperSource) return false;
           if (pendingSourceFilter === 'user' && !isUserSource) return false;
           if (pendingSourceFilter === 'admin' && !isAdminSource) return false;

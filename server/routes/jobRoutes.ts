@@ -17,7 +17,7 @@ export const jobRouter = Router();
 
 import { JobVisibilityRepository } from '../db/repositories/JobVisibilityRepository';
 import { PricingRepository } from '../db/repositories/PricingRepository';
-import { buildEarlyAccessDisplayJob, getEarlyAccessLandingConfig, isEarlyAccessJobLocked } from '../services/earlyAccessPolicy';
+import { buildEarlyAccessDisplayJob, getEarlyAccessLandingConfig, getEarlyAccessReleaseAt, isEarlyAccessJobLocked } from '../services/earlyAccessPolicy';
 import { hasActiveSubscriptionFeature } from '../services/subscriptionEntitlements';
 import { dispatchPremiumInstantJobAlerts } from '../services/premiumJobAlertService';
 import { evaluateApplyAccess } from '../services/applyAccessPolicy';
@@ -120,14 +120,14 @@ jobRouter.get('/early-access', async (req: any, res: any) => {
         return bStart - aStart;
       });
     const maxJobs = landingConfig.maxJobs;
-    const nextReleaseAt = earlyJobs
-      .map((job: any) => {
-        const rawStart = job.approvedAt || job.verifiedDate || job.publishedAt || job.createdAt || job.postedAt || job.datePosted;
-        const start = rawStart ? new Date(rawStart).getTime() : Number.NaN;
-        return Number.isFinite(start) ? start + landingConfig.durationHours * 60 * 60 * 1000 : Number.NaN;
-      })
+    const previewJobs = earlyJobs.slice(0, maxJobs).map((job: any, index: number) => ({
+      slot: index + 1,
+      earlyAccessEndsAt: getEarlyAccessReleaseAt(job, config)
+    }));
+    const releaseTimes = previewJobs
+      .map((item: any) => item.earlyAccessEndsAt ? new Date(item.earlyAccessEndsAt).getTime() : Number.NaN)
       .filter((value: number) => Number.isFinite(value) && value > Date.now())
-      .sort((a: number, b: number) => a - b)[0];
+      .sort((a: number, b: number) => a - b);
     const jobs = hasEarlyAccess
       ? await Promise.all(earlyJobs.slice(0, maxJobs).map(async (job: any) => {
           const policyApplied = await JobVisibilityRepository.applyPolicyToJob(job);
@@ -140,9 +140,12 @@ jobRouter.get('/early-access', async (req: any, res: any) => {
       success: true,
       enabled: true,
       isPremium,
+      hasEarlyAccess,
       config: landingConfig,
       count: earlyJobs.length,
-      nextReleaseAt: typeof nextReleaseAt === 'number' && Number.isFinite(nextReleaseAt) ? new Date(nextReleaseAt).toISOString() : null,
+      nextReleaseAt: releaseTimes.length ? new Date(releaseTimes[0]).toISOString() : null,
+      // Non-members receive only anonymous release slots; no unreleased job identity or details leak.
+      previewJobs: hasEarlyAccess ? [] : previewJobs,
       jobs
     });
   } catch (err: any) {

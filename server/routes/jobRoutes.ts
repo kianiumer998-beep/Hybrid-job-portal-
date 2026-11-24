@@ -11,6 +11,7 @@ import { isMongoConfigured } from '../db/mongodb';
 import { saveAttachment, getAttachmentStream, deleteAttachmentFile, validateAttachmentMagicBytes, getAttachmentMimeType } from '../services/attachmentStorage';
 import { JobAttachment } from '../../src/types/job';
 import { getProvinceForCity } from '../../src/utils/locationCatalog';
+import { SystemSettingsRepository } from '../db/repositories/SystemSettingsRepository';
 
 export const jobRouter = Router();
 
@@ -215,6 +216,96 @@ jobRouter.get('/priority', async (req, res) => {
   } catch (err: any) {
     console.error('Error in GET /api/jobs/priority:', err);
     res.status(500).json({ success: false, message: err.message || 'Error fetching priority jobs' });
+  }
+});
+
+// User-owned submission history and resubmission controls.
+const DEFAULT_JOB_RESUBMISSION_LIMIT = 3;
+const JOB_RESUBMISSION_SETTINGS_KEY = 'job_submission_resubmission_settings';
+
+jobRouter.get('/my-submissions', requireAuth, async (req: any, res: any) => {
+  try {
+    const userId = String(req.user?.userId || req.user?.id || '').trim();
+    if (!userId) return res.status(401).json({ success: false, message: 'Authentication required.' });
+    const jobs = await JobRepository.getUserSubmissions(userId);
+    const settings = await SystemSettingsRepository.getSetting(JOB_RESUBMISSION_SETTINGS_KEY, { maxAttempts: DEFAULT_JOB_RESUBMISSION_LIMIT });
+    const maxAttempts = Math.max(0, Math.min(10, Math.floor(Number(settings?.maxAttempts ?? DEFAULT_JOB_RESUBMISSION_LIMIT))));
+    res.json({ success: true, jobs, maxResubmissionAttempts: maxAttempts });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Could not load your job submissions.' });
+  }
+});
+
+jobRouter.patch('/moderation/resubmission-settings', requireAdminPermission('jobs.manage'), async (req: any, res: any) => {
+  try {
+    const raw = Number(req.body?.maxAttempts);
+    if (!Number.isInteger(raw) || raw < 0 || raw > 10) {
+      return res.status(400).json({ success: false, message: 'Maximum resubmission attempts must be a whole number from 0 to 10.' });
+    }
+    const saved = await SystemSettingsRepository.saveSetting(JOB_RESUBMISSION_SETTINGS_KEY, { maxAttempts: raw });
+    res.json({ success: true, settings: saved });
+  } catch (err: any) {
+    res.status(503).json({ success: false, message: err.message || 'Could not save resubmission settings.' });
+  }
+});
+
+jobRouter.get('/moderation/resubmission-settings', requireAdminPermission('jobs.manage'), async (_req: any, res: any) => {
+  try {
+    const settings = await SystemSettingsRepository.getSetting(JOB_RESUBMISSION_SETTINGS_KEY, { maxAttempts: DEFAULT_JOB_RESUBMISSION_LIMIT });
+    res.json({ success: true, settings });
+  } catch (err: any) {
+    res.status(503).json({ success: false, message: err.message || 'Could not load resubmission settings.' });
+  }
+});
+
+jobRouter.post('/:id/resubmit', requireAuth, async (req: any, res: any) => {
+  try {
+    const userId = String(req.user?.userId || req.user?.id || '').trim();
+    if (!userId) return res.status(401).json({ success: false, message: 'Authentication required.' });
+    const editableFields = [
+      'title', 'company', 'jobType', 'region', 'country', 'province', 'city', 'district',
+      'salary', 'currency', 'experienceLevel', 'department', 'tags', 'description',
+      'requirements', 'benefits', 'applicationUrl', 'externalApplyUrl', 'contactEmailOrPhone',
+      'deadlineDate', 'expiryDate', 'jobCategory', 'isGovtJob', 'govtDepartment',
+      'govtScale', 'govtCategory', 'isNewspaperAd', 'newspaperName', 'newspaperDate',
+      'clippingImageUrl'
+    ];
+    const updates: Record<string, any> = {};
+    for (const field of editableFields) {
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, field)) updates[field] = req.body[field];
+    }
+    if (!String(updates.title || '').trim() || !String(updates.company || '').trim() || !String(updates.description || '').trim()) {
+      return res.status(400).json({ success: false, message: 'Job title, company and description are required.' });
+    }
+    const settings = await SystemSettingsRepository.getSetting(JOB_RESUBMISSION_SETTINGS_KEY, { maxAttempts: DEFAULT_JOB_RESUBMISSION_LIMIT });
+    const maxAttempts = Math.max(0, Math.min(10, Math.floor(Number(settings?.maxAttempts ?? DEFAULT_JOB_RESUBMISSION_LIMIT))));
+    const result = await JobRepository.resubmitRejectedPending(String(req.params.id), userId, updates, maxAttempts);
+    if (!result.job) {
+      const status = result.reason === 'limit_reached' ? 409 : result.reason === 'not_rejected' ? 409 : 404;
+      const message = result.reason === 'limit_reached'
+        ? 'You have reached the maximum number of resubmission attempts for this job.'
+        : result.reason === 'not_rejected'
+          ? 'Only rejected job submissions can be resubmitted.'
+          : 'Job submission not found.';
+      return res.status(status).json({ success: false, message, reason: result.reason });
+    }
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
+      user: req.user?.name || 'Job Submitter',
+      role: req.user?.role || 'Employer',
+      action: 'Rejected Job Corrected & Resubmitted',
+      target: `${result.job.title} at ${result.job.company}`,
+      status: 'Success',
+      metadata: { jobId: result.job.id, submittedByUserId: userId, resubmissionCount: result.job.resubmissionCount }
+    }, 'POST /api/jobs/:id/resubmit');
+    res.json({
+      success: true,
+      job: result.job,
+      message: 'Your corrected job has been resubmitted for admin review.',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
+    });
+  } catch (err: any) {
+    console.error('Error resubmitting rejected job:', err);
+    res.status(500).json({ success: false, message: err.message || 'Could not resubmit job.' });
   }
 });
 

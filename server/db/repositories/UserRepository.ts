@@ -1534,6 +1534,698 @@ export class UserRepository {
    *   Fails closed if transactions are unavailable; never falls back to non-transactional updates.
    * - In In-Memory / File DB mode: serializes all role mutations through an async mutex queue.
    */
+  /** Atomically reserves a monthly message quota before sending a paid alert. */
+  static async reserveSubscriptionMessageQuotaAsync(userId: string, featureId: string, eventId: string, now = new Date()): Promise<{ ok: boolean; reason: 'reserved' | 'already_processed' | 'unavailable' | 'quota_exhausted'; month: string }> {
+    const allowed = ['email_alerts', 'whatsapp_alerts', 'sms_alerts'];
+    const uid = String(userId || '').trim();
+    const event = String(eventId || '').trim();
+    if (!uid || !allowed.includes(featureId) || !event || event.length > 200) throw new Error('Valid user, channel and event reference are required.');
+    const month = now.toISOString().slice(0, 7);
+    const markerKey = featureId + '-' + Buffer.from(event, 'utf8').toString('base64url').slice(0, 220);
+    const marker = 'subscriptionMessageOperations.' + markerKey;
+    const usagePath = 'subscriptionMessageUsage.' + featureId + '.' + month + '.used';
+    const enabledPath = 'subscriptionEntitlements.' + featureId + '.enabled';
+    const expiryPath = 'subscriptionEntitlements.' + featureId + '.expiresAt';
+    const unlimitedPath = 'subscriptionEntitlements.' + featureId + '.unlimitedMessages';
+    const quotaPath = 'subscriptionEntitlements.' + featureId + '.monthlyMessageQuota';
+    const nowIso = now.toISOString();
+
+    if (isTest()) {
+      const user = inMemoryUsers.get(uid);
+      if (!user) return { ok: false, reason: 'unavailable', month };
+      const ops = user.subscriptionMessageOperations || {};
+      if (ops[markerKey] === 'RESERVED' || ops[markerKey] === 'SENT') return { ok: false, reason: 'already_processed', month };
+      const entitlement = user.subscriptionEntitlements?.[featureId];
+      const expiry = Date.parse(String(entitlement?.expiresAt || ''));
+      if (user.membershipStatus !== 'Active' || Date.parse(String(user.subscriptionExpiresAt || '')) <= now.getTime() ||
+          entitlement?.enabled !== true || !Number.isFinite(expiry) || expiry <= now.getTime()) return { ok: false, reason: 'unavailable', month };
+      const usage = user.subscriptionMessageUsage || {};
+      const used = Number(usage[featureId]?.[month]?.used) || 0;
+      const quota = Number(entitlement.monthlyMessageQuota);
+      if (entitlement.unlimitedMessages !== true && (!Number.isInteger(quota) || quota <= 0 || used >= quota)) return { ok: false, reason: 'quota_exhausted', month };
+      inMemoryUsers.set(uid, { ...user,
+        subscriptionMessageUsage: { ...usage, [featureId]: { ...(usage[featureId] || {}), [month]: { ...(usage[featureId]?.[month] || {}), used: used + 1 } } },
+        subscriptionMessageOperations: { ...ops, [markerKey]: 'RESERVED' }, updatedAt: nowIso });
+      return { ok: true, reason: 'reserved', month };
+    }
+
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const result = await coll.findOneAndUpdate({
+        id: uid, membershipStatus: 'Active', subscriptionExpiresAt: { $gt: nowIso },
+        [enabledPath]: true, [expiryPath]: { $gt: nowIso }, [marker]: { $nin: ['RESERVED', 'SENT'] },
+        $expr: { $or: [
+          { $eq: [{ $ifNull: ['
+    params: RoleMutationParams,
+    mongoOverride?: { client: any; db?: any }
+  ): Promise<RoleMutationResult> {
+    const { targetUserId, newRole, actorId, actorRoleFallback, newPermissions } = params;
+
+    if (mongoOverride || isMongoActive()) {
+      let client: any;
+      try {
+        client = mongoOverride?.client ?? (await getMongoClient());
+      } catch (err: any) {
+        console.error('[UserRepository] MongoDB client unavailable for transactional role update:', err?.message || err);
+        return {
+          ok: false,
+          status: 503,
+          message: 'Database transaction unavailable: failed closed to protect Super Admin consistency.'
+        };
+      }
+
+      const db = mongoOverride?.db ?? client.db();
+      const session = client.startSession();
+      let outcome: RoleMutationResult | null = null;
+
+      try {
+        await session.withTransaction(async () => {
+          const locksColl = db.collection('system_locks');
+          const usersColl = db.collection('users');
+          const nowIso = new Date().toISOString();
+
+          // Touch a shared coordinator document so concurrent role mutations serialize cleanly
+          await locksColl.updateOne(
+            { _id: 'super_admin_role_mutation_guard' },
+            { $inc: { seq: 1 }, $set: { updatedAt: nowIso } },
+            { upsert: true, session }
+          );
+
+          const actor = actorId ? await usersColl.findOne({ id: actorId }, { session }) : null;
+          const targetUser = await usersColl.findOne({ id: targetUserId }, { session });
+          const oldRole = targetUser?.role || 'Job Seeker';
+
+          let superAdminCount = 0;
+          if (oldRole === 'Super Admin' && newRole !== 'Super Admin') {
+            superAdminCount = await usersColl.countDocuments({ role: 'Super Admin' }, { session });
+          }
+
+          const rejection = UserRepository.evaluateRoleMutationGuard({
+            actor,
+            actorId,
+            actorRoleFallback,
+            targetUser,
+            targetUserId,
+            newRole,
+            superAdminCount
+          });
+
+          if (rejection) {
+            throw new RoleGuardRejectionError(rejection);
+          }
+
+          const updatedDoc = await usersColl.findOneAndUpdate(
+            { id: targetUser.id },
+            {
+              $set: {
+                role: newRole,
+                permissions: newPermissions,
+                updatedAt: nowIso
+              }
+            },
+            { returnDocument: 'after', session }
+          );
+
+          if (!updatedDoc) {
+            throw new RoleGuardRejectionError({
+              ok: false,
+              status: 500,
+              message: 'Failed to update user role.'
+            });
+          }
+
+          const { _id: _uId, ...safeUser } = updatedDoc;
+          const { _id: _aId, ...safeActor } = actor || {};
+          outcome = {
+            ok: true,
+            status: 200,
+            message: `Role updated from '${oldRole}' to '${newRole}'.`,
+            user: safeUser,
+            actor: safeActor,
+            actorRole: actor?.role || actorRoleFallback,
+            oldRole,
+            newRole,
+            permissions: newPermissions
+          };
+        });
+
+        if (!outcome) {
+          return {
+            ok: false,
+            status: 500,
+            message: 'Role update transaction completed without an authoritative outcome.'
+          };
+        }
+        return outcome;
+      } catch (err: any) {
+        if (err instanceof RoleGuardRejectionError) {
+          return err.result;
+        }
+        console.error('[UserRepository] Transactional role update aborted/failed closed:', err?.message || err);
+        return {
+          ok: false,
+          status: 503,
+          message: 'Role update failed: transactional Super Admin protection could not be guaranteed.'
+        };
+      } finally {
+        await session.endSession().catch(() => {});
+      }
+    }
+
+    // In-memory / File DB mode: serialize all role mutations through an async mutex queue
+    const runSerialized = async (): Promise<RoleMutationResult> => {
+      const actor = actorId ? (isTest() ? inMemoryUsers.get(actorId) || null : Database.getUserById(actorId)) : null;
+      const targetUser = isTest() ? inMemoryUsers.get(targetUserId) || null : Database.getUserById(targetUserId);
+      const oldRole = targetUser?.role || 'Job Seeker';
+
+      let superAdminCount = 0;
+      if (oldRole === 'Super Admin' && newRole !== 'Super Admin') {
+        const allUsers = isTest() ? Array.from(inMemoryUsers.values()) : Database.getUsers();
+        superAdminCount = allUsers.filter(u => u && u.role === 'Super Admin').length;
+      }
+
+      const rejection = UserRepository.evaluateRoleMutationGuard({
+        actor,
+        actorId,
+        actorRoleFallback,
+        targetUser,
+        targetUserId,
+        newRole,
+        superAdminCount
+      });
+
+      if (rejection) {
+        return rejection;
+      }
+
+      const updatedAt = new Date().toISOString();
+      let updatedUser: any = null;
+      if (isTest()) {
+        updatedUser = {
+          ...targetUser,
+          role: newRole,
+          permissions: newPermissions,
+          updatedAt
+        };
+        inMemoryUsers.set(targetUser.id, updatedUser);
+      } else {
+        updatedUser = Database.updateUser(targetUser.id, {
+          role: newRole,
+          permissions: newPermissions,
+          updatedAt
+        });
+      }
+
+      if (!updatedUser) {
+        return {
+          ok: false,
+          status: 500,
+          message: 'Failed to update user role.'
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        message: `Role updated from '${oldRole}' to '${newRole}'.`,
+        user: updatedUser,
+        actor,
+        actorRole: actor?.role || actorRoleFallback,
+        oldRole,
+        newRole,
+        permissions: newPermissions
+      };
+    };
+
+    const queuedPromise = UserRepository.roleMutationQueue.then(runSerialized, runSerialized);
+    UserRepository.roleMutationQueue = queuedPromise.then(() => undefined, () => undefined);
+    return queuedPromise;
+  }
+}
+
+ + unlimitedPath, false] }, true] },
+          { $lt: [{ $ifNull: ['
+    params: RoleMutationParams,
+    mongoOverride?: { client: any; db?: any }
+  ): Promise<RoleMutationResult> {
+    const { targetUserId, newRole, actorId, actorRoleFallback, newPermissions } = params;
+
+    if (mongoOverride || isMongoActive()) {
+      let client: any;
+      try {
+        client = mongoOverride?.client ?? (await getMongoClient());
+      } catch (err: any) {
+        console.error('[UserRepository] MongoDB client unavailable for transactional role update:', err?.message || err);
+        return {
+          ok: false,
+          status: 503,
+          message: 'Database transaction unavailable: failed closed to protect Super Admin consistency.'
+        };
+      }
+
+      const db = mongoOverride?.db ?? client.db();
+      const session = client.startSession();
+      let outcome: RoleMutationResult | null = null;
+
+      try {
+        await session.withTransaction(async () => {
+          const locksColl = db.collection('system_locks');
+          const usersColl = db.collection('users');
+          const nowIso = new Date().toISOString();
+
+          // Touch a shared coordinator document so concurrent role mutations serialize cleanly
+          await locksColl.updateOne(
+            { _id: 'super_admin_role_mutation_guard' },
+            { $inc: { seq: 1 }, $set: { updatedAt: nowIso } },
+            { upsert: true, session }
+          );
+
+          const actor = actorId ? await usersColl.findOne({ id: actorId }, { session }) : null;
+          const targetUser = await usersColl.findOne({ id: targetUserId }, { session });
+          const oldRole = targetUser?.role || 'Job Seeker';
+
+          let superAdminCount = 0;
+          if (oldRole === 'Super Admin' && newRole !== 'Super Admin') {
+            superAdminCount = await usersColl.countDocuments({ role: 'Super Admin' }, { session });
+          }
+
+          const rejection = UserRepository.evaluateRoleMutationGuard({
+            actor,
+            actorId,
+            actorRoleFallback,
+            targetUser,
+            targetUserId,
+            newRole,
+            superAdminCount
+          });
+
+          if (rejection) {
+            throw new RoleGuardRejectionError(rejection);
+          }
+
+          const updatedDoc = await usersColl.findOneAndUpdate(
+            { id: targetUser.id },
+            {
+              $set: {
+                role: newRole,
+                permissions: newPermissions,
+                updatedAt: nowIso
+              }
+            },
+            { returnDocument: 'after', session }
+          );
+
+          if (!updatedDoc) {
+            throw new RoleGuardRejectionError({
+              ok: false,
+              status: 500,
+              message: 'Failed to update user role.'
+            });
+          }
+
+          const { _id: _uId, ...safeUser } = updatedDoc;
+          const { _id: _aId, ...safeActor } = actor || {};
+          outcome = {
+            ok: true,
+            status: 200,
+            message: `Role updated from '${oldRole}' to '${newRole}'.`,
+            user: safeUser,
+            actor: safeActor,
+            actorRole: actor?.role || actorRoleFallback,
+            oldRole,
+            newRole,
+            permissions: newPermissions
+          };
+        });
+
+        if (!outcome) {
+          return {
+            ok: false,
+            status: 500,
+            message: 'Role update transaction completed without an authoritative outcome.'
+          };
+        }
+        return outcome;
+      } catch (err: any) {
+        if (err instanceof RoleGuardRejectionError) {
+          return err.result;
+        }
+        console.error('[UserRepository] Transactional role update aborted/failed closed:', err?.message || err);
+        return {
+          ok: false,
+          status: 503,
+          message: 'Role update failed: transactional Super Admin protection could not be guaranteed.'
+        };
+      } finally {
+        await session.endSession().catch(() => {});
+      }
+    }
+
+    // In-memory / File DB mode: serialize all role mutations through an async mutex queue
+    const runSerialized = async (): Promise<RoleMutationResult> => {
+      const actor = actorId ? (isTest() ? inMemoryUsers.get(actorId) || null : Database.getUserById(actorId)) : null;
+      const targetUser = isTest() ? inMemoryUsers.get(targetUserId) || null : Database.getUserById(targetUserId);
+      const oldRole = targetUser?.role || 'Job Seeker';
+
+      let superAdminCount = 0;
+      if (oldRole === 'Super Admin' && newRole !== 'Super Admin') {
+        const allUsers = isTest() ? Array.from(inMemoryUsers.values()) : Database.getUsers();
+        superAdminCount = allUsers.filter(u => u && u.role === 'Super Admin').length;
+      }
+
+      const rejection = UserRepository.evaluateRoleMutationGuard({
+        actor,
+        actorId,
+        actorRoleFallback,
+        targetUser,
+        targetUserId,
+        newRole,
+        superAdminCount
+      });
+
+      if (rejection) {
+        return rejection;
+      }
+
+      const updatedAt = new Date().toISOString();
+      let updatedUser: any = null;
+      if (isTest()) {
+        updatedUser = {
+          ...targetUser,
+          role: newRole,
+          permissions: newPermissions,
+          updatedAt
+        };
+        inMemoryUsers.set(targetUser.id, updatedUser);
+      } else {
+        updatedUser = Database.updateUser(targetUser.id, {
+          role: newRole,
+          permissions: newPermissions,
+          updatedAt
+        });
+      }
+
+      if (!updatedUser) {
+        return {
+          ok: false,
+          status: 500,
+          message: 'Failed to update user role.'
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        message: `Role updated from '${oldRole}' to '${newRole}'.`,
+        user: updatedUser,
+        actor,
+        actorRole: actor?.role || actorRoleFallback,
+        oldRole,
+        newRole,
+        permissions: newPermissions
+      };
+    };
+
+    const queuedPromise = UserRepository.roleMutationQueue.then(runSerialized, runSerialized);
+    UserRepository.roleMutationQueue = queuedPromise.then(() => undefined, () => undefined);
+    return queuedPromise;
+  }
+}
+
+ + usagePath, 0] }, { $ifNull: ['
+    params: RoleMutationParams,
+    mongoOverride?: { client: any; db?: any }
+  ): Promise<RoleMutationResult> {
+    const { targetUserId, newRole, actorId, actorRoleFallback, newPermissions } = params;
+
+    if (mongoOverride || isMongoActive()) {
+      let client: any;
+      try {
+        client = mongoOverride?.client ?? (await getMongoClient());
+      } catch (err: any) {
+        console.error('[UserRepository] MongoDB client unavailable for transactional role update:', err?.message || err);
+        return {
+          ok: false,
+          status: 503,
+          message: 'Database transaction unavailable: failed closed to protect Super Admin consistency.'
+        };
+      }
+
+      const db = mongoOverride?.db ?? client.db();
+      const session = client.startSession();
+      let outcome: RoleMutationResult | null = null;
+
+      try {
+        await session.withTransaction(async () => {
+          const locksColl = db.collection('system_locks');
+          const usersColl = db.collection('users');
+          const nowIso = new Date().toISOString();
+
+          // Touch a shared coordinator document so concurrent role mutations serialize cleanly
+          await locksColl.updateOne(
+            { _id: 'super_admin_role_mutation_guard' },
+            { $inc: { seq: 1 }, $set: { updatedAt: nowIso } },
+            { upsert: true, session }
+          );
+
+          const actor = actorId ? await usersColl.findOne({ id: actorId }, { session }) : null;
+          const targetUser = await usersColl.findOne({ id: targetUserId }, { session });
+          const oldRole = targetUser?.role || 'Job Seeker';
+
+          let superAdminCount = 0;
+          if (oldRole === 'Super Admin' && newRole !== 'Super Admin') {
+            superAdminCount = await usersColl.countDocuments({ role: 'Super Admin' }, { session });
+          }
+
+          const rejection = UserRepository.evaluateRoleMutationGuard({
+            actor,
+            actorId,
+            actorRoleFallback,
+            targetUser,
+            targetUserId,
+            newRole,
+            superAdminCount
+          });
+
+          if (rejection) {
+            throw new RoleGuardRejectionError(rejection);
+          }
+
+          const updatedDoc = await usersColl.findOneAndUpdate(
+            { id: targetUser.id },
+            {
+              $set: {
+                role: newRole,
+                permissions: newPermissions,
+                updatedAt: nowIso
+              }
+            },
+            { returnDocument: 'after', session }
+          );
+
+          if (!updatedDoc) {
+            throw new RoleGuardRejectionError({
+              ok: false,
+              status: 500,
+              message: 'Failed to update user role.'
+            });
+          }
+
+          const { _id: _uId, ...safeUser } = updatedDoc;
+          const { _id: _aId, ...safeActor } = actor || {};
+          outcome = {
+            ok: true,
+            status: 200,
+            message: `Role updated from '${oldRole}' to '${newRole}'.`,
+            user: safeUser,
+            actor: safeActor,
+            actorRole: actor?.role || actorRoleFallback,
+            oldRole,
+            newRole,
+            permissions: newPermissions
+          };
+        });
+
+        if (!outcome) {
+          return {
+            ok: false,
+            status: 500,
+            message: 'Role update transaction completed without an authoritative outcome.'
+          };
+        }
+        return outcome;
+      } catch (err: any) {
+        if (err instanceof RoleGuardRejectionError) {
+          return err.result;
+        }
+        console.error('[UserRepository] Transactional role update aborted/failed closed:', err?.message || err);
+        return {
+          ok: false,
+          status: 503,
+          message: 'Role update failed: transactional Super Admin protection could not be guaranteed.'
+        };
+      } finally {
+        await session.endSession().catch(() => {});
+      }
+    }
+
+    // In-memory / File DB mode: serialize all role mutations through an async mutex queue
+    const runSerialized = async (): Promise<RoleMutationResult> => {
+      const actor = actorId ? (isTest() ? inMemoryUsers.get(actorId) || null : Database.getUserById(actorId)) : null;
+      const targetUser = isTest() ? inMemoryUsers.get(targetUserId) || null : Database.getUserById(targetUserId);
+      const oldRole = targetUser?.role || 'Job Seeker';
+
+      let superAdminCount = 0;
+      if (oldRole === 'Super Admin' && newRole !== 'Super Admin') {
+        const allUsers = isTest() ? Array.from(inMemoryUsers.values()) : Database.getUsers();
+        superAdminCount = allUsers.filter(u => u && u.role === 'Super Admin').length;
+      }
+
+      const rejection = UserRepository.evaluateRoleMutationGuard({
+        actor,
+        actorId,
+        actorRoleFallback,
+        targetUser,
+        targetUserId,
+        newRole,
+        superAdminCount
+      });
+
+      if (rejection) {
+        return rejection;
+      }
+
+      const updatedAt = new Date().toISOString();
+      let updatedUser: any = null;
+      if (isTest()) {
+        updatedUser = {
+          ...targetUser,
+          role: newRole,
+          permissions: newPermissions,
+          updatedAt
+        };
+        inMemoryUsers.set(targetUser.id, updatedUser);
+      } else {
+        updatedUser = Database.updateUser(targetUser.id, {
+          role: newRole,
+          permissions: newPermissions,
+          updatedAt
+        });
+      }
+
+      if (!updatedUser) {
+        return {
+          ok: false,
+          status: 500,
+          message: 'Failed to update user role.'
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        message: `Role updated from '${oldRole}' to '${newRole}'.`,
+        user: updatedUser,
+        actor,
+        actorRole: actor?.role || actorRoleFallback,
+        oldRole,
+        newRole,
+        permissions: newPermissions
+      };
+    };
+
+    const queuedPromise = UserRepository.roleMutationQueue.then(runSerialized, runSerialized);
+    UserRepository.roleMutationQueue = queuedPromise.then(() => undefined, () => undefined);
+    return queuedPromise;
+  }
+}
+
+ + quotaPath, 0] }] }
+        ] }
+      }, { $inc: { [usagePath]: 1 }, $set: { [marker]: 'RESERVED', updatedAt: nowIso } }, { returnDocument: 'after' });
+      const updated = result && typeof result === 'object' ? ('value' in result ? result.value : result) : null;
+      if (updated) return { ok: true, reason: 'reserved', month };
+      const current = await coll.findOne({ id: uid });
+      if (!current) return { ok: false, reason: 'unavailable', month };
+      if (current.subscriptionMessageOperations?.[markerKey] === 'RESERVED' || current.subscriptionMessageOperations?.[markerKey] === 'SENT') return { ok: false, reason: 'already_processed', month };
+      const entitlement = current.subscriptionEntitlements?.[featureId];
+      const expiry = Date.parse(String(entitlement?.expiresAt || ''));
+      if (current.membershipStatus !== 'Active' || Date.parse(String(current.subscriptionExpiresAt || '')) <= now.getTime() ||
+          entitlement?.enabled !== true || !Number.isFinite(expiry) || expiry <= now.getTime()) return { ok: false, reason: 'unavailable', month };
+      return { ok: false, reason: 'quota_exhausted', month };
+    }
+
+    const user = Database.getUserById(uid);
+    if (!user) return { ok: false, reason: 'unavailable', month };
+    const ops = user.subscriptionMessageOperations || {};
+    if (ops[markerKey] === 'RESERVED' || ops[markerKey] === 'SENT') return { ok: false, reason: 'already_processed', month };
+    const entitlement = user.subscriptionEntitlements?.[featureId];
+    const expiry = Date.parse(String(entitlement?.expiresAt || ''));
+    if (user.membershipStatus !== 'Active' || Date.parse(String(user.subscriptionExpiresAt || '')) <= now.getTime() ||
+        entitlement?.enabled !== true || !Number.isFinite(expiry) || expiry <= now.getTime()) return { ok: false, reason: 'unavailable', month };
+    const usage = user.subscriptionMessageUsage || {};
+    const used = Number(usage[featureId]?.[month]?.used) || 0;
+    const quota = Number(entitlement.monthlyMessageQuota);
+    if (entitlement.unlimitedMessages !== true && (!Number.isInteger(quota) || quota <= 0 || used >= quota)) return { ok: false, reason: 'quota_exhausted', month };
+    await UserRepository.updateAsync(uid, {
+      subscriptionMessageUsage: { ...usage, [featureId]: { ...(usage[featureId] || {}), [month]: { ...(usage[featureId]?.[month] || {}), used: used + 1 } } },
+      subscriptionMessageOperations: { ...ops, [markerKey]: 'RESERVED' }
+    });
+    return { ok: true, reason: 'reserved', month };
+  }
+
+  static async completeSubscriptionMessageQuotaAsync(userId: string, featureId: string, eventId: string): Promise<boolean> {
+    const uid = String(userId || '').trim();
+    const markerKey = featureId + '-' + Buffer.from(String(eventId || '').trim(), 'utf8').toString('base64url').slice(0, 220);
+    const marker = 'subscriptionMessageOperations.' + markerKey;
+    const now = new Date().toISOString();
+    if (isTest()) {
+      const user = inMemoryUsers.get(uid);
+      if (!user || user.subscriptionMessageOperations?.[markerKey] !== 'RESERVED') return false;
+      inMemoryUsers.set(uid, { ...user, subscriptionMessageOperations: { ...user.subscriptionMessageOperations, [markerKey]: 'SENT' }, updatedAt: now });
+      return true;
+    }
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const result = await coll.updateOne({ id: uid, [marker]: 'RESERVED' }, { $set: { [marker]: 'SENT', updatedAt: now } });
+      return result.modifiedCount === 1;
+    }
+    const user = Database.getUserById(uid);
+    if (!user || user.subscriptionMessageOperations?.[markerKey] !== 'RESERVED') return false;
+    await UserRepository.updateAsync(uid, { subscriptionMessageOperations: { ...user.subscriptionMessageOperations, [markerKey]: 'SENT' } });
+    return true;
+  }
+
+  static async releaseSubscriptionMessageQuotaAsync(userId: string, featureId: string, eventId: string, month: string): Promise<boolean> {
+    const uid = String(userId || '').trim();
+    const markerKey = featureId + '-' + Buffer.from(String(eventId || '').trim(), 'utf8').toString('base64url').slice(0, 220);
+    const marker = 'subscriptionMessageOperations.' + markerKey;
+    const usagePath = 'subscriptionMessageUsage.' + featureId + '.' + month + '.used';
+    const now = new Date().toISOString();
+    if (isTest()) {
+      const user = inMemoryUsers.get(uid);
+      if (!user || user.subscriptionMessageOperations?.[markerKey] !== 'RESERVED') return false;
+      const usage = user.subscriptionMessageUsage || {};
+      const used = Math.max(0, (Number(usage[featureId]?.[month]?.used) || 0) - 1);
+      inMemoryUsers.set(uid, { ...user, subscriptionMessageUsage: { ...usage, [featureId]: { ...(usage[featureId] || {}), [month]: { ...(usage[featureId]?.[month] || {}), used } } },
+        subscriptionMessageOperations: { ...user.subscriptionMessageOperations, [markerKey]: 'FAILED' }, updatedAt: now });
+      return true;
+    }
+    if (isMongoActive()) {
+      const coll = await getUsersCollection();
+      const result = await coll.updateOne({ id: uid, [marker]: 'RESERVED', [usagePath]: { $gt: 0 } },
+        { $inc: { [usagePath]: -1 }, $set: { [marker]: 'FAILED', updatedAt: now } });
+      return result.modifiedCount === 1;
+    }
+    const user = Database.getUserById(uid);
+    if (!user || user.subscriptionMessageOperations?.[markerKey] !== 'RESERVED') return false;
+    const usage = user.subscriptionMessageUsage || {};
+    const used = Math.max(0, (Number(usage[featureId]?.[month]?.used) || 0) - 1);
+    await UserRepository.updateAsync(uid, { subscriptionMessageUsage: { ...usage, [featureId]: { ...(usage[featureId] || {}), [month]: { ...(usage[featureId]?.[month] || {}), used } } },
+      subscriptionMessageOperations: { ...user.subscriptionMessageOperations, [markerKey]: 'FAILED' } });
+    return true;
+  }
+
   static async updateRoleWithLastSuperAdminGuard(
     params: RoleMutationParams,
     mongoOverride?: { client: any; db?: any }

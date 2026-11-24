@@ -19,6 +19,7 @@ import { Footer } from './components/Footer';
 import { CountrySelectionModal } from './components/CountrySelectionModal';
 import { LegalDisclaimerModal } from './components/LegalDisclaimerModal';
 import { PremiumUpgradeModal } from './components/PremiumUpgradeModal';
+import { PremiumEarlyAccessSection } from './components/PremiumEarlyAccessSection';
 import {
   WhatsAppStickyButton,
   WhatsAppSupportConfig,
@@ -4503,6 +4504,10 @@ export default function App() {
                           {/* Design 4 editorial two-column job feed; all existing filters, cards and ad rules stay intact. */}
                           <div className={landingDesignSystem.activeDesignId === 'design-4' ? 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-6 items-start' : ''}>
                             <div className="min-w-0">
+                          <PremiumEarlyAccessSection
+                            onUpgrade={() => { setSelectedJobTitleForSub(''); setSelectedGate({ title: 'Premium Early Access', message: 'Unlock selected jobs before they become available to other members.' }); setPremiumUpgradeModalOpen(true); }}
+                            onExplore={() => { const el = document.getElementById('jobs-section'); el?.scrollIntoView({ behavior: 'smooth' }); }}
+                          />
                           {/* Job Cards Grid with Pagination and Inline Ads */}
                           <JobListings
                             priorityJobs={priorityJobs}

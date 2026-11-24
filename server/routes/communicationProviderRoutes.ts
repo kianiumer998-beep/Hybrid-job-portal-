@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { CommunicationProviderRepository, AuditRepository } from '../db/repositories';
+import { CommunicationProviderRepository, AuditRepository, SubscriptionUsageRepository } from '../db/repositories';
 import { requireAdminPermission } from '../auth/authManager';
 import { sendProviderTestMessage } from '../services/communicationDeliveryService';
 
@@ -21,6 +21,19 @@ communicationProviderRouter.get('/', requireAdminPermission('settings.manage'), 
       success: false,
       message: err?.message || 'Failed to fetch communication provider settings.'
     });
+  }
+});
+
+// GET /api/settings/communication/providers/logs (Admin only)
+communicationProviderRouter.get('/logs', requireAdminPermission('settings.manage'), async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const limit = Number(req.query?.limit || 50);
+    const logs = await SubscriptionUsageRepository.getRecentMessageDeliveryLogs(limit);
+    return res.json({ success: true, logs });
+  } catch (error: any) {
+    console.error('[CommunicationProviderRoutes] Failed to fetch delivery logs:', error?.message || error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch communication delivery logs.' });
   }
 });
 

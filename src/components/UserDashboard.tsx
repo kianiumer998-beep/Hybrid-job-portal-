@@ -201,7 +201,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   };
 
   const parseResubmissionLines = (value: string) =>
-    value.split(/\\r?\\n/).map((item) => item.trim()).filter(Boolean).slice(0, 100);
+    value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).slice(0, 100);
 
   const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => 
     safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_${currentUser.id}`, 'classic')

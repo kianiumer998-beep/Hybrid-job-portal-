@@ -9,12 +9,14 @@ async function run() {
     { id: 'early_access', label: 'Early Access', enabled: true, pricePkr: 500, durationDays: 30, includedSlots: 0, slotDurationDays: 30 },
     { id: 'whatsapp_alerts', label: 'WhatsApp Alerts', enabled: true, pricePkr: 300, durationDays: 30, includedSlots: 0, slotDurationDays: 30 },
     { id: 'sms_alerts', label: 'SMS Alerts', enabled: false, pricePkr: 200, durationDays: 30, includedSlots: 0, slotDurationDays: 30, unlimitedMessages: false, monthlyMessageQuota: 2 },
+    { id: 'campaign_credits', label: 'Campaign Credits', enabled: true, pricePkr: 900, durationDays: 30, includedSlots: 0, slotDurationDays: 30, campaignCredits: [{ placement: 'sidebar', durationHours: 168, quantity: 2 }] },
     { id: 'unknown_feature', label: 'Unsupported', enabled: true, pricePkr: 1 }
   ]);
-  assert.equal(catalog.length, 3, 'unsupported IDs are excluded from the feature catalog');
+  assert.equal(catalog.length, 4, 'unsupported IDs are excluded while campaign credits are supported');
   assert.equal(catalog[2].id, 'sms_alerts');
   assert.equal(catalog[1].unlimitedMessages, true, 'legacy catalog entries preserve unmetered compatibility');
   assert.equal(catalog[2].monthlyMessageQuota, 2, 'explicit monthly quotas are normalized');
+  assert.deepEqual(catalog[3].campaignCredits, [{ placement: 'sidebar', durationHours: 168, quantity: 2 }], 'placement-specific campaign credits are normalized');
 
   const pricing = { subscriptionFeatureCatalog: catalog, subscriptionBundleDiscountPercent: 10 };
   const bundle = resolveSubscriptionPackage({ id: 'bundle', name: 'Bundle', pricingMode: 'catalog', featureIds: ['early_access', 'whatsapp_alerts'], durationDays: 30 }, pricing);
@@ -31,6 +33,15 @@ async function run() {
     () => resolveSubscriptionPackage({ id: 'bad', pricingMode: 'catalog', featureIds: ['untrusted'] }, pricing),
     /Unsupported subscription feature/,
     'unknown feature IDs are rejected'
+  );
+
+  const campaignPackage = resolveSubscriptionPackage({ id: 'campaign-plan', pricingMode: 'catalog', featureIds: ['campaign_credits'], durationDays: 30 }, { subscriptionFeatureCatalog: catalog });
+  assert.equal(campaignPackage.pricePkr, 900, 'campaign credit catalog price is calculated server-side');
+  assert.equal(campaignPackage.featureSnapshots[0].campaignCredits?.[0].quantity, 2, 'campaign credit rules are frozen in the purchase snapshot');
+  assert.throws(
+    () => resolveSubscriptionPackage({ id: 'bad-campaign', pricingMode: 'catalog', featureIds: ['campaign_credits'] }, { subscriptionFeatureCatalog: catalog.map((item: any) => item.id === 'campaign_credits' ? { ...item, campaignCredits: [] } : item) }),
+    /Configure at least one placement/,
+    'campaign credit feature cannot be sold without redemption rules'
   );
 
   const fixed = resolveSubscriptionPackage({ id: 'fixed', pricingMode: 'fixed', pricePkr: 999, configuredPricePkr: 850, featureIds: [] }, pricing);
@@ -151,7 +162,7 @@ async function run() {
   const noExpiryReservation = await UserRepository.reserveSubscriptionMessageQuotaAsync(noExpiryUserId, 'sms_alerts', 'no-expiry-event');
   assert.equal(noExpiryReservation.reason, 'unavailable', 'missing subscription expiry fails closed');
 
-  console.log('Subscription entitlement tests passed (39 assertions).');
+  console.log('Subscription entitlement tests passed (43 assertions).');
 }
 
 run().catch((error) => { console.error(error); process.exitCode = 1; });

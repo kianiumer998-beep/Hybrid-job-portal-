@@ -2022,7 +2022,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     deduplicationEnabled: true,
     enableEmailAlerts: false,
     enableWhatsAppAlerts: false,
-    enableSmsAlerts: false
+    enableSmsAlerts: true
   });
 
   // Fetch initial feature flags from backend API

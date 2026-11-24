@@ -3379,10 +3379,14 @@ export default function App() {
   const handleRejectJob = async (jobId: string, reason: string) => {
     try {
       const rejectedJob = pendingJobs.find(j => j.id === jobId);
-      await api.jobs.rejectPending(jobId, reason);
+      const result = await api.jobs.rejectPending(jobId, reason);
+      if (!result?.success) {
+        await loadBackendJobs();
+        return { success: false, message: result?.message || 'The job could not be rejected.' };
+      }
       await loadBackendJobs();
 
-      // Push persistent notification message into user's chat thread
+      // Keep the existing chat-thread notice in addition to the authoritative in-app notification.
       if (rejectedJob && rejectedJob.submittedByUserId) {
         const chatMsg = {
           id: 'msg-' + Date.now(),
@@ -3395,17 +3399,18 @@ export default function App() {
         api.chat.adminSendReply(chatMsg).then(res => {
           if (res?.success) {
             setChatMessages(prev => [...prev, res.message]);
-            console.log('[App] Chat notification successfully sent for job rejection.');
+            console.log('[App] Persistent chat notification successfully sent for job rejection.');
           } else {
             console.error('[App] Persistent chat notification failed for job rejection:', res?.message);
           }
         }).catch(err => console.warn('[App] Error sending persistent chat notification for job rejection:', err));
       }
 
-      alert(`Job rejected successfully. Notification dispatch initiated.`);
-    } catch (err) {
+      return { success: true, message: result.message || 'Job rejected successfully.' };
+    } catch (err: any) {
       console.error('Error rejecting job on backend:', err);
       await loadBackendJobs();
+      return { success: false, message: err?.message || 'Error rejecting job.' };
     }
   };
 

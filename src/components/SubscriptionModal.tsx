@@ -81,7 +81,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
             pricePkr: Number(feature.pricePkr || 0),
             durationDays: Number(feature.durationDays || 30),
             featureIds: [feature.id],
-            featureLabels: [feature.label],
+            featureLabels: [feature.label, ...(feature.id === 'campaign_credits' ? (feature.campaignCredits || []).map((credit: any) => `${credit.placement} · ${credit.durationHours}h × ${credit.quantity}`) : [])],
             features: [],
             isIndividualFeature: true,
             enabled: true

@@ -47,13 +47,13 @@ export async function dispatchPremiumInstantJobAlerts(job: any): Promise<{ match
         metadata: { jobId: String(job.id), jobTitle: String(job.title || ''), jobUrl }
       });
       if (channelFlags.enableEmailAlerts === true && user.emailAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'email_alerts')) {
-        if (await sendConfiguredPremiumAlert(user, 'email', 'New job matching your alert: ' + String(job.title || ''), message)) deliveredChannels += 1;
+        if (await sendConfiguredPremiumAlert(user, 'email', 'New job matching your alert: ' + String(job.title || ''), message, 'premium-instant-job-alert:' + String(job.id) + ':' + String(user.id) + ':email')) deliveredChannels += 1;
       }
       if (channelFlags.enableWhatsAppAlerts === true && user.whatsappAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'whatsapp_alerts')) {
-        if (await sendConfiguredPremiumAlert(user, 'whatsapp', 'New job alert', message)) deliveredChannels += 1;
+        if (await sendConfiguredPremiumAlert(user, 'whatsapp', 'New job alert', message, 'premium-instant-job-alert:' + String(job.id) + ':' + String(user.id) + ':whatsapp')) deliveredChannels += 1;
       }
       if (channelFlags.enableSmsAlerts === true && user.smsAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'sms_alerts')) {
-        if (await sendConfiguredPremiumAlert(user, 'sms', 'New job alert', message)) deliveredChannels += 1;
+        if (await sendConfiguredPremiumAlert(user, 'sms', 'New job alert', message, 'premium-instant-job-alert:' + String(job.id) + ':' + String(user.id) + ':sms')) deliveredChannels += 1;
       }
     } catch (error: any) {
       console.error('[Premium Job Alerts] Delivery failed for user:', user.id, error?.message || error);
@@ -111,13 +111,13 @@ export async function dispatchPremiumJobAlertDigests(now = new Date()): Promise<
         metadata: { frequency, matchedJobCount: matchedJobs.length, jobIds: matchedJobs.map((job: any) => String(job.id)) }
       });
       if (channelFlags.enableEmailAlerts === true && user.emailAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'email_alerts')) {
-        await sendConfiguredPremiumAlert(user, 'email', frequency === 'daily' ? 'Your Daily Job Alert Digest' : 'Your Weekly Job Round-up', message);
+        await sendConfiguredPremiumAlert(user, 'email', frequency === 'daily' ? 'Your Daily Job Alert Digest' : 'Your Weekly Job Round-up', message, eventId + ':email');
       }
       if (channelFlags.enableWhatsAppAlerts === true && user.whatsappAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'whatsapp_alerts')) {
-        await sendConfiguredPremiumAlert(user, 'whatsapp', 'Your job alert digest', message);
+        await sendConfiguredPremiumAlert(user, 'whatsapp', 'Your job alert digest', message, eventId + ':whatsapp');
       }
       if (channelFlags.enableSmsAlerts === true && user.smsAlertsEnabled === true && await hasActiveSubscriptionFeature(String(user.id), 'sms_alerts')) {
-        await sendConfiguredPremiumAlert(user, 'sms', 'Your job alert digest', message);
+        await sendConfiguredPremiumAlert(user, 'sms', 'Your job alert digest', message, eventId + ':sms');
       }
       digestCount += 1;
     }

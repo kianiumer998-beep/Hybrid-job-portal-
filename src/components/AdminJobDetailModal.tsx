@@ -44,7 +44,7 @@ interface AdminJobDetailModalProps {
   feeLogs?: JobPostingFeeLog[];
   onClose: () => void;
   onApproveJob?: (jobId: string) => Promise<any> | void;
-  onRejectJob?: (jobId: string, reason: string) => void;
+  onRejectJob?: (jobId: string, reason: string) => Promise<any> | any;
   onSuspendJob?: (jobId: string, reason?: string) => void;
   onViewUserProfile?: (user: UserAccount) => void;
   onEditJob?: (job: Job) => void;
@@ -63,6 +63,7 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
 }) => {
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
+  const [isRejecting, setIsRejecting] = useState(false);
   const [isConfirmingLocation, setIsConfirmingLocation] = useState(false);
   const [confirmedNotice, setConfirmedNotice] = useState<string | null>(null);
 
@@ -1581,26 +1582,39 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
                     <span>Reject Job</span>
                   </button>
                 ) : (
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="text"
+                  <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-end">
+                    <textarea
                       value={rejectionReason}
                       onChange={(e) => setRejectionReason(e.target.value)}
-                      placeholder="Reason for rejection..."
-                      className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs font-medium"
+                      placeholder="Clearly explain what is wrong and what the submitter must correct. This message will be visible to the job owner."
+                      maxLength={4000}
+                      rows={3}
+                      className="min-w-0 flex-1 resize-y px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs font-medium"
                     />
                     <button
-                      onClick={() => {
+                      disabled={isRejecting || !rejectionReason.trim()}
+                      onClick={async () => {
                         if (!rejectionReason.trim()) {
-                          alert('Please specify a rejection reason.');
+                          alert('Please specify a clear correction reason.');
                           return;
                         }
-                        onRejectJob(job.id, rejectionReason.trim());
-                        onClose();
+                        setIsRejecting(true);
+                        try {
+                          const result = await onRejectJob(job.id, rejectionReason.trim());
+                          if (result?.success === false) {
+                            alert(result.message || 'The job could not be rejected.');
+                            return;
+                          }
+                          onClose();
+                        } catch (error: any) {
+                          alert(error?.message || 'The job could not be rejected.');
+                        } finally {
+                          setIsRejecting(false);
+                        }
                       }}
-                      className="px-3 py-2 bg-rose-500 text-white font-bold text-xs rounded-xl cursor-pointer"
+                      className="shrink-0 px-3 py-2 bg-rose-500 text-white font-bold text-xs rounded-xl cursor-pointer disabled:opacity-50"
                     >
-                      Confirm Reject
+                      {isRejecting ? 'Rejecting…' : 'Confirm Reject'}
                     </button>
                   </div>
                 )}

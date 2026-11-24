@@ -295,7 +295,8 @@ function deepMergePricing(base: any, incoming: any): any {
     pdfExportLimit: Number.isInteger(Number(pkg?.pdfExportLimit)) ? Math.min(1000, Math.max(0, Number(pkg.pdfExportLimit))) : 0,
     atsExportLimit: Number.isInteger(Number(pkg?.atsExportLimit)) ? Math.min(1000, Math.max(0, Number(pkg.atsExportLimit))) : 0,
     shareLimit: Number.isInteger(Number(pkg?.shareLimit)) ? Math.min(1000, Math.max(0, Number(pkg.shareLimit))) : 0,
-    noWatermark: pkg?.noWatermark === true
+    noWatermark: pkg?.noWatermark === true,
+    premiumDesignIds: Array.isArray(pkg?.premiumDesignIds) ? Array.from(new Set(pkg.premiumDesignIds.filter((id: any) => typeof id === 'string').map((id: string) => id.trim()).filter((id: string) => /^[a-zA-Z0-9_-]{1,80}$/.test(id)))).slice(0, 30) : []
   })) : (Array.isArray(baseCvBuilder.packages) ? baseCvBuilder.packages : []);
   const cvBuilder = {
     ...baseCvBuilder,

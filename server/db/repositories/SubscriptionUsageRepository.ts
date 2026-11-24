@@ -33,7 +33,8 @@ export class SubscriptionUsageRepository {
         $or: [
           { [enabledPath]: true, [expiryPath]: { $gt: nowIso } },
           { subscriptionFeatureIds: { $exists: false } },
-          { subscriptionFeatureIds: { $size: 0 } }
+          { subscriptionFeatureIds: { $size: 0 } },
+          { subscriptionFeatureIds: featureId, [enabledPath]: { $exists: false } }
         ],
         [marker]: { $nin: ['RESERVED', 'SENT'] },
         $expr: { $or: [
@@ -54,10 +55,11 @@ export class SubscriptionUsageRepository {
       if (current.subscriptionMessageOperations?.[markerKey] === 'RESERVED' || current.subscriptionMessageOperations?.[markerKey] === 'SENT') return { ok: false, reason: 'already_processed', month };
       const legacyAccess = !Array.isArray(current.subscriptionFeatureIds) || current.subscriptionFeatureIds.length === 0;
       const entitlement = current.subscriptionEntitlements?.[featureId];
+      const legacyEntitlement = legacyAccess || (!entitlement && current.subscriptionFeatureIds?.includes(featureId));
       const featureExpiry = Date.parse(String(entitlement?.expiresAt || ''));
       const membershipExpiry = Date.parse(String(current.subscriptionExpiresAt || ''));
       if (current.membershipStatus !== 'Active' || !Number.isFinite(membershipExpiry) || membershipExpiry <= now.getTime() ||
-          (!legacyAccess && (entitlement?.enabled !== true || !Number.isFinite(featureExpiry) || featureExpiry <= now.getTime()))) return { ok: false, reason: 'unavailable', month };
+          (!legacyEntitlement && (entitlement?.enabled !== true || !Number.isFinite(featureExpiry) || featureExpiry <= now.getTime()))) return { ok: false, reason: 'unavailable', month };
       return { ok: false, reason: 'quota_exhausted', month };
     }
 
@@ -69,12 +71,13 @@ export class SubscriptionUsageRepository {
     const featureExpiry = Date.parse(String(entitlement?.expiresAt || ''));
     const membershipExpiry = Date.parse(String(user.subscriptionExpiresAt || ''));
     const legacyAccess = !Array.isArray(user.subscriptionFeatureIds) || user.subscriptionFeatureIds.length === 0;
+    const legacyEntitlement = legacyAccess || (!entitlement && user.subscriptionFeatureIds?.includes(featureId));
     if (user.membershipStatus !== 'Active' || !Number.isFinite(membershipExpiry) || membershipExpiry <= now.getTime() ||
-        (!legacyAccess && (entitlement?.enabled !== true || !Number.isFinite(featureExpiry) || featureExpiry <= now.getTime()))) return { ok: false, reason: 'unavailable', month };
+        (!legacyEntitlement && (entitlement?.enabled !== true || !Number.isFinite(featureExpiry) || featureExpiry <= now.getTime()))) return { ok: false, reason: 'unavailable', month };
     const usage = user.subscriptionMessageUsage || {};
     const used = Number(usage[featureId]?.[month]?.used) || 0;
     const quota = Number(entitlement?.monthlyMessageQuota);
-    const legacyUnmetered = legacyAccess || !entitlement || (entitlement.unlimitedMessages === undefined && entitlement.monthlyMessageQuota === undefined);
+    const legacyUnmetered = legacyEntitlement || !entitlement || (entitlement.unlimitedMessages === undefined && entitlement.monthlyMessageQuota === undefined);
     if (!legacyUnmetered && entitlement.unlimitedMessages !== true && (!Number.isInteger(quota) || quota <= 0 || used >= quota)) return { ok: false, reason: 'quota_exhausted', month };
     await UserRepository.updateAsync(uid, {
       subscriptionMessageUsage: { ...usage, [featureId]: { ...(usage[featureId] || {}), [month]: { ...(usage[featureId]?.[month] || {}), used: used + 1 } } },

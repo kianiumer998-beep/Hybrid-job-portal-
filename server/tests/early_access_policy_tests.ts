@@ -46,7 +46,7 @@ async function run() {
   assert.equal(landing.maxJobs, 5);
   assert.equal(landing.showCountdown, true);
 
-  console.log('Premium early access policy tests passed (12 assertions).');
+  console.log('Premium early access policy tests passed (17 assertions).');
 }
 
 run().catch((error) => {

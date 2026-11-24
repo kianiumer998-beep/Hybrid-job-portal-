@@ -467,7 +467,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
           ? result.chargedAmount
           : costCalculation.totalCostPkr;
 
-      // Reset form & navigate to my campaigns only after verified backend payment + campaign creation
+      // Reset form & navigate only after verified backend wallet payment or subscription credit redemption + campaign creation
       setFormTitle('');
       setFormHeadline('');
       setFormBodyText('');
@@ -477,7 +477,9 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       alert(
         `Campaign "${newAd.title}" submitted successfully! ${chargedAmount > 0
           ? `PKR ${chargedAmount.toLocaleString()} has been moved from your available wallet balance into campaign escrow.`
-          : 'No wallet funds were held because this campaign is free.'} The campaign is awaiting administrator review. If rejected, any held funds will be returned to your available wallet balance.`
+          : useSubscriptionCredit && hasMatchingCampaignCredit
+          ? 'One subscription campaign credit was redeemed; no wallet funds were held.'
+          : 'No wallet funds were held because this campaign is free.'} The campaign is awaiting administrator review. If rejected, any held wallet funds or subscription credit will be restored.`
       );
     } finally {
       setIsSubmittingCampaign(false);

@@ -35,6 +35,13 @@ const CAMPAIGN_PLACEMENTS = [
   { id: 'promo-discount-banner', label: 'Promo Discount Banner' }, { id: 'dynamic-announcement-card', label: 'Announcement Card' }
 ];
 
+const campaignPresetHours = (preset: any): number => {
+  const value = Number(preset?.value);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  const unit = String(preset?.unit || 'days');
+  return Math.round(unit === 'hours' ? value : unit === 'days' ? value * 24 : unit === 'weeks' ? value * 7 * 24 : value * 30 * 24);
+};
+
 const numberIsValid = (value: unknown, min: number, max: number) => {
   if (typeof value === 'string' && value.trim() === '') return false;
   const parsed = Number(value);
@@ -209,7 +216,11 @@ export const AdminSubscriptionStudio: React.FC<{ onPricingSaved?: (pricing: any)
                 <div className="flex items-center justify-between"><p className="text-[10px] font-semibold text-indigo-200">Placement credits</p><button type="button" onClick={() => updateFeature(index, { campaignCredits: [...(feature.campaignCredits || []), { placement: 'sidebar', durationHours: 168, quantity: 1 }] })} className="rounded border border-indigo-400/40 px-2 py-1 text-[9px]">Add credit</button></div>
                 {(feature.campaignCredits || []).map((credit: any, creditIndex: number) => <div key={creditIndex} className="grid grid-cols-1 gap-2 rounded border border-slate-800 p-2 sm:grid-cols-[1fr_80px_70px_90px_auto]">
                   <select value={credit.placement} onChange={e => updateFeature(index, { campaignCredits: feature.campaignCredits.map((item: any, i: number) => i === creditIndex ? { ...item, placement: e.target.value, ...(e.target.value === 'sms-broadcast' ? { smsRecipientsCount: item.smsRecipientsCount || 100 } : {}) } : item) })} className="rounded bg-slate-900 p-2 text-[10px]">{CAMPAIGN_PLACEMENTS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select>
-                  <label className="text-[9px] text-slate-400">Duration hours<input type="number" min="1" max="8760" value={credit.durationHours ?? ''} onChange={e => updateFeature(index, { campaignCredits: feature.campaignCredits.map((item: any, i: number) => i === creditIndex ? { ...item, durationHours: e.target.value === '' ? '' : Number(e.target.value) } : item) })} className="mt-1 w-full rounded bg-slate-900 p-2 text-[10px] text-white" /></label>
+                  <label className="text-[9px] text-slate-400">Duration preset<select value={(pricing.campaignCustomizationConfig?.durationPresets || []).find((preset: any) => campaignPresetHours(preset) === Number(credit.durationHours) && preset.isEnabled !== false)?.id || 'custom'} onChange={e => {
+                    const preset = (pricing.campaignCustomizationConfig?.durationPresets || []).find((item: any) => item.id === e.target.value);
+                    if (preset) updateFeature(index, { campaignCredits: feature.campaignCredits.map((item: any, i: number) => i === creditIndex ? { ...item, durationHours: campaignPresetHours(preset) } : item) });
+                  }} className="mt-1 w-full rounded bg-slate-900 p-2 text-[10px] text-white"><option value="custom">Custom duration</option>{(pricing.campaignCustomizationConfig?.durationPresets || []).filter((preset: any) => preset.isEnabled !== false).map((preset: any) => <option key={preset.id} value={preset.id}>{preset.label || preset.subLabel || preset.id}</option>)}</select></label>
+                  <label className="text-[9px] text-slate-400">Hours<input type="number" min="1" max="8760" value={credit.durationHours ?? ''} onChange={e => updateFeature(index, { campaignCredits: feature.campaignCredits.map((item: any, i: number) => i === creditIndex ? { ...item, durationHours: e.target.value === '' ? '' : Number(e.target.value) } : item) })} className="mt-1 w-full rounded bg-slate-900 p-2 text-[10px] text-white" /></label>
                   <label className="text-[9px] text-slate-400">Quantity<input type="number" min="1" max="1000" value={credit.quantity ?? ''} onChange={e => updateFeature(index, { campaignCredits: feature.campaignCredits.map((item: any, i: number) => i === creditIndex ? { ...item, quantity: e.target.value === '' ? '' : Number(e.target.value) } : item) })} className="mt-1 w-full rounded bg-slate-900 p-2 text-[10px] text-white" /></label>
                   {credit.placement === 'sms-broadcast' && <label className="text-[9px] text-slate-400">SMS recipients<input type="number" min="1" max="100000" value={credit.smsRecipientsCount ?? ''} onChange={e => updateFeature(index, { campaignCredits: feature.campaignCredits.map((item: any, i: number) => i === creditIndex ? { ...item, smsRecipientsCount: e.target.value === '' ? '' : Number(e.target.value) } : item) })} className="mt-1 w-full rounded bg-slate-900 p-2 text-[10px] text-white" /></label>}
                   <button type="button" onClick={() => updateFeature(index, { campaignCredits: feature.campaignCredits.filter((_: any, i: number) => i !== creditIndex) })} className="self-end rounded px-2 py-2 text-[10px] text-rose-300">Remove</button>

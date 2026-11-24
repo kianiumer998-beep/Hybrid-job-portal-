@@ -75,6 +75,7 @@ export interface BroadcastCampaign {
 
 export type EmailProviderType = 'smtp' | 'sendgrid' | 'resend';
 export type WhatsAppProviderType = 'meta-cloud' | 'twilio';
+export type SmsProviderType = 'disabled' | 'twilio';
 
 export interface CommunicationProviderConfig {
   emailProvider?: EmailProviderType;
@@ -83,6 +84,8 @@ export interface CommunicationProviderConfig {
   smtpUser: string;
   smtpSenderEmail: string;
   whatsappProvider?: WhatsAppProviderType;
+  smsProvider?: SmsProviderType;
+  smsFromNumber?: string;
   sendgridApiKey?: string;
   resendApiKey?: string;
   whatsappCloudApiToken?: string;
@@ -100,6 +103,8 @@ export interface SafeCommunicationProviderConfig {
   smtpUser: string;
   smtpSenderEmail: string;
   whatsappProvider: WhatsAppProviderType;
+  smsProvider: SmsProviderType;
+  smsFromNumber: string;
   whatsappPhoneNumberId: string;
   whatsappBusinessAccountId: string;
   twilioAccountSid: string;
@@ -119,6 +124,8 @@ export interface UpdateCommunicationProviderPayload {
   smtpUser?: string;
   smtpSenderEmail?: string;
   whatsappProvider?: WhatsAppProviderType;
+  smsProvider?: SmsProviderType;
+  smsFromNumber?: string;
   whatsappPhoneNumberId?: string;
   whatsappBusinessAccountId?: string;
   twilioAccountSid?: string;

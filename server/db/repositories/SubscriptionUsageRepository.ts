@@ -198,10 +198,16 @@ export class SubscriptionUsageRepository {
         'subscriptionEntitlements.campaign_credits.enabled': true,
         'subscriptionEntitlements.campaign_credits.expiresAt': { $gt: now },
         [creditsPath]: { $elemMatch: creditQuery },
-        [marker]: { $ne: 'CONSUMED' }
+        [marker]: { $exists: false }
       }, {
         $inc: { 'subscriptionEntitlements.campaign_credits.campaignCredits.$[credit].remaining': -1 },
-        $set: { [marker]: 'CONSUMED', updatedAt: now }
+        $set: {
+          [marker]: 'CONSUMED',
+          ['subscriptionCampaignOperationDetails.' + markerKey]: {
+            placement: cleanPlacement, durationHours, smsRecipientsCount: cleanPlacement === 'sms-broadcast' ? smsRecipientsCount : 0
+          },
+          updatedAt: now
+        }
       } as any, {
         returnDocument: 'after', includeResultMetadata: false,
         arrayFilters: [{
@@ -213,6 +219,10 @@ export class SubscriptionUsageRepository {
       if (!updatedDoc) {
         const previouslyConsumed = await coll.findOne({ id: uid, [marker]: 'CONSUMED' });
         if (!previouslyConsumed) return null;
+        const previousDetails = previouslyConsumed.subscriptionCampaignOperationDetails?.[markerKey];
+        if (!previousDetails || previousDetails.placement !== cleanPlacement ||
+            Number(previousDetails.durationHours) !== durationHours ||
+            Number(previousDetails.smsRecipientsCount || 0) !== (cleanPlacement === 'sms-broadcast' ? smsRecipientsCount : 0)) return null;
         const { _id, ...safePrevious } = previouslyConsumed;
         return { user: safePrevious, credit: { placement: cleanPlacement, durationHours, smsRecipientsCount, campaignId: campaign } };
       }
@@ -222,7 +232,14 @@ export class SubscriptionUsageRepository {
     const user = await UserRepository.getByIdAsync(uid);
     if (!user) return null;
     const ops = user.subscriptionCampaignOperations || {};
-    if (ops[markerKey] === 'CONSUMED') return { user, credit: { placement: cleanPlacement, durationHours, smsRecipientsCount, campaignId: campaign } };
+    const operationDetails = user.subscriptionCampaignOperationDetails || {};
+    if (ops[markerKey] === 'CONSUMED') {
+      const previousDetails = operationDetails[markerKey];
+      if (!previousDetails || previousDetails.placement !== cleanPlacement ||
+          Number(previousDetails.durationHours) !== durationHours ||
+          Number(previousDetails.smsRecipientsCount || 0) !== (cleanPlacement === 'sms-broadcast' ? smsRecipientsCount : 0)) return null;
+      return { user, credit: { placement: cleanPlacement, durationHours, smsRecipientsCount, campaignId: campaign } };
+    }
     if (ops[markerKey] === 'RESTORED') return null;
     const membershipExpiry = Date.parse(String(user.subscriptionExpiresAt || ''));
     const featureExpiry = Date.parse(String(user.subscriptionEntitlements?.campaign_credits?.expiresAt || ''));
@@ -238,7 +255,11 @@ export class SubscriptionUsageRepository {
     const updatedCredits = credits.map((item: any, i: number) => i === index ? { ...item, remaining: Number(item.remaining) - 1 } : item);
     const updated = await UserRepository.updateAsync(uid, {
       subscriptionEntitlements: { ...user.subscriptionEntitlements, campaign_credits: { ...user.subscriptionEntitlements.campaign_credits, campaignCredits: updatedCredits } },
-      subscriptionCampaignOperations: { ...ops, [markerKey]: 'CONSUMED' }
+      subscriptionCampaignOperations: { ...ops, [markerKey]: 'CONSUMED' },
+      subscriptionCampaignOperationDetails: {
+        ...operationDetails,
+        [markerKey]: { placement: cleanPlacement, durationHours, smsRecipientsCount: cleanPlacement === 'sms-broadcast' ? smsRecipientsCount : 0 }
+      }
     });
     return updated ? { user: updated, credit: { placement: cleanPlacement, durationHours, smsRecipientsCount, campaignId: campaign } } : null;
   }
@@ -249,10 +270,19 @@ export class SubscriptionUsageRepository {
     const markerKey = operationKey(campaignId);
     const marker = 'subscriptionCampaignOperations.' + markerKey;
     const now = new Date().toISOString();
-    if (!uid || !cleanPlacement || !Number.isInteger(durationHours) || durationHours < 1 || !markerKey) return false;
+    if (!uid || !cleanPlacement || !Number.isInteger(durationHours) || durationHours < 1 || durationHours > 8760 ||
+        !String(campaignId || '').trim() || String(campaignId).trim().length > 200 || !markerKey ||
+        (cleanPlacement === 'sms-broadcast' && (!Number.isInteger(smsRecipientsCount) || smsRecipientsCount < 1 || smsRecipientsCount > 100000))) return false;
     if (isMongoActive()) {
       const coll = await getUsersCollection();
-      const result = await coll.updateOne({ id: uid, [marker]: 'CONSUMED' }, {
+      const detailPath = 'subscriptionCampaignOperationDetails.' + markerKey;
+      const result = await coll.updateOne({
+        id: uid, [marker]: 'CONSUMED',
+        [detailPath]: {
+          placement: cleanPlacement, durationHours,
+          smsRecipientsCount: cleanPlacement === 'sms-broadcast' ? smsRecipientsCount : 0
+        }
+      }, {
         $inc: { 'subscriptionEntitlements.campaign_credits.campaignCredits.$[credit].remaining': 1 },
         $set: { [marker]: 'RESTORED', updatedAt: now }
       } as any, {
@@ -268,6 +298,10 @@ export class SubscriptionUsageRepository {
     if (!user) return false;
     if (user.subscriptionCampaignOperations?.[markerKey] === 'RESTORED') return true;
     if (user.subscriptionCampaignOperations?.[markerKey] !== 'CONSUMED') return false;
+    const previousDetails = user.subscriptionCampaignOperationDetails?.[markerKey];
+    if (!previousDetails || previousDetails.placement !== cleanPlacement ||
+        Number(previousDetails.durationHours) !== durationHours ||
+        Number(previousDetails.smsRecipientsCount || 0) !== (cleanPlacement === 'sms-broadcast' ? smsRecipientsCount : 0)) return false;
     const credits = user.subscriptionEntitlements?.campaign_credits?.campaignCredits || [];
     let restored = false;
     const updatedCredits = credits.map((item: any) => {

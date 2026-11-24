@@ -88,3 +88,26 @@
     border-radius: 0.875rem !important;
   }
 }
+
+/* Professional admin workspace: compact controls and naturally wrapping filter rows on phones. */
+@media (max-width: 639px) {
+  .admin-dashboard-mobile-compact .flex.flex-wrap {
+    column-gap: 0.45rem !important;
+    row-gap: 0.4rem !important;
+  }
+  .admin-dashboard-mobile-compact select,
+  .admin-dashboard-mobile-compact input[type="text"],
+  .admin-dashboard-mobile-compact input[type="search"],
+  .admin-dashboard-mobile-compact input[type="number"] {
+    min-width: 0;
+    min-height: 2.1rem;
+    font-size: 0.75rem;
+  }
+  .admin-dashboard-mobile-compact .flex.flex-wrap > button,
+  .admin-dashboard-mobile-compact .flex.flex-wrap > a {
+    flex: 0 1 auto;
+    max-width: 100%;
+    white-space: normal;
+    line-height: 1.25;
+  }
+}

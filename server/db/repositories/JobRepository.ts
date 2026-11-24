@@ -2153,7 +2153,7 @@ export class JobRepository {
       pending[index] = {
         ...existing, ...updates, id: existing.id, submittedByUserId: safeUserId,
         status: 'Pending', rejectionReason: '', resubmissionCount: attempts + 1,
-        moderationHistory: [...history, { action: 'resubmitted', reason: existing.rejectionReason || '', at: now, attempt: attempts + 1 }],
+        moderationHistory: [...history, { action: 'resubmitted', reason: existing.rejectionReason || '', at: now, attempt: attempts + 1, submittedByUserId: safeUserId }],
         updatedAt: now, resubmittedAt: now
       };
       Database.savePendingJobs(pending);
@@ -2174,7 +2174,8 @@ export class JobRepository {
       reason: String(existing.rejectionReason || ''),
       rejectedAt: existing.rejectedAt || null,
       at: now,
-      attempt: attempts + 1
+      attempt: attempts + 1,
+      submittedByUserId: safeUserId
     };
     const safeUpdates = { ...updates };
     for (const key of ['id', '_id', 'submittedByUserId', 'sourceType', 'status', 'moderationHistory', 'resubmissionCount', 'rejectionReason']) delete safeUpdates[key];
@@ -2185,7 +2186,7 @@ export class JobRepository {
         status: 'Rejected',
         $or: [
           { resubmissionCount: { $lt: safeMaxAttempts } },
-          { resubmissionCount: { $exists: false } }
+          { resubmissionCount: { $in: [null] } }
         ]
       },
       {
@@ -2204,15 +2205,41 @@ export class JobRepository {
   /**
    * Rejects a pending job in MongoDB.
    */
-  static async rejectPending(id: string, reason?: string): Promise<boolean> {
-    if (!isMongoConfigured()) {
-      return Database.rejectPendingJob(id, reason);
-    }
-    assertMongoAvailable();
-    const pendingColl = await getPendingJobsCollection();
-
+  static async rejectPending(
+    id: string,
+    reason?: string,
+    actor: { name?: string; role?: string } = {}
+  ): Promise<boolean> {
     const now = new Date().toISOString();
     const rejectionReason = String(reason || 'Rejected by administrator').trim().slice(0, 4000);
+    const historyEntry = {
+      action: 'rejected',
+      reason: rejectionReason,
+      at: now,
+      actorName: String(actor.name || 'Administrator').slice(0, 120),
+      actorRole: String(actor.role || 'Job Moderator').slice(0, 80)
+    };
+
+    if (!isMongoConfigured()) {
+      const pending = Database.getPendingJobs();
+      const index = pending.findIndex((job: any) => String(job.id) === String(id) && job.status === 'Pending');
+      if (index < 0) return false;
+      const existing = pending[index];
+      const history = Array.isArray(existing.moderationHistory) ? existing.moderationHistory : [];
+      pending[index] = {
+        ...existing,
+        status: 'Rejected',
+        rejectionReason,
+        rejectedAt: now,
+        updatedAt: now,
+        moderationHistory: [...history, historyEntry]
+      };
+      Database.savePendingJobs(pending);
+      return true;
+    }
+
+    assertMongoAvailable();
+    const pendingColl = await getPendingJobsCollection();
     const res = await pendingColl.updateOne(
       { id, status: 'Pending' },
       {
@@ -2222,16 +2249,9 @@ export class JobRepository {
           rejectedAt: now,
           updatedAt: now
         },
-        $push: {
-          moderationHistory: {
-            action: 'rejected',
-            reason: rejectionReason,
-            at: now
-          }
-        }
+        $push: { moderationHistory: historyEntry }
       }
     );
-
     return res.matchedCount > 0;
   }
 

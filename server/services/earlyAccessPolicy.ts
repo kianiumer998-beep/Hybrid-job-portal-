@@ -34,7 +34,7 @@ export function getEarlyAccessReleaseAt(
   const selectedSources = Array.isArray(config.sourceTypes) ? config.sourceTypes : [];
   if (!selectedSources.includes(source)) return null;
 
-  const durationHours = Number(config.durationHours);
+  const durationHours = Number(config.durationHours ?? 24);
   if (!Number.isInteger(durationHours) || durationHours < 1 || durationHours > 8760) return null;
 
   // Every job receives its own clock, anchored to its approval/publication timestamp.

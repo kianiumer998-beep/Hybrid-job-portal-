@@ -2318,39 +2318,21 @@ export class JobRepository {
    * Sets status to 'Rejected' with timestamp and optional reason.
    * Returns exact success/failure counts and per-ID errors.
    */
-  static async bulkRejectPending(ids: string[], reason?: string): Promise<{
+  static async bulkRejectPending(
+    ids: string[],
+    reason?: string,
+    actor: { name?: string; role?: string } = {}
+  ): Promise<{
     successCount: number;
     failureCount: number;
     errors: { id: string; error: string }[];
   }> {
-    if (!isMongoConfigured()) {
-      let successCount = 0;
-      const errors: { id: string; error: string }[] = [];
-      for (const id of ids) {
-        try {
-          const rejected = Database.rejectPendingJob(id, reason);
-          if (rejected) {
-            successCount++;
-          } else {
-            errors.push({ id, error: `Pending job with ID "${id}" could not be found or marked rejected.` });
-          }
-        } catch (err: any) {
-          errors.push({ id, error: err.message || `Error rejecting job "${id}".` });
-        }
-      }
-      return {
-        successCount,
-        failureCount: errors.length,
-        errors
-      };
-    }
-    assertMongoAvailable();
     let successCount = 0;
     const errors: { id: string; error: string }[] = [];
-
     for (const id of ids) {
       try {
-        const rejected = await this.rejectPending(id, reason);
+        // Reuse the same status guard and history writer for single and bulk rejection.
+        const rejected = await this.rejectPending(id, reason, actor);
         if (rejected) {
           successCount++;
         } else {
@@ -2360,12 +2342,7 @@ export class JobRepository {
         errors.push({ id, error: err.message || `Error rejecting job "${id}".` });
       }
     }
-
-    return {
-      successCount,
-      failureCount: errors.length,
-      errors
-    };
+    return { successCount, failureCount: errors.length, errors };
   }
 
   /**
@@ -2965,21 +2942,20 @@ export class JobRepository {
     let unknownCount = 0;
 
     for (const job of matchedJobs) {
-      const isScraped = Boolean(
-        job.sourceUrl ||
-        job.sourceWebsite ||
-        job.isScraped ||
-        job.ingestionMethod === 'scraper' ||
-        job.ingestionMethod === 'pdf' ||
-        job.scrapedFrom
-      );
+      const persistedSource = String(job.sourceType || '').trim().toLowerCase();
+      const isScraped = persistedSource
+        ? persistedSource === 'scraped'
+        : Boolean(job.sourceUrl || job.sourceWebsite || job.isScraped || job.isPdfScraped || job.ingestionMethod === 'scraper' || job.ingestionMethod === 'pdf' || job.scrapedFrom);
+      const isAdminCreated = persistedSource
+        ? persistedSource === 'admin_created'
+        : Boolean(job.isAdminCreated || job.createdByAdmin || job.postedByRole === 'admin');
 
       if (isScraped) {
         scrapedCount++;
-      } else if (job.submittedByUserId) {
+      } else if (!isAdminCreated && job.submittedByUserId) {
         userPostedCount++;
         userPostedJobs.push(job);
-      } else if (job.createdByAdmin || job.postedByRole === 'admin') {
+      } else if (isAdminCreated) {
         adminCreatedCount++;
       } else {
         unknownCount++;
@@ -3001,7 +2977,7 @@ export class JobRepository {
   /**
    * Bulk rejects pending jobs with classification.
    */
-  static async bulkRejectPendingWithClassification(ids: string[], reason?: string): Promise<{
+  static async bulkRejectPendingWithClassification(ids: string[], reason?: string, actor: { name?: string; role?: string } = {}): Promise<{
     successCount: number;
     failureCount: number;
     errors: { id: string; error: string }[];
@@ -3055,7 +3031,7 @@ export class JobRepository {
       }
     }
 
-    const res = await this.bulkRejectPending(ids, reason);
+    const res = await this.bulkRejectPending(ids, reason, actor);
 
     return {
       successCount: res.successCount,

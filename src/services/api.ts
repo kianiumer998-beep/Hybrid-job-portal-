@@ -1352,6 +1352,10 @@ export const api = {
         headers: getAuthHeader(),
         body: JSON.stringify(payload)
       });
+    },
+    async logs(limit = 50) {
+      const qs = new URLSearchParams({ limit: String(limit) }).toString();
+      return safeFetchJson<{ success: boolean; logs?: Array<{ eventId: string; userId: string; featureId: string; channel: string; provider: string; status: string; attempts: number; lastAttemptAt: string }> }>(`${API_BASE}/settings/communication/providers/logs?${qs}`, { headers: getAuthHeader() });
     }
   },
   chat: {

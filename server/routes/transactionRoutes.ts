@@ -1368,10 +1368,11 @@ transactionRouter.post('/', async (req, res) => {
                   membershipTier: safeSubscriptionPlan || 'Pro Alerts',
                   membershipStatus: 'Active',
                   subscriptionExpiresAt,
-                  ...(walletFeatureSnapshots.length ? {
-                    subscriptionEntitlements: walletEntitlements,
-                    subscriptionFeatureIds: walletFeatureSnapshots.map((feature: any) => String(feature.id))
-                  } : {})
+                  subscriptionEntitlements: walletEntitlements,
+                  // New featureless plans are explicitly empty; legacy fallback applies only to older records.
+                  subscriptionFeatureIds: walletFeatureSnapshots.length
+                    ? walletFeatureSnapshots.map((feature: any) => String(feature.id))
+                    : ['__no_features__']
                 }
               );
             } catch (deductErr) {

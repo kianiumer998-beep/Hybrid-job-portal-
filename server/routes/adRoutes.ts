@@ -177,7 +177,17 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
         }
         let redeemedCredit: any = null;
         let campaignCalc: any = null;
+        let creditPlacementLockKey: string | undefined;
         try {
+          const requestedPlacement = String(adPricingInput.placement || adData.placement || '');
+          if (requestedPlacement === 'promo-discount-banner' || requestedPlacement === 'dynamic-announcement-card') {
+            creditPlacementLockKey = requestedPlacement;
+            if (activePlacementCreationLocks.has(creditPlacementLockKey)) {
+              const slotLockError: any = new Error('A campaign for this placement is currently being booked. Please retry in a moment.');
+              slotLockError.statusCode = 409; throw slotLockError;
+            }
+            activePlacementCreationLocks.add(creditPlacementLockKey);
+          }
           campaignCalc = await PricingRepository.calculateAdPrice(adPricingInput);
           if (!adData.title || typeof adData.title !== 'string' || !adData.title.trim()) {
             const titleErr: any = new Error('A valid campaign title is required to create an advertisement.');
@@ -251,6 +261,8 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
           }
           const statusCode = typeof creditErr?.statusCode === 'number' && creditErr.statusCode >= 400 ? creditErr.statusCode : 500;
           return res.status(statusCode).json({ success: false, message: creditErr?.message || 'Unable to redeem subscription campaign credit.' });
+        } finally {
+          if (creditPlacementLockKey) activePlacementCreationLocks.delete(creditPlacementLockKey);
         }
       }
 

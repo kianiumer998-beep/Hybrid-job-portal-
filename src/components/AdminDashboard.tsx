@@ -2156,6 +2156,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     enableSmsAlerts: true
   });
 
+  const [isCampaignPolicySaving, setIsCampaignPolicySaving] = useState(false);
+  const [campaignPolicySaveError, setCampaignPolicySaveError] = useState<string | null>(null);
+
+  const handleToggleCampaignPolicy = async (
+    key: 'requireAdminApproval' | 'adminFreeCampaignBypass',
+    value: boolean
+  ) => {
+    if (!onUpdateCampaignConfig || isCampaignPolicySaving) return;
+    const currentConfig = campaignConfig || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG;
+    const nextConfig: CampaignCustomizationConfig = {
+      ...currentConfig,
+      formRules: { ...currentConfig.formRules, [key]: value }
+    };
+    setIsCampaignPolicySaving(true);
+    setCampaignPolicySaveError(null);
+    try {
+      const result = await onUpdateCampaignConfig(nextConfig);
+      if (result && typeof result === 'object' && 'success' in result && result.success === false) {
+        throw new Error('The server did not save the campaign policy.');
+      }
+    } catch (error) {
+      console.error('[AdminDashboard] Failed to save campaign policy setting:', error);
+      setCampaignPolicySaveError('Could not save this rule. Please try again; the previous setting has been restored.');
+    } finally {
+      setIsCampaignPolicySaving(false);
+    }
+  };
+
   // Fetch initial feature flags from backend API
   useEffect(() => {
     api.admin.getFeatureFlags()
@@ -7808,6 +7836,51 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
               </div>
 
+            </div>
+
+            {/* Campaign policy controls moved from Campaign Options to Global Master Switches */}
+            <div className="border-t border-slate-800 pt-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                  <h4 className="text-sm font-black text-white flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-indigo-400" />
+                    Campaign Privacy &amp; Submission Rules
+                  </h4>
+                  <p className="text-[11px] text-slate-400 mt-1">These controls retain their existing campaign configuration and backend save behavior.</p>
+                </div>
+                {isCampaignPolicySaving && <span className="text-[10px] font-bold text-amber-300">Saving policy...</span>}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-bold text-white">Require Admin Review &amp; Approval</div>
+                    <div className="text-[11px] text-slate-400">Submitted advertising campaigns stay in the existing manual approval workflow.</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    aria-label="Require Admin Review and Approval for Campaigns"
+                    checked={(campaignConfig || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG).formRules.requireAdminApproval}
+                    disabled={isCampaignPolicySaving || !onUpdateCampaignConfig}
+                    onChange={(e) => void handleToggleCampaignPolicy('requireAdminApproval', e.target.checked)}
+                    className="w-4 h-4 accent-emerald-500 rounded cursor-pointer disabled:opacity-50"
+                  />
+                </div>
+                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-bold text-white">Admin 100% Free Campaign Bypass</div>
+                    <div className="text-[11px] text-slate-400">Allows administrators to create campaigns at 0 PKR under the existing bypass policy.</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    aria-label="Allow Admin Free Campaign Bypass"
+                    checked={(campaignConfig || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG).formRules.adminFreeCampaignBypass}
+                    disabled={isCampaignPolicySaving || !onUpdateCampaignConfig}
+                    onChange={(e) => void handleToggleCampaignPolicy('adminFreeCampaignBypass', e.target.checked)}
+                    className="w-4 h-4 accent-emerald-500 rounded cursor-pointer disabled:opacity-50"
+                  />
+                </div>
+              </div>
+              {campaignPolicySaveError && <p role="alert" className="text-[11px] font-bold text-rose-300">{campaignPolicySaveError}</p>}
             </div>
           </div>
 

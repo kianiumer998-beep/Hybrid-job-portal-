@@ -20,6 +20,7 @@ import {
   Tag, 
   AlertCircle
 } from 'lucide-react';
+import { CompactAccordion } from './CompactAccordion';
 
 export interface CompleteFeeConfigSavePayload {
   standardFeePkr: number;
@@ -50,6 +51,9 @@ interface AdminFeeManagerProps {
   onUpdateUser?: (updatedUser: UserAccount) => void;
   onBulkEndUnpaidMemberships?: () => void;
   onMakeJobFree?: (jobId: string) => void;
+  hideUnwiredJobWaivers?: boolean;
+  onOpenBaseFeeSettings?: () => void;
+  compactMode?: boolean;
 }
 
 export const normalizeFeeSearchText = (value?: unknown): string => {
@@ -250,10 +254,14 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
   onChangeGlobalPostingFee,
   postingPricing,
   onBulkEndUnpaidMemberships,
-  onMakeJobFree
+  onMakeJobFree,
+  hideUnwiredJobWaivers = false,
+  onOpenBaseFeeSettings,
+  compactMode = false
 }) => {
   const initialFee = resolveAuthoritativeStandardFee(postingPricing, globalPostingFeePkr, jobPostingFeePkr);
   const [activeSubTab, setActiveSubTab] = useState<'categories' | 'exemptions' | 'job-waivers'>('categories');
+  const [selectedCompactCatId, setSelectedCompactCatId] = useState<string>('all');
   const [standardFeeDraft, setStandardFeeDraft] = useState<number>(initialFee);
   const configuredStandardFeeRef = useRef<number>(initialFee);
   const [categoryFees, setCategoryFees] = useState<CategoryPostingFee[]>(() =>
@@ -417,6 +425,360 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
 
   const filteredUsers = filterFeeManagerUsers(users, userSearchQuery);
 
+  if (compactMode) {
+    const visibleCategories = selectedCompactCatId === 'all'
+      ? categoryFees
+      : categoryFees.filter((c) => c.categoryId === selectedCompactCatId);
+
+    return (
+      <div className="space-y-3 overflow-x-hidden">
+        {/* Compact Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-slate-900 border border-slate-800 rounded-xl p-3 sm:p-4">
+          <div className="min-w-0">
+            <h3 className="text-sm sm:text-base font-black text-white">
+              Category Fees, Free Mode &amp; Employer Waivers
+            </h3>
+            <p className="text-[11px] text-slate-400">
+              Switch portal-wide billing mode, set category fees or Free status, and whitelist VIP employer emails.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={isSaving || isPricingLoading || !isPricingReady || Boolean(pricingLoadError)}
+            onClick={handleSaveAll}
+            className={`px-4 py-2 rounded-lg font-black text-xs shadow flex items-center gap-1.5 shrink-0 transition-all ${
+              isSaving || isPricingLoading || !isPricingReady || Boolean(pricingLoadError)
+                ? 'bg-slate-700 text-slate-300 cursor-not-allowed opacity-70'
+                : 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
+            }`}
+          >
+            <Save className="w-3.5 h-3.5" />
+            <span>{isSaving ? 'Saving...' : 'Save Fee Configuration'}</span>
+          </button>
+        </div>
+
+        {isPricingLoading && (
+          <div className="p-3 rounded-xl bg-slate-900 border border-slate-700 text-slate-300 text-xs font-bold flex items-center gap-2">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400 shrink-0" />
+            <span>Loading authoritative pricing configuration...</span>
+          </div>
+        )}
+
+        {pricingLoadError && (
+          <div className="p-3 rounded-xl bg-rose-950/90 border border-rose-500/40 text-rose-200 text-xs font-bold flex items-center justify-between gap-2">
+            <span>Unable to load authoritative pricing: {pricingLoadError}</span>
+            {onReloadPricingConfig && (
+              <button type="button" onClick={() => onReloadPricingConfig()} className="px-2.5 py-1 rounded-lg bg-rose-500/20 border border-rose-400/40 text-xs cursor-pointer">
+                Retry
+              </button>
+            )}
+          </div>
+        )}
+
+        {saveErrorMsg && (
+          <div className="p-3 rounded-xl bg-rose-950/90 border border-rose-500/40 text-rose-300 text-xs font-bold">
+            {saveErrorMsg}
+          </div>
+        )}
+
+        {saveSuccessMsg && (
+          <div className="p-3 rounded-xl bg-emerald-950/90 border border-emerald-500/40 text-emerald-300 text-xs font-bold">
+            {saveSuccessMsg}
+          </div>
+        )}
+
+        {/* Accordion 1: Master Billing Mode & Global Discount */}
+        <CompactAccordion
+          title="1. Portal Pricing Mode & Site-Wide Discount"
+          subtitle="Master Free toggle, global discount percentage & authoritative base rate reference"
+          badgeText={isFreeAllPostings ? '100% Free All Active' : `Standard · ${globalDiscount}% Off`}
+          badgeTone={isFreeAllPostings ? 'emerald' : 'amber'}
+          defaultOpen={true}
+        >
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 space-y-2">
+              <label className="block text-[11px] font-bold text-slate-300">
+                Portal Job Posting Mode
+                <select
+                  aria-label="Portal job posting mode"
+                  value={isFreeAllPostings ? 'free' : 'paid'}
+                  onChange={(e) => handleMakeAllFreeToggle(e.target.value === 'free')}
+                  className="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-bold text-white"
+                >
+                  <option value="paid">Paid / Standard Category Billing</option>
+                  <option value="free">Free — Make All Job Postings 100% Free</option>
+                </select>
+              </label>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400 pt-1">
+                <span>Base Standard Rate: <strong className="text-amber-300 font-mono">{standardFeeDraft.toLocaleString()} PKR</strong></span>
+                {onOpenBaseFeeSettings && (
+                  <button
+                    type="button"
+                    onClick={onOpenBaseFeeSettings}
+                    className="font-bold text-amber-300 hover:text-amber-200 underline underline-offset-2 cursor-pointer"
+                  >
+                    Edit Base Rate →
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-slate-300">Site-Wide Discount</span>
+                <span className="font-mono font-bold text-emerald-400">{globalDiscount}% OFF</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="5"
+                value={globalDiscount}
+                onChange={(e) => setGlobalDiscount(Number(e.target.value))}
+                className="w-full accent-emerald-500 cursor-pointer"
+              />
+              <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
+                <span>0% Full Price</span>
+                <span>50% Flash Promo</span>
+                <span>100% Free</span>
+              </div>
+            </div>
+          </div>
+        </CompactAccordion>
+
+        {/* Accordion 2: Category Fees & Discounts */}
+        <CompactAccordion
+          title="2. Category Fees, Free Status & Discounts"
+          subtitle="Toggle Free / Paid per job category; fee & discount inputs hide when Free without losing values"
+          badgeText={`${categoryFees.length} Categories`}
+          badgeTone="indigo"
+          defaultOpen={true}
+          headerRight={
+            <button
+              type="button"
+              onClick={handleAddCategory}
+              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[11px] font-bold border border-amber-500/30 flex items-center gap-1 cursor-pointer"
+            >
+              <Plus className="w-3 h-3" />
+              <span>Add Category</span>
+            </button>
+          }
+        >
+          <div className="space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <label className="text-[11px] font-bold text-slate-400 flex items-center gap-2">
+                <span>Focus Category:</span>
+                <select
+                  aria-label="Filter fee category"
+                  value={selectedCompactCatId}
+                  onChange={(e) => setSelectedCompactCatId(e.target.value)}
+                  className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs font-bold text-white"
+                >
+                  <option value="all">All Categories ({categoryFees.length})</option>
+                  {categoryFees.map((c) => (
+                    <option key={c.categoryId} value={c.categoryId}>{c.categoryName || c.categoryId}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {visibleCategories.map((cat) => (
+                <div
+                  key={cat.categoryId}
+                  className={`p-3 rounded-xl border space-y-2.5 ${
+                    cat.isFree ? 'bg-emerald-950/20 border-emerald-500/35' : 'bg-slate-950/70 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <input
+                      type="text"
+                      value={cat.categoryName || ''}
+                      onChange={(e) => handleUpdateCategoryFee(cat.categoryId, { categoryName: e.target.value })}
+                      className="bg-transparent text-xs sm:text-sm font-black text-white focus:outline-none border-b border-transparent focus:border-amber-500 min-w-0 flex-1"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteCategory(cat.categoryId)}
+                      className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer shrink-0"
+                      title="Remove Category"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+                    <label className="space-y-1 text-[10px] font-bold text-slate-400">
+                      <span>Status</span>
+                      <select
+                        aria-label={`${cat.categoryName || 'Category'} pricing status`}
+                        value={cat.isFree ? 'free' : 'paid'}
+                        onChange={(e) => handleUpdateCategoryFee(cat.categoryId, { isFree: e.target.value === 'free' })}
+                        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs font-bold text-white"
+                      >
+                        <option value="paid">Paid Standard</option>
+                        <option value="free">Free (0 PKR)</option>
+                      </select>
+                    </label>
+
+                    {!cat.isFree ? (
+                      <>
+                        <label className="space-y-1 text-[10px] font-bold text-slate-400">
+                          <span>Fee (PKR)</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="50"
+                            value={cat.feePkr}
+                            onChange={(e) =>
+                              handleUpdateCategoryFee(cat.categoryId, {
+                                feePkr: Math.max(0, Number(e.target.value))
+                              })
+                            }
+                            className="w-full px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-right font-mono font-bold text-white text-xs"
+                          />
+                        </label>
+                        <label className="space-y-1 text-[10px] font-bold text-slate-400">
+                          <span>Discount (%)</span>
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={cat.discountPercent || 0}
+                            onChange={(e) =>
+                              handleUpdateCategoryFee(cat.categoryId, {
+                                discountPercent: Number(e.target.value)
+                              })
+                            }
+                            className="w-full px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-right font-mono font-bold text-amber-300 text-xs"
+                          />
+                        </label>
+                      </>
+                    ) : (
+                      <div className="sm:col-span-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1.5 text-[11px] text-emerald-300 font-semibold">
+                        100% Free — switch back to Paid Standard to adjust fee/discount.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </CompactAccordion>
+
+        {/* Accordion 3: Employer Exemptions / Whitelisted Accounts */}
+        <CompactAccordion
+          title="3. VIP Employers & Whitelisted Free Accounts"
+          subtitle="Grant specific employers 100% free posting across all categories"
+          badgeText={`${exemptEmails.length} Exempt`}
+          badgeTone="emerald"
+          defaultOpen={false}
+        >
+          <div className="space-y-3">
+            <form onSubmit={handleAddCustomExemptEmail} className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="email"
+                placeholder="Enter employer email to whitelist..."
+                value={newExemptEmailInput}
+                onChange={(e) => setNewExemptEmailInput(e.target.value)}
+                className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white placeholder-slate-500"
+              />
+              <button
+                type="submit"
+                className="px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1 shrink-0 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Grant Free</span>
+              </button>
+            </form>
+
+            <div className="flex flex-wrap gap-1.5">
+              {exemptEmails.map((email) => (
+                <div
+                  key={email}
+                  className="px-2.5 py-1 rounded-lg bg-emerald-950/80 border border-emerald-500/35 text-emerald-300 text-[11px] font-mono font-bold flex items-center gap-1.5"
+                >
+                  <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                  <span>{email}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleUserExemption(email)}
+                    className="hover:text-rose-400 cursor-pointer"
+                    title="Revoke Exemption"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+              {exemptEmails.length === 0 && (
+                <span className="text-[11px] text-slate-500">No specific employer exemptions granted yet.</span>
+              )}
+            </div>
+
+            <div className="space-y-2 border-t border-slate-800 pt-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search registered users by name, company or email..."
+                  value={userSearchQuery}
+                  onChange={(e) => setUserSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white placeholder-slate-500"
+                />
+              </div>
+              <div className="overflow-x-auto max-h-60">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-400 font-bold uppercase text-[10px]">
+                      <th className="py-1.5 px-2">Employer</th>
+                      <th className="py-1.5 px-2">Status</th>
+                      <th className="py-1.5 px-2 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {filteredUsers.map((user, idx) => {
+                      const normalizedEmail = normalizeFeeEmail(user.email);
+                      const isExempt = isUserEmailExempt(normalizedEmail, exemptEmails);
+                      return (
+                        <tr key={user.id || normalizedEmail || idx}>
+                          <td className="py-1.5 px-2">
+                            <div className="font-bold text-white">{user.name || 'Unnamed User'}</div>
+                            <div className="text-[10px] text-slate-400 font-mono">{user.email || 'No email'}</div>
+                          </td>
+                          <td className="py-1.5 px-2">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${isExempt ? 'bg-emerald-500/15 text-emerald-300' : 'bg-slate-800 text-slate-400'}`}>
+                              {isExempt ? '100% Free' : 'Standard'}
+                            </span>
+                          </td>
+                          <td className="py-1.5 px-2 text-right">
+                            <button
+                              type="button"
+                              disabled={!normalizedEmail}
+                              onClick={() => handleToggleUserExemption(user.email)}
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${
+                                !normalizedEmail
+                                  ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                                  : isExempt
+                                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30 cursor-pointer'
+                                  : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 cursor-pointer'
+                              }`}
+                            >
+                              {!normalizedEmail ? 'No Email' : isExempt ? 'Revoke' : 'Grant Free'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </CompactAccordion>
+      </div>
+    );
+  }
+
   return (
     <div className="admin-settings-mobile-compact space-y-6">
       
@@ -560,8 +922,17 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
             <span className="text-xs font-bold text-slate-400">PKR</span>
           </div>
           <p className="text-[11px] text-slate-400">
-            Read-only here to avoid duplicate pricing controls. Edit the base rate in Finance &amp; Payments → Universal Pricing Controller. Category fees, discounts and employer waivers remain managed on this page.
+            Read-only here to avoid duplicate pricing controls. Edit the base rate in {onOpenBaseFeeSettings ? 'Job Tiers, Slots & Early Access' : 'Finance & Payments → Universal Pricing Controller'}. Category fees, discounts and employer waivers remain managed on this page.
           </p>
+          {onOpenBaseFeeSettings && (
+            <button
+              type="button"
+              onClick={onOpenBaseFeeSettings}
+              className="text-[11px] font-bold text-amber-300 hover:text-amber-200 underline underline-offset-2 cursor-pointer"
+            >
+              Open Job Tiers & Base Rate →
+            </button>
+          )}
         </div>
 
         {/* Global Promotional Discount */}
@@ -590,11 +961,13 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
       </div>
 
       {/* Sub-Tabs Navigation */}
-      <div className="flex items-center space-x-2 border-b border-slate-800 pb-2">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-2">
         {[
           { id: 'categories', label: `📂 Category Posting Fees (${categoryFees.length})`, icon: Tag },
           { id: 'exemptions', label: `👑 Employer 100% Free Waivers (${exemptEmails.length})`, icon: Users },
-          { id: 'job-waivers', label: `⚡ Quick Job Fee Waiver (${pendingJobs.length + jobs.length})`, icon: Gift }
+          ...((hideUnwiredJobWaivers && !onMakeJobFree)
+            ? []
+            : [{ id: 'job-waivers', label: `⚡ Quick Job Fee Waiver (${pendingJobs.length + jobs.length})`, icon: Gift }])
         ].map((t) => {
           const Icon = t.icon;
           return (
@@ -699,6 +1072,7 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
                     </div>
                   )}
 
+                  {!cat.isFree && (
                   <div className="flex items-center justify-between text-xs text-slate-400">
                     <span>Discount:</span>
                     <div className="flex items-center space-x-1">
@@ -717,6 +1091,7 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
                       <span>%</span>
                     </div>
                   </div>
+                  )}
                 </div>
               </div>
             ))}

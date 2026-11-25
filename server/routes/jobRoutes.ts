@@ -2494,11 +2494,14 @@ jobRouter.post('/:id/redeem-subscription-slot', requireAuth, async (req: any, re
     const tier = String(req.body?.tier || '').trim().toLowerCase();
     const tierMap: Record<string, { featureId: string; priorityTier: string; flags: Record<string, boolean> }> = {
       urgent: { featureId: 'urgent_job_posting', priorityTier: 'urgent', flags: { urgent: true } },
-      featured: { featureId: 'featured_job_posting', priorityTier: 'featured_top', flags: { featured: true, isPinnedTop: true } },
+      featured: { featureId: 'featured_job_posting', priorityTier: 'featured', flags: { featured: true } },
+      pinned: { featureId: 'pinned_job_posting', priorityTier: 'featured_top', flags: { featured: true, isPinnedTop: true } },
+      vip: { featureId: 'vip_job_posting', priorityTier: 'vip_bundle', flags: { urgent: true, featured: true, isPinnedTop: true, vipBundle: true } },
+      future: { featureId: 'future_job_posting', priorityTier: 'future_job', flags: { futureJob: true } },
       premium: { featureId: 'premium_job_posting', priorityTier: 'vip_bundle', flags: { urgent: true, featured: true, isPinnedTop: true, vipBundle: true } }
     };
     const selected = tierMap[tier];
-    if (!userId || !selected) return res.status(400).json({ success: false, message: 'Select a valid urgent, featured or premium posting slot.' });
+    if (!userId || !selected) return res.status(400).json({ success: false, message: 'Select a valid urgent, featured, pinned, vip, future or premium posting slot.' });
 
     const job = await JobRepository.getPendingById(String(req.params.id));
     if (!job || job.status !== 'Pending') return res.status(404).json({ success: false, message: 'Only your own pending job can use a subscription posting slot.' });

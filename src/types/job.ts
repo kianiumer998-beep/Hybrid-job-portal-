@@ -201,7 +201,7 @@ export interface Job {
   isPinnedTop?: boolean; // Pinned at top of all jobs
   isFutureJob?: boolean; // Future job opportunity
   futureIntakeDate?: string; // Target start or batch intake date (e.g. '2026-10-01' or 'Fall 2026')
-  priorityTier?: 'standard' | 'urgent' | 'featured_top' | 'vip_bundle';
+  priorityTier?: 'standard' | 'urgent' | 'featured' | 'featured_top' | 'vip_bundle';
   subscriptionSlotFeatureId?: string;
   subscriptionSlotExpiresAt?: string;
   subscriptionSlotUsedAt?: string;
@@ -670,6 +670,7 @@ export interface HomepagePrioritySlotConfig {
   pinned: PriorityCategorySlotConfig;
   featured: PriorityCategorySlotConfig;
   urgent: PriorityCategorySlotConfig;
+  future?: PriorityCategorySlotConfig;
 }
 
 export const DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG: HomepagePrioritySlotConfig = {
@@ -677,13 +678,15 @@ export const DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG: HomepagePrioritySlotConfig =
   vip: { enabled: true, maxSlots: 2 },
   pinned: { enabled: true, maxSlots: 2 },
   featured: { enabled: true, maxSlots: 4 },
-  urgent: { enabled: true, maxSlots: 4 }
+  urgent: { enabled: true, maxSlots: 4 },
+  future: { enabled: true, maxSlots: 4 }
 };
 
 export interface JobPostingPricingConfig {
   standardFeePkr: number;       // Base fee for standard job posting (PKR)
   urgentFeePkr: number;         // Priority surcharge for Urgent Hiring badge & boost (PKR)
-  featuredTopFeePkr: number;    // Priority surcharge for Featured & Pinned Top-of-List placement (PKR)
+  featuredFeePkr?: number;      // Priority surcharge for standalone Featured placement (PKR)
+  featuredTopFeePkr: number;    // Priority surcharge for Pinned Top-of-List placement (PKR)
   futureJobFeePkr: number;      // Priority surcharge for Advance / Future Job Intake (PKR)
   vipBundleFeePkr: number;      // VIP All-in-One: Top Pinned + Urgent + Featured + Future Option (PKR)
   freePostingAllowed: boolean;  // If true and standardFee is 0, base posts are free
@@ -691,6 +694,7 @@ export interface JobPostingPricingConfig {
   // Granular Feature Toggles (Enable / Disable per tier)
   enableStandard: boolean;
   enableUrgent: boolean;
+  enableFeatured?: boolean;
   enableFeaturedTop: boolean;
   enableFutureJob: boolean;
   enableVipBundle: boolean;
@@ -698,17 +702,20 @@ export interface JobPostingPricingConfig {
   // Customizable Durations Shown to Employers & Users (in Days)
   standardDurationDays: number;
   urgentDurationDays: number;
+  featuredDurationDays?: number;
   featuredTopDurationDays: number;
   futureJobDurationDays: number;
   vipBundleDurationDays: number;
 
   // Customizable Badges and Descriptions
   urgentBadgeText?: string;
+  pinnedBadgeText?: string;
   featuredBadgeText?: string;
   futureBadgeText?: string;
   vipBadgeText?: string;
   standardDescription?: string;
   urgentDescription?: string;
+  featuredDescription?: string;
   featuredTopDescription?: string;
   futureJobDescription?: string;
   vipBundleDescription?: string;
@@ -727,6 +734,7 @@ export interface JobPostingPricingConfig {
 export const DEFAULT_JOB_POSTING_PRICING_CONFIG: JobPostingPricingConfig = {
   standardFeePkr: 1000,
   urgentFeePkr: 500,
+  featuredFeePkr: 1000,
   featuredTopFeePkr: 1500,
   futureJobFeePkr: 800,
   vipBundleFeePkr: 2500,
@@ -734,23 +742,27 @@ export const DEFAULT_JOB_POSTING_PRICING_CONFIG: JobPostingPricingConfig = {
 
   enableStandard: true,
   enableUrgent: true,
+  enableFeatured: true,
   enableFeaturedTop: true,
   enableFutureJob: true,
   enableVipBundle: true,
 
   standardDurationDays: 30,
   urgentDurationDays: 15,
+  featuredDurationDays: 30,
   featuredTopDurationDays: 30,
   futureJobDurationDays: 60,
   vipBundleDurationDays: 45,
 
   urgentBadgeText: '🔥 Urgent Hiring',
-  featuredBadgeText: '⭐ Pinned Top & Featured',
+  pinnedBadgeText: '📌 Pinned Top #1',
+  featuredBadgeText: '⭐ Featured Placement',
   futureBadgeText: '🚀 Advance Intake',
   vipBadgeText: '👑 VIP Ultimate Placement',
   standardDescription: 'Standard chronological listing on public board.',
   urgentDescription: 'Flashing badge & ranks above regular jobs for rapid hiring.',
-  featuredTopDescription: 'Locks position at top of search results and homepage cards.',
+  featuredDescription: 'Highlighted Featured placement on homepage & board right after Pinned Top.',
+  featuredTopDescription: 'Locks position at top of search results and homepage cards right after VIP.',
   futureJobDescription: 'Accepts advance candidate pre-registrations with countdown.',
   vipBundleDescription: 'Full package: Top Pinned #1 + Urgent Badge + Gold Highlighting.',
 

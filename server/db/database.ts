@@ -125,20 +125,26 @@ const DEFAULT_COMPREHENSIVE_PRICING = {
   jobPosting: {
     standardFeePkr: 1000,
     urgentFeePkr: 500,
+    featuredFeePkr: 1000,
     featuredTopFeePkr: 1500,
     futureJobFeePkr: 800,
     vipBundleFeePkr: 2500,
     freePostingAllowed: true,
     enableStandard: true,
     enableUrgent: true,
+    enableFeatured: true,
     enableFeaturedTop: true,
     enableFutureJob: true,
     enableVipBundle: true,
     standardDurationDays: 30,
     urgentDurationDays: 15,
+    featuredDurationDays: 30,
     featuredTopDurationDays: 30,
     futureJobDurationDays: 60,
     vipBundleDurationDays: 45,
+    pinnedBadgeText: '📌 Pinned Top #1',
+    featuredBadgeText: '⭐ Featured Placement',
+    featuredDescription: 'Highlighted Featured placement on homepage & search results right after Pinned Top.',
     homepagePrioritySlotConfig: DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG,
     categoryPostingFees: DEFAULT_CATEGORY_POSTING_FEES,
     exemptUserEmails: [],
@@ -584,6 +590,10 @@ export class Database {
           urgent: {
             ...DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG.urgent,
             ...(stored?.jobPosting?.homepagePrioritySlotConfig?.urgent || {})
+          },
+          future: {
+            ...(DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG.future || { enabled: true, maxSlots: 4 }),
+            ...(stored?.jobPosting?.homepagePrioritySlotConfig?.future || {})
           }
         },
         categoryPostingFees: Array.isArray(stored?.jobPosting?.categoryPostingFees)

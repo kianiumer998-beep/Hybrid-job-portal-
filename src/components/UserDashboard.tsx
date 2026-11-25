@@ -5,7 +5,7 @@ import { EmployerKycRequest } from '../types/adminSuite';
 import { UserCampaignHub } from './ads/UserCampaignHub';
 import { PAKISTAN_LOCATIONS } from '../data/pakistanLocations';
 import { api } from '../services/api';
-import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone, Pin, Flame, Zap, Crown, ArrowRight, Bookmark, ThumbsUp, Globe, Wallet, Check, Upload, Info, Bell, LayoutDashboard, Menu } from 'lucide-react';
+import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone, Pin, Flame, Zap, Crown, Star, ArrowRight, Bookmark, ThumbsUp, Globe, Wallet, Check, Upload, Info, Bell, LayoutDashboard, Menu } from 'lucide-react';
 import { PublicPaymentSettings, PublicPaymentMethodConfig } from '../types/adminPayment';
 import { JobSeoPreviewModal } from './common/JobSeoPreviewModal';
 
@@ -545,7 +545,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [requirementsInput, setRequirementsInput] = useState('');
 
   // Priority & Placement Boost Options
-  const [priorityTier, setPriorityTier] = useState<'standard' | 'urgent' | 'featured_top' | 'future_job' | 'vip_bundle'>('standard');
+  const [priorityTier, setPriorityTier] = useState<'standard' | 'urgent' | 'featured' | 'featured_top' | 'future_job' | 'vip_bundle'>('standard');
   const [futureIntakeDate, setFutureIntakeDate] = useState('2026-11-01');
 
   // Extended Government Sector Form Fields (With Manual Entry Support)
@@ -577,7 +577,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [isCalculatingFee, setIsCalculatingFee] = useState<boolean>(false);
   const [calculationError, setCalculationError] = useState<string | null>(null);
   const [tierCalculatedFees, setTierCalculatedFees] = useState<
-    Partial<Record<'standard' | 'urgent' | 'featured_top' | 'future_job' | 'vip_bundle', number>>
+    Partial<Record<'standard' | 'urgent' | 'featured' | 'featured_top' | 'future_job' | 'vip_bundle', number>>
   >({});
   const [isCalculatingTierFees, setIsCalculatingTierFees] = useState<boolean>(false);
   const [paymentMethod, setPaymentMethod] = useState<string>('');
@@ -913,9 +913,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   // Authoritative Server-Side Pricing Calculation for All Tiers & Selected Tier
   useEffect(() => {
     let active = true;
-    const allTiers: Array<'standard' | 'urgent' | 'featured_top' | 'future_job' | 'vip_bundle'> = [
+    const allTiers: Array<'standard' | 'urgent' | 'featured' | 'featured_top' | 'future_job' | 'vip_bundle'> = [
       'standard',
       'urgent',
+      'featured',
       'featured_top',
       'future_job',
       'vip_bundle'
@@ -939,7 +940,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       })
     ).then((entries) => {
       if (!active) return;
-      const nextMap: Partial<Record<'standard' | 'urgent' | 'featured_top' | 'future_job' | 'vip_bundle', number>> = {};
+      const nextMap: Partial<Record<'standard' | 'urgent' | 'featured' | 'featured_top' | 'future_job' | 'vip_bundle', number>> = {};
       for (const [tier, price] of entries) {
         if (typeof price === 'number') {
           nextMap[tier] = price;
@@ -986,7 +987,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     };
   }, [priorityTier, jobCategory, currentUser?.email, currentUser?.id, jobPostingPricing]);
 
-  const formatServerTierFee = (tier: 'standard' | 'urgent' | 'featured_top' | 'future_job' | 'vip_bundle'): string => {
+  const formatServerTierFee = (tier: 'standard' | 'urgent' | 'featured' | 'featured_top' | 'future_job' | 'vip_bundle'): string => {
     const val = tier === priorityTier && calculatedPostingFee !== null ? calculatedPostingFee : tierCalculatedFees[tier];
     if (typeof val === 'number') {
       return val === 0 ? 'Free' : `PKR ${val.toLocaleString()}`;
@@ -1117,7 +1118,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
     const isPinnedTop = priorityTier === 'featured_top' || priorityTier === 'vip_bundle';
     const isUrgent = priorityTier === 'urgent' || priorityTier === 'vip_bundle';
-    const isFeatured = priorityTier === 'featured_top' || priorityTier === 'vip_bundle';
+    const isFeatured = priorityTier === 'featured' || priorityTier === 'featured_top' || priorityTier === 'vip_bundle';
     const isFuture = priorityTier === 'future_job' || priorityTier === 'vip_bundle';
 
     if (isCalculatingFee) {
@@ -3743,41 +3744,75 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   </button>
                 )}
 
-                {/* 3. Pinned Top of Board */}
+                {/* 3. Featured Placement */}
+                {jobPostingPricing.enableFeatured !== false && (
+                  <button
+                    type="button"
+                    onClick={() => setPriorityTier('featured')}
+                    className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                      priorityTier === 'featured'
+                        ? 'bg-purple-500/20 border-purple-500 text-white shadow-lg shadow-purple-500/10'
+                        : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-purple-500/40'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-purple-300 flex items-center space-x-1.5">
+                          <Star className="w-3.5 h-3.5 text-purple-400 fill-purple-400" />
+                          <span>{jobPostingPricing.featuredBadgeText || '⭐ Featured Placement'}</span>
+                        </span>
+                        <span className="font-mono font-bold text-purple-300">
+                          {formatServerTierFee('featured')}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-snug">
+                        {jobPostingPricing.featuredDescription || 'Highlighted Featured placement on homepage & board right after Pinned Top.'}
+                      </p>
+                    </div>
+                    <div className="mt-3 pt-2 border-t border-purple-900/30 flex items-center justify-between text-[10px] text-purple-300">
+                      <span>Featured Duration:</span>
+                      <span className="font-bold bg-purple-950/60 px-2 py-0.5 rounded border border-purple-800/50">
+                        {jobPostingPricing.featuredDurationDays || 30} Days
+                      </span>
+                    </div>
+                  </button>
+                )}
+
+                {/* 4. Pinned Top of Board */}
                 {jobPostingPricing.enableFeaturedTop !== false && (
                   <button
                     type="button"
                     onClick={() => setPriorityTier('featured_top')}
                     className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
                       priorityTier === 'featured_top'
-                        ? 'bg-amber-500/20 border-amber-500 text-white shadow-lg shadow-amber-500/10'
-                        : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-amber-500/40'
+                        ? 'bg-blue-500/20 border-blue-400 text-white shadow-lg shadow-blue-500/10'
+                        : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-blue-500/40'
                     }`}
                   >
                     <div>
                       <div className="flex items-center justify-between mb-1">
-                        <span className="font-bold text-amber-300 flex items-center space-x-1.5">
-                          <Pin className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
-                          <span>{jobPostingPricing.featuredBadgeText || '⭐ Pinned Top & Featured'}</span>
+                        <span className="font-bold text-blue-300 flex items-center space-x-1.5">
+                          <Pin className="w-3.5 h-3.5 text-blue-400 fill-blue-400" />
+                          <span>{jobPostingPricing.pinnedBadgeText || '📌 Pinned Top #1'}</span>
                         </span>
-                        <span className="font-mono font-bold text-amber-300">
+                        <span className="font-mono font-bold text-blue-300">
                           {formatServerTierFee('featured_top')}
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-400 leading-snug">
-                        {jobPostingPricing.featuredTopDescription || 'Pinned at the very top of all jobs first! Premium gold border & maximum impressions.'}
+                        {jobPostingPricing.featuredTopDescription || 'Locks position at the top of search results and homepage cards right after VIP.'}
                       </p>
                     </div>
-                    <div className="mt-3 pt-2 border-t border-amber-900/30 flex items-center justify-between text-[10px] text-amber-300">
+                    <div className="mt-3 pt-2 border-t border-blue-900/30 flex items-center justify-between text-[10px] text-blue-300">
                       <span>Top Lock Duration:</span>
-                      <span className="font-bold bg-amber-950/60 px-2 py-0.5 rounded border border-amber-800/50">
+                      <span className="font-bold bg-blue-950/60 px-2 py-0.5 rounded border border-blue-800/50">
                         {jobPostingPricing.featuredTopDurationDays || 30} Days
                       </span>
                     </div>
                   </button>
                 )}
 
-                {/* 4. Future Job Opportunity */}
+                {/* 5. Future Job Opportunity */}
                 {jobPostingPricing.enableFutureJob !== false && (
                   <button
                     type="button"
@@ -3811,24 +3846,24 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   </button>
                 )}
 
-                {/* 5. VIP All-in-One Bundle */}
+                {/* 6. VIP All-in-One Bundle */}
                 {jobPostingPricing.enableVipBundle !== false && (
                   <button
                     type="button"
                     onClick={() => setPriorityTier('vip_bundle')}
-                    className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between sm:col-span-2 ${
+                    className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
                       priorityTier === 'vip_bundle'
-                        ? 'bg-purple-500/20 border-purple-500 text-white shadow-lg shadow-purple-500/10'
-                        : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-purple-500/40'
+                        ? 'bg-amber-500/20 border-amber-500 text-white shadow-lg shadow-amber-500/10'
+                        : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-amber-500/40'
                     }`}
                   >
                     <div>
                       <div className="flex items-center justify-between mb-1">
-                        <span className="font-bold text-purple-300 flex items-center space-x-1.5">
-                          <Crown className="w-3.5 h-3.5 text-purple-400 fill-purple-400" />
+                        <span className="font-bold text-amber-300 flex items-center space-x-1.5">
+                          <Crown className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
                           <span>{jobPostingPricing.vipBadgeText || '👑 VIP All-in-One Power Bundle'}</span>
                         </span>
-                        <span className="font-mono font-bold text-purple-300">
+                        <span className="font-mono font-bold text-amber-300">
                           {formatServerTierFee('vip_bundle')}
                         </span>
                       </div>
@@ -3836,9 +3871,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                         {jobPostingPricing.vipBundleDescription || 'All privileges included: Pinned Top #1 + Urgent Flame Badge + Featured Gold Styling + Advance Intake options.'}
                       </p>
                     </div>
-                    <div className="mt-3 pt-2 border-t border-purple-900/30 flex items-center justify-between text-[10px] text-purple-300">
+                    <div className="mt-3 pt-2 border-t border-amber-900/30 flex items-center justify-between text-[10px] text-amber-300">
                       <span>Complete VIP Validity:</span>
-                      <span className="font-bold bg-purple-950/60 px-2 py-0.5 rounded border border-purple-800/50">
+                      <span className="font-bold bg-amber-950/60 px-2 py-0.5 rounded border border-amber-800/50">
                         {jobPostingPricing.vipBundleDurationDays || 45} Days Full Coverage
                       </span>
                     </div>
@@ -4027,8 +4062,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                         <p className="text-[10px] text-slate-400">Use an included subscription posting slot on this pending job. The job will still require normal admin approval.</p>
                         <div className="flex flex-wrap gap-2">
                           {[
-                            { tier: 'urgent' as const, featureId: 'urgent_job_posting', label: 'Use Urgent Slot' },
+                            { tier: 'vip' as const, featureId: 'vip_job_posting', label: 'Use VIP Ultimate Slot' },
+                            { tier: 'pinned' as const, featureId: 'pinned_job_posting', label: 'Use Pinned Top #1 Slot' },
                             { tier: 'featured' as const, featureId: 'featured_job_posting', label: 'Use Featured Slot' },
+                            { tier: 'urgent' as const, featureId: 'urgent_job_posting', label: 'Use Urgent Slot' },
+                            { tier: 'future' as const, featureId: 'future_job_posting', label: 'Use Future Job Slot' },
                             { tier: 'premium' as const, featureId: 'premium_job_posting', label: 'Use Premium Slot' }
                           ].filter((option) => hasPostingSlot(option.featureId)).map((option) => (
                             <button key={option.tier} type="button" disabled={postingSlotBusyJobId === jobId} onClick={async () => {

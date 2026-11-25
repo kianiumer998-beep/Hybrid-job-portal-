@@ -11,7 +11,7 @@ import {
   JOB_CARD_ACCENT_STYLES,
   getJobCardAccentColor
 } from '../../types/landing';
-import { CampaignCustomizationConfig, PromoDiscountBanner } from '../../types/ad';
+import { CampaignCustomizationConfig, DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG, PromoDiscountBanner } from '../../types/ad';
 import { 
   Layout, 
   Edit3, 
@@ -54,6 +54,12 @@ const mergeJobCardDesign = (value?: Partial<JobCardDesignConfig>): JobCardDesign
   limits: { ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.limits, ...(value?.limits || {}) }
 });
 
+const normalizeStandardJobsPerPage = (value: unknown): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 10;
+  return Math.min(100, Math.max(1, Math.round(parsed)));
+};
+
 export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
   config,
   onUpdateConfig,
@@ -71,6 +77,9 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
   const [jobCardDesignForm, setJobCardDesignForm] = useState<JobCardDesignConfig>(() => mergeJobCardDesign(config.jobCardDesign));
   const [mobileFilterColumns, setMobileFilterColumns] = useState<1 | 2 | 3 | 4>(config.mobileFilterColumns || 2);
   const [showPostsPerPageSelector, setShowPostsPerPageSelector] = useState(config.showPostsPerPageSelector !== false);
+  const [standardJobsPerPageInput, setStandardJobsPerPageInput] = useState<string>(() =>
+    String(normalizeStandardJobsPerPage(campaignConfig.feedInlineSettings?.standardJobsPerPage ?? 10))
+  );
   const [showLandingPromoCardDesktop, setShowLandingPromoCardDesktop] = useState(config.showLandingPromoCardDesktop === true);
   const [showLandingPromoCardMobile, setShowLandingPromoCardMobile] = useState(config.showLandingPromoCardMobile === true);
   const [promoBanners, setPromoBanners] = useState<PromoDiscountBanner[]>(campaignConfig.promoBanners || []);
@@ -96,6 +105,9 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
 
   useEffect(() => {
     setPromoBanners(campaignConfig.promoBanners || []);
+    setStandardJobsPerPageInput(
+      String(normalizeStandardJobsPerPage(campaignConfig.feedInlineSettings?.standardJobsPerPage ?? 10))
+    );
   }, [campaignConfig]);
 
   useEffect(() => {
@@ -235,9 +247,19 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
       showLandingPromoCardMobile
     };
 
+    const normalizedStandardJobsPerPage = normalizeStandardJobsPerPage(
+      standardJobsPerPageInput === '' ? 10 : standardJobsPerPageInput
+    );
+    setStandardJobsPerPageInput(String(normalizedStandardJobsPerPage));
+
     const newCampaignConfig: CampaignCustomizationConfig = {
       ...campaignConfig,
-      promoBanners
+      promoBanners,
+      feedInlineSettings: {
+        ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings,
+        ...(campaignConfig.feedInlineSettings || {}),
+        standardJobsPerPage: normalizedStandardJobsPerPage
+      }
     };
 
     try {
@@ -441,8 +463,55 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
           </div>
 
           <div className="rounded-2xl border border-cyan-500/25 bg-slate-900/80 p-4 space-y-3">
-            <div><h4 className="text-sm font-black text-white">Visitor Jobs-Per-Page Control</h4><p className="text-xs text-slate-400">Admin can show or hide the 10 / 15 / 20 jobs-per-page selector above the live jobs feed. Hiding it keeps the admin-configured page size in effect.</p></div>
-            <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-950 p-3"><span className="text-xs font-bold text-slate-200">Show page-size selector to visitors</span><input type="checkbox" checked={showPostsPerPageSelector} onChange={(event) => setShowPostsPerPageSelector(event.target.checked)} className="h-5 w-5 accent-emerald-500" /></label>
+            <div>
+              <h4 className="text-sm font-black text-white">Public Jobs Feed Pagination &amp; Visitor Control</h4>
+              <p className="text-xs text-slate-400">
+                Set the shared default number of standard jobs per page and control whether visitors see the 10 / 15 / 20 page-size selector above the live jobs feed. Hiding it keeps the shared default active.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="rounded-xl border border-slate-700 bg-slate-950 p-3 space-y-1.5">
+                <label className="block text-xs font-bold text-slate-200">
+                  Public Jobs Feed Pagination (Shared Default)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={standardJobsPerPageInput}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    if (next === '' || /^\d{1,3}$/.test(next)) {
+                      setStandardJobsPerPageInput(next);
+                    }
+                  }}
+                  onBlur={() => {
+                    setStandardJobsPerPageInput(
+                      String(normalizeStandardJobsPerPage(standardJobsPerPageInput === '' ? 10 : standardJobsPerPageInput))
+                    );
+                  }}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-bold text-white focus:outline-none focus:border-cyan-500"
+                />
+                <p className="text-[11px] text-slate-400">
+                  Default standard jobs per page before visitors change it (1–100). Priority jobs remain separate.
+                </p>
+              </div>
+              <label className="flex flex-col justify-between gap-2 rounded-xl border border-slate-700 bg-slate-950 p-3 cursor-pointer">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-bold text-slate-200">Show page-size selector to visitors</span>
+                  <input
+                    type="checkbox"
+                    checked={showPostsPerPageSelector}
+                    onChange={(event) => setShowPostsPerPageSelector(event.target.checked)}
+                    className="h-5 w-5 accent-emerald-500 shrink-0"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Shows or hides the visitor 10 / 15 / 20 selector above the live jobs feed.
+                </p>
+              </label>
+            </div>
           </div>
 
           <div className="rounded-2xl border border-rose-500/25 bg-slate-900/80 p-4 space-y-3">
@@ -524,237 +593,270 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
       {/* TAB 2: HERO TEXT & CTA BUTTONS CUSTOMIZER */}
       {activeTab === 'hero' && (
         <div className="space-y-6">
-          <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
-            <h3 className="text-base font-black text-white flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-emerald-400" />
-              <span>Main Hero Headings & Typography</span>
-            </h3>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400">Eyebrow Top Badge Text:</label>
-                <input
-                  type="text"
-                  value={heroForm.eyebrowBadgeText}
-                  onChange={(e) => setHeroForm({ ...heroForm, eyebrowBadgeText: e.target.value })}
-                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500"
-                />
+          {activeDesignId === 'design-5' ? (
+            <div className="p-5 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-4">
+              <div>
+                <h3 className="text-base font-black text-white">Design 5 — Dual Audience Hero</h3>
+                <p className="text-xs text-slate-400">
+                  Design 5 replaces the single hero + hiring banner with side-by-side Job Seeker &amp; Employer panels. Configure both panels below (single-hero fields are hidden while Design 5 is active).
+                </p>
               </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400">Gradient Highlight Word:</label>
-                <input
-                  type="text"
-                  value={heroForm.gradientWord}
-                  onChange={(e) => setHeroForm({ ...heroForm, gradientWord: e.target.value })}
-                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-emerald-400 font-bold focus:outline-none focus:border-indigo-500"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-300">Design 5 job seeker image URL</label>
+                  <input
+                    type="url"
+                    value={heroForm.design5SeekerImageUrl || ''}
+                    placeholder="https://..."
+                    onChange={(e) => setHeroForm({ ...heroForm, design5SeekerImageUrl: e.target.value })}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-xs text-white"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-300">Design 5 employer image URL</label>
+                  <input
+                    type="url"
+                    value={heroForm.design5EmployerImageUrl || ''}
+                    placeholder="https://..."
+                    onChange={(e) => setHeroForm({ ...heroForm, design5EmployerImageUrl: e.target.value })}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-xs text-white"
+                  />
+                </div>
               </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-slate-800 pt-4">
+                {([
+                  ['design5SeekerEyebrow', 'Design 5 seeker label'],
+                  ['design5EmployerEyebrow', 'Design 5 employer label'],
+                  ['design5SeekerHeading', 'Design 5 seeker heading'],
+                  ['design5EmployerHeading', 'Design 5 employer heading'],
+                  ['design5SeekerDescription', 'Design 5 seeker description'],
+                  ['design5EmployerDescription', 'Design 5 employer description'],
+                  ['design5SeekerPrimaryBtnText', 'Design 5 seeker primary button'],
+                  ['design5EmployerBtnText', 'Design 5 employer button'],
+                  ['design5SeekerSecondaryBtnText', 'Design 5 seeker secondary button']
+                ] as const).map(([key, label]) => (
+                  <label key={key} className="space-y-1.5">
+                    <span className="block text-xs font-bold text-slate-300">{label}</span>
+                    <input value={heroForm[key] || ''} onChange={(event) => setHeroForm({ ...heroForm, [key]: event.target.value.slice(0, 500) })} maxLength={500} className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-xs text-white" />
+                  </label>
+                ))}
+              </div>
+              <p className="text-[11px] text-amber-300">Use HTTPS image URLs only. If an image URL is empty or unsafe, the live design uses its built-in fallback image.</p>
             </div>
+          ) : (
+            <>
+              <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+                <h3 className="text-base font-black text-white flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-emerald-400" />
+                  <span>Main Hero Headings & Typography</span>
+                </h3>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400">Main Heading Prefix:</label>
-                <input
-                  type="text"
-                  value={heroForm.mainHeadingPrefix}
-                  onChange={(e) => setHeroForm({ ...heroForm, mainHeadingPrefix: e.target.value })}
-                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400">Main Heading Suffix:</label>
-                <input
-                  type="text"
-                  value={heroForm.mainHeadingSuffix}
-                  onChange={(e) => setHeroForm({ ...heroForm, mainHeadingSuffix: e.target.value })}
-                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-400">Hero Subheading Text:</label>
-              <textarea
-                rows={3}
-                value={heroForm.subHeading}
-                onChange={(e) => setHeroForm({ ...heroForm, subHeading: e.target.value })}
-                className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-          </div>
-
-          {/* CTA Buttons Customizer */}
-          <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
-            <h3 className="text-base font-black text-white flex items-center gap-2">
-              <ExternalLink className="w-4 h-4 text-indigo-400" />
-              <span>CTA Buttons, Labels & Target Links</span>
-            </h3>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
-                <span className="text-xs font-black text-emerald-400 uppercase">Primary Action Button</span>
-                <div className="space-y-2">
-                  <div>
-                    <label className="text-[11px] text-slate-400">Button Label:</label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-400">Eyebrow Top Badge Text:</label>
                     <input
                       type="text"
-                      value={heroForm.primaryBtnText}
-                      onChange={(e) => setHeroForm({ ...heroForm, primaryBtnText: e.target.value })}
-                      className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white"
+                      value={heroForm.eyebrowBadgeText}
+                      onChange={(e) => setHeroForm({ ...heroForm, eyebrowBadgeText: e.target.value })}
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500"
                     />
                   </div>
-                  <div>
-                    <label className="text-[11px] text-slate-400">Target Link / Action:</label>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-400">Gradient Highlight Word:</label>
                     <input
                       type="text"
-                      value={heroForm.primaryBtnUrl}
-                      onChange={(e) => setHeroForm({ ...heroForm, primaryBtnUrl: e.target.value })}
-                      className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white font-mono"
+                      value={heroForm.gradientWord}
+                      onChange={(e) => setHeroForm({ ...heroForm, gradientWord: e.target.value })}
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-emerald-400 font-bold focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-400">Main Heading Prefix:</label>
+                    <input
+                      type="text"
+                      value={heroForm.mainHeadingPrefix}
+                      onChange={(e) => setHeroForm({ ...heroForm, mainHeadingPrefix: e.target.value })}
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-400">Main Heading Suffix:</label>
+                    <input
+                      type="text"
+                      value={heroForm.mainHeadingSuffix}
+                      onChange={(e) => setHeroForm({ ...heroForm, mainHeadingSuffix: e.target.value })}
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400">Hero Subheading Text:</label>
+                  <textarea
+                    rows={3}
+                    value={heroForm.subHeading}
+                    onChange={(e) => setHeroForm({ ...heroForm, subHeading: e.target.value })}
+                    className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* CTA Buttons Customizer */}
+              <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+                <h3 className="text-base font-black text-white flex items-center gap-2">
+                  <ExternalLink className="w-4 h-4 text-indigo-400" />
+                  <span>CTA Buttons, Labels & Target Links</span>
+                </h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                    <span className="text-xs font-black text-emerald-400 uppercase">Primary Action Button</span>
+                    <div className="space-y-2">
+                      <div>
+                        <label className="text-[11px] text-slate-400">Button Label:</label>
+                        <input
+                          type="text"
+                          value={heroForm.primaryBtnText}
+                          onChange={(e) => setHeroForm({ ...heroForm, primaryBtnText: e.target.value })}
+                          className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-slate-400">Target Link / Action:</label>
+                        <input
+                          type="text"
+                          value={heroForm.primaryBtnUrl}
+                          onChange={(e) => setHeroForm({ ...heroForm, primaryBtnUrl: e.target.value })}
+                          className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white font-mono"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                    <span className="text-xs font-black text-indigo-400 uppercase">Secondary Action Button</span>
+                    <div className="space-y-2">
+                      <div>
+                        <label className="text-[11px] text-slate-400">Button Label:</label>
+                        <input
+                          type="text"
+                          value={heroForm.secondaryBtnText}
+                          onChange={(e) => setHeroForm({ ...heroForm, secondaryBtnText: e.target.value })}
+                          className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-slate-400">Target Link / Action:</label>
+                        <input
+                          type="text"
+                          value={heroForm.secondaryBtnUrl}
+                          onChange={(e) => setHeroForm({ ...heroForm, secondaryBtnUrl: e.target.value })}
+                          className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white font-mono"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Hiring / Employer Banner Customizer */}
+              <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+                <h3 className="text-base font-black text-white flex items-center gap-2">
+                  <Briefcase className="w-4 h-4 text-amber-400" />
+                  <span>Hiring Employer Banner Box</span>
+                </h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[11px] text-slate-400 font-bold">Banner Headline:</label>
+                    <input
+                      type="text"
+                      value={heroForm.hiringBannerTitle}
+                      onChange={(e) => setHeroForm({ ...heroForm, hiringBannerTitle: e.target.value })}
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] text-slate-400 font-bold">Banner Badge Label:</label>
+                    <input
+                      type="text"
+                      value={heroForm.hiringBannerBadge}
+                      onChange={(e) => setHeroForm({ ...heroForm, hiringBannerBadge: e.target.value })}
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="text-[11px] text-slate-400 font-bold">Banner Subtext:</label>
+                    <input
+                      type="text"
+                      value={heroForm.hiringBannerSub}
+                      onChange={(e) => setHeroForm({ ...heroForm, hiringBannerSub: e.target.value })}
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] text-slate-400 font-bold">Button Text:</label>
+                    <input
+                      type="text"
+                      value={heroForm.hiringBannerBtnText}
+                      onChange={(e) => setHeroForm({ ...heroForm, hiringBannerBtnText: e.target.value })}
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] text-slate-400 font-bold">Button Link:</label>
+                    <input
+                      type="text"
+                      value={heroForm.hiringBannerBtnUrl}
+                      onChange={(e) => setHeroForm({ ...heroForm, hiringBannerBtnUrl: e.target.value })}
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white font-mono"
                     />
                   </div>
                 </div>
               </div>
 
-              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
-                <span className="text-xs font-black text-indigo-400 uppercase">Secondary Action Button</span>
-                <div className="space-y-2">
-                  <div>
-                    <label className="text-[11px] text-slate-400">Button Label:</label>
+              {activeDesignId === 'design-4' && (
+                <div className="p-5 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-4">
+                  <h3 className="text-base font-black text-white">Design 4 — Modern Professional Photography &amp; Styling</h3>
+                  <p className="text-xs text-slate-400">Set the photographic background URL, overlay opacity, accent color, and Post a Job CTA used by Design 4.</p>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300">Design 4 hero image URL</label>
                     <input
-                      type="text"
-                      value={heroForm.secondaryBtnText}
-                      onChange={(e) => setHeroForm({ ...heroForm, secondaryBtnText: e.target.value })}
-                      className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white"
+                      type="url"
+                      value={heroForm.design4HeroImageUrl || ''}
+                      placeholder="https://..."
+                      onChange={(e) => setHeroForm({ ...heroForm, design4HeroImageUrl: e.target.value })}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-xs text-white"
                     />
                   </div>
-                  <div>
-                    <label className="text-[11px] text-slate-400">Target Link / Action:</label>
-                    <input
-                      type="text"
-                      value={heroForm.secondaryBtnUrl}
-                      onChange={(e) => setHeroForm({ ...heroForm, secondaryBtnUrl: e.target.value })}
-                      className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white font-mono"
-                    />
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300">Design 4 background overlay: {heroForm.design45HeroOverlay ?? 68}%</label>
+                    <input type="range" min="35" max="90" value={heroForm.design45HeroOverlay ?? 68} onChange={(e) => setHeroForm({ ...heroForm, design45HeroOverlay: Number(e.target.value) })} className="w-full accent-emerald-500" />
                   </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                    <div className="flex items-center gap-3">
+                      <label htmlFor="landing-design-accent" className="text-xs font-bold text-slate-300">Design 4 accent color</label>
+                      <input id="landing-design-accent" type="color" value={/^#[0-9a-fA-F]{6}$/.test(heroForm.design45AccentColor || '') ? heroForm.design45AccentColor! : '#0f9f78'} onChange={(e) => setHeroForm({ ...heroForm, design45AccentColor: e.target.value })} className="h-9 w-14 cursor-pointer rounded border border-slate-700 bg-slate-950 p-1" />
+                    </div>
+                    <label className="space-y-1.5">
+                      <span className="block text-xs font-bold text-slate-300">Design 4 Post a Job button</span>
+                      <input value={heroForm.design4PostJobBtnText || ''} onChange={(event) => setHeroForm({ ...heroForm, design4PostJobBtnText: event.target.value.slice(0, 500) })} maxLength={500} className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-xs text-white" />
+                    </label>
+                  </div>
+                  <p className="text-[11px] text-amber-300">Use HTTPS image URLs only. If an image URL is empty or unsafe, the live design uses its built-in fallback image.</p>
                 </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Hiring / Employer Banner Customizer */}
-          <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
-            <h3 className="text-base font-black text-white flex items-center gap-2">
-              <Briefcase className="w-4 h-4 text-amber-400" />
-              <span>Hiring Employer Banner Box</span>
-            </h3>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-[11px] text-slate-400 font-bold">Banner Headline:</label>
-                <input
-                  type="text"
-                  value={heroForm.hiringBannerTitle}
-                  onChange={(e) => setHeroForm({ ...heroForm, hiringBannerTitle: e.target.value })}
-                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] text-slate-400 font-bold">Banner Badge Label:</label>
-                <input
-                  type="text"
-                  value={heroForm.hiringBannerBadge}
-                  onChange={(e) => setHeroForm({ ...heroForm, hiringBannerBadge: e.target.value })}
-                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="text-[11px] text-slate-400 font-bold">Banner Subtext:</label>
-                <input
-                  type="text"
-                  value={heroForm.hiringBannerSub}
-                  onChange={(e) => setHeroForm({ ...heroForm, hiringBannerSub: e.target.value })}
-                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] text-slate-400 font-bold">Button Text:</label>
-                <input
-                  type="text"
-                  value={heroForm.hiringBannerBtnText}
-                  onChange={(e) => setHeroForm({ ...heroForm, hiringBannerBtnText: e.target.value })}
-                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] text-slate-400 font-bold">Button Link:</label>
-                <input
-                  type="text"
-                  value={heroForm.hiringBannerBtnUrl}
-                  onChange={(e) => setHeroForm({ ...heroForm, hiringBannerBtnUrl: e.target.value })}
-                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white font-mono"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'hero' && (
-        <div className="space-y-6">
-          <div className="p-5 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-4">
-            <h3 className="text-base font-black text-white">Design 4 & 5 — Photography & Hero Settings</h3>
-            <p className="text-xs text-slate-400">Set secure HTTPS image URLs for the Modern Professional background and the two Dual Audience panels. These settings are saved with the selected design only.</p>
-            {([
-              ['design4HeroImageUrl', 'Design 4 hero image URL'],
-              ['design5SeekerImageUrl', 'Design 5 job seeker image URL'],
-              ['design5EmployerImageUrl', 'Design 5 employer image URL']
-            ] as const).map(([key, label]) => (
-              <div key={key} className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-300">{label}</label>
-                <input
-                  type="url"
-                  value={heroForm[key] || ''}
-                  placeholder="https://..."
-                  onChange={(e) => setHeroForm({ ...heroForm, [key]: e.target.value })}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-xs text-white"
-                />
-              </div>
-            ))}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-300">Design 4 background overlay: {heroForm.design45HeroOverlay ?? 68}%</label>
-              <input type="range" min="35" max="90" value={heroForm.design45HeroOverlay ?? 68} onChange={(e) => setHeroForm({ ...heroForm, design45HeroOverlay: Number(e.target.value) })} className="w-full accent-emerald-500" />
-            </div>
-            <div className="flex items-center gap-3">
-              <label htmlFor="landing-design-accent" className="text-xs font-bold text-slate-300">Design 4 accent color</label>
-              <input id="landing-design-accent" type="color" value={/^#[0-9a-fA-F]{6}$/.test(heroForm.design45AccentColor || '') ? heroForm.design45AccentColor! : '#0f9f78'} onChange={(e) => setHeroForm({ ...heroForm, design45AccentColor: e.target.value })} className="h-9 w-14 cursor-pointer rounded border border-slate-700 bg-slate-950 p-1" />
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-slate-800 pt-4">
-              {([
-                ['design4PostJobBtnText', 'Design 4 Post a Job button'],
-                ['design5SeekerEyebrow', 'Design 5 seeker label'],
-                ['design5SeekerHeading', 'Design 5 seeker heading'],
-                ['design5SeekerDescription', 'Design 5 seeker description'],
-                ['design5SeekerPrimaryBtnText', 'Design 5 seeker primary button'],
-                ['design5SeekerSecondaryBtnText', 'Design 5 seeker secondary button'],
-                ['design5EmployerEyebrow', 'Design 5 employer label'],
-                ['design5EmployerHeading', 'Design 5 employer heading'],
-                ['design5EmployerDescription', 'Design 5 employer description'],
-                ['design5EmployerBtnText', 'Design 5 employer button']
-              ] as const).map(([key, label]) => (
-                <label key={key} className="space-y-1.5">
-                  <span className="block text-xs font-bold text-slate-300">{label}</span>
-                  <input value={heroForm[key] || ''} onChange={(event) => setHeroForm({ ...heroForm, [key]: event.target.value.slice(0, 500) })} maxLength={500} className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-xs text-white" />
-                </label>
-              ))}
-            </div>
-            <p className="text-[11px] text-amber-300">Use HTTPS image URLs only. If an image URL is empty or unsafe, the live design uses its built-in fallback image.</p>
-          </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -986,36 +1088,46 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                     <Sliders className="w-4 h-4 text-purple-400" />
                     Content Limits
                   </h4>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
-                        Description Max Words:
-                      </label>
-                      <input
-                        type="number"
-                        value={jobCardDesignForm.limits.descriptionMaxWords}
-                        onChange={(e) => setJobCardDesignForm({
-                          ...jobCardDesignForm,
-                          limits: { ...jobCardDesignForm.limits, descriptionMaxWords: Number(e.target.value) }
-                        })}
-                        className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white"
-                      />
+                  {jobCardDesignForm.visibility.description === false && jobCardDesignForm.visibility.tags === false ? (
+                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs text-slate-400">
+                      Description and Skill Tags are currently hidden under Element Visibility Toggles. Enable either toggle to customize word or tag limits.
                     </div>
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
-                        Max Skill Tags Shown:
-                      </label>
-                      <input
-                        type="number"
-                        value={jobCardDesignForm.limits.maxTags}
-                        onChange={(e) => setJobCardDesignForm({
-                          ...jobCardDesignForm,
-                          limits: { ...jobCardDesignForm.limits, maxTags: Number(e.target.value) }
-                        })}
-                        className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white"
-                      />
+                  ) : (
+                    <div className="space-y-4">
+                      {jobCardDesignForm.visibility.description !== false && (
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+                            Description Max Words:
+                          </label>
+                          <input
+                            type="number"
+                            value={jobCardDesignForm.limits.descriptionMaxWords}
+                            onChange={(e) => setJobCardDesignForm({
+                              ...jobCardDesignForm,
+                              limits: { ...jobCardDesignForm.limits, descriptionMaxWords: Number(e.target.value) }
+                            })}
+                            className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white"
+                          />
+                        </div>
+                      )}
+                      {jobCardDesignForm.visibility.tags !== false && (
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+                            Max Skill Tags Shown:
+                          </label>
+                          <input
+                            type="number"
+                            value={jobCardDesignForm.limits.maxTags}
+                            onChange={(e) => setJobCardDesignForm({
+                              ...jobCardDesignForm,
+                              limits: { ...jobCardDesignForm.limits, maxTags: Number(e.target.value) }
+                            })}
+                            className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white"
+                          />
+                        </div>
+                      )}
                     </div>
-                  </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1183,11 +1295,11 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
       {/* TAB 5: PROMOTIONAL DISCOUNT BANNERS */}
       {activeTab === 'promos' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <h3 className="text-base font-black text-white">Top Promotional Discount Banners & Flash Sales</h3>
               <p className="text-xs text-slate-400">
-                Display site-wide sticky discount banners at the top of the jobs landing page.
+                Single canonical editor for sticky discount banners across the landing page (consolidated from Campaign Options to prevent duplicate editors).
               </p>
             </div>
             <button
@@ -1203,10 +1315,10 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
             {promoBanners.map((promo) => (
               <div
                 key={promo.id}
-                className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3"
+                className={`p-4 rounded-2xl border space-y-3 ${promo.isEnabled ? 'bg-slate-900 border-slate-800' : 'bg-slate-950/60 border-slate-800/70'}`}
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center space-x-2 flex-wrap">
                     <button
                       onClick={() => handleUpdatePromo(promo.id, { isEnabled: !promo.isEnabled })}
                       className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase transition-all cursor-pointer ${
@@ -1217,13 +1329,17 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                     >
                       {promo.isEnabled ? '🟢 Active on Landing' : '⏸️ Disabled'}
                     </button>
-                    <input
-                      type="text"
-                      value={promo.badgeText}
-                      onChange={(e) => handleUpdatePromo(promo.id, { badgeText: e.target.value })}
-                      placeholder="Badge (e.g. 🔥 50% OFF)"
-                      className="px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-xs font-bold text-amber-300"
-                    />
+                    {promo.isEnabled ? (
+                      <input
+                        type="text"
+                        value={promo.badgeText}
+                        onChange={(e) => handleUpdatePromo(promo.id, { badgeText: e.target.value })}
+                        placeholder="Badge (e.g. 🔥 50% OFF)"
+                        className="px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-xs font-bold text-amber-300"
+                      />
+                    ) : (
+                      <span className="text-xs font-bold text-slate-400">{promo.title || promo.badgeText || 'Untitled Promo Banner'}</span>
+                    )}
                   </div>
 
                   <button
@@ -1235,70 +1351,78 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <input
-                    type="text"
-                    value={promo.title}
-                    onChange={(e) => handleUpdatePromo(promo.id, { title: e.target.value })}
-                    placeholder="Banner Headline"
-                    className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs font-black text-white"
-                  />
+                {promo.isEnabled ? (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <input
+                        type="text"
+                        value={promo.title}
+                        onChange={(e) => handleUpdatePromo(promo.id, { title: e.target.value })}
+                        placeholder="Banner Headline"
+                        className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs font-black text-white"
+                      />
 
-                  <input
-                    type="text"
-                    value={promo.description}
-                    onChange={(e) => handleUpdatePromo(promo.id, { description: e.target.value })}
-                    placeholder="Banner description..."
-                    className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-300"
-                  />
-                </div>
+                      <input
+                        type="text"
+                        value={promo.description}
+                        onChange={(e) => handleUpdatePromo(promo.id, { description: e.target.value })}
+                        placeholder="Banner description..."
+                        className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-300"
+                      />
+                    </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <div>
-                    <label className="text-[10px] text-slate-400">Discount %:</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={promo.discountPercent}
-                      onChange={(e) => handleUpdatePromo(promo.id, { discountPercent: Number(e.target.value) })}
-                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs font-mono font-bold text-emerald-400"
-                    />
-                  </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div>
+                        <label className="text-[10px] text-slate-400">Discount %:</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={promo.discountPercent}
+                          onChange={(e) => handleUpdatePromo(promo.id, { discountPercent: Number(e.target.value) })}
+                          className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs font-mono font-bold text-emerald-400"
+                        />
+                      </div>
 
-                  <div>
-                    <label className="text-[10px] text-slate-400">Promo Code:</label>
-                    <input
-                      type="text"
-                      value={promo.promoCode || ''}
-                      onChange={(e) => handleUpdatePromo(promo.id, { promoCode: e.target.value })}
-                      placeholder="e.g. CAREER50"
-                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs font-mono text-white"
-                    />
-                  </div>
+                      <div>
+                        <label className="text-[10px] text-slate-400">Promo Code:</label>
+                        <input
+                          type="text"
+                          value={promo.promoCode || ''}
+                          onChange={(e) => handleUpdatePromo(promo.id, { promoCode: e.target.value })}
+                          placeholder="e.g. CAREER50"
+                          className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs font-mono text-white"
+                        />
+                      </div>
 
-                  <div>
-                    <label className="text-[10px] text-slate-400">CTA Button Text:</label>
-                    <input
-                      type="text"
-                      value={promo.ctaText || ''}
-                      onChange={(e) => handleUpdatePromo(promo.id, { ctaText: e.target.value })}
-                      placeholder="Claim Discount"
-                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-white"
-                    />
-                  </div>
+                      <div>
+                        <label className="text-[10px] text-slate-400">CTA Button Text:</label>
+                        <input
+                          type="text"
+                          value={promo.ctaText || ''}
+                          onChange={(e) => handleUpdatePromo(promo.id, { ctaText: e.target.value })}
+                          placeholder="Claim Discount"
+                          className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-white"
+                        />
+                      </div>
 
-                  <div>
-                    <label className="text-[10px] text-slate-400">CTA Link / URL:</label>
-                    <input
-                      type="text"
-                      value={promo.ctaUrl || ''}
-                      onChange={(e) => handleUpdatePromo(promo.id, { ctaUrl: e.target.value })}
-                      placeholder="#dashboard"
-                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-white font-mono"
-                    />
-                  </div>
-                </div>
+                      <div>
+                        <label className="text-[10px] text-slate-400">CTA Link / URL:</label>
+                        <input
+                          type="text"
+                          value={promo.ctaUrl || ''}
+                          onChange={(e) => handleUpdatePromo(promo.id, { ctaUrl: e.target.value })}
+                          placeholder="#dashboard"
+                          className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-white font-mono"
+                        />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-[11px] text-slate-500">
+                    Paused — enable above to configure banner badge, headline, discount %, promo code, and CTA link.
+                  </p>
+                )}
               </div>
             ))}
           </div>

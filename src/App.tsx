@@ -2585,13 +2585,13 @@ export default function App() {
 
       return true;
     }).sort((a, b) => {
-      // 1. Primary Ranking: Top Pinned / VIP Bundle / Featured Top / Urgent / Future Opportunity
+      // 1. Primary Ranking: VIP Bundle > Pinned Top > Featured > Urgent > Future > Standard
       const getPriorityRank = (job: Job): number => {
         let rank = 0;
+        if (job.priorityTier === 'vip_bundle') rank += 2000;
         if (job.isPinnedTop) rank += 1000;
-        if (job.priorityTier === 'vip_bundle') rank += 800;
         if (job.priorityTier === 'featured_top') rank += 600;
-        if (job.featured) rank += 400;
+        if (job.featured || job.priorityTier === 'featured') rank += 400;
         if (job.priorityTier === 'urgent') rank += 300;
         if (job.urgent) rank += 200;
         if (job.isFutureJob) rank += 100;
@@ -3290,9 +3290,10 @@ export default function App() {
           jobIdRef: createdJob.id,
           jobTitleRef: createdJob.title || newJob.title,
           jobPricingOptions: {
-            featured: Boolean(newJob.featured || newJob.priorityTier === 'featured_top'),
+            priorityTier: newJob.priorityTier,
+            featured: Boolean(newJob.featured || newJob.priorityTier === 'featured' || newJob.priorityTier === 'featured_top'),
             urgent: Boolean(newJob.urgent || newJob.priorityTier === 'urgent'),
-            pinnedTop: Boolean(newJob.isPinnedTop),
+            pinnedTop: Boolean(newJob.isPinnedTop || newJob.priorityTier === 'featured_top'),
             futureJob: Boolean(newJob.isFutureJob),
             vipBundle: Boolean(newJob.priorityTier === 'vip_bundle'),
             government: Boolean(newJob.isGovtJob),

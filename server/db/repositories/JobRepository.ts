@@ -577,7 +577,7 @@ export class JobRepository {
    * VIP (vip_bundle) -> Pinned (isPinnedTop) -> Featured (featured) -> Urgent (urgent).
    * A job can belong to at most one effective priority tier.
    */
-  static getEffectivePriorityTier(job: any): 'vip' | 'pinned' | 'featured' | 'urgent' | null {
+  static getEffectivePriorityTier(job: any): 'vip' | 'pinned' | 'featured' | 'urgent' | 'future' | null {
     if (!job || typeof job !== 'object') return null;
     if (job.priorityTier === 'vip_bundle' || (job.isPinnedTop && job.featured && job.urgent)) {
       return 'vip';
@@ -585,25 +585,28 @@ export class JobRepository {
     if (job.isPinnedTop || job.priorityTier === 'featured_top') {
       return 'pinned';
     }
-    if (job.featured) {
+    if (job.featured || job.priorityTier === 'featured') {
       return 'featured';
     }
     if (job.urgent || job.priorityTier === 'urgent') {
       return 'urgent';
+    }
+    if (job.isFutureJob || job.priorityTier === 'future_job') {
+      return 'future';
     }
     return null;
   }
 
   /**
    * Retrieves priority placement jobs according to configured slot limits and precedence:
-   * VIP (vip_bundle) -> Pinned (isPinnedTop) -> Featured (featured) -> Urgent (urgent).
+   * VIP (vip_bundle) -> Pinned (isPinnedTop) -> Featured (featured) -> Urgent (urgent) -> Future (isFutureJob).
    * Enforces strict single-tier assignment: jobs never downgrade if their effective tier is full.
    * Calculates true occupancy counts across all matching priority jobs.
    */
   static async getPriorityPlacementJobs(filter: JobFilterOptions = {}): Promise<{
     jobs: any[];
-    tierCounts: { vip: number; pinned: number; featured: number; urgent: number };
-    slotLimits: { vip: number; pinned: number; featured: number; urgent: number };
+    tierCounts: { vip: number; pinned: number; featured: number; urgent: number; future: number };
+    slotLimits: { vip: number; pinned: number; featured: number; urgent: number; future: number };
   }> {
     const pricing = await PricingRepository.get();
     const slotConfig = pricing?.jobPosting?.homepagePrioritySlotConfig || DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG;
@@ -612,13 +615,14 @@ export class JobRepository {
       vip: slotConfig.enabled && slotConfig.vip?.enabled !== false ? (slotConfig.vip?.maxSlots ?? 2) : 0,
       pinned: slotConfig.enabled && slotConfig.pinned?.enabled !== false ? (slotConfig.pinned?.maxSlots ?? 2) : 0,
       featured: slotConfig.enabled && slotConfig.featured?.enabled !== false ? (slotConfig.featured?.maxSlots ?? 4) : 0,
-      urgent: slotConfig.enabled && slotConfig.urgent?.enabled !== false ? (slotConfig.urgent?.maxSlots ?? 4) : 0
+      urgent: slotConfig.enabled && slotConfig.urgent?.enabled !== false ? (slotConfig.urgent?.maxSlots ?? 4) : 0,
+      future: slotConfig.enabled && slotConfig.future?.enabled !== false ? (slotConfig.future?.maxSlots ?? 4) : 0
     };
 
     if (!slotConfig.enabled) {
       return {
         jobs: [],
-        tierCounts: { vip: 0, pinned: 0, featured: 0, urgent: 0 },
+        tierCounts: { vip: 0, pinned: 0, featured: 0, urgent: 0, future: 0 },
         slotLimits: limits
       };
     }
@@ -636,10 +640,11 @@ export class JobRepository {
         { isExpired: { $ne: true } },
         {
           $or: [
-            { priorityTier: { $in: ['vip_bundle', 'featured_top', 'urgent'] } },
+            { priorityTier: { $in: ['vip_bundle', 'featured_top', 'featured', 'urgent', 'future_job'] } },
             { isPinnedTop: true },
             { featured: true },
-            { urgent: true }
+            { urgent: true },
+            { isFutureJob: true }
           ]
         }
       ];
@@ -789,11 +794,13 @@ export class JobRepository {
     const pinnedJobs: any[] = [];
     const featuredJobs: any[] = [];
     const urgentJobs: any[] = [];
+    const futureJobs: any[] = [];
 
     let vipOccupancy = 0;
     let pinnedOccupancy = 0;
     let featuredOccupancy = 0;
     let urgentOccupancy = 0;
+    let futureOccupancy = 0;
 
     for (const job of candidateJobs) {
       if (checkJobExpired(job)) continue;
@@ -832,12 +839,17 @@ export class JobRepository {
         if (urgentJobs.length < limits.urgent) {
           urgentJobs.push({ ...job, activePriorityTier: 'urgent' });
         }
+      } else if (effectiveTier === 'future') {
+        futureOccupancy++;
+        if (futureJobs.length < limits.future) {
+          futureJobs.push({ ...job, activePriorityTier: 'future' });
+        }
       }
     }
 
     return {
-      jobs: [...vipJobs, ...pinnedJobs, ...featuredJobs, ...urgentJobs],
-      tierCounts: { vip: vipOccupancy, pinned: pinnedOccupancy, featured: featuredOccupancy, urgent: urgentOccupancy },
+      jobs: [...vipJobs, ...pinnedJobs, ...featuredJobs, ...urgentJobs, ...futureJobs],
+      tierCounts: { vip: vipOccupancy, pinned: pinnedOccupancy, featured: featuredOccupancy, urgent: urgentOccupancy, future: futureOccupancy },
       slotLimits: limits
     };
   }

@@ -80,6 +80,41 @@ async function run() {
       'percentage uplift above the supported limit is rejected'
     );
 
+    setPricing(makeCampaignConfig({
+      minDurationHours: 1,
+      rateEditMode: 'manual',
+      timeframeFixedRatesPkr: { hourly: 150, daily: 2200 }
+    }));
+    const manualHourly = await PricingRepository.calculateAdPrice({
+      placement: 'top-header',
+      durationUnit: 'hours',
+      durationValue: 2,
+      targetPages: ['jobs']
+    });
+    assert.equal(manualHourly.finalPrice, 300, 'manual hourly rate applies per hour when rateEditMode is manual');
+
+    const manualDaily = await PricingRepository.calculateAdPrice({
+      placement: 'top-header',
+      durationUnit: 'days',
+      durationValue: 1,
+      targetPages: ['jobs']
+    });
+    assert.equal(manualDaily.finalPrice, 2200, 'manual daily rate applies independently for 24h');
+
+    setPricing(makeCampaignConfig({
+      minDurationHours: 1,
+      rateEditMode: 'multiplier',
+      percentageUpliftPercent: 25,
+      timeframeFixedRatesPkr: { hourly: 150, daily: 2200 }
+    }));
+    const backToMultiplier = await PricingRepository.calculateAdPrice({
+      placement: 'top-header',
+      durationUnit: 'days',
+      durationValue: 1,
+      targetPages: ['jobs']
+    });
+    assert.equal(backToMultiplier.finalPrice, 1250, 'switching back to multiplier ignores preserved manual rates');
+
     console.log('Ad campaign pricing tests passed.');
   } finally {
     PricingRepository.setMockCollection(null);

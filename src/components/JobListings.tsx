@@ -260,7 +260,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
         ? (job.scraperSourceName || 'Scraper source')
         : 'Employer';
 
-    const activeTier = (job as any).activePriorityTier || (job.priorityTier === 'vip_bundle' ? 'vip' : (job.isPinnedTop ? 'pinned' : (job.featured ? 'featured' : (job.urgent ? 'urgent' : 'standard'))));
+    const activeTier = (job as any).activePriorityTier || (job.priorityTier === 'vip_bundle' ? 'vip' : (job.isPinnedTop || job.priorityTier === 'featured_top' ? 'pinned' : (job.featured || job.priorityTier === 'featured' ? 'featured' : (job.urgent ? 'urgent' : 'standard'))));
 
     let cardBgStyle = 'bg-slate-900/90 border border-slate-800/90 hover:border-emerald-500/50 hover:shadow-emerald-500/10';
     let tierBadgeText = '';
@@ -278,7 +278,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
         tierBadgeText = '📌 PINNED TOP PLACEMENT';
         tierBadgeStyle = 'from-blue-500/30 via-blue-500/20 to-slate-900 border-blue-400/80 text-blue-300';
       }
-    } else if (activeTier === 'featured' || job.featured) {
+    } else if (activeTier === 'featured' || job.featured || job.priorityTier === 'featured') {
       cardBgStyle = 'bg-gradient-to-b from-purple-500/15 via-purple-950/20 to-slate-900 border-2 border-purple-400 shadow-lg shadow-purple-500/10 hover:border-purple-300';
       if (design.visibility.featuredBadge !== false) {
         tierBadgeText = '⭐ FEATURED PLACEMENT';
@@ -289,6 +289,12 @@ export const JobListings: React.FC<JobListingsProps> = ({
       if (design.visibility.urgentBadge !== false) {
         tierBadgeText = '🔥 URGENT HIRING PLACEMENT';
         tierBadgeStyle = 'from-rose-500/30 via-rose-500/20 to-slate-900 border-rose-400/80 text-rose-300';
+      }
+    } else if (activeTier === 'future' || (isPriorityCard && job.isFutureJob)) {
+      cardBgStyle = 'bg-gradient-to-b from-indigo-500/15 via-indigo-950/20 to-slate-900 border-2 border-indigo-400 shadow-lg shadow-indigo-500/10 hover:border-indigo-300';
+      if (design.visibility.futureBadge !== false) {
+        tierBadgeText = '🚀 ADVANCE INTAKE PLACEMENT';
+        tierBadgeStyle = 'from-indigo-500/30 via-indigo-500/20 to-slate-900 border-indigo-400/80 text-indigo-300';
       }
     }
 
@@ -377,6 +383,9 @@ export const JobListings: React.FC<JobListingsProps> = ({
                         )}
                         {(design.visibility.pinnedBadge !== false) && (activeTier === 'pinned' || job.isPinnedTop || job.priorityTier === 'featured_top') && (
                           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/40">Pinned</span>
+                        )}
+                        {(design.visibility.featuredBadge !== false) && (activeTier === 'featured' || (job.featured && !job.isPinnedTop && job.priorityTier !== 'featured_top' && job.priorityTier !== 'vip_bundle') || job.priorityTier === 'featured') && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40">Featured</span>
                         )}
                         {design.visibility.duplicateOverrideBadge !== false && job.isDuplicateOverride && (
                           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/40">Override</span>

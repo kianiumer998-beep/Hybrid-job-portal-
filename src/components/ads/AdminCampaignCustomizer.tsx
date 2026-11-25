@@ -1,12 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   CampaignCustomizationConfig, 
-  PortalPageConfig, 
-  CampaignDurationPreset, 
   CampaignPlacementOption, 
-  AdDurationUnit,
   AdPlacement,
-  AdType,
   PopupDisplaySettings,
   FeedInlineAdSettings,
   BannerDimensionSettings,
@@ -14,100 +10,71 @@ import {
   BannerBehaviorSettings,
   PopupAppearanceSettings,
   FeedCardAppearanceSettings,
-  PromoDiscountBanner,
-  JobPostingFeeSettings,
   DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
   DEFAULT_BANNER_DIMENSIONS,
   DEFAULT_BANNER_APPEARANCE,
   DEFAULT_BANNER_BEHAVIOR,
   DEFAULT_POPUP_APPEARANCE,
-  DEFAULT_FEED_CARD_APPEARANCE,
-  isPageScheduledActive,
-  getPageDisplayName,
-  getPlacementDisplayName
+  DEFAULT_FEED_CARD_APPEARANCE
 } from '../../types/ad';
 import { 
-  Settings, 
   Sliders, 
-  Calendar, 
-  Clock, 
   Plus, 
-  Trash2, 
-  Edit3, 
-  Check, 
   X, 
   Sparkles, 
   ShieldCheck, 
   Layers, 
-  Bell, 
-  Briefcase, 
-  FileText, 
-  Users, 
-  Globe, 
-  Tag, 
-  AlertCircle, 
   Save, 
   RefreshCw,
   Eye,
   CheckCircle2,
-  Lock,
-  Unlock,
   Radio,
-  Flame,
-  Zap,
-  DollarSign,
   Smartphone,
-  Layout,
-  Percent,
-  CheckSquare,
-  HelpCircle,
-  Copy,
-  ChevronRight
+  Layout
 } from 'lucide-react';
+
+import { CompactAccordion } from '../admin/CompactAccordion';
 
 interface AdminCampaignCustomizerProps {
   config?: CampaignCustomizationConfig;
   onSaveConfig: (updatedConfig: CampaignCustomizationConfig) => void | Promise<unknown>;
   onResetDefaults?: () => void;
+  compactMode?: boolean;
 }
+
+const buildNormalizedConfig = (config: CampaignCustomizationConfig): CampaignCustomizationConfig => ({
+  ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+  ...config,
+  popupSettings: config.popupSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.popupSettings,
+  feedInlineSettings: { ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings, ...(config.feedInlineSettings || {}) },
+  bannerDimensions: config.bannerDimensions || DEFAULT_BANNER_DIMENSIONS,
+  bannerAppearance: config.bannerAppearance || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.bannerAppearance,
+  bannerBehavior: config.bannerBehavior || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.bannerBehavior,
+  popupAppearance: config.popupAppearance || DEFAULT_POPUP_APPEARANCE,
+  feedCardAppearance: config.feedCardAppearance || DEFAULT_FEED_CARD_APPEARANCE,
+  promoBanners: config.promoBanners || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.promoBanners,
+  jobPostingFeeSettings: config.jobPostingFeeSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.jobPostingFeeSettings
+});
 
 export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = ({
   config = DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
   onSaveConfig,
-  onResetDefaults
+  onResetDefaults,
+  compactMode = false
 }) => {
-  const [localConfig, setLocalConfig] = useState<CampaignCustomizationConfig>(() => ({
-    ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
-    ...config,
-    popupSettings: config.popupSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.popupSettings,
-    feedInlineSettings: { ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings, ...(config.feedInlineSettings || {}) },
-    bannerDimensions: config.bannerDimensions || DEFAULT_BANNER_DIMENSIONS,
-    bannerAppearance: config.bannerAppearance || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.bannerAppearance,
-    bannerBehavior: config.bannerBehavior || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.bannerBehavior,
-    popupAppearance: config.popupAppearance || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.popupAppearance,
-    feedCardAppearance: config.feedCardAppearance || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedCardAppearance,
-    promoBanners: config.promoBanners || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.promoBanners,
-    jobPostingFeeSettings: config.jobPostingFeeSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.jobPostingFeeSettings
-  }));
+  const [localConfig, setLocalConfig] = useState<CampaignCustomizationConfig>(() => buildNormalizedConfig(config));
+
+  useEffect(() => {
+    setLocalConfig(buildNormalizedConfig(config));
+  }, [config]);
 
   const [activeTab, setActiveTab] = useState<
-    'popup-modes' | 'feed-positioning' | 'banner-dimensions' | 'banner-appearance' | 'placements' | 'promo-banners' | 'job-fees' | 'rules'
+    'popup-modes' | 'feed-positioning' | 'banner-dimensions' | 'banner-appearance' | 'placements' | 'rules'
   >('popup-modes');
 
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-
-  // New Promo Banner Modal State
-  const [isAddPromoOpen, setIsAddPromoOpen] = useState(false);
-  const [newPromoTitle, setNewPromoTitle] = useState('50% Flash Discount Special');
-  const [newPromoDesc, setNewPromoDesc] = useState('Book any premium banner or popup at flat 50% discount this week.');
-  const [newPromoDiscount, setNewPromoDiscount] = useState(50);
-  const [newPromoBadge, setNewPromoBadge] = useState('🔥 50% OFF FLASH SALE');
-  const [newPromoCode, setNewPromoCode] = useState('CAREER50');
-  const [newPromoPlacement, setNewPromoPlacement] = useState<AdPlacement | 'all'>('all');
-  const [newPromoValidUntil, setNewPromoValidUntil] = useState(new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10));
-  const [newPromoGradient, setNewPromoGradient] = useState('from-amber-600 via-rose-600 to-indigo-700');
 
   // Custom Index Quick Adder State
   const [quickIndexInput, setQuickIndexInput] = useState<string>('');
@@ -288,49 +255,6 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
   };
 
   // -------------------------------------------------------------
-  // PROMO DISCOUNT BANNERS HANDLERS
-  // -------------------------------------------------------------
-  const handleTogglePromoBanner = (id: string) => {
-    setLocalConfig(prev => ({
-      ...prev,
-      promoBanners: prev.promoBanners.map(b => b.id === id ? { ...b, isEnabled: !b.isEnabled } : b)
-    }));
-  };
-
-  const handleDeletePromoBanner = (id: string) => {
-    setLocalConfig(prev => ({
-      ...prev,
-      promoBanners: prev.promoBanners.filter(b => b.id !== id)
-    }));
-  };
-
-  const handleCreatePromoBanner = () => {
-    const newBanner: PromoDiscountBanner = {
-      id: `promo-custom-${Date.now()}`,
-      isEnabled: true,
-      title: newPromoTitle,
-      description: newPromoDesc,
-      discountPercent: newPromoDiscount,
-      badgeText: newPromoBadge,
-      promoCode: newPromoCode,
-      targetPlacement: newPromoPlacement,
-      validUntil: newPromoValidUntil,
-      bgGradient: newPromoGradient,
-      ctaText: 'Claim Discount Now',
-      ctaUrl: '#dashboard'
-    };
-
-    setLocalConfig(prev => ({
-      ...prev,
-      promoBanners: [newBanner, ...prev.promoBanners]
-    }));
-
-    setIsAddPromoOpen(false);
-    setSaveSuccessMessage(`Created promo banner "${newPromoTitle}"! Click Save All to make permanent.`);
-    setTimeout(() => setSaveSuccessMessage(null), 3500);
-  };
-
-  // -------------------------------------------------------------
   // PLACEMENT OPTION HANDLERS
   // -------------------------------------------------------------
   const handleUpdatePlacement = (id: AdPlacement, updates: Partial<CampaignPlacementOption>) => {
@@ -340,28 +264,41 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
     }));
   };
 
-  // -------------------------------------------------------------
-  // JOB POSTING FEE HANDLERS
-  // -------------------------------------------------------------
-  const handleUpdateJobPostingFeeSettings = (updates: Partial<JobPostingFeeSettings>) => {
-    setLocalConfig(prev => ({
-      ...prev,
-      jobPostingFeeSettings: {
-        ...(prev.jobPostingFeeSettings || {
-          isFreeAll: false,
-          customStandardFeePkr: 500,
-          globalDiscountPercent: 0,
-          promoBannerText: ''
-        }),
-        ...updates
-      }
-    }));
-  };
-
   return (
-    <div className="space-y-6">
-      
+    <div className={compactMode ? 'space-y-3 overflow-x-hidden' : 'space-y-6'}>
       {/* Top Header Card */}
+      {compactMode ? (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div className="min-w-0">
+            <h3 className="text-sm sm:text-base font-black text-white">
+              Ad Display, Popups, Feed &amp; Placement Rules
+            </h3>
+            <p className="text-[11px] text-slate-400">
+              Select an area below to configure popup queues, feed inline ads, banner sizing, placement availability, or approval policy.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleReset}
+              disabled={isSaving}
+              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold border border-slate-700 flex items-center gap-1 cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Reset</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={isSaving}
+              className="px-4 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>{isSaving ? 'Saving...' : 'Save All'}</span>
+            </button>
+          </div>
+        </div>
+      ) : (
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <div className="flex items-center space-x-2">
@@ -371,7 +308,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
             <h2 className="text-xl font-black text-white">Campaign & Placement Engine</h2>
           </div>
           <p className="text-xs text-slate-400 mt-1 max-w-2xl">
-            Configure Centered Popup Lightbox queue modes, Job Feed Inline Card frequencies, All 6 Ad Placements, 100% Free overrides, Banner Dimensions, and Promotional Discount Banners.
+            Configure popup queue behavior, inline ad feed frequency, banner dimensions & rotation, placement availability & slot caps, and campaign submission rules. Top promo banners are edited in Display & Landing Design.
           </p>
         </div>
 
@@ -395,10 +332,11 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
           </button>
         </div>
       </div>
+      )}
 
       {/* Save Success Alert Banner */}
       {saveSuccessMessage && (
-        <div className="p-4 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center justify-between animate-fadeIn">
+        <div className="p-3 sm:p-4 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center justify-between animate-fadeIn">
           <div className="flex items-center space-x-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
             <span>{saveSuccessMessage}</span>
@@ -407,21 +345,62 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
       )}
 
       {saveErrorMessage && (
-        <div role="alert" className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/40 text-rose-300 text-xs font-bold">
+        <div role="alert" className="p-3 sm:p-4 rounded-xl bg-rose-500/10 border border-rose-500/40 text-rose-300 text-xs font-bold">
           {saveErrorMessage}
         </div>
       )}
 
-      {/* Navigation Sub-Tabs */}
+      {/* Navigation Area Selector */}
+      {compactMode ? (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-3 space-y-2.5">
+          <label className="text-[11px] font-bold text-slate-300 flex flex-col sm:flex-row sm:items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wider text-slate-400 shrink-0">Rule Area:</span>
+            <select
+              aria-label="Ad display rule area"
+              value={activeTab}
+              onChange={(e) => setActiveTab(e.target.value as any)}
+              className="w-full sm:max-w-sm rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-bold text-white"
+            >
+              <option value="popup-modes">1. Centered Popup Lightbox ({localConfig.popupSettings.displayMode})</option>
+              <option value="feed-positioning">2. Feed Ad Frequency &amp; Card Style</option>
+              <option value="banner-dimensions">3. Banner Dimensions (Desktop &amp; Mobile)</option>
+              <option value="banner-appearance">4. Banner Styling &amp; Rotation</option>
+              <option value="placements">5. All 8 Placements &amp; Slot Caps ({localConfig.placementOptions.filter(p => p.isEnabled).length}/8 On)</option>
+              <option value="rules">6. Campaign Approval &amp; Bypass Policy Rules</option>
+            </select>
+          </label>
+          <div className="flex flex-wrap gap-1.5">
+            {[
+              { id: 'popup-modes', label: 'Popups' },
+              { id: 'feed-positioning', label: 'Feed Ads' },
+              { id: 'banner-dimensions', label: 'Banner Sizes' },
+              { id: 'banner-appearance', label: 'Banner Styling' },
+              { id: 'placements', label: '8 Placements' },
+              { id: 'rules', label: 'Policy Rules' }
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-colors ${
+                  activeTab === tab.id
+                    ? 'bg-emerald-500 text-slate-950 font-black'
+                    : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
       <div className="flex flex-nowrap gap-2 p-1.5 bg-slate-900/80 border border-slate-800 rounded-2xl overflow-x-auto overscroll-x-contain touch-pan-x max-w-full">
         {[
           { id: 'popup-modes', label: 'Centered Popup Lightbox', icon: Sparkles, badge: localConfig.popupSettings.displayMode },
-          { id: 'feed-positioning', label: 'Job Feed & Ad Frequency', icon: Layers, badge: localConfig.feedInlineSettings.insertionMode === 'cadence' ? `Every ${localConfig.feedInlineSettings.repeatEveryNJobs || 3}` : `${(localConfig.feedInlineSettings.customIndices || []).length} slots` },
+          { id: 'feed-positioning', label: 'Feed Ad Frequency', icon: Layers, badge: (localConfig.feedInlineSettings.maxAdsPerPage ?? 3) === 0 ? 'Ads Off' : localConfig.feedInlineSettings.insertionMode === 'cadence' ? `Every ${localConfig.feedInlineSettings.repeatEveryNJobs || 3}` : `${(localConfig.feedInlineSettings.customIndices || []).length} slots` },
           { id: 'banner-dimensions', label: 'Banner Dimensions', icon: Sliders, badge: 'Custom Sizes' },
           { id: 'banner-appearance', label: 'Banner Styling & Rotation', icon: Eye, badge: 'Appearance' },
-          { id: 'placements', label: 'All 8 Placement Models', icon: Layout, badge: 'Full Control' },
-          { id: 'promo-banners', label: 'Promotional Discount Banners', icon: Percent, badge: `${localConfig.promoBanners.filter(b => b.isEnabled).length} active` },
-          { id: 'job-fees', label: 'Job Posting Fee Override', icon: DollarSign, badge: localConfig.jobPostingFeeSettings?.isFreeAll ? '100% FREE' : 'Custom' },
+          { id: 'placements', label: 'All 8 Placements & Slots', icon: Layout, badge: `${localConfig.placementOptions.filter(p => p.isEnabled).length}/8 On` },
           { id: 'rules', label: 'Policy Rules', icon: ShieldCheck }
         ].map((tab) => {
           const Icon = tab.icon;
@@ -449,6 +428,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
           );
         })}
       </div>
+      )}
 
       {/* ========================================================= */}
       {/* 1. CENTERED POPUP LIGHTBOX QUEUE & APPEARANCE TAB        */}
@@ -531,6 +511,51 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
                 </div>
               </div>
             </div>
+
+            {localConfig.popupSettings.displayMode === 'sequential' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800/80">
+                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                  <label className="text-xs font-bold text-slate-300 block">Delay Between Sequential Popups (sec)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="15"
+                    step="0.2"
+                    value={localConfig.popupSettings.delayBetweenPopupsSec ?? 0.8}
+                    onChange={(e) => handleUpdatePopupSettings({ delayBetweenPopupsSec: Math.max(0, Number(e.target.value) || 0) })}
+                    className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-mono font-bold focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                  <label className="text-xs font-bold text-slate-300 block">Max Queued Popups Per Visit</label>
+                  <select
+                    value={localConfig.popupSettings.maxPopupsPerVisit ?? 3}
+                    onChange={(e) => handleUpdatePopupSettings({ maxPopupsPerVisit: Number(e.target.value) })}
+                    className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-amber-500"
+                  >
+                    <option value={2}>Up to 2 popups</option>
+                    <option value={3}>Up to 3 popups</option>
+                    <option value={5}>Up to 5 popups</option>
+                    <option value={99}>Unlimited queue</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {localConfig.popupSettings.displayMode === 'stacked_dual' && (
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-xs font-bold text-white">Show Stacked Dual Grid on Desktop</div>
+                  <div className="text-[11px] text-slate-400">Render top 2 popup ads side-by-side on wide screens instead of collapsing into single view.</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={localConfig.popupSettings.showStackedDualOnDesktop !== false}
+                  onChange={(e) => handleUpdatePopupSettings({ showStackedDualOnDesktop: e.target.checked })}
+                  className="h-4 w-4 accent-amber-500 cursor-pointer"
+                />
+              </div>
+            )}
 
             {/* Popup Appearance Controls */}
             <div className="pt-6 border-t border-slate-800 space-y-4">
@@ -638,10 +663,10 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
               </p>
             </div>
 
-            {/* Global default standard jobs per page */}
+            {/* Shared Public Feed Pagination vs Ad Injection Master Switch */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="bg-slate-950/60 border border-emerald-500/30 rounded-2xl p-4 space-y-2">
-                <label className="block text-xs font-bold text-slate-200">Default Standard Jobs Per Page</label>
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                <label className="block text-xs font-bold text-slate-200">Public Jobs Feed Pagination (Shared Default)</label>
                 <input
                   type="number"
                   min="1"
@@ -656,203 +681,211 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
                   }}
                   className="w-full bg-slate-900 border border-slate-700 text-sm text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500"
                 />
-                <p className="text-[10px] text-slate-400">Applies as the initial default for all visitors. Allowed range: 1–100. Visitors can still use the existing page-size selector.</p>
+                <p className="text-[10px] text-slate-400">Default standard jobs per page before visitors change it (1–100). Synced with Display &amp; Landing Design → Section Sequence &amp; Ordering.</p>
               </div>
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
-                <label className="block text-xs font-bold text-slate-200">Ad Insertion Mode</label>
-                <select
-                  value={localConfig.feedInlineSettings.insertionMode || 'custom_indices'}
-                  onChange={(e) => handleUpdateFeedInlineSettings({ insertionMode: e.target.value as FeedInlineAdSettings['insertionMode'] })}
-                  className="w-full bg-slate-900 border border-slate-700 text-sm text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="cadence">Automatic frequency (every N standard jobs)</option>
-                  <option value="custom_indices">Custom positions (selected job numbers)</option>
-                </select>
-                <p className="text-[10px] text-slate-400">Choose one mode. The other mode's settings are retained when you switch back.</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
-                <label className="block text-xs font-bold text-slate-300">Insert Ad After Every</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="100"
-                  step="1"
-                  value={localConfig.feedInlineSettings.repeatEveryNJobs || 3}
-                  onChange={(e) => {
-                    const value = Number(e.target.value);
-                    if (Number.isInteger(value) && value >= 1 && value <= 100) handleUpdateFeedInlineSettings({ repeatEveryNJobs: value });
-                  }}
-                  disabled={localConfig.feedInlineSettings.insertionMode !== 'cadence'}
-                  className="w-full bg-slate-900 border border-slate-700 text-sm text-white rounded-xl px-3 py-2 font-bold disabled:opacity-40"
-                />
-                <p className="text-[10px] text-slate-500">Example: 3 = after standard jobs 3, 6, 9...</p>
-              </div>
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
-                <label className="block text-xs font-bold text-slate-300">Maximum Inline Ads Per Page</label>
+              <div className="bg-slate-950/60 border border-emerald-500/30 rounded-2xl p-4 space-y-2">
+                <label className="block text-xs font-bold text-slate-200">Maximum Inline Ads Per Page</label>
                 <select
                   value={localConfig.feedInlineSettings.maxAdsPerPage ?? 3}
                   onChange={(e) => handleUpdateFeedInlineSettings({ maxAdsPerPage: Number(e.target.value) })}
-                  className="w-full bg-slate-900 border border-slate-700 text-sm text-white rounded-xl px-3 py-2 font-bold"
+                  className="w-full bg-slate-900 border border-slate-700 text-sm text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500"
                 >
-                  {[0, 1, 2, 3, 4, 5, 6, 8, 10].map((value) => <option key={value} value={value}>{value === 0 ? '0 — Disable inline ads' : value}</option>)}
+                  {[0, 1, 2, 3, 4, 5, 6, 8, 10].map((value) => <option key={value} value={value}>{value === 0 ? '0 — Disable inline feed ads' : `${value} inline ads max`}</option>)}
                 </select>
-                <p className="text-[10px] text-slate-500">A hard cap even if more positions are configured.</p>
-              </div>
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
-                <label className="block text-xs font-bold text-slate-300">Multiple Active Ads</label>
-                <label className="flex items-center gap-3 text-xs text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={localConfig.feedInlineSettings.rotateMultipleAds !== false}
-                    onChange={(e) => handleUpdateFeedInlineSettings({ rotateMultipleAds: e.target.checked })}
-                    className="h-4 w-4 accent-emerald-500"
-                  />
-                  Rotate ads between available active campaigns
-                </label>
-                <p className="text-[10px] text-slate-500">Off = repeat the first eligible active ad.</p>
+                <p className="text-[10px] text-slate-400">Set to 0 to disable all inline sponsored cards in the jobs feed.</p>
               </div>
             </div>
 
-            {/* Custom Indices Slots */}
-            <div className="space-y-3">
-              <label className="block text-xs font-bold text-slate-300">
-                Custom Feed Index Slots (e.g., after 2nd job, after 5th job, after 8th job)
-              </label>
+            {(localConfig.feedInlineSettings.maxAdsPerPage ?? 3) > 0 ? (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                    <label className="block text-xs font-bold text-slate-200">Ad Insertion Mode</label>
+                    <select
+                      value={localConfig.feedInlineSettings.insertionMode || 'custom_indices'}
+                      onChange={(e) => handleUpdateFeedInlineSettings({ insertionMode: e.target.value as FeedInlineAdSettings['insertionMode'] })}
+                      className="w-full bg-slate-900 border border-slate-700 text-sm text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500"
+                    >
+                      <option value="cadence">Automatic frequency (every N standard jobs)</option>
+                      <option value="custom_indices">Custom positions (selected job numbers)</option>
+                    </select>
+                    <p className="text-[10px] text-slate-400">Choose one placement rule; only its matching options appear below.</p>
+                  </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                {(localConfig.feedInlineSettings.customIndices || []).map((idxNum) => (
-                  <div key={idxNum} className="px-3 py-1.5 rounded-xl bg-slate-950 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center space-x-2">
-                    <span>Slot {idxNum}</span>
+                  <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                    <label className="block text-xs font-bold text-slate-300">Multiple Active Ads</label>
+                    <label className="flex items-center gap-3 text-xs text-slate-300 pt-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={localConfig.feedInlineSettings.rotateMultipleAds !== false}
+                        onChange={(e) => handleUpdateFeedInlineSettings({ rotateMultipleAds: e.target.checked })}
+                        className="h-4 w-4 accent-emerald-500"
+                      />
+                      Rotate ads between available active campaigns
+                    </label>
+                    <p className="text-[10px] text-slate-500">Off = repeat the first eligible active ad.</p>
+                  </div>
+                </div>
+
+                {localConfig.feedInlineSettings.insertionMode === 'cadence' ? (
+                  <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2 max-w-sm">
+                    <label className="block text-xs font-bold text-slate-300">Insert Ad After Every (N Jobs)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      step="1"
+                      value={localConfig.feedInlineSettings.repeatEveryNJobs || 3}
+                      onChange={(e) => {
+                        const value = Number(e.target.value);
+                        if (Number.isInteger(value) && value >= 1 && value <= 100) handleUpdateFeedInlineSettings({ repeatEveryNJobs: value });
+                      }}
+                      className="w-full bg-slate-900 border border-slate-700 text-sm text-white rounded-xl px-3 py-2 font-bold"
+                    />
+                    <p className="text-[10px] text-slate-500">Example: 3 = after standard jobs 3, 6, 9...</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="space-y-3">
+                      <label className="block text-xs font-bold text-slate-300">
+                        Custom Feed Index Slots (e.g., after 2nd job, after 5th job, after 8th job)
+                      </label>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        {(localConfig.feedInlineSettings.customIndices || []).map((idxNum) => (
+                          <div key={idxNum} className="px-3 py-1.5 rounded-xl bg-slate-950 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center space-x-2">
+                            <span>Slot {idxNum}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveCustomIndex(idxNum)}
+                              className="p-0.5 rounded-full hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="number"
+                            min="1"
+                            placeholder="Index #"
+                            value={quickIndexInput}
+                            onChange={(e) => setQuickIndexInput(e.target.value)}
+                            className="w-24 bg-slate-950 border border-slate-700 text-xs text-white rounded-xl px-3 py-1.5 font-mono focus:outline-none focus:border-emerald-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleAddCustomIndex(parseInt(quickIndexInput));
+                              setQuickIndexInput('');
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center space-x-1 cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Add Slot</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                      <label className="block text-xs font-bold text-slate-300">Page 1 Special Ad Positions (Optional)</label>
+                      <input
+                        type="text"
+                        value={(localConfig.feedInlineSettings.page1SpecificIndices || []).join(', ')}
+                        onChange={(e) => {
+                          const values = Array.from(new Set(e.target.value.split(',').map((part) => Number(part.trim())).filter((value) => Number.isInteger(value) && value >= 1 && value <= 100))).sort((a, b) => a - b);
+                          handleUpdateFeedInlineSettings({ page1SpecificIndices: values });
+                        }}
+                        placeholder="Example: 2, 5, 8"
+                        className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-mono"
+                      />
+                      <p className="text-[10px] text-slate-500">Optional page 1 override. Leave empty to use the general custom positions.</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Feed Card Appearance Controls */}
+                <div className="pt-6 border-t border-slate-800 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-black text-white flex items-center space-x-2">
+                        <Eye className="w-4 h-4 text-emerald-400" />
+                        <span>Inline Feed Card Styling & Appearance</span>
+                      </h4>
+                      <p className="text-xs text-slate-400">Customize corner radius, padding, graphic positioning, and CTA button placement.</p>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => handleRemoveCustomIndex(idxNum)}
-                      className="p-0.5 rounded-full hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
+                      onClick={handleRestoreFeedCardAppearanceDefault}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold border border-slate-700 transition-all cursor-pointer flex items-center space-x-1"
                     >
-                      <X className="w-3.5 h-3.5" />
+                      <RefreshCw className="w-3 h-3 text-emerald-400" />
+                      <span>Restore Default</span>
                     </button>
                   </div>
-                ))}
 
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="number"
-                    min="1"
-                    placeholder="Index #"
-                    value={quickIndexInput}
-                    onChange={(e) => setQuickIndexInput(e.target.value)}
-                    className="w-24 bg-slate-950 border border-slate-700 text-xs text-white rounded-xl px-3 py-1.5 font-mono focus:outline-none focus:border-emerald-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleAddCustomIndex(parseInt(quickIndexInput));
-                      setQuickIndexInput('');
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center space-x-1 cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Add Slot</span>
-                  </button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                      <label className="text-xs font-bold text-slate-300 block">Border Radius</label>
+                      <select
+                        value={localConfig.feedCardAppearance?.borderRadiusPreset || '3xl'}
+                        onChange={(e) => handleUpdateFeedCardAppearance({ borderRadiusPreset: e.target.value as any })}
+                        className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
+                      >
+                        <option value="none">Square (0px)</option>
+                        <option value="md">Rounded Medium (12px)</option>
+                        <option value="xl">Rounded Large (20px)</option>
+                        <option value="3xl">Extra Rounded (24px - Default)</option>
+                      </select>
+                    </div>
+
+                    <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                      <label className="text-xs font-bold text-slate-300 block">Card Padding</label>
+                      <select
+                        value={localConfig.feedCardAppearance?.paddingPreset || 'standard'}
+                        onChange={(e) => handleUpdateFeedCardAppearance({ paddingPreset: e.target.value as any })}
+                        className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
+                      >
+                        <option value="compact">Compact Padding</option>
+                        <option value="standard">Standard Padding</option>
+                        <option value="spacious">Spacious Padding</option>
+                      </select>
+                    </div>
+
+                    <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                      <label className="text-xs font-bold text-slate-300 block">Image Position</label>
+                      <select
+                        value={localConfig.feedCardAppearance?.imagePosition || 'left'}
+                        onChange={(e) => handleUpdateFeedCardAppearance({ imagePosition: e.target.value as any })}
+                        className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
+                      >
+                        <option value="left">Left Side (Standard)</option>
+                        <option value="right">Right Side</option>
+                      </select>
+                    </div>
+
+                    <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                      <label className="text-xs font-bold text-slate-300 block">CTA Alignment</label>
+                      <select
+                        value={localConfig.feedCardAppearance?.ctaAlignment || 'right'}
+                        onChange={(e) => handleUpdateFeedCardAppearance({ ctaAlignment: e.target.value as any })}
+                        className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
+                      >
+                        <option value="right">Right Aligned (Default)</option>
+                        <option value="center">Center Aligned</option>
+                        <option value="left">Left Aligned</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
+              </>
+            ) : (
+              <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 text-xs text-slate-400">
+                Inline feed ads are currently disabled (Maximum Inline Ads = 0). Increase the limit above to configure insertion mode, slot positions, and inline card styling.
               </div>
-            </div>
-
-            <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
-              <label className="block text-xs font-bold text-slate-300">Page 1 Special Ad Positions (Optional)</label>
-              <input
-                type="text"
-                value={(localConfig.feedInlineSettings.page1SpecificIndices || []).join(', ')}
-                onChange={(e) => {
-                  const values = Array.from(new Set(e.target.value.split(',').map((part) => Number(part.trim())).filter((value) => Number.isInteger(value) && value >= 1 && value <= 100))).sort((a, b) => a - b);
-                  handleUpdateFeedInlineSettings({ page1SpecificIndices: values });
-                }}
-                placeholder="Example: 2, 5, 8"
-                className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-mono"
-              />
-              <p className="text-[10px] text-slate-500">Optional page 1 override. Leave empty to use the general custom positions. Ads are still limited by the maximum-per-page setting.</p>
-            </div>
-
-            {/* Feed Card Appearance Controls */}
-            <div className="pt-6 border-t border-slate-800 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-black text-white flex items-center space-x-2">
-                    <Eye className="w-4 h-4 text-emerald-400" />
-                    <span>Inline Feed Card Styling & Appearance</span>
-                  </h4>
-                  <p className="text-xs text-slate-400">Customize corner radius, padding, graphic positioning, and CTA button placement.</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleRestoreFeedCardAppearanceDefault}
-                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold border border-slate-700 transition-all cursor-pointer flex items-center space-x-1"
-                >
-                  <RefreshCw className="w-3 h-3 text-emerald-400" />
-                  <span>Restore Default</span>
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                {/* Border Radius */}
-                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
-                  <label className="text-xs font-bold text-slate-300 block">Border Radius</label>
-                  <select
-                    value={localConfig.feedCardAppearance?.borderRadiusPreset || '3xl'}
-                    onChange={(e) => handleUpdateFeedCardAppearance({ borderRadiusPreset: e.target.value as any })}
-                    className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
-                  >
-                    <option value="none">Square (0px)</option>
-                    <option value="md">Rounded Medium (12px)</option>
-                    <option value="xl">Rounded Large (20px)</option>
-                    <option value="3xl">Extra Rounded (24px - Default)</option>
-                  </select>
-                </div>
-
-                {/* Padding Preset */}
-                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
-                  <label className="text-xs font-bold text-slate-300 block">Card Padding</label>
-                  <select
-                    value={localConfig.feedCardAppearance?.paddingPreset || 'standard'}
-                    onChange={(e) => handleUpdateFeedCardAppearance({ paddingPreset: e.target.value as any })}
-                    className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
-                  >
-                    <option value="compact">Compact Padding</option>
-                    <option value="standard">Standard Padding</option>
-                    <option value="spacious">Spacious Padding</option>
-                  </select>
-                </div>
-
-                {/* Image Position */}
-                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
-                  <label className="text-xs font-bold text-slate-300 block">Image Position</label>
-                  <select
-                    value={localConfig.feedCardAppearance?.imagePosition || 'left'}
-                    onChange={(e) => handleUpdateFeedCardAppearance({ imagePosition: e.target.value as any })}
-                    className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
-                  >
-                    <option value="left">Left Side (Standard)</option>
-                    <option value="right">Right Side</option>
-                  </select>
-                </div>
-
-                {/* CTA Alignment */}
-                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
-                  <label className="text-xs font-bold text-slate-300 block">CTA Alignment</label>
-                  <select
-                    value={localConfig.feedCardAppearance?.ctaAlignment || 'right'}
-                    onChange={(e) => handleUpdateFeedCardAppearance({ ctaAlignment: e.target.value as any })}
-                    className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
-                  >
-                    <option value="right">Right Aligned (Default)</option>
-                    <option value="center">Center Aligned</option>
-                    <option value="left">Left Aligned</option>
-                  </select>
-                </div>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       )}
@@ -1075,19 +1108,21 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
                 </select>
               </div>
 
-              {/* Image Position */}
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
-                <label className="text-xs font-bold text-slate-300 block">Image Position</label>
-                <select
-                  value={localConfig.bannerAppearance?.imagePosition || 'left'}
-                  onChange={(e) => handleUpdateBannerAppearance({ imagePosition: e.target.value as any })}
-                  className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-indigo-500 cursor-pointer"
-                >
-                  <option value="left">Left Side (Default)</option>
-                  <option value="right">Right Side</option>
-                  <option value="top">Top Stacked</option>
-                </select>
-              </div>
+              {/* Image Position (shown only when banner image is enabled) */}
+              {localConfig.bannerAppearance?.showBannerImage !== false && (
+                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                  <label className="text-xs font-bold text-slate-300 block">Image Position</label>
+                  <select
+                    value={localConfig.bannerAppearance?.imagePosition || 'left'}
+                    onChange={(e) => handleUpdateBannerAppearance({ imagePosition: e.target.value as any })}
+                    className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-indigo-500 cursor-pointer"
+                  >
+                    <option value="left">Left Side (Default)</option>
+                    <option value="right">Right Side</option>
+                    <option value="top">Top Stacked</option>
+                  </select>
+                </div>
+              )}
 
               {/* Text Alignment */}
               <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
@@ -1103,19 +1138,21 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
                 </select>
               </div>
 
-              {/* CTA Alignment */}
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
-                <label className="text-xs font-bold text-slate-300 block">CTA Button Alignment</label>
-                <select
-                  value={localConfig.bannerAppearance?.ctaAlignment || 'right'}
-                  onChange={(e) => handleUpdateBannerAppearance({ ctaAlignment: e.target.value as any })}
-                  className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-indigo-500 cursor-pointer"
-                >
-                  <option value="right">Right Aligned (Default)</option>
-                  <option value="center">Center Aligned</option>
-                  <option value="left">Left Aligned</option>
-                </select>
-              </div>
+              {/* CTA Alignment (shown only when CTA button is enabled) */}
+              {localConfig.bannerAppearance?.showCtaButton !== false && (
+                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                  <label className="text-xs font-bold text-slate-300 block">CTA Button Alignment</label>
+                  <select
+                    value={localConfig.bannerAppearance?.ctaAlignment || 'right'}
+                    onChange={(e) => handleUpdateBannerAppearance({ ctaAlignment: e.target.value as any })}
+                    className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-indigo-500 cursor-pointer"
+                  >
+                    <option value="right">Right Aligned (Default)</option>
+                    <option value="center">Center Aligned</option>
+                    <option value="left">Left Aligned</option>
+                  </select>
+                </div>
+              )}
             </div>
 
             {/* Behavior & Rotation Controls */}
@@ -1142,40 +1179,43 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
                   </div>
                 </div>
 
-                {/* Rotation Interval */}
-                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
-                  <label className="text-xs font-bold text-slate-300 block">Rotation Interval</label>
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="number"
-                      min="2"
-                      max="30"
-                      value={localConfig.bannerBehavior?.rotationIntervalSeconds ?? 6}
-                      onChange={(e) => handleUpdateBannerBehavior({ rotationIntervalSeconds: parseInt(e.target.value) || 6 })}
-                      className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-mono font-bold focus:outline-none focus:border-indigo-500"
-                    />
-                    <span className="text-xs text-slate-400 font-bold">sec</span>
-                  </div>
-                </div>
+                {/* Rotation Interval & Pause on Hover shown only when autoRotate is ON */}
+                {localConfig.bannerBehavior?.autoRotate !== false && (
+                  <>
+                    <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                      <label className="text-xs font-bold text-slate-300 block">Rotation Interval</label>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="number"
+                          min="2"
+                          max="30"
+                          value={localConfig.bannerBehavior?.rotationIntervalSeconds ?? 6}
+                          onChange={(e) => handleUpdateBannerBehavior({ rotationIntervalSeconds: parseInt(e.target.value) || 6 })}
+                          className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-mono font-bold focus:outline-none focus:border-indigo-500"
+                        />
+                        <span className="text-xs text-slate-400 font-bold">sec</span>
+                      </div>
+                    </div>
 
-                {/* Pause on Hover */}
-                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3">
-                  <div className="text-xs font-bold text-white">Pause Rotation on Hover</div>
-                  <div className="flex items-center justify-between pt-1">
-                    <span className="text-[10px] font-bold text-slate-400">
-                      {localConfig.bannerBehavior?.pauseOnHover !== false ? 'PAUSE ON HOVER' : 'CONTINUE ROTATION'}
-                    </span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={localConfig.bannerBehavior?.pauseOnHover !== false}
-                        onChange={(e) => handleUpdateBannerBehavior({ pauseOnHover: e.target.checked })}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
-                    </label>
-                  </div>
-                </div>
+                    <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3">
+                      <div className="text-xs font-bold text-white">Pause Rotation on Hover</div>
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-[10px] font-bold text-slate-400">
+                          {localConfig.bannerBehavior?.pauseOnHover !== false ? 'PAUSE ON HOVER' : 'CONTINUE ROTATION'}
+                        </span>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={localConfig.bannerBehavior?.pauseOnHover !== false}
+                            onChange={(e) => handleUpdateBannerBehavior({ pauseOnHover: e.target.checked })}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                        </label>
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 {/* Navigation Arrows */}
                 <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3">
@@ -1210,218 +1250,160 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
             <div>
               <div className="flex items-center space-x-2">
                 <Layout className="w-5 h-5 text-teal-400" />
-                <h3 className="text-lg font-black text-white">All 8 Placement Models, Slot Limits & Pricing</h3>
+                <h3 className="text-lg font-black text-white">All 8 Placement Availability, Free Overrides & Slot Limits</h3>
               </div>
               <p className="text-xs text-slate-400 mt-1">
-                Configure rate multipliers, 100% Free overrides, or flat fees across all placement options.
+                Enable or disable each placement slot, toggle 100% Free overrides, and set concurrent slot limits. Pricing multipliers and rates are configured in <strong>Rate Card & Pricing Matrix</strong>.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {localConfig.placementOptions.map((placement) => (
-                <div key={placement.id} className="bg-slate-950/60 border border-slate-800 rounded-2xl p-5 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-bold text-white text-sm">{placement.name}</span>
-                      {placement.badge && (
-                        <span className="text-[10px] px-2 py-0.5 rounded font-black bg-teal-500/20 text-teal-300 border border-teal-500/30">
-                          {placement.badge}
-                        </span>
-                      )}
-                    </div>
-
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={placement.isEnabled}
-                        onChange={(e) => handleUpdatePlacement(placement.id, { isEnabled: e.target.checked })}
-                        className="sr-only peer"
-                      />
-                      <div className="w-10 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500" />
-                    </label>
-                  </div>
-
-                  <p className="text-xs text-slate-400">{placement.description}</p>
-
-                  <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
-                    <div>
-                      <label className="text-[10px] text-slate-400 block mb-1 font-bold">Pricing Multiplier</label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0.5"
-                        value={placement.multiplier}
-                        onChange={(e) => handleUpdatePlacement(placement.id, { multiplier: parseFloat(e.target.value) || 1 })}
-                        className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-1.5 font-mono focus:outline-none focus:border-teal-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] text-slate-400 block mb-1 font-bold">100% Free Override</label>
-                      <button
-                        type="button"
-                        onClick={() => handleUpdatePlacement(placement.id, { isFreeOverride: !placement.isFreeOverride })}
-                        className={`w-full py-1.5 rounded-xl text-xs font-bold border transition-colors ${
-                          placement.isFreeOverride
-                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                            : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-white'
-                        }`}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+              {localConfig.placementOptions.map((placement, idx) =>
+                compactMode ? (
+                  <CompactAccordion
+                    key={placement.id}
+                    title={placement.name}
+                    subtitle={placement.description}
+                    badgeText={placement.isEnabled ? (placement.isFreeOverride ? 'Enabled · Free' : 'Enabled · Standard Fee') : 'Disabled'}
+                    badgeTone={!placement.isEnabled ? 'slate' : placement.isFreeOverride ? 'emerald' : 'indigo'}
+                    defaultOpen={idx < 2}
+                    headerRight={
+                      <select
+                        aria-label={`${placement.name} status`}
+                        value={placement.isEnabled ? 'enabled' : 'disabled'}
+                        onChange={(e) => handleUpdatePlacement(placement.id, { isEnabled: e.target.value === 'enabled' })}
+                        className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] font-bold text-white"
                       >
-                        {placement.isFreeOverride ? 'FREE PLACEMENT' : 'STANDARD FEE'}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 gap-3 pt-2 border-t border-slate-800">
-                    <div>
-                      <label className="text-[10px] text-slate-400 block mb-1 font-bold">Maximum Concurrent Slots</label>
-                      <input type="number" min="1" max="50" step="1" value={placement.maxConcurrentSlots ?? ''} placeholder={placement.id === 'promo-discount-banner' || placement.id === 'dynamic-announcement-card' ? 'Required (1–50)' : 'No limit'}
-                        onChange={(e) => {
-                          const raw = e.target.value;
-                          const requiresSlots = placement.id === 'promo-discount-banner' || placement.id === 'dynamic-announcement-card';
-                          const parsed = raw === '' ? (requiresSlots ? 1 : undefined) : Number(raw);
-                          handleUpdatePlacement(placement.id, { maxConcurrentSlots: parsed === undefined ? undefined : Math.min(50, Math.max(1, Math.floor(parsed))) });
-                        }}
-                        className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-1.5 font-mono focus:outline-none focus:border-teal-500"
-                      />
+                        <option value="enabled">Enabled</option>
+                        <option value="disabled">Disabled</option>
+                      </select>
+                    }
+                  >
+                    {!placement.isEnabled ? (
+                      <div className="text-[11px] text-slate-400">
+                        Placement disabled — hidden from campaign booking (saved settings preserved).
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <label className="space-y-1 text-[10px] text-slate-400 font-bold">
+                          <span>Fee Mode ({Number(placement.multiplier || 1).toFixed(2)}x Rate Card)</span>
+                          <select
+                            aria-label={`${placement.name} fee mode`}
+                            value={placement.isFreeOverride ? 'free' : 'paid'}
+                            onChange={(e) => handleUpdatePlacement(placement.id, { isFreeOverride: e.target.value === 'free' })}
+                            className="w-full bg-slate-950 border border-slate-700 text-xs text-white rounded-lg px-2.5 py-1.5 font-bold"
+                          >
+                            <option value="paid">Standard Fee</option>
+                            <option value="free">Free Placement (100% Off)</option>
+                          </select>
+                        </label>
+                        <label className="space-y-1 text-[10px] text-slate-400 font-bold">
+                          <span>Max Concurrent Slots</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max="50"
+                            step="1"
+                            value={placement.maxConcurrentSlots ?? ''}
+                            placeholder={placement.id === 'promo-discount-banner' || placement.id === 'dynamic-announcement-card' ? 'Required (1–50)' : 'No limit'}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              const requiresSlots = placement.id === 'promo-discount-banner' || placement.id === 'dynamic-announcement-card';
+                              const parsed = raw === '' ? (requiresSlots ? 1 : undefined) : Number(raw);
+                              handleUpdatePlacement(placement.id, { maxConcurrentSlots: parsed === undefined ? undefined : Math.min(50, Math.max(1, Math.floor(parsed))) });
+                            }}
+                            className="w-full bg-slate-950 border border-slate-700 text-xs text-white rounded-lg px-2.5 py-1.5 font-mono"
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </CompactAccordion>
+                ) : (
+                  <div key={placement.id} className={`bg-slate-950/60 border rounded-2xl p-5 space-y-3 transition-all ${placement.isEnabled ? 'border-slate-800' : 'border-slate-800/50 opacity-75'}`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-bold text-white text-sm">{placement.name}</span>
+                        {placement.badge && (
+                          <span className="text-[10px] px-2 py-0.5 rounded font-black bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                            {placement.badge}
+                          </span>
+                        )}
+                      </div>
+
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={placement.isEnabled}
+                          onChange={(e) => handleUpdatePlacement(placement.id, { isEnabled: e.target.checked })}
+                          className="sr-only peer"
+                        />
+                        <div className="w-10 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500" />
+                      </label>
                     </div>
 
+                    <p className="text-xs text-slate-400">{placement.description}</p>
+
+                    {placement.isEnabled ? (
+                      <>
+                        <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
+                          <div>
+                            <label className="text-[10px] text-slate-400 block mb-1 font-bold">Rate Multiplier</label>
+                            <div className="w-full bg-slate-900/70 border border-slate-800 text-[11px] text-slate-300 rounded-xl px-3 py-1.5 font-medium">
+                              Managed in Rate Card ({Number(placement.multiplier || 1).toFixed(2)}x)
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] text-slate-400 block mb-1 font-bold">100% Free Override</label>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdatePlacement(placement.id, { isFreeOverride: !placement.isFreeOverride })}
+                              className={`w-full py-1.5 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                                placement.isFreeOverride
+                                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                  : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-white'
+                              }`}
+                            >
+                              {placement.isFreeOverride ? 'FREE PLACEMENT' : 'STANDARD FEE'}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3 pt-2 border-t border-slate-800">
+                          <div>
+                            <label className="text-[10px] text-slate-400 block mb-1 font-bold">Maximum Concurrent Slots</label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="50"
+                              step="1"
+                              value={placement.maxConcurrentSlots ?? ''}
+                              placeholder={placement.id === 'promo-discount-banner' || placement.id === 'dynamic-announcement-card' ? 'Required (1–50)' : 'No limit'}
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                const requiresSlots = placement.id === 'promo-discount-banner' || placement.id === 'dynamic-announcement-card';
+                                const parsed = raw === '' ? (requiresSlots ? 1 : undefined) : Number(raw);
+                                handleUpdatePlacement(placement.id, { maxConcurrentSlots: parsed === undefined ? undefined : Math.min(50, Math.max(1, Math.floor(parsed))) });
+                              }}
+                              className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-1.5 font-mono focus:outline-none focus:border-teal-500"
+                            />
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="pt-2 border-t border-slate-800/70 text-[11px] text-slate-500">
+                        Placement disabled — hidden from campaign booking. Enable above to configure free override and concurrent slots.
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                )
+              )}
             </div>
           </div>
         </div>
       )}
 
       {/* ========================================================= */}
-      {/* 6. PROMOTIONAL DISCOUNT BANNERS TAB                      */}
-      {/* ========================================================= */}
-      {activeTab === 'promo-banners' && (
-        <div className="space-y-6">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div>
-                <div className="flex items-center space-x-2">
-                  <Percent className="w-5 h-5 text-rose-400" />
-                  <h3 className="text-lg font-black text-white">Promotional Discount Banners</h3>
-                </div>
-                <p className="text-xs text-slate-400 mt-1">
-                  Manage admin-owned promotional banners here. Paid user-bookable discount campaigns are controlled separately in the Placements tab.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setIsAddPromoOpen(true)}
-                className="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-white text-xs font-black shadow-lg shadow-rose-500/20 transition-all cursor-pointer flex items-center space-x-1.5 shrink-0"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Create Promo Banner</span>
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              {localConfig.promoBanners.map((banner) => (
-                <div key={banner.id} className="bg-slate-950/60 border border-slate-800 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-xs font-black text-white">{banner.title}</span>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                        {banner.badgeText}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400">{banner.description}</p>
-                    <div className="text-[10px] text-slate-500 font-mono">
-                      Code: <code className="text-rose-400">{banner.promoCode || 'NONE'}</code> • Valid until: {banner.validUntil || 'Indefinite'}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-3">
-                    <button
-                      type="button"
-                      onClick={() => handleTogglePromoBanner(banner.id)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors ${
-                        banner.isEnabled
-                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                          : 'bg-slate-800 text-slate-400 border-slate-700'
-                      }`}
-                    >
-                      {banner.isEnabled ? 'ACTIVE' : 'PAUSED'}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleDeletePromoBanner(banner.id)}
-                      className="p-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================= */}
-      {/* 7. JOB POSTING FEE OVERRIDE TAB                          */}
-      {/* ========================================================= */}
-      {activeTab === 'job-fees' && (
-        <div className="space-y-6">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
-            <div>
-              <div className="flex items-center space-x-2">
-                <DollarSign className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-lg font-black text-white">Job Posting Fee Override & Free Campaign Policies</h3>
-              </div>
-              <p className="text-xs text-slate-400 mt-1">
-                Configure standard employer posting fees, global discounts, or toggle 100% Free posting.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-              {/* Free All Toggle */}
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between space-y-4">
-                <div>
-                  <h4 className="text-xs font-black text-white uppercase tracking-wider">100% Free Job Postings for All</h4>
-                  <p className="text-xs text-slate-400 mt-1">Bypass all publishing fees for employers.</p>
-                </div>
-                <div className="flex items-center justify-between pt-2">
-                  <span className="text-xs font-bold text-slate-300">
-                    {localConfig.jobPostingFeeSettings?.isFreeAll ? 'FREE POSTINGS ACTIVE' : 'STANDARD FEES ACTIVE'}
-                  </span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={localConfig.jobPostingFeeSettings?.isFreeAll || false}
-                      onChange={(e) => handleUpdateJobPostingFeeSettings({ isFreeAll: e.target.checked })}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />
-                  </label>
-                </div>
-              </div>
-
-              {/* Standard Fee Input */}
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-5 space-y-3">
-                <h4 className="text-xs font-black text-white uppercase tracking-wider">Standard Job Posting Fee (PKR)</h4>
-                <input
-                  type="number"
-                  min="0"
-                  step="50"
-                  value={localConfig.jobPostingFeeSettings?.customStandardFeePkr ?? 500}
-                  onChange={(e) => handleUpdateJobPostingFeeSettings({ customStandardFeePkr: parseInt(e.target.value) || 0 })}
-                  className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3.5 py-2.5 font-mono focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================= */}
-      {/* 8. POLICY RULES TAB                                       */}
+      {/* 6. POLICY RULES TAB                                       */}
       {/* ========================================================= */}
       {activeTab === 'rules' && (
         <div className="space-y-6">
@@ -1463,87 +1445,9 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
                 />
               </div>
             </div>
-          </div>
-        </div>
-      )}
 
-      {/* CREATE PROMO BANNER MODAL */}
-      {isAddPromoOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
-          <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-black text-white flex items-center space-x-2">
-                <Percent className="w-4 h-4 text-rose-400" />
-                <span>Create Promotional Discount Banner</span>
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsAddPromoOpen(false)}
-                className="p-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">Banner Title</label>
-                <input
-                  type="text"
-                  value={newPromoTitle}
-                  onChange={(e) => setNewPromoTitle(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">Banner Description</label>
-                <input
-                  type="text"
-                  value={newPromoDesc}
-                  onChange={(e) => setNewPromoDesc(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Discount %</label>
-                  <input
-                    type="number"
-                    value={newPromoDiscount}
-                    onChange={(e) => setNewPromoDiscount(parseInt(e.target.value) || 0)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Promo Code</label>
-                  <input
-                    type="text"
-                    value={newPromoCode}
-                    onChange={(e) => setNewPromoCode(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white font-mono"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-3 border-t border-slate-800 flex justify-end space-x-2">
-              <button
-                type="button"
-                onClick={() => setIsAddPromoOpen(false)}
-                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleCreatePromoBanner}
-                className="px-5 py-2 rounded-xl bg-rose-500 hover:bg-rose-400 text-white text-xs font-black"
-              >
-                Add Banner
-              </button>
+            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 text-[11px] text-slate-400">
+              Top Sticky Promo Discount Banners are managed in <strong>Ads &amp; Campaigns → Display &amp; Landing Design → Top Promo Discount Banners</strong>, and employer job posting fees are managed in <strong>Jobs Management → Job Rates &amp; Fees</strong>.
             </div>
           </div>
         </div>

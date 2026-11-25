@@ -6,6 +6,9 @@ export const SUBSCRIPTION_FEATURES = [
   { id: 'cv_builder', label: 'Premium CV Builder' },
   { id: 'urgent_job_posting', label: 'Urgent Job Posting' },
   { id: 'featured_job_posting', label: 'Featured Job Posting' },
+  { id: 'pinned_job_posting', label: 'Pinned Top #1 Job Posting' },
+  { id: 'vip_job_posting', label: 'VIP Ultimate Job Posting' },
+  { id: 'future_job_posting', label: 'Future Job (Advance Intake)' },
   { id: 'premium_job_posting', label: 'Premium Job Posting' },
   { id: 'campaign_credits', label: 'Advertisement Campaign Credits' }
 ] as const;
@@ -28,6 +31,27 @@ export interface SubscriptionFeatureConfig {
 const FEATURE_IDS = new Set<string>(SUBSCRIPTION_FEATURES.map((item) => item.id));
 const CAMPAIGN_PLACEMENTS = new Set(['top-header', 'feed-inline', 'sidebar', 'popup-modal', 'toast-float', 'sms-broadcast', 'promo-discount-banner', 'dynamic-announcement-card']);
 
+function normalizeCampaignCreditsList(rawCredits: unknown) {
+  if (!Array.isArray(rawCredits)) return [];
+  return rawCredits
+    .filter((credit: any) =>
+      CAMPAIGN_PLACEMENTS.has(String(credit?.placement || '')) &&
+      Number.isInteger(Number(credit.durationHours)) && Number(credit.durationHours) >= 1 && Number(credit.durationHours) <= 8760 &&
+      Number.isInteger(Number(credit.quantity)) && Number(credit.quantity) >= 1 && Number(credit.quantity) <= 1000 &&
+      (credit.placement !== 'sms-broadcast' || (Number.isInteger(Number(credit.smsRecipientsCount)) && Number(credit.smsRecipientsCount) >= 1 && Number(credit.smsRecipientsCount) <= 100000))
+    )
+    .map((credit: any) => ({
+      placement: String(credit.placement),
+      durationHours: Number(credit.durationHours),
+      quantity: Number(credit.quantity),
+      ...(credit.placement === 'sms-broadcast' ? { smsRecipientsCount: Number(credit.smsRecipientsCount) } : {})
+    }))
+    .filter((credit: any, index: number, all: any[]) => all.findIndex((other: any) =>
+      other.placement === credit.placement && other.durationHours === credit.durationHours &&
+      Number(other.smsRecipientsCount || 0) === Number(credit.smsRecipientsCount || 0)
+    ) === index);
+}
+
 export function normalizeSubscriptionFeatureCatalog(raw: unknown): SubscriptionFeatureConfig[] {
   if (!Array.isArray(raw)) return [];
   const seen = new Set<string>();
@@ -47,19 +71,53 @@ export function normalizeSubscriptionFeatureCatalog(raw: unknown): SubscriptionF
     // Missing values are preserved as legacy settings; new admin saves must explicitly choose Unlimited or a quota.
     unlimitedMessages: typeof item.unlimitedMessages === 'boolean' ? item.unlimitedMessages : undefined,
     monthlyMessageQuota: Number.isInteger(Number(item.monthlyMessageQuota)) && Number(item.monthlyMessageQuota) >= 1 && Number(item.monthlyMessageQuota) <= 1000000 ? Number(item.monthlyMessageQuota) : undefined,
-    campaignCredits: Array.isArray(item.campaignCredits) ? item.campaignCredits.filter((credit: any) =>
-      CAMPAIGN_PLACEMENTS.has(String(credit?.placement || '')) &&
-      Number.isInteger(Number(credit.durationHours)) && Number(credit.durationHours) >= 1 && Number(credit.durationHours) <= 8760 &&
-      Number.isInteger(Number(credit.quantity)) && Number(credit.quantity) >= 1 && Number(credit.quantity) <= 1000 &&
-      (credit.placement !== 'sms-broadcast' || (Number.isInteger(Number(credit.smsRecipientsCount)) && Number(credit.smsRecipientsCount) >= 1 && Number(credit.smsRecipientsCount) <= 100000))
-    ).map((credit: any) => ({
-      placement: String(credit.placement), durationHours: Number(credit.durationHours), quantity: Number(credit.quantity),
-      ...(credit.placement === 'sms-broadcast' ? { smsRecipientsCount: Number(credit.smsRecipientsCount) } : {})
-    })).filter((credit: any, index: number, all: any[]) => all.findIndex((other: any) =>
-      other.placement === credit.placement && other.durationHours === credit.durationHours &&
-      Number(other.smsRecipientsCount || 0) === Number(credit.smsRecipientsCount || 0)
-    ) === index) : []
+    campaignCredits: normalizeCampaignCreditsList(item.campaignCredits)
   }));
+}
+
+export function resolveEffectiveFeatureConfig(
+  baseFeature: SubscriptionFeatureConfig,
+  override: any
+): SubscriptionFeatureConfig {
+  if (!override || typeof override !== 'object') return { ...baseFeature };
+  const hasPrice = override.pricePkr !== undefined && override.pricePkr !== null && override.pricePkr !== '';
+  const parsedPrice = Number(override.pricePkr);
+  const pricePkr = hasPrice && Number.isSafeInteger(parsedPrice) && parsedPrice >= 0 && parsedPrice <= 10000000
+    ? parsedPrice
+    : baseFeature.pricePkr;
+  const parsedDuration = Number(override.durationDays);
+  const durationDays = Number.isInteger(parsedDuration) && parsedDuration > 0 && parsedDuration <= 3650
+    ? parsedDuration
+    : baseFeature.durationDays;
+  const parsedSlots = Number(override.includedSlots);
+  const includedSlots = Number.isInteger(parsedSlots) && parsedSlots >= 0 && parsedSlots <= 1000
+    ? parsedSlots
+    : baseFeature.includedSlots;
+  const parsedSlotDays = Number(override.slotDurationDays);
+  const slotDurationDays = Number.isInteger(parsedSlotDays) && parsedSlotDays > 0 && parsedSlotDays <= 3650
+    ? parsedSlotDays
+    : baseFeature.slotDurationDays;
+  const unlimitedMessages = typeof override.unlimitedMessages === 'boolean'
+    ? override.unlimitedMessages
+    : baseFeature.unlimitedMessages;
+  const parsedQuota = Number(override.monthlyMessageQuota);
+  const monthlyMessageQuota = Number.isInteger(parsedQuota) && parsedQuota >= 1 && parsedQuota <= 1000000
+    ? parsedQuota
+    : baseFeature.monthlyMessageQuota;
+  const campaignCredits = Array.isArray(override.campaignCredits)
+    ? normalizeCampaignCreditsList(override.campaignCredits)
+    : baseFeature.campaignCredits;
+
+  return {
+    ...baseFeature,
+    pricePkr,
+    durationDays,
+    includedSlots,
+    slotDurationDays,
+    unlimitedMessages,
+    monthlyMessageQuota,
+    campaignCredits
+  };
 }
 
 export function resolveSubscriptionPackage(pkg: any, pricing: any): {
@@ -74,11 +132,12 @@ export function resolveSubscriptionPackage(pkg: any, pricing: any): {
     ? Array.from(new Set(pkg.featureIds.map((value: any) => String(value || '').trim())))
     : [];
   if (pkg?.pricingMode === 'catalog' && requestedIds.length === 0) throw new Error('Select at least one enabled feature for a catalog-priced package.');
+  const overrides = pkg?.featureOverrides && typeof pkg.featureOverrides === 'object' ? pkg.featureOverrides : {};
   const selected = requestedIds.map((id: string) => {
     if (!FEATURE_IDS.has(id)) throw new Error(`Unsupported subscription feature "${id}".`);
     const feature = catalog.find((entry) => entry.id === id && entry.enabled);
     if (!feature) throw new Error(`Subscription feature "${id}" is unavailable or disabled.`);
-    return feature;
+    return resolveEffectiveFeatureConfig(feature, overrides[id]);
   });
   if (selected.some((item) =>
     ['email_alerts', 'whatsapp_alerts', 'sms_alerts'].includes(item.id) &&
@@ -92,8 +151,17 @@ export function resolveSubscriptionPackage(pkg: any, pricing: any): {
   }
   const undiscountedPricePkr = selected.reduce((sum, item) => sum + item.pricePkr, 0);
   const rawDiscount = Number(pkg?.bundleDiscountPercent ?? pricing?.subscriptionBundleDiscountPercent ?? 0);
-  const bundleDiscountPercent = Number.isFinite(rawDiscount) ? Math.min(100, Math.max(0, rawDiscount)) : 0;
-  const calculatedPrice = Math.max(0, Math.round(undiscountedPricePkr * (1 - bundleDiscountPercent / 100)));
+  let bundleDiscountPercent = Number.isFinite(rawDiscount) ? Math.min(100, Math.max(0, rawDiscount)) : 0;
+  let calculatedPrice = Math.max(0, Math.round(undiscountedPricePkr * (1 - bundleDiscountPercent / 100)));
+
+  if (pkg?.pricingMode === 'catalog' && pkg?.discountMode === 'target_price' && pkg?.targetPriceOverridePkr !== undefined && pkg?.targetPriceOverridePkr !== null && pkg?.targetPriceOverridePkr !== '') {
+    const target = Number(pkg.targetPriceOverridePkr);
+    if (Number.isSafeInteger(target) && target >= 0 && undiscountedPricePkr > 0 && target <= undiscountedPricePkr) {
+      calculatedPrice = target;
+      bundleDiscountPercent = Math.round(((undiscountedPricePkr - target) / undiscountedPricePkr) * 10000) / 100;
+    }
+  }
+
   const pricePkr = pkg?.pricingMode === 'catalog' && selected.length > 0
     ? calculatedPrice
     : Number(pkg?.configuredPricePkr ?? pkg?.pricePkr);

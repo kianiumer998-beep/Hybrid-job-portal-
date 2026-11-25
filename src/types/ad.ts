@@ -214,7 +214,14 @@ export interface CampaignPlacementOption {
   badge?: string;
   isEnabled: boolean;
   isFreeOverride?: boolean; // Admin can make this specific placement completely free
-  fixedPriceOverridePkr?: number; // Override dynamic calculation with flat fee
+  rateEditMode?: 'multiplier' | 'manual'; // Edit placement pricing by weight multiplier or simple manual PKR numbers
+  fixedPriceOverridePkr?: number; // Override dynamic calculation with a single flat fee
+  timeframeFixedRatesPkr?: {
+    hourly?: number;
+    daily?: number;
+    weekly?: number;
+    monthly?: number;
+  }; // Optional per-timeframe manual PKR rates (Hourly, 24h/Day, Week, Month)
   minDurationHours?: number; // Minimum bookable duration for this placement
   percentageUpliftPercent?: number; // Additional percentage on top of the existing multiplier
   maxConcurrentSlots?: number; // e.g. 3 simultaneous banners
@@ -633,6 +640,12 @@ export interface AdPricingConfig {
   
   smsPerContactRatePkr: number; // e.g. 1.5 PKR per contact
   minDepositAmountPkr: number; // e.g. 500 PKR
+  timeframeMultipliers?: {
+    hourly?: number;
+    daily?: number;
+    weekly?: number;
+    monthly?: number;
+  };
 }
 
 export const DEFAULT_AD_PRICING_CONFIG: AdPricingConfig = {
@@ -640,6 +653,12 @@ export const DEFAULT_AD_PRICING_CONFIG: AdPricingConfig = {
   dailyRatePkr: 800,
   weeklyRatePkr: 4500,
   monthlyRatePkr: 16000,
+  timeframeMultipliers: {
+    hourly: 1.0,
+    daily: 1.0,
+    weekly: 0.85,
+    monthly: 0.65
+  },
   placementMultipliers: {
     'top-header': 1.25,
     'feed-inline': 1.0,
@@ -1158,7 +1177,25 @@ export function calculateCampaignCost(
   }
 
   const isFreeOverride = Boolean(matchedPlacementOption?.isFreeOverride);
+  const rateEditMode = matchedPlacementOption?.rateEditMode;
+  const timeframeFixed = matchedPlacementOption?.timeframeFixedRatesPkr;
+  const rawTimeframeFixed =
+    effectiveUnit === 'hours'
+      ? timeframeFixed?.hourly
+      : effectiveUnit === 'days'
+      ? timeframeFixed?.daily
+      : effectiveUnit === 'weeks'
+      ? timeframeFixed?.weekly
+      : timeframeFixed?.monthly;
+  const timeframeManualUnitRate =
+    rateEditMode !== 'multiplier' &&
+    typeof rawTimeframeFixed === 'number' &&
+    Number.isFinite(rawTimeframeFixed) &&
+    rawTimeframeFixed > 0
+      ? rawTimeframeFixed
+      : undefined;
   const fixedPriceOverridePkr =
+    rateEditMode !== 'multiplier' &&
     typeof matchedPlacementOption?.fixedPriceOverridePkr === 'number' &&
     matchedPlacementOption.fixedPriceOverridePkr > 0
       ? matchedPlacementOption.fixedPriceOverridePkr
@@ -1166,8 +1203,12 @@ export function calculateCampaignCost(
   const percentageUpliftPercent = Math.min(1000, Math.max(0, Number(matchedPlacementOption?.percentageUpliftPercent) || 0));
 
   let totalCostPkr: number;
+  let resolvedFixedOverride = fixedPriceOverridePkr;
   if (isFreeOverride) {
     totalCostPkr = 0;
+  } else if (timeframeManualUnitRate !== undefined) {
+    resolvedFixedOverride = Math.round(timeframeManualUnitRate * cleanVal);
+    totalCostPkr = resolvedFixedOverride + smsFee;
   } else if (fixedPriceOverridePkr !== undefined) {
     totalCostPkr = Math.round(fixedPriceOverridePkr) + smsFee;
   } else {
@@ -1184,7 +1225,7 @@ export function calculateCampaignCost(
     durationHours,
     durationDisplay,
     isFreeOverride,
-    fixedPriceOverridePkr,
+    fixedPriceOverridePkr: resolvedFixedOverride,
     percentageUpliftPercent
   };
 }

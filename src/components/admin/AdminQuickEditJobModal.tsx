@@ -1086,14 +1086,14 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                     <span className="text-[10px] text-slate-400">Assigns job to top priority homepage slots (VIP &gt; Pinned &gt; Featured &gt; Urgent)</span>
                   </div>
                   <select
-                    value={formData.priorityTier || (formData.isPinnedTop && formData.featured && formData.urgent ? 'vip_bundle' : (formData.isPinnedTop ? 'featured_top' : (formData.featured ? 'featured_top' : (formData.urgent ? 'urgent' : 'standard'))))}
+                    value={formData.priorityTier || (formData.isPinnedTop && formData.featured && formData.urgent ? 'vip_bundle' : (formData.isPinnedTop ? 'featured_top' : (formData.featured ? 'featured' : (formData.urgent ? 'urgent' : 'standard'))))}
                     onChange={(e) => {
                       const val = e.target.value as any;
                       setFormData(p => ({
                         ...p,
                         priorityTier: val,
                         isPinnedTop: val === 'vip_bundle' || val === 'featured_top',
-                        featured: val === 'vip_bundle' || val === 'featured_top',
+                        featured: val === 'vip_bundle' || val === 'featured_top' || val === 'featured',
                         urgent: val === 'vip_bundle' || val === 'urgent'
                       }));
                     }}
@@ -1101,7 +1101,8 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                   >
                     <option value="standard">Standard Listing (Default)</option>
                     <option value="urgent">🔥 Urgent Hiring Tier</option>
-                    <option value="featured_top">📌 Pinned Top & Featured Tier</option>
+                    <option value="featured">⭐ Featured Placement Tier</option>
+                    <option value="featured_top">📌 Pinned Top #1 Tier</option>
                     <option value="vip_bundle">👑 VIP Ultimate Placement Tier</option>
                   </select>
                 </div>

@@ -288,7 +288,7 @@ export class UserRepository {
     const cleanUserId = String(userId || '').trim();
     const cleanFeatureId = String(featureId || '').trim();
     const cleanJobId = String(jobId || '').trim();
-    const allowed = new Set(['urgent_job_posting', 'featured_job_posting', 'premium_job_posting']);
+    const allowed = new Set(['urgent_job_posting', 'featured_job_posting', 'pinned_job_posting', 'vip_job_posting', 'future_job_posting', 'premium_job_posting']);
     if (!cleanUserId || !allowed.has(cleanFeatureId) || !cleanJobId || cleanJobId.length > 200) {
       throw new Error('Valid user, posting feature and job references are required.');
     }
@@ -375,7 +375,7 @@ export class UserRepository {
     const cleanUserId = String(userId || '').trim();
     const cleanFeatureId = String(featureId || '').trim();
     const cleanJobId = String(jobId || '').trim();
-    const allowed = new Set(['urgent_job_posting', 'featured_job_posting', 'premium_job_posting']);
+    const allowed = new Set(['urgent_job_posting', 'featured_job_posting', 'pinned_job_posting', 'vip_job_posting', 'future_job_posting', 'premium_job_posting']);
     if (!cleanUserId || !allowed.has(cleanFeatureId) || !cleanJobId) throw new Error('Valid slot restoration references are required.');
     const markerKey = ('slot-' + cleanFeatureId + '-' + cleanJobId).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
     const marker = 'subscriptionSlotOperations.' + markerKey;

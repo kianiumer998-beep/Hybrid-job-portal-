@@ -1102,7 +1102,7 @@ export class PaymentRepository {
           const featureDuration = Number(feature?.durationDays);
           const includedSlots = Number(feature?.includedSlots);
           const slotDurationDays = Number(feature?.slotDurationDays);
-          if (!/^(early_access|whatsapp_alerts|email_alerts|sms_alerts|cv_builder|urgent_job_posting|featured_job_posting|premium_job_posting|campaign_credits)$/.test(featureId) ||
+          if (!/^(early_access|whatsapp_alerts|email_alerts|sms_alerts|cv_builder|urgent_job_posting|featured_job_posting|pinned_job_posting|vip_job_posting|future_job_posting|premium_job_posting|campaign_credits)$/.test(featureId) ||
               subscriptionFeatureIds.includes(featureId) ||
               !Number.isInteger(featureDuration) || featureDuration <= 0 || featureDuration > 3650 ||
               !Number.isInteger(includedSlots) || includedSlots < 0 || includedSlots > 1000 ||

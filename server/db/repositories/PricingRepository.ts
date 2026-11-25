@@ -23,11 +23,11 @@ import {
   DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG
 } from '../../../src/types/job';
 import { getMongoDb, isMongoConfigured, withMongoTimeout } from '../mongodb';
-import { normalizeSubscriptionFeatureCatalog, SUBSCRIPTION_FEATURES } from '../../services/subscriptionEntitlements';
+import { normalizeSubscriptionFeatureCatalog, resolveEffectiveFeatureConfig, SUBSCRIPTION_FEATURES } from '../../services/subscriptionEntitlements';
 
 export interface JobPriceCalculationRequest {
   jobPlan?: 'Standard' | 'Urgent' | 'Featured' | 'Top' | 'Future' | 'VIP Bundle' | string;
-  priorityTier?: 'standard' | 'urgent' | 'featured_top' | 'future_job' | 'vip_bundle' | string;
+  priorityTier?: 'standard' | 'urgent' | 'featured' | 'featured_top' | 'future_job' | 'vip_bundle' | string;
   featured?: boolean;
   urgent?: boolean;
   pinnedTop?: boolean;
@@ -128,7 +128,8 @@ function buildAuthoritativeDefaults(): any {
         vip: { ...DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG.vip },
         pinned: { ...DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG.pinned },
         featured: { ...DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG.featured },
-        urgent: { ...DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG.urgent }
+        urgent: { ...DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG.urgent },
+        future: { ...(DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG.future || { enabled: true, maxSlots: 4 }) }
       },
       categoryPostingFees: DEFAULT_CATEGORY_POSTING_FEES.map((c) => ({ ...c })),
       exemptUserEmails: [],
@@ -336,9 +337,16 @@ function deepMergePricing(base: any, incoming: any): any {
       ...(src.jobPosting || {}),
       standardFeePkr: src.jobPosting?.standardFeePkr ?? base.jobPosting?.standardFeePkr ?? 1000,
       urgentFeePkr: src.jobPosting?.urgentFeePkr ?? base.jobPosting?.urgentFeePkr ?? 500,
+      featuredFeePkr: src.jobPosting?.featuredFeePkr ?? base.jobPosting?.featuredFeePkr ?? 1000,
       featuredTopFeePkr: src.jobPosting?.featuredTopFeePkr ?? base.jobPosting?.featuredTopFeePkr ?? 1500,
       futureJobFeePkr: src.jobPosting?.futureJobFeePkr ?? base.jobPosting?.futureJobFeePkr ?? 800,
       vipBundleFeePkr: src.jobPosting?.vipBundleFeePkr ?? base.jobPosting?.vipBundleFeePkr ?? 2500,
+      enableFeatured:
+        src.jobPosting?.enableFeatured !== undefined
+          ? Boolean(src.jobPosting.enableFeatured)
+          : base.jobPosting?.enableFeatured !== false,
+      featuredDurationDays:
+        src.jobPosting?.featuredDurationDays ?? base.jobPosting?.featuredDurationDays ?? 30,
       isFreeAllPostings:
         src.jobPosting?.isFreeAllPostings !== undefined
           ? Boolean(src.jobPosting.isFreeAllPostings)
@@ -357,7 +365,8 @@ function deepMergePricing(base: any, incoming: any): any {
         vip: { ...(baseSlot.vip || { enabled: true, maxSlots: 2 }), ...(srcSlot.vip || {}) },
         pinned: { ...(baseSlot.pinned || { enabled: true, maxSlots: 2 }), ...(srcSlot.pinned || {}) },
         featured: { ...(baseSlot.featured || { enabled: true, maxSlots: 4 }), ...(srcSlot.featured || {}) },
-        urgent: { ...(baseSlot.urgent || { enabled: true, maxSlots: 4 }), ...(srcSlot.urgent || {}) }
+        urgent: { ...(baseSlot.urgent || { enabled: true, maxSlots: 4 }), ...(srcSlot.urgent || {}) },
+        future: { ...(baseSlot.future || { enabled: true, maxSlots: 4 }), ...(srcSlot.future || {}) }
       }
     },
     landingPageDesignSystem: normalizeLandingDesignSystem(
@@ -410,6 +419,16 @@ function deepMergePricing(base: any, incoming: any): any {
     subscriptionPackages: Array.isArray(src.subscriptionPackages)
       ? src.subscriptionPackages.map((pkg: any) => ({
           ...pkg,
+          discountMode: pkg?.discountMode === 'target_price' ? 'target_price' : 'percent',
+          bundleDiscountPercent: pkg?.bundleDiscountPercent !== undefined && Number.isFinite(Number(pkg.bundleDiscountPercent))
+            ? Math.min(100, Math.max(0, Number(pkg.bundleDiscountPercent)))
+            : undefined,
+          targetPriceOverridePkr: pkg?.targetPriceOverridePkr !== undefined && pkg?.targetPriceOverridePkr !== null && pkg?.targetPriceOverridePkr !== '' && Number.isSafeInteger(Number(pkg.targetPriceOverridePkr)) && Number(pkg.targetPriceOverridePkr) >= 0
+            ? Number(pkg.targetPriceOverridePkr)
+            : undefined,
+          featureOverrides: pkg?.featureOverrides && typeof pkg.featureOverrides === 'object' && !Array.isArray(pkg.featureOverrides)
+            ? pkg.featureOverrides
+            : undefined,
           cvBenefitsEnabled: pkg?.cvBenefitsEnabled === true,
           cvBenefits: {
             cvCreateLimit: Math.min(10000, Math.max(0, Math.floor(Number(pkg?.cvBenefits?.cvCreateLimit) || 0))),
@@ -516,21 +535,55 @@ const JOB_SECTOR_ALIAS_TO_CAT_ID: Record<string, string> = {
 
 function withComputedSubscriptionPrices(pricing: any): any {
   const catalog = normalizeSubscriptionFeatureCatalog(pricing?.subscriptionFeatureCatalog);
-  const discount = Math.min(100, Math.max(0, Number(pricing?.subscriptionBundleDiscountPercent) || 0));
+  const globalDiscount = Math.min(100, Math.max(0, Number(pricing?.subscriptionBundleDiscountPercent) || 0));
   const subscriptionPackages = (Array.isArray(pricing?.subscriptionPackages) ? pricing.subscriptionPackages : []).map((pkg: any) => {
     const configuredPricePkr = Number(pkg?.configuredPricePkr ?? pkg?.pricePkr ?? 0);
-    if (pkg?.pricingMode !== 'catalog') {
-      const ids = Array.isArray(pkg.featureIds) ? Array.from(new Set(pkg.featureIds.map((id: any) => String(id)))) : [];
-      const selected = ids.map((id: string) => catalog.find((item) => item.id === id && item.enabled));
-      const complete = ids.length > 0 && selected.every(Boolean);
-      return { ...pkg, configuredPricePkr, displayPricePkr: configuredPricePkr, featureLabels: complete ? selected.flatMap((item: any) => [item.label, ...(item.id === 'campaign_credits' ? (item.campaignCredits || []).map((credit: any) => credit.placement + ' · ' + credit.durationHours + 'h × ' + credit.quantity + (credit.placement === 'sms-broadcast' ? ' · ' + credit.smsRecipientsCount + ' recipients' : '')) : [])]) : [] };
-    }
     const ids = Array.isArray(pkg.featureIds) ? Array.from(new Set(pkg.featureIds.map((id: any) => String(id)))) : [];
-    const selected = ids.map((id: string) => catalog.find((item) => item.id === id && item.enabled));
-    const complete = ids.length > 0 && selected.every(Boolean);
+    const overrides = pkg?.featureOverrides && typeof pkg.featureOverrides === 'object' ? pkg.featureOverrides : {};
+    const selectedRaw = ids.map((id: string) => {
+      const baseItem = catalog.find((item) => item.id === id && item.enabled);
+      return baseItem ? resolveEffectiveFeatureConfig(baseItem, overrides[id]) : undefined;
+    });
+    const complete = ids.length > 0 && selectedRaw.every(Boolean);
+    const selected = complete ? (selectedRaw as any[]) : [];
+    const buildFeatureLabels = (items: any[]) => items.flatMap((item: any) => [
+      item.includedSlots > 0 ? `${item.label} (${item.includedSlots} slot${item.includedSlots > 1 ? 's' : ''} · ${item.slotDurationDays}d)` : item.label,
+      ...(item.id === 'campaign_credits' ? (item.campaignCredits || []).map((credit: any) => credit.placement + ' · ' + credit.durationHours + 'h × ' + credit.quantity + (credit.placement === 'sms-broadcast' ? ' · ' + credit.smsRecipientsCount + ' recipients' : '')) : [])
+    ]);
     const subtotal = complete ? selected.reduce((sum: number, item: any) => sum + Number(item.pricePkr || 0), 0) : 0;
-    const calculated = complete ? Math.max(0, Math.round(subtotal * (1 - discount / 100))) : 0;
-    return { ...pkg, configuredPricePkr, pricePkr: calculated, displayPricePkr: calculated, featureLabels: complete ? selected.flatMap((item: any) => [item.label, ...(item.id === 'campaign_credits' ? (item.campaignCredits || []).map((credit: any) => credit.placement + ' · ' + credit.durationHours + 'h × ' + credit.quantity + (credit.placement === 'sms-broadcast' ? ' · ' + credit.smsRecipientsCount + ' recipients' : '')) : [])]) : [], undiscountedPricePkr: subtotal, bundleDiscountPercent: discount };
+
+    if (pkg?.pricingMode !== 'catalog') {
+      return {
+        ...pkg,
+        configuredPricePkr,
+        displayPricePkr: configuredPricePkr,
+        undiscountedPricePkr: subtotal,
+        featureLabels: complete ? buildFeatureLabels(selected) : []
+      };
+    }
+
+    const rawDiscount = Number(pkg?.bundleDiscountPercent ?? globalDiscount);
+    let discount = Number.isFinite(rawDiscount) ? Math.min(100, Math.max(0, rawDiscount)) : globalDiscount;
+    let calculated = complete ? Math.max(0, Math.round(subtotal * (1 - discount / 100))) : 0;
+
+    if (complete && pkg?.discountMode === 'target_price' && pkg?.targetPriceOverridePkr !== undefined && pkg?.targetPriceOverridePkr !== null && pkg?.targetPriceOverridePkr !== '') {
+      const target = Number(pkg.targetPriceOverridePkr);
+      if (Number.isSafeInteger(target) && target >= 0 && subtotal > 0 && target <= subtotal) {
+        calculated = target;
+        discount = Math.round(((subtotal - target) / subtotal) * 10000) / 100;
+      }
+    }
+
+    return {
+      ...pkg,
+      configuredPricePkr,
+      pricePkr: calculated,
+      displayPricePkr: calculated,
+      featureLabels: complete ? buildFeatureLabels(selected) : [],
+      undiscountedPricePkr: subtotal,
+      bundleDiscountPercent: discount,
+      discountAmountPkr: Math.max(0, subtotal - calculated)
+    };
   });
   return { ...pricing, subscriptionPackages };
 }
@@ -651,6 +704,19 @@ export class PricingRepository {
         if (option.percentageUpliftPercent !== undefined) validateNonNegativeNumber(option.percentageUpliftPercent, `campaignPlacement.${option.id}.percentageUpliftPercent`, 1000);
         if (option.multiplier !== undefined) validateNonNegativeNumber(option.multiplier, `campaignPlacement.${option.id}.multiplier`, 100);
         if (option.isEnabled !== undefined && typeof option.isEnabled !== 'boolean') throw new Error(`Placement ${option.id} isEnabled must be a boolean.`);
+        if (option.rateEditMode !== undefined && !['multiplier', 'manual'].includes(String(option.rateEditMode))) {
+          throw new Error(`Placement ${option.id} rateEditMode must be multiplier or manual.`);
+        }
+        if (option.timeframeFixedRatesPkr !== undefined) {
+          if (!option.timeframeFixedRatesPkr || typeof option.timeframeFixedRatesPkr !== 'object') {
+            throw new Error(`Placement ${option.id} timeframeFixedRatesPkr must be an object.`);
+          }
+          for (const unitKey of ['hourly', 'daily', 'weekly', 'monthly'] as const) {
+            if (option.timeframeFixedRatesPkr[unitKey] !== undefined) {
+              validateNonNegativeNumber(option.timeframeFixedRatesPkr[unitKey], `campaignPlacement.${option.id}.timeframeFixedRatesPkr.${unitKey}`, 10000000);
+            }
+          }
+        }
       }
     }
 
@@ -658,11 +724,13 @@ export class PricingRepository {
       const jp = updates.jobPosting;
       if (jp.standardFeePkr !== undefined) validateNonNegativeNumber(jp.standardFeePkr, 'jobPosting.standardFeePkr');
       if (jp.urgentFeePkr !== undefined) validateNonNegativeNumber(jp.urgentFeePkr, 'jobPosting.urgentFeePkr');
+      if (jp.featuredFeePkr !== undefined) validateNonNegativeNumber(jp.featuredFeePkr, 'jobPosting.featuredFeePkr');
       if (jp.featuredTopFeePkr !== undefined) validateNonNegativeNumber(jp.featuredTopFeePkr, 'jobPosting.featuredTopFeePkr');
       if (jp.futureJobFeePkr !== undefined) validateNonNegativeNumber(jp.futureJobFeePkr, 'jobPosting.futureJobFeePkr');
       if (jp.vipBundleFeePkr !== undefined) validateNonNegativeNumber(jp.vipBundleFeePkr, 'jobPosting.vipBundleFeePkr');
       if (jp.standardDurationDays !== undefined) validateNonNegativeNumber(jp.standardDurationDays, 'jobPosting.standardDurationDays', 365);
       if (jp.urgentDurationDays !== undefined) validateNonNegativeNumber(jp.urgentDurationDays, 'jobPosting.urgentDurationDays', 365);
+      if (jp.featuredDurationDays !== undefined) validateNonNegativeNumber(jp.featuredDurationDays, 'jobPosting.featuredDurationDays', 365);
       if (jp.featuredTopDurationDays !== undefined) validateNonNegativeNumber(jp.featuredTopDurationDays, 'jobPosting.featuredTopDurationDays', 365);
       if (jp.futureJobDurationDays !== undefined) validateNonNegativeNumber(jp.futureJobDurationDays, 'jobPosting.futureJobDurationDays', 365);
       if (jp.vipBundleDurationDays !== undefined) validateNonNegativeNumber(jp.vipBundleDurationDays, 'jobPosting.vipBundleDurationDays', 365);
@@ -683,7 +751,8 @@ export class PricingRepository {
           vip: sanitizeSlotLimit(slotCfg.vip, 2),
           pinned: sanitizeSlotLimit(slotCfg.pinned, 2),
           featured: sanitizeSlotLimit(slotCfg.featured, 4),
-          urgent: sanitizeSlotLimit(slotCfg.urgent, 4)
+          urgent: sanitizeSlotLimit(slotCfg.urgent, 4),
+          future: sanitizeSlotLimit(slotCfg.future, 4)
         };
       }
     }
@@ -751,6 +820,10 @@ export class PricingRepository {
           throw new Error('Each subscription package must have a valid string "id"');
         }
         if (pkg.pricePkr !== undefined) validateNonNegativeNumber(pkg.pricePkr, `subscriptionPackage.${pkg.id}.pricePkr`);
+        if (pkg.bundleDiscountPercent !== undefined) validateNonNegativeNumber(pkg.bundleDiscountPercent, `subscriptionPackage.${pkg.id}.bundleDiscountPercent`, 100);
+        if (pkg.targetPriceOverridePkr !== undefined && pkg.targetPriceOverridePkr !== null && pkg.targetPriceOverridePkr !== '') {
+          validateNonNegativeNumber(pkg.targetPriceOverridePkr, `subscriptionPackage.${pkg.id}.targetPriceOverridePkr`, 10000000);
+        }
         if (pkg.durationDays !== undefined) {
           const days = Number(pkg.durationDays);
           if (!Number.isInteger(days) || days <= 0) {
@@ -907,11 +980,15 @@ export class PricingRepository {
     const resolvedGlobalDiscount =
       updates?.jobPosting?.globalDiscount !== undefined
         ? Math.min(100, Math.max(0, Number(updates.jobPosting.globalDiscount) || 0))
-        : Number(current.jobPosting?.globalDiscount ?? 0);
+        : updates?.globalDiscount !== undefined
+        ? Math.min(100, Math.max(0, Number(updates.globalDiscount) || 0))
+        : Number(current.jobPosting?.globalDiscount ?? current.landingPageConfig?.globalDiscount ?? 0);
 
     const mergedRaw = deepMergePricing(current, {
       ...updates,
       currency: updates?.currency || current.currency || 'PKR',
+      globalDiscount: resolvedGlobalDiscount,
+      isFreeAllPostings: resolvedIsFreeAllPostings,
       jobPosting: {
         ...(current.jobPosting || {}),
         ...(updates?.jobPosting || {}),
@@ -923,10 +1000,39 @@ export class PricingRepository {
       landingPageConfig: {
         ...(current.landingPageConfig || {}),
         ...(updates?.landingPageConfig || {}),
+        isFreeAllPostings: resolvedIsFreeAllPostings,
+        globalDiscount: resolvedGlobalDiscount,
         categoryPostingFees: resolvedCategoryPostingFees,
         exemptUserEmails: mergedExemptUserEmails
       }
     });
+
+    const hasPlacementMultipliersUpdate = Boolean(
+      updates?.adPricingConfig?.placementMultipliers &&
+      typeof updates.adPricingConfig.placementMultipliers === 'object'
+    );
+    const hasPlacementOptionsUpdate = Array.isArray(updates?.campaignCustomizationConfig?.placementOptions);
+
+    if (mergedRaw.adPricingConfig?.placementMultipliers && Array.isArray(mergedRaw.campaignCustomizationConfig?.placementOptions)) {
+      if (hasPlacementMultipliersUpdate) {
+        const multiplierMap = mergedRaw.adPricingConfig.placementMultipliers;
+        mergedRaw.campaignCustomizationConfig.placementOptions = mergedRaw.campaignCustomizationConfig.placementOptions.map((option: any) => {
+          const nextMultiplier = Number(multiplierMap?.[option.id]);
+          return Number.isFinite(nextMultiplier) && nextMultiplier > 0
+            ? { ...option, multiplier: nextMultiplier }
+            : option;
+        });
+      } else if (hasPlacementOptionsUpdate) {
+        const nextMultipliers = { ...mergedRaw.adPricingConfig.placementMultipliers };
+        for (const option of mergedRaw.campaignCustomizationConfig.placementOptions) {
+          const nextMultiplier = Number(option?.multiplier);
+          if (option?.id && Number.isFinite(nextMultiplier) && nextMultiplier > 0) {
+            nextMultipliers[option.id] = nextMultiplier;
+          }
+        }
+        mergedRaw.adPricingConfig.placementMultipliers = nextMultipliers;
+      }
+    }
 
     const updated = {
       ...mergedRaw,
@@ -1087,12 +1193,16 @@ export class PricingRepository {
       req.priorityTier === 'vip_bundle' ||
       req.jobPlan === 'VIP Bundle'
     );
-    const isFeatured = Boolean(
-      req.featured ||
+    const isPinnedTop = Boolean(
       req.pinnedTop ||
       req.priorityTier === 'featured_top' ||
-      req.jobPlan === 'Featured' ||
       req.jobPlan === 'Top'
+    );
+    const isFeaturedOnly = Boolean(
+      !isPinnedTop &&
+      (req.priorityTier === 'featured' ||
+        req.jobPlan === 'Featured' ||
+        req.featured)
     );
     const isUrgent = Boolean(
       req.urgent ||
@@ -1116,9 +1226,9 @@ export class PricingRepository {
         name: `${pricing.jobPosting?.vipBadgeText || '👑 VIP Ultimate Placement'} (Flat Fee)`,
         amount: basePrice
       });
-    } else if (isFeatured) {
+    } else if (isPinnedTop) {
       if (pricing.jobPosting?.enableFeaturedTop === false) {
-        throw new Error('Featured / Pinned Top job placement plan is currently disabled by administrator.');
+        throw new Error('Pinned Top job placement plan is currently disabled by administrator.');
       }
       const surcharge = isMasterFree ? 0 : (pricing.jobPosting?.featuredTopFeePkr ?? 1500);
       basePrice = baseStandardFee + surcharge;
@@ -1130,12 +1240,33 @@ export class PricingRepository {
       }
       if (surcharge > 0) {
         breakdown.push({
-          name: pricing.jobPosting?.featuredBadgeText || '⭐ Pinned Top & Featured Surcharge',
+          name: pricing.jobPosting?.pinnedBadgeText || pricing.jobPosting?.featuredBadgeText || '📌 Pinned Top #1 Surcharge',
           amount: surcharge
         });
       }
       if (basePrice === 0) {
         breakdown.push({ name: 'Pinned Top Placement (Free)', amount: 0 });
+      }
+    } else if (isFeaturedOnly) {
+      if (pricing.jobPosting?.enableFeatured === false) {
+        throw new Error('Featured job placement plan is currently disabled by administrator.');
+      }
+      const surcharge = isMasterFree ? 0 : (pricing.jobPosting?.featuredFeePkr ?? 1000);
+      basePrice = baseStandardFee + surcharge;
+      if (baseStandardFee > 0) {
+        breakdown.push({
+          name: appliedCategoryName ? `${appliedCategoryName} Base Rate` : 'Standard Listing Base',
+          amount: baseStandardFee
+        });
+      }
+      if (surcharge > 0) {
+        breakdown.push({
+          name: pricing.jobPosting?.featuredBadgeText || '⭐ Featured Placement Surcharge',
+          amount: surcharge
+        });
+      }
+      if (basePrice === 0) {
+        breakdown.push({ name: 'Featured Placement (Free)', amount: 0 });
       }
     } else if (isUrgent) {
       if (pricing.jobPosting?.enableUrgent === false) {

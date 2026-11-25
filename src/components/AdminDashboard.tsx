@@ -997,8 +997,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'stats'
   >('analytics');
 
+  type JobsWorkspaceSectionId = 'pending' | 'jobs' | 'add-job' | 'ai-enhancer' | 'pricing-controller' | 'fee-logs' | 'new';
+  type NewWorkspaceSectionId =
+    | 'job-tiers-pricing'
+    | 'job-category-fees'
+    | 'job-moderation-policy'
+    | 'ad-rate-card'
+    | 'ad-display-rules'
+    | 'ad-campaign-ops'
+    | 'landing-design';
+
   const [jobsAdsWorkspaceArea, setJobsAdsWorkspaceArea] = useState<'jobs' | 'campaigns'>('jobs');
-  const [jobsWorkspaceSection, setJobsWorkspaceSection] = useState<'pending' | 'jobs' | 'add-job' | 'ai-enhancer' | 'pricing-controller' | 'fee-logs'>('pending');
+  const [jobsWorkspaceSection, setJobsWorkspaceSection] = useState<JobsWorkspaceSectionId>('pending');
+  const [newWorkspaceSection, setNewWorkspaceSection] = useState<NewWorkspaceSectionId>('job-tiers-pricing');
   const [campaignWorkspaceSection, setCampaignWorkspaceSection] = useState<'advertisements' | 'campaign-center' | 'landing-customizer'>('advertisements');
 
   const [activeCategory, setActiveCategory] = useState<AdminCategory>('jobs');
@@ -1043,10 +1054,104 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return effectiveAdminPerms.includes('*') || effectiveAdminPerms.includes(perm);
   };
 
+  const NEW_WORKSPACE_SECTIONS: ReadonlyArray<{
+    id: NewWorkspaceSectionId;
+    group: 'jobs' | 'campaigns';
+    groupLabel: string;
+    shortNumber: string;
+    label: string;
+    description: string;
+  }> = [
+    {
+      id: 'job-tiers-pricing',
+      group: 'jobs',
+      groupLabel: 'Jobs Management',
+      shortNumber: '1',
+      label: 'Job Tiers, Slots & Early Access',
+      description: 'Base & tier fees, durations, ranking badges, slot caps, and Early Access rules'
+    },
+    {
+      id: 'job-category-fees',
+      group: 'jobs',
+      groupLabel: 'Jobs Management',
+      shortNumber: '2',
+      label: 'Category Fees, Free Mode & Waivers',
+      description: 'Master 100% free mode, global discount, per-category fees, and employer whitelists'
+    },
+    {
+      id: 'job-moderation-policy',
+      group: 'jobs',
+      groupLabel: 'Jobs Management',
+      shortNumber: '3',
+      label: 'Resubmission & Moderation Policy',
+      description: 'Configure rejected job resubmission limits and jump to moderation queues'
+    },
+    {
+      id: 'ad-rate-card',
+      group: 'campaigns',
+      groupLabel: 'Ads & Campaigns',
+      shortNumber: '4',
+      label: 'Ad Rate Card & Slot Pricing',
+      description: 'Hourly/daily/weekly/monthly rates, placement/page multipliers & min durations'
+    },
+    {
+      id: 'ad-display-rules',
+      group: 'campaigns',
+      groupLabel: 'Ads & Campaigns',
+      shortNumber: '5',
+      label: 'Campaign Display & Placement Rules',
+      description: 'Popups, feed ad insertion cadence, banner sizes, slot caps & approval rules'
+    },
+    {
+      id: 'ad-campaign-ops',
+      group: 'campaigns',
+      groupLabel: 'Ads & Campaigns',
+      shortNumber: '6',
+      label: 'Campaign Operations & Scheduling',
+      description: 'Pause/resume live campaigns, adjust date windows & apply fee waivers'
+    },
+    {
+      id: 'landing-design',
+      group: 'campaigns',
+      groupLabel: 'Ads & Campaigns',
+      shortNumber: '7',
+      label: 'Homepage Layout & Promo Banners',
+      description: 'Published landing design (Legacy / 1–5), section sequence, hero, cards & promos'
+    }
+  ];
+
+  const canAccessNewSection = (sectionId: NewWorkspaceSectionId): boolean => {
+    if (sectionId === 'job-tiers-pricing') {
+      return checkAdminTabPermission(effectiveAdminRole, effectiveAdminPerms, isVerifiedAdmin, 'pricing-controller');
+    }
+    if (sectionId === 'job-category-fees') {
+      return checkAdminTabPermission(effectiveAdminRole, effectiveAdminPerms, isVerifiedAdmin, 'fee-management');
+    }
+    if (sectionId === 'job-moderation-policy') {
+      return checkAdminTabPermission(effectiveAdminRole, effectiveAdminPerms, isVerifiedAdmin, 'pending');
+    }
+    if (sectionId === 'ad-rate-card' || sectionId === 'ad-display-rules') {
+      return (
+        checkAdminTabPermission(effectiveAdminRole, effectiveAdminPerms, isVerifiedAdmin, 'advertisements') &&
+        hasAdminUiPermission('finance.manage')
+      );
+    }
+    if (sectionId === 'ad-campaign-ops') {
+      return checkAdminTabPermission(effectiveAdminRole, effectiveAdminPerms, isVerifiedAdmin, 'campaign-center');
+    }
+    if (sectionId === 'landing-design') {
+      return checkAdminTabPermission(effectiveAdminRole, effectiveAdminPerms, isVerifiedAdmin, 'landing-customizer');
+    }
+    return false;
+  };
+
   const canAccessAdminTab = (tabId: string): boolean => {
     if (tabId === 'jobs-ads-control-center') {
       return ['jobs', 'pending', 'add-job', 'ai-enhancer', 'pricing-controller', 'fee-management', 'fee-logs', 'advertisements', 'campaign-center', 'landing-customizer']
         .some((moduleId) => checkAdminTabPermission(effectiveAdminRole, effectiveAdminPerms, isVerifiedAdmin, moduleId));
+    }
+    if (tabId === 'new') {
+      return NEW_WORKSPACE_SECTIONS.some((section) => canAccessNewSection(section.id));
     }
     return checkAdminTabPermission(effectiveAdminRole, effectiveAdminPerms, isVerifiedAdmin, tabId);
   };
@@ -1055,9 +1160,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const campaignWorkspaceTabIds = ['advertisements', 'campaign-center', 'landing-customizer'];
   const canAccessJobsWorkspace = jobsWorkspaceTabIds.some(canAccessAdminTab);
   const canAccessCampaignWorkspace = campaignWorkspaceTabIds.some(canAccessAdminTab);
+  const accessibleNewSections = NEW_WORKSPACE_SECTIONS.filter((section) => canAccessNewSection(section.id));
+  const effectiveNewSection: NewWorkspaceSectionId | null =
+    (accessibleNewSections.find((section) => section.id === newWorkspaceSection)?.id ??
+      accessibleNewSections[0]?.id ??
+      null);
+  const isInNewSettingsWorkspace =
+    adminTab === 'jobs-ads-control-center' &&
+    jobsAdsWorkspaceArea === 'jobs' &&
+    canAccessJobsWorkspace &&
+    jobsWorkspaceSection === 'new' &&
+    Boolean(effectiveNewSection);
+
+  const newSectionTargetTabMap: Record<NewWorkspaceSectionId, string> = {
+    'job-tiers-pricing': 'pricing-controller',
+    'job-category-fees': 'fee-management',
+    'job-moderation-policy': 'job-moderation-policy',
+    'ad-rate-card': 'advertisements',
+    'ad-display-rules': 'advertisements',
+    'ad-campaign-ops': 'campaign-center',
+    'landing-design': 'landing-customizer'
+  };
+
   const effectiveAdminTab = adminTab === 'jobs-ads-control-center'
     ? (jobsAdsWorkspaceArea === 'jobs' && canAccessJobsWorkspace
-        ? (canAccessAdminTab(jobsWorkspaceSection) ? jobsWorkspaceSection : jobsWorkspaceTabIds.find(canAccessAdminTab) || 'jobs')
+        ? (jobsWorkspaceSection === 'new' && effectiveNewSection
+            ? newSectionTargetTabMap[effectiveNewSection]
+            : (canAccessAdminTab(jobsWorkspaceSection) ? jobsWorkspaceSection : jobsWorkspaceTabIds.find(canAccessAdminTab) || 'jobs'))
         : (canAccessCampaignWorkspace
             ? (canAccessAdminTab(campaignWorkspaceSection) ? campaignWorkspaceSection : campaignWorkspaceTabIds.find(canAccessAdminTab) || 'campaign-center')
             : jobsWorkspaceTabIds.find(canAccessAdminTab) || 'jobs'))
@@ -1821,6 +1950,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [resubmissionMaxAttempts, setResubmissionMaxAttempts] = useState(3);
   const [resubmissionSettingsBusy, setResubmissionSettingsBusy] = useState(false);
   const [resubmissionSettingsLoaded, setResubmissionSettingsLoaded] = useState(false);
+  const [resubmissionFeedback, setResubmissionFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [pendingPortalFilter, setPendingPortalFilter] = useState('');
 
   useEffect(() => {
@@ -3738,35 +3868,222 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {adminTab === 'jobs-ads-control-center' && canAccessAdminTab('jobs-ads-control-center') && (
-        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 space-y-3">
-          <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-3">
-            {canAccessJobsWorkspace && <button type="button" onClick={() => setJobsAdsWorkspaceArea('jobs')} className={`px-4 py-2 rounded-xl text-xs font-black ${jobsAdsWorkspaceArea === 'jobs' ? 'bg-amber-500 text-slate-950' : 'bg-slate-950 text-slate-300 border border-slate-800'}`}>Jobs Management</button>}
-            {canAccessCampaignWorkspace && <button type="button" onClick={() => setJobsAdsWorkspaceArea('campaigns')} className={`px-4 py-2 rounded-xl text-xs font-black  ${(jobsAdsWorkspaceArea === 'campaigns' || !canAccessJobsWorkspace) ? 'bg-emerald-500 text-slate-950' : 'bg-slate-950 text-slate-300 border border-slate-800'}`}>Ads & Campaigns</button>}
+        <section className="bg-slate-900 border-2 border-amber-500/40 rounded-3xl p-4 sm:p-6 space-y-4 shadow-2xl">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/30">
+                ⭐ Job &amp; Ad Control Center
+              </span>
+              <h3 className="text-lg font-black text-white mt-1">Management &amp; Campaign Workspaces</h3>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {canAccessJobsWorkspace && (
+                <button
+                  type="button"
+                  onClick={() => setJobsAdsWorkspaceArea('jobs')}
+                  className={`px-5 py-2.5 rounded-2xl text-xs font-black tracking-wide transition-all cursor-pointer shadow-lg ${
+                    jobsAdsWorkspaceArea === 'jobs'
+                      ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-amber-500/30 scale-105 border-2 border-amber-300'
+                      : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  💼 Jobs Management
+                </button>
+              )}
+              {canAccessCampaignWorkspace && (
+                <button
+                  type="button"
+                  onClick={() => setJobsAdsWorkspaceArea('campaigns')}
+                  className={`px-5 py-2.5 rounded-2xl text-xs font-black tracking-wide transition-all cursor-pointer shadow-lg ${
+                    jobsAdsWorkspaceArea === 'campaigns' || !canAccessJobsWorkspace
+                      ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-slate-950 shadow-emerald-500/30 scale-105 border-2 border-emerald-300'
+                      : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  📢 Ads &amp; Campaigns
+                </button>
+              )}
+            </div>
           </div>
           {jobsAdsWorkspaceArea === 'jobs' && canAccessJobsWorkspace ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 pt-1">
               {([
                 ['pending', 'Submitted / Pending'],
                 ['jobs', 'All / Live Jobs'],
                 ['add-job', 'Manual Job Posting'],
                 ['ai-enhancer', 'Quality & Spam'],
                 ['pricing-controller', 'Job Rates & Fees'],
-                ['fee-logs', 'Job Fee Logs']
+                ['fee-logs', 'Job Fee Logs'],
+                ['new', 'NEW • Central Settings']
               ] as const).filter(([id]) => canAccessAdminTab(id)).map(([id, label]) => (
-                <button key={id} type="button" onClick={() => setJobsWorkspaceSection(id)} className={`px-3 py-2 rounded-lg text-[11px] sm:text-xs font-bold ${jobsWorkspaceSection === id ? 'bg-amber-500/20 text-amber-200 border border-amber-500/40' : 'bg-slate-950 text-slate-300 border border-slate-800'}`}>{label}</button>
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setJobsWorkspaceSection(id)}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-black tracking-wide cursor-pointer transition-all shadow-md ${
+                    jobsWorkspaceSection === id
+                      ? id === 'new'
+                        ? 'bg-emerald-500 text-slate-950 border-2 border-emerald-300 shadow-emerald-500/20'
+                        : 'bg-amber-500 text-slate-950 border-2 border-amber-300 shadow-amber-500/20 scale-[1.02]'
+                      : 'bg-slate-950 text-slate-300 border border-slate-800 hover:bg-slate-800/80'
+                  }`}
+                >
+                  {label}
+                </button>
               ))}
             </div>
           ) : (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 pt-1">
               {([
                 ['advertisements', 'Campaign Setup, Slots & Rates'],
                 ['campaign-center', 'Campaign Operations'],
                 ['landing-customizer', 'Display & Landing Design']
               ] as const).filter(([id]) => canAccessAdminTab(id)).map(([id, label]) => (
-                <button key={id} type="button" onClick={() => setCampaignWorkspaceSection(id)} className={`px-3 py-2 rounded-lg text-[11px] sm:text-xs font-bold ${campaignWorkspaceSection === id ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/40' : 'bg-slate-950 text-slate-300 border border-slate-800'}`}>{label}</button>
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setCampaignWorkspaceSection(id)}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-black tracking-wide cursor-pointer transition-all shadow-md ${
+                    campaignWorkspaceSection === id
+                      ? 'bg-emerald-500 text-slate-950 border-2 border-emerald-300 shadow-emerald-500/20 scale-[1.02]'
+                      : 'bg-slate-950 text-slate-300 border border-slate-800 hover:bg-slate-800/80'
+                  }`}
+                >
+                  {label}
+                </button>
               ))}
             </div>
           )}
+
+          {isInNewSettingsWorkspace && effectiveNewSection && (() => {
+            const activeMeta = accessibleNewSections.find((item) => item.id === effectiveNewSection) || accessibleNewSections[0];
+            const jobsGroupItems = accessibleNewSections.filter((item) => item.group === 'jobs');
+            const adsGroupItems = accessibleNewSections.filter((item) => item.group === 'campaigns');
+
+            return (
+              <div className="space-y-4 rounded-2xl border border-emerald-500/30 bg-slate-950/85 p-3.5 sm:p-5">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-800 pb-3">
+                  <div>
+                    <h3 className="text-sm sm:text-base font-black text-emerald-300">
+                      NEW — Central Jobs &amp; Ads Settings
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      Organized workspace for existing Jobs Management and Ads &amp; Campaigns settings. Legacy tabs remain available above.
+                    </p>
+                  </div>
+                  <span className="self-start sm:self-auto rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold text-emerald-300 shrink-0">
+                    ORGANIZED WORKSPACE · LEGACY SAFE
+                  </span>
+                </div>
+
+                {/* Visible Breadcrumb Path */}
+                <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2 text-[11px] text-slate-400">
+                  <span className="text-slate-500 font-semibold">Path:</span>
+                  <span>Admin Panel</span>
+                  <span className="text-slate-600">/</span>
+                  <span>Jobs &amp; Ads Control Center</span>
+                  <span className="text-slate-600">/</span>
+                  <span>Jobs Management</span>
+                  <span className="text-slate-600">/</span>
+                  <span className="text-emerald-300 font-bold">NEW</span>
+                  <span className="text-slate-600">/</span>
+                  <span className={activeMeta.group === 'jobs' ? 'text-amber-300 font-semibold' : 'text-emerald-300 font-semibold'}>
+                    {activeMeta.groupLabel}
+                  </span>
+                  <span className="text-slate-600">/</span>
+                  <span className="text-white font-bold">{activeMeta.label}</span>
+                </div>
+
+                {/* Two Distinct Groups: Jobs Management vs Ads & Campaigns */}
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  {jobsGroupItems.length > 0 && (
+                    <div className="rounded-xl border border-amber-500/25 bg-slate-900/60 p-3 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-black uppercase tracking-wider text-amber-300">
+                          Jobs Management Settings
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {jobsGroupItems.length} {jobsGroupItems.length === 1 ? 'Section' : 'Sections'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-2">
+                        {jobsGroupItems.map((item) => {
+                          const isSelected = effectiveNewSection === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setNewWorkspaceSection(item.id)}
+                              className={`w-full rounded-xl border px-3 py-2.5 text-left transition-all cursor-pointer ${
+                                isSelected
+                                  ? 'border-amber-400 bg-amber-500/15 text-amber-100 shadow-sm'
+                                  : 'border-slate-800 bg-slate-950/70 text-slate-300 hover:border-amber-500/40 hover:bg-slate-900'
+                              }`}
+                            >
+                              <div className="text-xs font-bold">
+                                {item.shortNumber}. {item.label}
+                              </div>
+                              <div className="text-[10px] text-slate-400 mt-0.5 line-clamp-2">
+                                {item.description}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {adsGroupItems.length > 0 && (
+                    <div className="rounded-xl border border-emerald-500/25 bg-slate-900/60 p-3 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-black uppercase tracking-wider text-emerald-300">
+                          Ads &amp; Campaigns Settings
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {adsGroupItems.length} {adsGroupItems.length === 1 ? 'Section' : 'Sections'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {adsGroupItems.map((item) => {
+                          const isSelected = effectiveNewSection === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setNewWorkspaceSection(item.id)}
+                              className={`w-full rounded-xl border px-3 py-2.5 text-left transition-all cursor-pointer ${
+                                isSelected
+                                  ? 'border-emerald-400 bg-emerald-500/15 text-emerald-100 shadow-sm'
+                                  : 'border-slate-800 bg-slate-950/70 text-slate-300 hover:border-emerald-500/40 hover:bg-slate-900'
+                              }`}
+                            >
+                              <div className="text-xs font-bold">
+                                {item.shortNumber}. {item.label}
+                              </div>
+                              <div className="text-[10px] text-slate-400 mt-0.5 line-clamp-2">
+                                {item.description}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {effectiveNewSection === 'ad-display-rules' && (
+                  <div className="rounded-xl border border-indigo-500/30 bg-indigo-950/30 px-3.5 py-2.5 text-[11px] text-indigo-200 space-y-1">
+                    <div className="font-bold text-indigo-100">Single Source of Truth Guide</div>
+                    <p className="text-slate-300">
+                      Manage <strong>Popup Modes</strong>, <strong>Feed Inline Insertion</strong>, <strong>Banner Dimensions &amp; Appearance</strong>, <strong>Placement Caps</strong>, and <strong>Approval Rules</strong> below.
+                      For <strong>Job Posting Fees</strong>, use Section 1 &amp; 2 under Jobs Management; for <strong>Top Promo Discount Banners</strong>, use Section 7 (Homepage Layout &amp; Promo Banners); for <strong>Active Rate Card Multipliers &amp; Overrides</strong>, use Section 4 (Ad Rate Card &amp; Slot Pricing).
+                    </p>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           <p className="text-[10px] text-slate-500">All controls below reuse their existing permissions, data sources and save actions. Job rates and category fees are shown together; campaign slots, sizes, placement settings, schedules and active campaign rates remain in the Campaign Setup tab.</p>
         </section>
       )}
@@ -3805,7 +4122,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {effectiveAdminTab === 'campaign-center' && canAccessAdminTab('campaign-center') && (
         <AdminCampaignCenter
           ads={ads || []}
+          onAddAd={onAddAd}
           onUpdateAd={onUpdateAd || (() => {})}
+          onDeleteAd={onDeleteAd}
+          onResetAdMetrics={onResetAdMetrics}
+          onApproveAd={onApproveAd}
+          onRejectAd={onRejectAd}
+          pricingConfig={pricingConfig}
+          campaignConfig={campaignConfig}
           canManageCampaignOperations={hasAdminUiPermission('advertisements.manage')}
           canWaiveCampaignFee={hasAdminUiPermission('finance.manage')}
           canViewCampaignContactDetails={effectiveAdminRole === 'Admin' || effectiveAdminRole === 'Super Admin'}
@@ -3814,7 +4138,121 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* TAB: UNIVERSAL PRICING CONTROLLER */}
       {effectiveAdminTab === 'pricing-controller' && canAccessAdminTab('pricing-controller') && (
-        <AdminPricingController onPricingSaved={onSyncAuthoritativePricing} hideCvSettings />
+        <AdminPricingController
+          onPricingSaved={onSyncAuthoritativePricing}
+          hideCvSettings
+          hideSubscriptionSettings={isInNewSettingsWorkspace}
+          hideAdPlaceholder={isInNewSettingsWorkspace}
+        />
+      )}
+      {isInNewSettingsWorkspace && effectiveAdminTab === 'job-moderation-policy' && canAccessAdminTab('pending') && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-800 pb-4">
+            <div>
+              <h3 className="text-lg font-black text-white">Resubmission &amp; Moderation Policy</h3>
+              <p className="text-xs text-slate-400">
+                Configure how many times employers may edit and resubmit a rejected job before contacting support.
+              </p>
+            </div>
+            {resubmissionFeedback && (
+              <span
+                role="status"
+                className={`text-xs font-bold px-3 py-1.5 rounded-xl border ${
+                  resubmissionFeedback.type === 'success'
+                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                    : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                }`}
+              >
+                {resubmissionFeedback.message}
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="text-xs font-bold text-slate-200" htmlFor="new-job-resubmission-limit">
+                  Rejected Job Resubmission Limit
+                </label>
+                <span className="text-[11px] font-mono text-amber-300">
+                  {resubmissionMaxAttempts === 0 ? 'Disabled (0 attempts)' : `${resubmissionMaxAttempts} attempts allowed`}
+                </span>
+              </div>
+              <select
+                id="new-job-resubmission-limit"
+                value={resubmissionMaxAttempts}
+                disabled={resubmissionSettingsBusy || !resubmissionSettingsLoaded}
+                onChange={async (e) => {
+                  const nextValue = Number(e.target.value);
+                  const previousValue = resubmissionMaxAttempts;
+                  setResubmissionMaxAttempts(nextValue);
+                  setResubmissionSettingsBusy(true);
+                  setResubmissionFeedback(null);
+                  try {
+                    const result: any = await api.jobs.saveResubmissionSettings(nextValue);
+                    if (!result?.success) throw new Error(result?.message || 'Could not save resubmission limit.');
+                    setResubmissionFeedback({ type: 'success', message: 'Resubmission limit saved.' });
+                    setTimeout(() => setResubmissionFeedback(null), 3000);
+                  } catch (error: any) {
+                    setResubmissionMaxAttempts(previousValue);
+                    setResubmissionFeedback({
+                      type: 'error',
+                      message: error?.message || 'Could not save resubmission limit.'
+                    });
+                  } finally {
+                    setResubmissionSettingsBusy(false);
+                  }
+                }}
+                className="w-full sm:w-56 px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white font-semibold"
+              >
+                {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((count) => (
+                  <option key={count} value={count}>
+                    {count === 0 ? '0 — Disabled' : `${count} ${count === 1 ? 'Attempt' : 'Attempts'}`}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-slate-500">
+                {resubmissionSettingsLoaded
+                  ? 'Changes apply immediately to rejected employer submissions and sync with the Pending Approvals queue.'
+                  : 'Loading saved resubmission policy...'}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4 space-y-3">
+              <div className="text-xs font-bold text-slate-200">Quick Operational Views</div>
+              <p className="text-[11px] text-slate-400">
+                Jump directly to moderation queues or listing tools inside Jobs Management.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setJobsWorkspaceSection('pending')}
+                  className="px-3 py-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-200 text-xs font-bold cursor-pointer"
+                >
+                  Pending Approvals ({pendingJobs.length})
+                </button>
+                {canAccessAdminTab('jobs') && (
+                  <button
+                    type="button"
+                    onClick={() => setJobsWorkspaceSection('jobs')}
+                    className="px-3 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-bold cursor-pointer"
+                  >
+                    Live Listings ({jobs.length})
+                  </button>
+                )}
+                {canAccessAdminTab('fee-logs') && (
+                  <button
+                    type="button"
+                    onClick={() => setJobsWorkspaceSection('fee-logs')}
+                    className="px-3 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-bold cursor-pointer"
+                  >
+                    Job Fee Logs ({jobPostingFeeLogs.length})
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
       {effectiveAdminTab === 'subscription-studio' && canAccessAdminTab('subscription-studio') && (
         <AdminSubscriptionStudio onPricingSaved={onSyncAuthoritativePricing} />
@@ -3834,7 +4272,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB: PER-CATEGORY POSTING FEES & 1-CLICK WAIVERS */}
-      {(effectiveAdminTab === 'fee-management' || (adminTab === 'jobs-ads-control-center' && jobsAdsWorkspaceArea === 'jobs' && jobsWorkspaceSection === 'pricing-controller')) && canAccessAdminTab('fee-management') && (
+      {effectiveAdminTab === 'fee-management' && canAccessAdminTab('fee-management') && (
         <AdminFeeManager
           landingConfig={landingConfig}
           onUpdateLandingConfig={onUpdateLandingConfig}
@@ -3853,6 +4291,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           feeLogs={jobPostingFeeLogs}
           onUpdateUser={onUpdateUser || (() => {})}
           onBulkEndUnpaidMemberships={onBulkEndUnpaidMemberships}
+          hideUnwiredJobWaivers={isInNewSettingsWorkspace}
+          onOpenBaseFeeSettings={
+            isInNewSettingsWorkspace && canAccessNewSection('job-tiers-pricing')
+              ? () => setNewWorkspaceSection('job-tiers-pricing')
+              : undefined
+          }
         />
       )}
 
@@ -3979,6 +4423,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* TAB: ADVERTISEMENT & CAMPAIGN ENGINE */}
       {effectiveAdminTab === 'advertisements' && canAccessAdminTab('advertisements') && (
         <AdminAdHub
+          key={isInNewSettingsWorkspace ? `new-ad-${effectiveNewSection}` : 'legacy-ad-hub'}
+          initialTab={
+            isInNewSettingsWorkspace && effectiveNewSection === 'ad-rate-card'
+              ? 'pricing'
+              : isInNewSettingsWorkspace && effectiveNewSection === 'ad-display-rules'
+              ? 'customizer'
+              : 'approvals'
+          }
+          mode={
+            isInNewSettingsWorkspace && effectiveNewSection === 'ad-rate-card'
+              ? 'rate-card-only'
+              : isInNewSettingsWorkspace && effectiveNewSection === 'ad-display-rules'
+              ? 'customizer-only'
+              : 'full'
+          }
           ads={ads}
           onAddAd={onAddAd || (() => {})}
           onUpdateAd={onUpdateAd || (() => {})}
@@ -7179,8 +7638,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       })()}
 
       {/* TAB: GLOBAL FEATURE CONTROLS */}
-      {effectiveAdminTab === 'settings' && (
-        canAccessAdminTab('settings') && (
+      {effectiveAdminTab === 'settings' && canAccessAdminTab('settings') && (
         <div className="admin-settings-mobile-compact space-y-6 text-white">
           
           {/* MASTER FEATURE SWITCHES PANEL */}
@@ -7354,7 +7812,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
 
         </div>
-        )
       )}
 
               </div>

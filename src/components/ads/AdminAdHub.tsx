@@ -110,7 +110,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
   onRejectAd,
   canManageAdConfiguration = false,
   isPricingReady = false,
-  initialTab = 'approvals',
+  initialTab = 'performance',
   mode = 'full'
 }) => {
   // Main Sub-Tab: Directory, Pending Approvals, Placement Slots, Campaign Customizer, Pricing Engine, Performance Charts
@@ -710,30 +710,6 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
       {/* Main Admin Sub-Tabs Navigation */}
       {mode === 'full' && (
       <div className="flex flex-nowrap items-center space-x-2 border-b border-slate-800 pb-3 overflow-x-auto overscroll-x-contain touch-pan-x text-xs font-bold">
-        <button
-          onClick={() => setActiveTab('approvals')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 whitespace-nowrap ${
-            activeTab === 'approvals'
-              ? 'bg-amber-500 text-slate-950 font-extrabold shadow-lg shadow-amber-500/20'
-              : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
-          }`}
-        >
-          <Clock className="w-4 h-4" />
-          <span>Pending Approvals Queue ({pendingAds.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('slots')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 whitespace-nowrap ${
-            activeTab === 'slots'
-              ? 'bg-emerald-500 text-slate-950 font-extrabold shadow-lg shadow-emerald-500/20'
-              : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
-          }`}
-        >
-          <Calendar className="w-4 h-4" />
-          <span>Placement Slots & Live Timeline</span>
-        </button>
-
         {canManageAdConfiguration && isPricingReady && <button
           onClick={() => setActiveTab('customizer')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 whitespace-nowrap ${
@@ -745,18 +721,6 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
           <Sliders className="w-4 h-4" />
           <span>Campaign Options & Page Scheduler</span>
         </button>}
-
-        <button
-          onClick={() => setActiveTab('directory')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 whitespace-nowrap ${
-            activeTab === 'directory'
-              ? 'bg-emerald-500 text-slate-950 font-extrabold shadow-lg shadow-emerald-500/20'
-              : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
-          }`}
-        >
-          <Layers className="w-4 h-4" />
-          <span>All Campaigns Directory ({ads.length})</span>
-        </button>
 
         {canManageAdConfiguration && isPricingReady && <button
           onClick={() => setActiveTab('pricing')}

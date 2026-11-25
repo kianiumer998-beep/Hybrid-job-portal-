@@ -1024,7 +1024,6 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
             {/* Tier availability, public labels, ranking order and homepage slot caps are already configured in the tier cards above. */}
             </div>
           </div>
-        </div>
 
         {/* Advertisement pricing is maintained in Ad Hub's authoritative Rate Card. */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-3">

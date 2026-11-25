@@ -69,7 +69,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
   }, [config]);
 
   const [activeTab, setActiveTab] = useState<
-    'popup-modes' | 'feed-positioning' | 'banner-dimensions' | 'banner-appearance' | 'placements' | 'rules'
+    'popup-modes' | 'feed-positioning' | 'banner-dimensions' | 'banner-appearance' | 'placements'
   >('popup-modes');
 
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
@@ -308,7 +308,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
             <h2 className="text-xl font-black text-white">Campaign & Placement Engine</h2>
           </div>
           <p className="text-xs text-slate-400 mt-1 max-w-2xl">
-            Configure popup queue behavior, inline ad feed frequency, banner dimensions & rotation, placement availability & slot caps, and campaign submission rules. Top promo banners are edited in Display & Landing Design.
+            Configure popup queue behavior, inline ad feed frequency, banner dimensions & rotation, and placement availability & slot caps. Campaign approval and bypass rules are now in Platform Settings & Data → Global Master Switches.
           </p>
         </div>
 
@@ -366,7 +366,6 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
               <option value="banner-dimensions">3. Banner Dimensions (Desktop &amp; Mobile)</option>
               <option value="banner-appearance">4. Banner Styling &amp; Rotation</option>
               <option value="placements">5. All 8 Placements &amp; Slot Caps ({localConfig.placementOptions.filter(p => p.isEnabled).length}/8 On)</option>
-              <option value="rules">6. Campaign Approval &amp; Bypass Policy Rules</option>
             </select>
           </label>
           <div className="flex flex-wrap gap-1.5">
@@ -376,7 +375,6 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
               { id: 'banner-dimensions', label: 'Banner Sizes' },
               { id: 'banner-appearance', label: 'Banner Styling' },
               { id: 'placements', label: '8 Placements' },
-              { id: 'rules', label: 'Policy Rules' }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -401,7 +399,6 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
           { id: 'banner-dimensions', label: 'Banner Dimensions', icon: Sliders, badge: 'Custom Sizes' },
           { id: 'banner-appearance', label: 'Banner Styling & Rotation', icon: Eye, badge: 'Appearance' },
           { id: 'placements', label: 'All 8 Placements & Slots', icon: Layout, badge: `${localConfig.placementOptions.filter(p => p.isEnabled).length}/8 On` },
-          { id: 'rules', label: 'Policy Rules', icon: ShieldCheck }
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -1402,56 +1399,6 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
         </div>
       )}
 
-      {/* ========================================================= */}
-      {/* 6. POLICY RULES TAB                                       */}
-      {/* ========================================================= */}
-      {activeTab === 'rules' && (
-        <div className="space-y-6">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
-            <div>
-              <div className="flex items-center space-x-2">
-                <ShieldCheck className="w-5 h-5 text-indigo-400" />
-                <h3 className="text-lg font-black text-white">Campaign & Submission Form Policy Rules</h3>
-              </div>
-              <p className="text-xs text-slate-400 mt-1">
-                Configure mandatory approval rules and bypass options for advertising submissions.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
-                <div>
-                  <div className="text-xs font-bold text-white">Require Admin Review & Approval</div>
-                  <div className="text-[10px] text-slate-400">All submitted campaigns require manual approval</div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={localConfig.formRules.requireAdminApproval}
-                  onChange={(e) => setLocalConfig(prev => ({ ...prev, formRules: { ...prev.formRules, requireAdminApproval: e.target.checked } }))}
-                  className="w-4 h-4 text-emerald-500 rounded cursor-pointer"
-                />
-              </div>
-
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
-                <div>
-                  <div className="text-xs font-bold text-white">Admin 100% Free Bypass</div>
-                  <div className="text-[10px] text-slate-400">Admins can create campaigns at 0 PKR</div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={localConfig.formRules.adminFreeCampaignBypass}
-                  onChange={(e) => setLocalConfig(prev => ({ ...prev, formRules: { ...prev.formRules, adminFreeCampaignBypass: e.target.checked } }))}
-                  className="w-4 h-4 text-emerald-500 rounded cursor-pointer"
-                />
-              </div>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 text-[11px] text-slate-400">
-              Top Sticky Promo Discount Banners are managed in <strong>Ads &amp; Campaigns → Display &amp; Landing Design → Top Promo Discount Banners</strong>, and employer job posting fees are managed in <strong>Jobs Management → Job Rates &amp; Fees</strong>.
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   );

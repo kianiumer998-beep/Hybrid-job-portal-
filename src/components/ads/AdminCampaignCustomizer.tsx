@@ -274,7 +274,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
               Ad Display, Popups, Feed &amp; Placement Rules
             </h3>
             <p className="text-[11px] text-slate-400">
-              Select an area below to configure popup queues, feed inline ads, banner sizing, placement availability, or approval policy.
+              Select an area below to configure popup queues, feed inline ads, banner sizing, or placement availability. Campaign approval and bypass controls are in Platform Settings & Data → Global Master Switches.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">

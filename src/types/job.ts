@@ -201,7 +201,7 @@ export interface Job {
   isPinnedTop?: boolean; // Pinned at top of all jobs
   isFutureJob?: boolean; // Future job opportunity
   futureIntakeDate?: string; // Target start or batch intake date (e.g. '2026-10-01' or 'Fall 2026')
-  priorityTier?: 'standard' | 'urgent' | 'featured' | 'featured_top' | 'vip_bundle';
+  priorityTier?: 'standard' | 'urgent' | 'featured' | 'featured_top' | 'vip_bundle' | 'future_job';
   subscriptionSlotFeatureId?: string;
   subscriptionSlotExpiresAt?: string;
   subscriptionSlotUsedAt?: string;

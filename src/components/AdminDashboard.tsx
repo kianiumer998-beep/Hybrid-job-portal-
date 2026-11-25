@@ -7860,7 +7860,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     type="checkbox"
                     aria-label="Require Admin Review and Approval for Campaigns"
                     checked={(campaignConfig || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG).formRules.requireAdminApproval}
-                    disabled={isCampaignPolicySaving || !onUpdateCampaignConfig}
+                    disabled={isCampaignPolicySaving || !onUpdateCampaignConfig || !campaignConfig}
                     onChange={(e) => void handleToggleCampaignPolicy('requireAdminApproval', e.target.checked)}
                     className="w-4 h-4 accent-emerald-500 rounded cursor-pointer disabled:opacity-50"
                   />
@@ -7874,7 +7874,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     type="checkbox"
                     aria-label="Allow Admin Free Campaign Bypass"
                     checked={(campaignConfig || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG).formRules.adminFreeCampaignBypass}
-                    disabled={isCampaignPolicySaving || !onUpdateCampaignConfig}
+                    disabled={isCampaignPolicySaving || !onUpdateCampaignConfig || !campaignConfig}
                     onChange={(e) => void handleToggleCampaignPolicy('adminFreeCampaignBypass', e.target.checked)}
                     className="w-4 h-4 accent-emerald-500 rounded cursor-pointer disabled:opacity-50"
                   />

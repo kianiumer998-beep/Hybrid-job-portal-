@@ -26,14 +26,12 @@ interface AdminPricingControllerProps {
   onPricingSaved?: (authoritativePricing: any) => void;
   hideCvSettings?: boolean;
   hideSubscriptionSettings?: boolean;
-  hideAdPlaceholder?: boolean;
 }
 
 export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
   onPricingSaved,
   hideCvSettings = false,
-  hideSubscriptionSettings,
-  hideAdPlaceholder
+  hideSubscriptionSettings
 }) => {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -128,6 +126,12 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
     tierCounts: { vip: 0, pinned: 0, featured: 0, urgent: 0, future: 0 },
     slotLimits: { vip: 2, pinned: 2, featured: 4, urgent: 4, future: 4 }
   });
+
+  useEffect(() => {
+    if (hideSubscriptionSettings && activeSubTab === 'subscriptions') {
+      setActiveSubTab('pricing');
+    }
+  }, [hideSubscriptionSettings, activeSubTab]);
 
   useEffect(() => {
     loadPricing();
@@ -502,7 +506,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
         {[
           { id: 'pricing', label: 'Job Pricing Control', icon: Sliders },
           { id: 'early-access', label: 'Early Access', icon: Clock },
-          { id: 'subscriptions', label: 'Subscriptions', icon: Sparkles },
+          ...(!hideSubscriptionSettings ? [{ id: 'subscriptions', label: 'Subscriptions', icon: Sparkles }] : []),
           { id: 'category', label: 'Category', icon: Tag },
           { id: 'posting-fee', label: 'Posting Fee', icon: DollarSign },
           { id: 'employer-waiver', label: 'Employer Waiver', icon: Users },
@@ -1635,7 +1639,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
       )}
 
       {/* SUB-TAB 3: CANDIDATE SUBSCRIPTIONS */}
-      {activeSubTab === 'subscriptions' && (
+      {activeSubTab === 'subscriptions' && !hideSubscriptionSettings && (
         <SubscriptionPlansBuilder pricing={pricing} setPricing={setPricing} showReminderSettings />
       )}
 

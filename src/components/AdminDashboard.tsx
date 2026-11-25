@@ -3942,7 +3942,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 ['ai-enhancer', 'Quality & Spam'],
                 ['pricing-controller', 'Job Rates & Fees'],
                 ['fee-logs', 'Job Fee Logs'],
-                ['new', 'NEW • Central Settings']
               ] as const).filter(([id]) => canAccessAdminTab(id)).map(([id, label]) => (
                 <button
                   key={id}

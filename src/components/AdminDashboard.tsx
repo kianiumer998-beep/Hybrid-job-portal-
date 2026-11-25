@@ -4142,7 +4142,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onPricingSaved={onSyncAuthoritativePricing}
           hideCvSettings
           hideSubscriptionSettings={isInNewSettingsWorkspace}
-          hideAdPlaceholder={isInNewSettingsWorkspace}
         />
       )}
       {isInNewSettingsWorkspace && effectiveAdminTab === 'job-moderation-policy' && canAccessAdminTab('pending') && (

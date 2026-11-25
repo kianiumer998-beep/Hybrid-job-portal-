@@ -4457,7 +4457,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               ? 'pricing'
               : isInNewSettingsWorkspace && effectiveNewSection === 'ad-display-rules'
               ? 'customizer'
-              : 'approvals'
+              : 'performance'
           }
           mode={
             isInNewSettingsWorkspace && effectiveNewSection === 'ad-rate-card'

@@ -48,6 +48,9 @@ function applySubscriptionPostingSlotExpiry(job: any, now = Date.now()): any {
   if (!job || !job.subscriptionSlotFeatureId || !job.subscriptionSlotExpiresAt) return job;
   const expiresAt = Date.parse(String(job.subscriptionSlotExpiresAt));
   if (!Number.isFinite(expiresAt) || expiresAt > now) return job;
+  const isExpiredFutureSlot =
+    String(job.subscriptionSlotFeatureId) === 'future_job_posting' ||
+    job.priorityTier === 'future_job';
   return {
     ...job,
     priorityTier: 'standard',
@@ -55,6 +58,7 @@ function applySubscriptionPostingSlotExpiry(job: any, now = Date.now()): any {
     featured: false,
     isPinnedTop: false,
     vipBundle: false,
+    ...(isExpiredFutureSlot ? { isFutureJob: false } : {}),
     subscriptionSlotExpired: true
   };
 }
@@ -579,19 +583,20 @@ export class JobRepository {
    */
   static getEffectivePriorityTier(job: any): 'vip' | 'pinned' | 'featured' | 'urgent' | 'future' | null {
     if (!job || typeof job !== 'object') return null;
-    if (job.priorityTier === 'vip_bundle' || (job.isPinnedTop && job.featured && job.urgent)) {
+    const effectiveJob = applySubscriptionPostingSlotExpiry(job);
+    if (effectiveJob.priorityTier === 'vip_bundle' || (effectiveJob.isPinnedTop && effectiveJob.featured && effectiveJob.urgent)) {
       return 'vip';
     }
-    if (job.isPinnedTop || job.priorityTier === 'featured_top') {
+    if (effectiveJob.isPinnedTop || effectiveJob.priorityTier === 'featured_top') {
       return 'pinned';
     }
-    if (job.featured || job.priorityTier === 'featured') {
+    if (effectiveJob.featured || effectiveJob.priorityTier === 'featured') {
       return 'featured';
     }
-    if (job.urgent || job.priorityTier === 'urgent') {
+    if (effectiveJob.urgent || effectiveJob.priorityTier === 'urgent') {
       return 'urgent';
     }
-    if (job.isFutureJob || job.priorityTier === 'future_job') {
+    if (effectiveJob.isFutureJob || effectiveJob.priorityTier === 'future_job') {
       return 'future';
     }
     return null;

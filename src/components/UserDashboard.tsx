@@ -1598,6 +1598,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           campaignSubTab={campaignSubTab}
           accountSubTab={accountSubTab}
           activeNavId={activeNavId}
+          userRole={currentUser.role}
+          onOpenNotifications={() => setShowNotificationDrawer(true)}
+          onOpenDeposit={() => setOpenDepositModalTrigger(true)}
+          onOpenSubscription={onOpenSubscriptionModal}
           onNavigate={handleProNavigate}
           onLogout={handleLogout}
           isOpen={isProMenuOpen}

@@ -898,7 +898,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
             <button type="button" disabled={!recipientCampaignId || !scheduleDateTime || scheduleBusy} onClick={async () => {
               setScheduleBusy(true); setScheduleNotice('');
               try {
-                const scheduledAt = new Date(scheduleDateTime).toISOString();
+                const scheduledAt = new Date(scheduleDateTime + ':00+05:00').toISOString();
                 const result = await api.broadcasts.scheduleCampaign(recipientCampaignId, scheduledAt, 'Asia/Karachi');
                 if (!result?.success) throw new Error(result?.message || 'Schedule save failed.');
                 setScheduleNotice(result.message || 'Schedule saved; provider setup is still required for dispatch.');

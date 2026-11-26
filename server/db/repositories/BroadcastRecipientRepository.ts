@@ -107,6 +107,45 @@ export const BroadcastRecipientRepository = {
     return { campaignId: safeText(campaignId, 160), counts, total: Object.values(counts).reduce((a, b) => a + b, 0), deliveryEnabled: false };
   },
 
+  // Internal provider-adapter hook. Call only after receiving a genuine provider response.
+  async recordProviderOutcome(input: {
+    campaignId: string;
+    subscriberId: string;
+    channel: 'Email' | 'WhatsApp' | 'SMS';
+    outcome: 'Sent' | 'Delivered' | 'Failed';
+    providerMessageId?: string;
+    failureReason?: string;
+  }) {
+    const collection = await this.collection();
+    const campaignId = safeText(input.campaignId, 160);
+    const subscriberId = safeText(input.subscriberId, 160);
+    if (!campaignId || !subscriberId || !['Email', 'WhatsApp', 'SMS'].includes(input.channel)) {
+      throw new Error('Invalid provider outcome identity.');
+    }
+    if (!['Sent', 'Delivered', 'Failed'].includes(input.outcome)) {
+      throw new Error('Provider outcome must be Sent, Delivered, or Failed.');
+    }
+    const id = 'bcr-' + crypto.createHash('sha256').update(campaignId + '|' + subscriberId + '|' + input.channel).digest('hex');
+    const now = new Date().toISOString();
+    const result = await collection.updateOne(
+      { id, status: { $in: ['WaitingForProvider', 'Queued', 'Sent'] } },
+      {
+        $set: {
+          status: input.outcome,
+          providerMessageId: safeText(input.providerMessageId, 250) || undefined,
+          failureReason: input.outcome === 'Failed' ? safeText(input.failureReason, 500) || 'Provider reported delivery failure.' : undefined,
+          updatedAt: now,
+          lastAttemptAt: now
+        },
+        $inc: { attempts: 1 }
+      }
+    );
+    if (result.matchedCount === 0) {
+      throw new Error('Recipient record not found or is not in a provider-eligible state.');
+    }
+    return { success: true, status: input.outcome };
+  },
+
   async retryFailed(campaignId: string) {
     const collection = await this.collection();
     const now = new Date().toISOString();

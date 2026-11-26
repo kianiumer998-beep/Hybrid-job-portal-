@@ -94,6 +94,16 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
 }) => {
   const [expandedCategory, setExpandedCategory] = useState<string | null>('dashboard');
 
+  // Let mobile users dismiss the navigation with the standard Escape key.
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [isOpen, onClose]);
+
   const menuStructure: NavItem[] = [
     { id: 'dashboard', label: 'Overview', icon: LayoutDashboard, subItems: [
       { id: 'dash-overview', label: 'Dashboard Overview', tab: 'overview', subView: 'metrics', icon: LayoutDashboard },
@@ -220,6 +230,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
           return (
             <div key={category.id} className="space-y-1">
               <button
+                type="button"
                 onClick={() => handleCategoryClick(category.id)}
                 aria-expanded={isExpanded}
                 aria-controls={`user-nav-${category.id}`}
@@ -241,10 +252,13 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                     return (
                       <button
                         key={subItem.id}
+                        type="button"
                         onClick={() => {
                           if (subItem.isLogout) {
                             onLogout();
                           } else if (subItem.action) {
+                            // Keep the selected shortcut highlighted while its existing modal/drawer is open.
+                            onNavigate({ id: subItem.id });
                             if (subItem.action === 'notifications') onOpenNotifications();
                             if (subItem.action === 'deposit') onOpenDeposit();
                             if (subItem.action === 'subscription') onOpenSubscription();
@@ -303,8 +317,11 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
 
       {/* Mobile Drawer */}
       <div className={`lg:hidden fixed inset-0 z-50 transition-all duration-300 ${isOpen ? 'visible' : 'invisible pointer-events-none'}`}>
-        <div 
-          className={`absolute inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`} 
+        <button
+          type="button"
+          aria-label="Close dashboard navigation"
+          tabIndex={isOpen ? 0 : -1}
+          className={`absolute inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}
           onClick={onClose}
         />
         <div className={`absolute left-0 top-0 bottom-0 transition-transform duration-300 transform ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
@@ -322,7 +339,8 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
             { id: 'mem-whatsapp', label: 'Alerts', icon: Bell, isGlobal: true, globalTab: 'alerts' as GlobalTab },
             { id: 'acc-profile', label: 'Account', icon: User, tab: 'profile' as DashboardTab, accountSubTab: 'profile' as const },
           ].map((item) => {
-            const active = activeNavId === item.id || (!activeNavId && isActive(item));
+            // Dashboard-local selection reflects the actual current view, not a stale global-route ID.
+            const active = isActive(item);
             return (
               <button
                 key={item.id}
@@ -339,7 +357,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                   });
                   onClose();
                 }}
-                className={`flex min-h-14 flex-col items-center justify-center gap-1 px-1 text-[10px] font-semibold transition-colors ${active ? 'text-emerald-400' : 'text-slate-400 hover:text-slate-200'}`}
+                className={`flex min-h-14 flex-col items-center justify-center gap-1 px-1 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 ${active ? 'text-emerald-400' : 'text-slate-400 hover:text-slate-200'}`}
               >
                 <item.icon className="h-5 w-5" aria-hidden="true" />
                 <span>{item.label}</span>

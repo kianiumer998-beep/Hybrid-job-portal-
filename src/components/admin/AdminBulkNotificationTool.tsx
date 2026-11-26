@@ -19,7 +19,7 @@ export interface BulkNotificationBroadcast {
   title: string;
   category: string;
   priority: 'normal' | 'high' | 'urgent';
-  channel: 'In-App' | 'Email' | 'WhatsApp' | 'Multi-Channel';
+  channel: 'In-App' | 'Email' | 'WhatsApp' | 'SMS' | 'Multi-Channel';
   targetAudience: string;
   messageBody: string;
   ctaText?: string;
@@ -36,6 +36,7 @@ const VALID_DRAFT_CHANNELS = new Set<BulkNotificationBroadcast['channel']>([
   'In-App',
   'Email',
   'WhatsApp',
+  'SMS',
   'Multi-Channel'
 ]);
 const VALID_DRAFT_STATUSES = new Set<BulkNotificationBroadcast['status']>([
@@ -335,7 +336,8 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
 }) => {
   const isEmailEnabled = featureFlags?.enableEmailAlerts === true;
   const isWhatsAppEnabled = featureFlags?.enableWhatsAppAlerts === true;
-  const isMultiChannelEnabled = isEmailEnabled && isWhatsAppEnabled;
+  const isSmsEnabled = featureFlags?.enableSmsAlerts === true;
+  const isMultiChannelEnabled = isEmailEnabled && isWhatsAppEnabled && isSmsEnabled;
 
   const [initialStorageState] = useState<NotificationDraftStorageInspection>(() => {
     if (typeof localStorage === 'undefined') {
@@ -358,7 +360,7 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
 
   // Form State
   const [targetAudience, setTargetAudience] = useState<string>('all_users');
-  const [channel, setChannel] = useState<'In-App' | 'Email' | 'WhatsApp' | 'Multi-Channel'>('In-App');
+  const [channel, setChannel] = useState<'In-App' | 'Email' | 'WhatsApp' | 'SMS' | 'Multi-Channel'>('In-App');
   const [priority, setPriority] = useState<'normal' | 'high' | 'urgent'>('high');
   const [category, setCategory] = useState<string>('Career Alert');
   const [title, setTitle] = useState<string>('Verified Remote Tech Jobs Added');
@@ -369,7 +371,7 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
   const [ctaUrl, setCtaUrl] = useState<string>('#jobs');
 
   // Preview & Draft Status
-  const [previewChannel, setPreviewChannel] = useState<'In-App' | 'Email' | 'WhatsApp'>('In-App');
+  const [previewChannel, setPreviewChannel] = useState<'In-App' | 'Email' | 'WhatsApp' | 'SMS'>('In-App');
   const [saveNotice, setSaveNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   React.useEffect(() => {
@@ -382,8 +384,11 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
     } else if (channel === 'WhatsApp' && !isWhatsAppEnabled) {
       setChannel('In-App');
       setPreviewChannel('In-App');
+    } else if (channel === 'SMS' && !isSmsEnabled) {
+      setChannel('In-App');
+      setPreviewChannel('In-App');
     }
-  }, [channel, isEmailEnabled, isWhatsAppEnabled, isMultiChannelEnabled]);
+  }, [channel, isEmailEnabled, isWhatsAppEnabled, isSmsEnabled, isMultiChannelEnabled]);
 
 
   const audienceEstimate = useMemo(() => {
@@ -651,13 +656,16 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
                 >
                   <option value="In-App">In-App Notification Preview</option>
                   <option value="Multi-Channel" disabled={!isMultiChannelEnabled}>
-                    Multi-Channel {!isMultiChannelEnabled ? '(Disabled by Feature Flags)' : '(Draft Only)'}
+                    Multi-Channel (Email + WhatsApp + SMS) {!isMultiChannelEnabled ? '(Enable all 3 channels)' : '(Draft Only)'}
                   </option>
                   <option value="Email" disabled={!isEmailEnabled}>
                     Email {!isEmailEnabled ? '(Disabled by Feature Flags)' : '(Draft Only)'}
                   </option>
                   <option value="WhatsApp" disabled={!isWhatsAppEnabled}>
                     WhatsApp {!isWhatsAppEnabled ? '(Disabled by Feature Flags)' : '(Draft Only)'}
+                  </option>
+                  <option value="SMS" disabled={!isSmsEnabled}>
+                    SMS {!isSmsEnabled ? '(Disabled by Feature Flags)' : '(Draft Only)'}
                   </option>
                 </select>
               </div>
@@ -769,7 +777,7 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
             </h4>
 
             <div className="flex items-center space-x-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-[10px] font-bold">
-              {(['In-App', 'Email', 'WhatsApp'] as const).map((ch) => (
+              {(['In-App', 'Email', 'WhatsApp', 'SMS'] as const).map((ch) => (
                 <button
                   key={ch}
                   type="button"
@@ -835,6 +843,16 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {previewChannel === 'SMS' && (
+              <div className="p-4 rounded-2xl bg-slate-950 border border-indigo-500/30 shadow-xl space-y-2 text-xs">
+                <div className="text-[10px] font-bold uppercase text-indigo-300">SMS Format Preview</div>
+                <div className="font-bold text-white">{title}</div>
+                <p className="text-slate-200 whitespace-pre-wrap leading-relaxed">{messageBody}</p>
+                {ctaText && <div className="text-indigo-300 font-mono text-[10px]">Link: {ctaUrl || '#jobs'}</div>}
+                <div className="text-[10px] text-slate-500">SMS preview only — this tool saves a local draft; it does not send SMS.</div>
               </div>
             )}
 

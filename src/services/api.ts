@@ -762,6 +762,7 @@ export const api = {
       subject: string;
       messageBody: string;
       recipientsCount?: number;
+      linkedAdId?: string;
     }) {
       return safeFetchJson<{ success: boolean; campaign?: BroadcastCampaign; message?: string }>(
         `${API_BASE}/broadcasts`,
@@ -771,6 +772,47 @@ export const api = {
           body: JSON.stringify(data)
         }
       );
+    },
+    async getSchedules() {
+      return safeFetchJson<any>(`${API_BASE}/broadcasts/schedules`, { headers: getAuthHeader() });
+    },
+    async scheduleCampaign(campaignId: string, scheduledAt: string, timezone = 'Asia/Karachi') {
+      return safeFetchJson<any>(`${API_BASE}/broadcasts/${encodeURIComponent(campaignId)}/schedule`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ scheduledAt, timezone })
+      });
+    },
+    async updateScheduleState(campaignId: string, state: 'Paused' | 'Cancelled' | 'WaitingForProvider') {
+      return safeFetchJson<any>(`${API_BASE}/broadcasts/${encodeURIComponent(campaignId)}/schedule-state`, {
+        method: 'PATCH',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ state })
+      });
+    },
+    async prepareRecipients(campaignId: string, recipients: Array<{ subscriberId: string; channel: 'Email' | 'WhatsApp' | 'SMS'; contactMask?: string }>) {
+      return safeFetchJson<any>(`${API_BASE}/broadcasts/${encodeURIComponent(campaignId)}/prepare-recipients`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ recipients })
+      });
+    },
+    async getRecipientHistory(campaignId: string, page = 1, pageSize = 50) {
+      return safeFetchJson<any>(`${API_BASE}/broadcasts/${encodeURIComponent(campaignId)}/recipients?page=${page}&pageSize=${pageSize}`, {
+        headers: getAuthHeader()
+      });
+    },
+    async getRecipientSummary(campaignId: string) {
+      return safeFetchJson<any>(`${API_BASE}/broadcasts/${encodeURIComponent(campaignId)}/recipient-summary`, {
+        headers: getAuthHeader()
+      });
+    },
+    async retryFailedRecipients(campaignId: string) {
+      return safeFetchJson<any>(`${API_BASE}/broadcasts/${encodeURIComponent(campaignId)}/retry-failed`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({})
+      });
     },
     async importLegacy(campaigns: any[]) {
       return safeFetchJson<{

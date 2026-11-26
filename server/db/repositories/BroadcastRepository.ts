@@ -86,6 +86,8 @@ export function validateBroadcastPayload(payload: any): { valid: boolean; error?
     ? payload.categoryFilter.trim()
     : 'All Categories';
 
+  const cleanLinkedAdId = typeof payload.linkedAdId === 'string' ? payload.linkedAdId.trim().slice(0, 160) : '';
+
   // 7. Recipients Count
   let cleanRecipientsCount = 0;
   if (typeof payload.recipientsCount === 'number' && Number.isFinite(payload.recipientsCount) && payload.recipientsCount >= 0) {
@@ -101,6 +103,7 @@ export function validateBroadcastPayload(payload: any): { valid: boolean; error?
       subject: rawSubject,
       messageBody: cleanMessageBody,
       categoryFilter: cleanCategoryFilter,
+      linkedAdId: cleanLinkedAdId || undefined,
       recipientsCount: cleanRecipientsCount
     }
   };
@@ -186,6 +189,18 @@ export const BroadcastRepository = {
     return safe as BroadcastCampaign;
   },
 
+  async setCampaignStatus(id: string, status: 'Draft' | 'Scheduled', scheduledAt?: string | null) {
+    const dbColl = await this.getCollection();
+    await this.ensureIndexes(dbColl);
+    const cleanId = String(id || '').trim().slice(0, 160);
+    const result = await dbColl.updateOne(
+      { id: cleanId, status: { $in: ['Draft', 'Scheduled'] } } as any,
+      { $set: { status, updatedAt: new Date().toISOString(), ...(scheduledAt ? { scheduledAt } : {}) }, ...(scheduledAt === null ? { $unset: { scheduledAt: '' } } : {}) } as any
+    );
+    if (!result.matchedCount) throw new Error('Campaign was not found or cannot change schedule status.');
+    return this.getById(cleanId);
+  },
+
   async createCampaign(input: any, coll?: Collection<BroadcastCampaign>): Promise<BroadcastCampaign> {
     const dbColl = await this.getCollection(coll);
     await this.ensureIndexes(dbColl);
@@ -208,6 +223,7 @@ export const BroadcastRepository = {
       channel: validation.clean.channel!,
       targetAudience: validation.clean.targetAudience!,
       categoryFilter: validation.clean.categoryFilter || 'All Categories',
+      linkedAdId: validation.clean.linkedAdId,
       subject: validation.clean.subject!,
       messageBody: validation.clean.messageBody!,
       sentAt: undefined, // No delivery in this step

@@ -64,9 +64,11 @@ export interface BroadcastCampaign {
   channel: 'Email' | 'WhatsApp' | 'SMS' | 'Push Notification' | 'Multi-Channel';
   targetAudience: 'All Users' | 'Job Seekers Only' | 'Employers / Posters' | 'Subscribed Members' | 'Unpaid / Expired Users' | 'Government Job Seekers' | 'Overseas / Gulf Candidates';
   categoryFilter?: string;
+  linkedAdId?: string;
   subject: string;
   messageBody: string;
   sentAt?: string;
+  scheduledAt?: string;
   status: 'Draft' | 'Scheduled' | 'Sent' | 'Failed';
   recipientsCount: number;
   openRate?: number;

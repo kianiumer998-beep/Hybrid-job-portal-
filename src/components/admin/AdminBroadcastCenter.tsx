@@ -32,6 +32,7 @@ import {
   WhatsAppProviderType
 } from '../../types/adminSuite';
 import { api } from '../../services/api';
+import { AdminBulkNotificationTool } from './AdminBulkNotificationTool';
 
 interface AdminBroadcastCenterProps {
   campaigns?: BroadcastCampaign[];
@@ -74,13 +75,74 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
 
   const [campaignList, setCampaignList] = useState<BroadcastCampaign[]>(safeCampaigns);
   const resolvedInitialTab = hideProvidersTab && initialTab === 'providers' ? 'compose' : (initialTab || 'compose');
-  const [activeTab, setActiveTab] = useState<'compose' | 'history' | 'templates' | 'providers'>(resolvedInitialTab);
+  const [activeTab, setActiveTab] = useState<'compose' | 'history' | 'templates' | 'providers' | 'bulk' | 'recipients' | 'subscribers' | 'schedule'>(resolvedInitialTab);
+  const [recipientCampaignId, setRecipientCampaignId] = useState<string>('');
+  const [recipientHistory, setRecipientHistory] = useState<any[]>([]);
+  const [recipientPage, setRecipientPage] = useState(1);
+  const [recipientTotal, setRecipientTotal] = useState(0);
+  const [recipientSummary, setRecipientSummary] = useState<any>(null);
+  const [recipientHistoryLoading, setRecipientHistoryLoading] = useState(false);
+  const [recipientHistoryError, setRecipientHistoryError] = useState('');
+  const [recipientHistoryNotice, setRecipientHistoryNotice] = useState('');
+  const [recipientRetryBusy, setRecipientRetryBusy] = useState(false);
+  const [recipientPrepareBusy, setRecipientPrepareBusy] = useState(false);
+  const [scheduleDateTime, setScheduleDateTime] = useState('');
+  const [scheduleCampaignId, setScheduleCampaignId] = useState('');
+  const [scheduleItems, setScheduleItems] = useState<any[]>([]);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [scheduleBusy, setScheduleBusy] = useState(false);
+  const [scheduleNotice, setScheduleNotice] = useState('');
 
   useEffect(() => {
     if (initialTab) {
       setActiveTab(hideProvidersTab && initialTab === 'providers' ? 'compose' : initialTab);
     }
   }, [initialTab, hideProvidersTab]);
+
+  useEffect(() => {
+    if (!recipientCampaignId && campaignList.length > 0) setRecipientCampaignId(campaignList[0].id);
+  }, [campaignList, recipientCampaignId]);
+
+  useEffect(() => {
+    if (!scheduleCampaignId) {
+      const firstSchedulable = campaignList.find(camp => camp.status === 'Draft' || camp.status === 'Scheduled');
+      if (firstSchedulable) setScheduleCampaignId(firstSchedulable.id);
+    }
+  }, [campaignList, scheduleCampaignId]);
+
+  useEffect(() => {
+    if (activeTab !== 'schedule') return;
+    let cancelled = false;
+    setScheduleLoading(true);
+    api.broadcasts.getSchedules().then((res: any) => {
+      if (!cancelled && res?.success) setScheduleItems(Array.isArray(res.schedules) ? res.schedules : []);
+    }).catch(() => {
+      if (!cancelled) setScheduleNotice('Could not load schedule list. Please check database connection and admin access.');
+    }).finally(() => { if (!cancelled) setScheduleLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== 'recipients' || !recipientCampaignId) return;
+    let cancelled = false;
+    setRecipientHistoryLoading(true);
+    setRecipientHistoryError('');
+    Promise.all([
+      api.broadcasts.getRecipientHistory(recipientCampaignId, recipientPage, 100),
+      api.broadcasts.getRecipientSummary(recipientCampaignId)
+    ]).then(([history, summary]) => {
+      if (cancelled) return;
+      if (!history?.success || !summary?.success) throw new Error(history?.message || summary?.message || 'Could not load recipient history.');
+      setRecipientHistory(Array.isArray(history.items) ? history.items : []);
+      setRecipientTotal(Number(history.total) || 0);
+      setRecipientSummary(summary.summary || null);
+    }).catch((err: any) => {
+      if (!cancelled) setRecipientHistoryError(err?.message || 'Recipient history request failed.');
+    }).finally(() => {
+      if (!cancelled) setRecipientHistoryLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [activeTab, recipientCampaignId, recipientPage]);
 
   // Channel Gating Statuses (Fail-closed: explicit true required)
   const emailEnabled = featureFlags?.enableEmailAlerts === true;
@@ -126,6 +188,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
 
   // Composer state
   const [title, setTitle] = useState('');
+  const [linkedAdId, setLinkedAdId] = useState('');
   const [targetAudience, setTargetAudience] = useState<
     'All Users' | 'Job Seekers Only' | 'Employers / Posters' | 'Subscribed Members' | 'Unpaid / Expired Users' | 'Government Job Seekers' | 'Overseas / Gulf Candidates'
   >('Job Seekers Only');
@@ -278,6 +341,75 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
 
   const audienceCount = calculateAudienceCount();
 
+  const buildCampaignRecipientRows = (camp: BroadcastCampaign) => {
+    const selectedUsers = safeUsers.filter(u => {
+      switch (camp.targetAudience) {
+        case 'Job Seekers Only': return !u?.role?.toLowerCase()?.includes('employer') && !u?.companyName;
+        case 'Employers / Posters': return u?.role?.toLowerCase()?.includes('employer') || !!u?.companyName;
+        case 'Unpaid / Expired Users': return u?.plan === 'Free' || u?.membershipStatus === 'Expired';
+        case 'Government Job Seekers': return Array.isArray(u.skills) && u.skills.some(s => /govt|bps/i.test(s));
+        case 'Overseas / Gulf Candidates': return !!u.address && /gulf|dubai|uk|saudi|uae/i.test(u.address);
+        case 'Subscribed Members': return false;
+        default: return true;
+      }
+    });
+    const selectedSubscribers = camp.targetAudience === 'Subscribed Members'
+      ? safeSubscribers.filter(s => s.status === 'Active' || s.status === 'Expiring Soon')
+      : camp.targetAudience === 'All Users'
+        ? safeSubscribers
+        : camp.targetAudience === 'Unpaid / Expired Users'
+          ? safeSubscribers.filter(s => s.status === 'Expired' || s.status === 'Pending')
+          : [];
+    const channels: Array<'Email' | 'WhatsApp' | 'SMS'> = camp.channel === 'Multi-Channel'
+      ? ['Email', 'WhatsApp', 'SMS']
+      : camp.channel === 'Email' || camp.channel === 'WhatsApp' || camp.channel === 'SMS'
+        ? [camp.channel]
+        : [];
+    const records = new Map<string, { subscriberId: string; channel: 'Email' | 'WhatsApp' | 'SMS'; contactMask?: string }>();
+    const addPerson = (person: any) => {
+      const subscriberId = String(person?.id || '').trim();
+      if (!subscriberId) return;
+      const email = String(person?.email || '').trim();
+      const phone = String(person?.phone || '').trim();
+      for (const ch of channels) {
+        const contact = ch === 'Email' ? email : phone;
+        if (!contact) continue;
+        const mask = ch === 'Email'
+          ? (email.includes('@') ? email.slice(0, 2) + '***@' + email.split('@')[1] : 'email')
+          : (phone.length > 4 ? '***' + phone.slice(-4) : 'phone');
+        records.set(subscriberId + ':' + ch, { subscriberId, channel: ch, contactMask: mask });
+      }
+    };
+    selectedUsers.forEach(addPerson);
+    selectedSubscribers.forEach(addPerson);
+    return Array.from(records.values());
+  };
+
+  const handlePrepareRecipients = async () => {
+    const camp = campaignList.find(c => c.id === recipientCampaignId);
+    if (!camp) return;
+    setRecipientPrepareBusy(true);
+    setRecipientHistoryError('');
+    try {
+      const recipients = buildCampaignRecipientRows(camp);
+      const prepared = await api.broadcasts.prepareRecipients(camp.id, recipients);
+      if (!prepared?.success) throw new Error(prepared?.message || 'Recipient preparation failed.');
+      const [history, summary] = await Promise.all([
+        api.broadcasts.getRecipientHistory(camp.id, recipientPage, 100),
+        api.broadcasts.getRecipientSummary(camp.id)
+      ]);
+      setRecipientHistory(Array.isArray(history?.items) ? history.items : []);
+      setRecipientTotal(Number(history?.total) || 0);
+      setRecipientSummary(summary?.summary || null);
+      setRecipientHistoryNotice(prepared.message || `Prepared ${prepared.newlyPrepared || 0} new recipient/channel records. No messages were sent.`);
+    } catch (err: any) {
+      setRecipientHistoryNotice('');
+      setRecipientHistoryError(err?.message || 'Recipient preparation failed.');
+    } finally {
+      setRecipientPrepareBusy(false);
+    }
+  };
+
   const handleApplyTemplate = (tpl: { subject: string; body: string; channel: any; audience: any }) => {
     if (tpl.channel === 'Email' && !emailEnabled) {
       setFormError('Email templates cannot be selected because Email alerts are globally disabled.');
@@ -330,7 +462,8 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
       subject: subject.trim() || title.trim(),
       messageBody: messageBody.trim(),
       recipientsCount: audienceCount,
-      categoryFilter: 'All Categories'
+      categoryFilter: 'All Categories',
+      linkedAdId: linkedAdId.trim() || undefined
     };
 
     try {
@@ -491,7 +624,11 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
           {[
             { id: 'compose', label: 'Compose Broadcast', icon: Send },
             { id: 'history', label: `Campaign History (${visibleCampaigns.length})`, icon: Clock },
+            { id: 'recipients', label: 'Recipient Tracking', icon: Users },
+            { id: 'schedule', label: 'Schedule & Queue', icon: Clock },
+            { id: 'subscribers', label: `Subscriber Plans (${safeSubscribers.length})`, icon: Users },
             { id: 'templates', label: 'Campaign Templates', icon: FileText },
+            { id: 'bulk', label: 'Bulk Notifications', icon: Bell },
             ...(!hideProvidersTab ? [{ id: 'providers', label: 'Provider Gateways', icon: Layers }] : [])
           ].map((t) => {
             const Icon = t.icon;
@@ -583,6 +720,19 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                   placeholder="e.g. FPSC Gazette 08/2026 Urgent WhatsApp Alert"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-medium"
                 />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-300 mb-1">Related Posted Job / Ad ID (optional)</label>
+                <input
+                  type="text"
+                  value={linkedAdId}
+                  onChange={(e) => setLinkedAdId(e.target.value)}
+                  maxLength={160}
+                  placeholder="Paste existing posted job or ad campaign ID"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-medium"
+                />
+                <p className="text-[10px] text-slate-500 mt-1">This records the relationship for campaign reporting; it does not publish or approve the job/ad.</p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -741,6 +891,195 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
         </div>
       )}
 
+      {activeTab === 'schedule' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 space-y-5">
+          <div>
+            <h3 className="text-sm font-bold text-white">Campaign Schedule & Queue</h3>
+            <p className="text-xs text-slate-400 mt-1">Save a future send time in Pakistan time. Automatic dispatch remains off until provider APIs and webhook handling are configured.</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end rounded-xl border border-slate-800 bg-slate-950 p-3">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-400 mb-1">Draft Campaign</label>
+              <select value={scheduleCampaignId} onChange={e => setScheduleCampaignId(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
+                <option value="">Select campaign</option>
+                {campaignList.filter(camp => camp.status === 'Draft' || camp.status === 'Scheduled').map(camp => <option key={camp.id} value={camp.id}>{camp.title}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-400 mb-1">Date & Time (Pakistan)</label>
+              <input type="datetime-local" min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)} value={scheduleDateTime} onChange={e => setScheduleDateTime(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" />
+            </div>
+            <button type="button" disabled={!scheduleCampaignId || !scheduleDateTime || new Date(scheduleDateTime).getTime() <= Date.now() || scheduleBusy} onClick={async () => {
+              setScheduleBusy(true); setScheduleNotice('');
+              try {
+                const scheduledAt = new Date(scheduleDateTime + ':00+05:00').toISOString();
+                const result = await api.broadcasts.scheduleCampaign(scheduleCampaignId, scheduledAt, 'Asia/Karachi');
+                if (!result?.success) throw new Error(result?.message || 'Schedule save failed.');
+                setScheduleNotice(result.message || 'Schedule saved; provider setup is still required for dispatch.');
+                const refreshed = await api.broadcasts.getSchedules();
+                if (refreshed?.success) setScheduleItems(Array.isArray(refreshed.schedules) ? refreshed.schedules : []);
+              } catch (err: any) {
+                setScheduleNotice(err?.message || 'Schedule save failed.');
+              } finally { setScheduleBusy(false); }
+            }} className="px-4 py-2.5 rounded-lg bg-amber-500 text-slate-950 text-xs font-black disabled:opacity-40">
+              {scheduleBusy ? 'Saving…' : 'Save Schedule'}
+            </button>
+          </div>
+          {scheduleNotice && <div className="text-xs text-slate-300 bg-slate-800 rounded-lg p-3">{scheduleNotice}</div>}
+          {scheduleLoading ? <div className="text-xs text-slate-400 py-5 text-center">Loading schedules…</div> : (
+            <div className="space-y-2">
+              {scheduleItems.map(item => (
+                <div key={item.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950 p-3">
+                  <div>
+                    <div className="text-xs font-bold text-white">{campaignList.find(camp => camp.id === item.campaignId)?.title || item.campaignId}</div>
+                    <div className="text-[11px] text-slate-400 mt-1">{new Date(item.scheduledAt).toLocaleString()} • {item.timezone} • {item.state}</div>
+                    <div className="text-[10px] text-amber-300 mt-1">{item.note}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" disabled={scheduleBusy || item.state === 'Paused' || item.state === 'Cancelled'} onClick={async () => {
+                      setScheduleBusy(true);
+                      try {
+                        const result = await api.broadcasts.updateScheduleState(item.campaignId, 'Paused');
+                        if (!result?.success) throw new Error(result?.message || 'Pause failed.');
+                        setScheduleItems(prev => prev.map(row => row.campaignId === item.campaignId ? {...row, state: 'Paused'} : row));
+                      } catch (err: any) { setScheduleNotice(err?.message || 'Pause failed.'); }
+                      finally { setScheduleBusy(false); }
+                    }} className="px-3 py-2 rounded-lg border border-amber-500/20 text-amber-300 text-xs disabled:opacity-40">Pause</button>
+                    <button type="button" disabled={scheduleBusy || item.state === 'Cancelled'} onClick={async () => {
+                      setScheduleBusy(true);
+                      try {
+                        const result = await api.broadcasts.updateScheduleState(item.campaignId, 'Cancelled');
+                        if (!result?.success) throw new Error(result?.message || 'Cancel failed.');
+                        setScheduleItems(prev => prev.map(row => row.campaignId === item.campaignId ? {...row, state: 'Cancelled'} : row));
+                      } catch (err: any) { setScheduleNotice(err?.message || 'Cancel failed.'); }
+                      finally { setScheduleBusy(false); }
+                    }} className="px-3 py-2 rounded-lg border border-rose-500/20 text-rose-300 text-xs disabled:opacity-40">Cancel</button>
+                  </div>
+                </div>
+              ))}
+              {!scheduleItems.length && <div className="text-xs text-slate-500 text-center py-5">No campaign schedules yet.</div>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'subscribers' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 space-y-4">
+          <div>
+            <h3 className="text-sm font-bold text-white">Subscriber Plans & Expiry</h3>
+            <p className="text-xs text-slate-400 mt-1">Uses the existing subscriber records and reconciled subscription status. No duplicate subscription store is created.</p>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {(['Active', 'Expiring Soon', 'Pending', 'Expired'] as const).map(status => (
+              <div key={status} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                <div className="text-[10px] text-slate-500">{status}</div>
+                <div className="text-lg font-black text-white">{safeSubscribers.filter(s => s.status === status).length}</div>
+              </div>
+            ))}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-xs">
+              <thead className="text-slate-500 border-b border-slate-800"><tr><th className="py-2 pr-3">Subscriber</th><th className="py-2 pr-3">Plan</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3">Expiry</th><th className="py-2 pr-3">Email</th><th className="py-2 pr-3">WhatsApp</th><th className="py-2">SMS</th></tr></thead>
+              <tbody>{safeSubscribers.map(sub => <tr key={sub.id} className="border-b border-slate-800/70">
+                <td className="py-2 pr-3"><div className="text-slate-200">{sub.name}</div><div className="text-[10px] text-slate-500">{sub.email}</div></td>
+                <td className="py-2 pr-3 text-slate-300">{sub.plan}</td>
+                <td className="py-2 pr-3 text-slate-300">{sub.status}</td>
+                <td className="py-2 pr-3 text-slate-400">{sub.expiryDate || 'Not set'}</td>
+                <td className="py-2 pr-3 text-slate-400">{sub.email ? 'Available' : 'Missing'}</td>
+                <td className="py-2 pr-3 text-slate-400">{sub.whatsappEnabled && sub.phone ? 'Eligible' : 'Off / Missing'}</td>
+                <td className="py-2 text-slate-400">{sub.phone ? 'Available' : 'Missing'}</td>
+              </tr>)}</tbody>
+            </table>
+            {!safeSubscribers.length && <div className="text-xs text-slate-500 text-center py-6">No subscriber records are available from the existing admin data source.</div>}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'recipients' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-bold text-white">Recipient-wise Campaign Tracking</h3>
+              <p className="text-xs text-slate-400 mt-1">Provider responses are required before a recipient can be marked Sent or Delivered.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <select value={recipientCampaignId} onChange={e => setRecipientCampaignId(e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white max-w-full">
+                <option value="">Select campaign</option>
+                {campaignList.map(camp => <option key={camp.id} value={camp.id}>{camp.title} ({camp.channel})</option>)}
+              </select>
+              <button type="button" disabled={!recipientCampaignId || recipientPrepareBusy} onClick={handlePrepareRecipients} className="px-3 py-2 rounded-lg bg-indigo-500/15 text-indigo-300 border border-indigo-500/20 text-xs font-bold disabled:opacity-40">
+                {recipientPrepareBusy ? 'Preparing…' : 'Prepare Recipient List'}
+              </button>
+              <button type="button" disabled={!recipientCampaignId || recipientRetryBusy} onClick={async () => {
+                setRecipientRetryBusy(true);
+                try {
+                  const res = await api.broadcasts.retryFailedRecipients(recipientCampaignId);
+                  if (!res?.success) throw new Error(res?.message || 'Retry request failed.');
+                  const [history, summary] = await Promise.all([
+                    api.broadcasts.getRecipientHistory(recipientCampaignId, recipientPage, 100),
+                    api.broadcasts.getRecipientSummary(recipientCampaignId)
+                  ]);
+                  setRecipientHistory(Array.isArray(history?.items) ? history.items : []);
+                  setRecipientTotal(Number(history?.total) || 0);
+                  setRecipientSummary(summary?.summary || null);
+                } catch (err: any) {
+                  setRecipientHistoryError(err?.message || 'Retry request failed.');
+                } finally {
+                  setRecipientRetryBusy(false);
+                }
+              }} className="px-3 py-2 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/20 text-xs font-bold disabled:opacity-40">
+                {recipientRetryBusy ? 'Retrying…' : 'Reset Failed for Retry'}
+              </button>
+            </div>
+          </div>
+          {recipientHistoryError && <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-lg p-3">{recipientHistoryError}</div>}
+          {recipientHistoryNotice && <div className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">{recipientHistoryNotice}</div>}
+          {recipientSummary?.counts && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+              {Object.entries(recipientSummary.counts).map(([status, count]) => (
+                <div key={status} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                  <div className="text-[10px] text-slate-500">{status}</div>
+                  <div className="text-lg font-black text-white">{String(count)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {recipientHistoryLoading ? <div className="text-xs text-slate-400 py-6 text-center">Loading recipient history…</div> : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] text-left text-xs">
+                <thead className="text-slate-500 border-b border-slate-800"><tr><th className="py-2 pr-3">Recipient ID</th><th className="py-2 pr-3">Channel</th><th className="py-2 pr-3">Contact</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3">Attempts</th><th className="py-2">Updated</th></tr></thead>
+                <tbody>{recipientHistory.map(item => <tr key={item.id} className="border-b border-slate-800/70">
+                  <td className="py-2 pr-3 font-mono text-slate-300">{item.subscriberId}</td>
+                  <td className="py-2 pr-3 text-slate-300">{item.channel}</td>
+                  <td className="py-2 pr-3 text-slate-400">{item.contactMask || '—'}</td>
+                  <td className="py-2 pr-3 text-amber-300">{item.status}</td>
+                  <td className="py-2 pr-3 text-slate-300">{item.attempts ?? 0}</td>
+                  <td className="py-2 text-slate-500">{item.updatedAt ? new Date(item.updatedAt).toLocaleString() : '—'}</td>
+                </tr>)}</tbody>
+              </table>
+              {!recipientHistory.length && <div className="text-xs text-slate-500 text-center py-6">No recipient records prepared yet. Provider delivery is not active until API integration is configured.</div>}
+              <div className="flex items-center justify-between gap-3 pt-3 text-xs text-slate-400">
+                <span>Showing {recipientTotal ? ((recipientPage - 1) * 100 + 1) : 0}–{Math.min(recipientPage * 100, recipientTotal)} of {recipientTotal}</span>
+                <div className="flex gap-2">
+                  <button type="button" disabled={recipientPage <= 1 || recipientHistoryLoading} onClick={() => setRecipientPage(p => Math.max(1, p - 1))} className="px-3 py-2 rounded-lg border border-slate-700 disabled:opacity-40">Previous</button>
+                  <button type="button" disabled={recipientPage * 100 >= recipientTotal || recipientHistoryLoading} onClick={() => setRecipientPage(p => p + 1)} className="px-3 py-2 rounded-lg border border-slate-700 disabled:opacity-40">Next</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB: CENTRALIZED LEGACY BULK NOTIFICATION TOOL */}
+      {activeTab === 'bulk' && (
+        <div className="space-y-3">
+          <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/10 p-3 text-xs text-indigo-200">
+            Legacy bulk notification options are available here so admins can manage broadcast drafts and audience targeting from the channel workspace. Existing local draft storage is preserved.
+          </div>
+          <AdminBulkNotificationTool users={safeUsers} subscribers={safeSubscribers} featureFlags={featureFlags} />
+        </div>
+      )}
+
       {/* TAB 2: CAMPAIGN HISTORY */}
       {activeTab === 'history' && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
@@ -826,9 +1165,9 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                   </div>
                   <div className="text-slate-400 text-xs font-mono">
                     {camp.status === 'Draft' ? (
-                      <>Status: <span className="text-amber-400">Draft</span> • Audience: <span className="text-amber-400">{camp.targetAudience}</span> (~{camp.recipientsCount} Estimated Reach)</>
+                      <>Status: <span className="text-amber-400">Draft</span> • Audience: <span className="text-amber-400">{camp.targetAudience}</span> (~{camp.recipientsCount} Estimated Reach){camp.scheduledAt ? <> • Scheduled: <span className="text-sky-300">{new Date(camp.scheduledAt).toLocaleString()}</span></> : null}{camp.linkedAdId ? <> • Related Job/Ad: <span className="text-indigo-300">{camp.linkedAdId}</span></> : null}</>
                     ) : (
-                      <>{camp.sentAt ? `Sent at: ${camp.sentAt} • ` : ''}Audience: <span className="text-amber-400">{camp.targetAudience}</span> (~{camp.recipientsCount} Estimated Reach)</>
+                      <>{camp.sentAt ? `Sent at: ${camp.sentAt} • ` : ''}Audience: <span className="text-amber-400">{camp.targetAudience}</span> (~{camp.recipientsCount} Estimated Reach){camp.linkedAdId ? <> • Related Job/Ad: <span className="text-indigo-300">{camp.linkedAdId}</span></> : null}</>
                     )}
                   </div>
                   <div className="text-slate-500 text-[11px] line-clamp-1">

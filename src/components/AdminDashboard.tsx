@@ -1007,7 +1007,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'ad-campaign-ops'
     | 'landing-design';
 
-  const [jobsAdsWorkspaceArea, setJobsAdsWorkspaceArea] = useState<'jobs' | 'campaigns' | 'whatsapp' | 'email' | 'sms'>('jobs');
+  const [jobsAdsWorkspaceArea, setJobsAdsWorkspaceArea] = useState<'jobs' | 'campaigns' | 'broadcast' | 'whatsapp' | 'email' | 'sms'>('jobs');
+  const [broadcastWorkspaceChannel, setBroadcastWorkspaceChannel] = useState<'whatsapp' | 'email' | 'sms'>('whatsapp');
   const [jobsWorkspaceSection, setJobsWorkspaceSection] = useState<JobsWorkspaceSectionId>('pending');
   const [newWorkspaceSection, setNewWorkspaceSection] = useState<NewWorkspaceSectionId>('job-tiers-pricing');
   const [campaignWorkspaceSection, setCampaignWorkspaceSection] = useState<'advertisements' | 'campaign-center'>('advertisements');
@@ -1200,6 +1201,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const isChannelWorkspaceArea =
+    jobsAdsWorkspaceArea === 'broadcast' ||
     jobsAdsWorkspaceArea === 'whatsapp' ||
     jobsAdsWorkspaceArea === 'email' ||
     jobsAdsWorkspaceArea === 'sms';
@@ -3954,47 +3956,52 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
               )}
               {canAccessChannelWorkspace && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setJobsAdsWorkspaceArea('whatsapp')}
-                    className={`px-4 py-2.5 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer whitespace-nowrap ${
-                      jobsAdsWorkspaceArea === 'whatsapp'
-                        ? 'bg-emerald-500 text-slate-950 border border-emerald-300 shadow-lg shadow-emerald-500/20'
-                        : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
-                    }`}
-                  >
-                    💬 WhatsApp
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setJobsAdsWorkspaceArea('email')}
-                    className={`px-4 py-2.5 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer whitespace-nowrap ${
-                      jobsAdsWorkspaceArea === 'email'
-                        ? 'bg-sky-400 text-slate-950 border border-sky-300 shadow-lg shadow-sky-500/20'
-                        : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
-                    }`}
-                  >
-                    ✉️ Email
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setJobsAdsWorkspaceArea('sms')}
-                    className={`px-4 py-2.5 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer whitespace-nowrap ${
-                      jobsAdsWorkspaceArea === 'sms'
-                        ? 'bg-indigo-400 text-slate-950 border border-indigo-300 shadow-lg shadow-indigo-500/20'
-                        : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
-                    }`}
-                  >
-                    📱 SMS
-                  </button>
-                </>
+                <button
+                  type="button"
+                  onClick={() => setJobsAdsWorkspaceArea('broadcast')}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer whitespace-nowrap ${
+                    jobsAdsWorkspaceArea === 'broadcast' || isChannelWorkspaceArea
+                      ? 'bg-indigo-400 text-slate-950 border border-indigo-300 shadow-lg shadow-indigo-500/20'
+                      : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  📣 Broadcast &amp; Notifications
+                </button>
               )}
             </div>
           </div>
           {isChannelWorkspaceArea && canAccessChannelWorkspace ? (
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-indigo-500/20 bg-slate-900 p-3.5 sm:p-4 space-y-3">
+                <div>
+                  <h4 className="text-sm font-black text-white">Broadcast Channels</h4>
+                  <p className="text-[11px] text-slate-400">Manage broadcast, notifications, templates, provider APIs, tests, logs and channel-specific settings from one workspace. Existing options remain available below.</p>
+                </div>
+                <div className="flex flex-wrap gap-2" role="tablist" aria-label="Broadcast channels">
+                  {([
+                    ['whatsapp', '💬 WhatsApp'],
+                    ['email', '✉️ Email'],
+                    ['sms', '📱 SMS']
+                  ] as const).map(([channel, label]) => (
+                    <button
+                      key={channel}
+                      type="button"
+                      role="tab"
+                      aria-selected={broadcastWorkspaceChannel === channel}
+                      onClick={() => setBroadcastWorkspaceChannel(channel)}
+                      className={`min-h-[38px] px-4 py-2 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer ${
+                        broadcastWorkspaceChannel === channel
+                          ? 'bg-indigo-400 text-slate-950 border border-indigo-300 shadow-lg shadow-indigo-500/20'
+                          : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             <AdminChannelControlHub
-              activeChannel={jobsAdsWorkspaceArea as 'whatsapp' | 'email' | 'sms'}
+              activeChannel={broadcastWorkspaceChannel}
               featureFlags={featureFlags}
               onToggleFeatureFlag={handleToggleFeature}
               whatsAppConfig={currentWhatsAppConfig}
@@ -4019,6 +4026,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               onSendBroadcastCampaign={handleSaveBroadcastCampaign}
               onRefreshBroadcastCampaigns={fetchBroadcastCampaigns}
             />
+            </div>
           ) : jobsAdsWorkspaceArea === 'jobs' && canAccessJobsWorkspace ? (
             <div className="flex flex-wrap gap-2 pt-1">
               {([

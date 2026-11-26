@@ -28,7 +28,7 @@ broadcastRouter.post('/', requireAdminPermission('settings.manage'), async (req,
   }
 
   try {
-    const { title, channel, targetAudience, subject, messageBody, categoryFilter, recipientsCount } = req.body;
+    const { title, channel, targetAudience, subject, messageBody, categoryFilter, recipientsCount, linkedAdId } = req.body;
 
     // Check authoritative backend feature flags
     const flags = await FeatureFlagsRepository.getFlags();
@@ -66,7 +66,8 @@ broadcastRouter.post('/', requireAdminPermission('settings.manage'), async (req,
       subject,
       messageBody,
       categoryFilter,
-      recipientsCount
+      recipientsCount,
+      linkedAdId
     });
 
     res.status(201).json({ success: true, campaign: created });

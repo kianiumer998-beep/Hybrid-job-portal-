@@ -1588,7 +1588,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           : 'bg-slate-800 text-slate-300 border-slate-700';
 
   return (
-    <div className={`min-h-screen bg-slate-950 transition-all duration-300 ${navigationMode === 'professional' ? 'lg:pl-64' : ''}`}>
+    <div className={`min-h-screen bg-slate-950 transition-all duration-300 ${navigationMode === 'professional' ? 'lg:pl-64 pb-16 lg:pb-0' : ''}`}>
       
       {navigationMode === 'professional' && (
         <UserDashboardNavigation
@@ -1613,7 +1613,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             {navigationMode === 'professional' && (
               <button 
                 onClick={() => setIsProMenuOpen(true)}
-                className="lg:hidden p-2 bg-slate-800 border border-slate-700 rounded-lg text-emerald-400 hover:text-white"
+                aria-label="Open dashboard navigation"
+                aria-expanded={isProMenuOpen}
+                className="lg:hidden p-2 min-h-10 min-w-10 bg-slate-800 border border-slate-700 rounded-lg text-emerald-400 hover:text-white"
               >
                 <Menu className="w-5 h-5" />
               </button>

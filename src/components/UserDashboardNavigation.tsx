@@ -104,7 +104,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
     return () => window.removeEventListener('keydown', handleEscape);
   }, [isOpen, onClose]);
 
-  const menuStructure: NavItem[] = [
+  const menuStructure: NavItem[] = ([
     { id: 'dashboard', label: 'Overview', icon: LayoutDashboard, subItems: [
       { id: 'dash-overview', label: 'Dashboard Overview', tab: 'overview', subView: 'metrics', icon: LayoutDashboard },
       { id: 'membership-plan', label: 'Membership & Plans', tab: 'overview', subView: 'metrics', icon: Crown },
@@ -144,7 +144,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
       { id: 'acc-profile', label: 'Profile & Preferences', tab: 'profile', accountSubTab: 'profile', icon: User },
       { id: 'acc-security', label: 'Security & Password', tab: 'profile', accountSubTab: 'security', icon: Lock },
     ]},
-  ].map((category) => ({
+  ] as NavItem[]).map((category) => ({
     ...category,
     subItems: category.subItems.filter((item) => !item.employerOnly || userRole === 'Employer/Job Poster')
   })).filter((category) => category.id !== 'employer-center' || userRole === 'Employer/Job Poster');

@@ -892,7 +892,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end rounded-xl border border-slate-800 bg-slate-950 p-3">
             <div>
               <label className="block text-[11px] font-bold text-slate-400 mb-1">Draft Campaign</label>
-              <select value={recipientCampaignId} onChange={e => setRecipientCampaignId(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
+              <select value={recipientCampaignId} onChange={e => { setRecipientCampaignId(e.target.value); setRecipientPage(1); }} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
                 <option value="">Select campaign</option>
                 {campaignList.filter(camp => camp.status === 'Draft' || camp.status === 'Scheduled').map(camp => <option key={camp.id} value={camp.id}>{camp.title}</option>)}
               </select>

@@ -87,6 +87,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const [recipientRetryBusy, setRecipientRetryBusy] = useState(false);
   const [recipientPrepareBusy, setRecipientPrepareBusy] = useState(false);
   const [scheduleDateTime, setScheduleDateTime] = useState('');
+  const [scheduleCampaignId, setScheduleCampaignId] = useState('');
   const [scheduleItems, setScheduleItems] = useState<any[]>([]);
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [scheduleBusy, setScheduleBusy] = useState(false);
@@ -101,6 +102,13 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   useEffect(() => {
     if (!recipientCampaignId && campaignList.length > 0) setRecipientCampaignId(campaignList[0].id);
   }, [campaignList, recipientCampaignId]);
+
+  useEffect(() => {
+    if (!scheduleCampaignId) {
+      const firstSchedulable = campaignList.find(camp => camp.status === 'Draft' || camp.status === 'Scheduled');
+      if (firstSchedulable) setScheduleCampaignId(firstSchedulable.id);
+    }
+  }, [campaignList, scheduleCampaignId]);
 
   useEffect(() => {
     if (activeTab !== 'schedule') return;
@@ -892,20 +900,20 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end rounded-xl border border-slate-800 bg-slate-950 p-3">
             <div>
               <label className="block text-[11px] font-bold text-slate-400 mb-1">Draft Campaign</label>
-              <select value={recipientCampaignId} onChange={e => { setRecipientCampaignId(e.target.value); setRecipientPage(1); }} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
+              <select value={scheduleCampaignId} onChange={e => setScheduleCampaignId(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
                 <option value="">Select campaign</option>
                 {campaignList.filter(camp => camp.status === 'Draft' || camp.status === 'Scheduled').map(camp => <option key={camp.id} value={camp.id}>{camp.title}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-[11px] font-bold text-slate-400 mb-1">Date & Time (Pakistan)</label>
-              <input type="datetime-local" value={scheduleDateTime} onChange={e => setScheduleDateTime(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" />
+              <input type="datetime-local" min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)} value={scheduleDateTime} onChange={e => setScheduleDateTime(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" />
             </div>
-            <button type="button" disabled={!recipientCampaignId || !scheduleDateTime || scheduleBusy} onClick={async () => {
+            <button type="button" disabled={!scheduleCampaignId || !scheduleDateTime || new Date(scheduleDateTime).getTime() <= Date.now() || scheduleBusy} onClick={async () => {
               setScheduleBusy(true); setScheduleNotice('');
               try {
                 const scheduledAt = new Date(scheduleDateTime + ':00+05:00').toISOString();
-                const result = await api.broadcasts.scheduleCampaign(recipientCampaignId, scheduledAt, 'Asia/Karachi');
+                const result = await api.broadcasts.scheduleCampaign(scheduleCampaignId, scheduledAt, 'Asia/Karachi');
                 if (!result?.success) throw new Error(result?.message || 'Schedule save failed.');
                 setScheduleNotice(result.message || 'Schedule saved; provider setup is still required for dispatch.');
                 const refreshed = await api.broadcasts.getSchedules();

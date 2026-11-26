@@ -84,6 +84,32 @@ broadcastRouter.post('/', requireAdminPermission('settings.manage'), async (req,
 
 
 // Recipient-level delivery ledger. Delivery statuses are written only by a real provider integration.
+broadcastRouter.post('/:campaignId/prepare-recipients', requireAdminPermission('settings.manage'), async (req, res) => {
+  if (!isMongoConfigured()) return res.status(503).json({ success: false, message: 'Database unavailable' });
+  try {
+    const campaign = await BroadcastRepository.getById(String(req.params.campaignId || ''));
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
+    const flags = await FeatureFlagsRepository.getFlags();
+    const allowedChannels: Array<'Email' | 'WhatsApp' | 'SMS'> =
+      campaign.channel === 'Email' ? ['Email'] :
+      campaign.channel === 'WhatsApp' ? ['WhatsApp'] :
+      campaign.channel === 'SMS' ? ['SMS'] :
+      campaign.channel === 'Multi-Channel' ? ['Email', 'WhatsApp', 'SMS'] : [];
+    if (!allowedChannels.length) return res.status(400).json({ success: false, message: 'This campaign channel cannot create recipient delivery records.' });
+    const enabledChannels = allowedChannels.filter(ch =>
+      ch === 'Email' ? flags.enableEmailAlerts === true :
+      ch === 'WhatsApp' ? flags.enableWhatsAppAlerts === true :
+      flags.enableSmsAlerts === true
+    );
+    const incoming = Array.isArray(req.body?.recipients) ? req.body.recipients : [];
+    const clean = incoming.filter((r: any) => r && typeof r.subscriberId === 'string' && allowedChannels.includes(r.channel) && enabledChannels.includes(r.channel));
+    const result = await BroadcastRecipientRepository.prepare(campaign.id, clean);
+    res.status(201).json({ success: true, ...result, enabledChannels, message: 'Recipients prepared in WaitingForProvider state. No messages were sent.' });
+  } catch (err: any) {
+    res.status(400).json({ success: false, message: err?.message || 'Could not prepare campaign recipients' });
+  }
+});
+
 broadcastRouter.get('/:campaignId/recipients', requireAdminPermission('settings.manage'), async (req, res) => {
   if (!isMongoConfigured()) return res.status(503).json({ success: false, message: 'Database unavailable' });
   try {

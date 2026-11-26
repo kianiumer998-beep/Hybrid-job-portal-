@@ -773,6 +773,23 @@ export const api = {
         }
       );
     },
+    async getSchedules() {
+      return safeFetchJson<any>(`${API_BASE}/broadcasts/schedules`, { headers: getAuthHeader() });
+    },
+    async scheduleCampaign(campaignId: string, scheduledAt: string, timezone = 'Asia/Karachi') {
+      return safeFetchJson<any>(`${API_BASE}/broadcasts/${encodeURIComponent(campaignId)}/schedule`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ scheduledAt, timezone })
+      });
+    },
+    async updateScheduleState(campaignId: string, state: 'Paused' | 'Cancelled' | 'WaitingForProvider') {
+      return safeFetchJson<any>(`${API_BASE}/broadcasts/${encodeURIComponent(campaignId)}/schedule-state`, {
+        method: 'PATCH',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ state })
+      });
+    },
     async prepareRecipients(campaignId: string, recipients: Array<{ subscriberId: string; channel: 'Email' | 'WhatsApp' | 'SMS'; contactMask?: string }>) {
       return safeFetchJson<any>(`${API_BASE}/broadcasts/${encodeURIComponent(campaignId)}/prepare-recipients`, {
         method: 'POST',

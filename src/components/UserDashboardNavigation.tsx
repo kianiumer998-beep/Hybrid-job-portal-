@@ -334,7 +334,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                         {subItem.icon && <subItem.icon className={`w-3 h-3 shrink-0 ${subItem.isLogout ? 'text-rose-400' : ''}`} />}
                         <span className="min-w-0 flex-1 text-left">
                           <span className="block truncate">{subItem.label}</span>
-                          {subItem.description && <span className={`mt-0.5 block truncate text-[10px] font-normal ${active ? 'text-emerald-200/70' : 'text-slate-600 group-hover:text-slate-500'}`}>{subItem.description}</span>}
+                          {subItem.description && <span className={`mt-0.5 block truncate text-[10px] font-normal ${active ? 'text-emerald-200/70' : 'text-slate-500'}`}>{subItem.description}</span>}
                         </span>
                         {subItem.countKey && counts[subItem.countKey] > 0 && (
                           <span className={`shrink-0 min-w-5 rounded-full px-1.5 py-0.5 text-center text-[10px] font-bold tabular-nums ${active ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400'}`} aria-label={`${counts[subItem.countKey]} ${subItem.label.toLowerCase()}`}>

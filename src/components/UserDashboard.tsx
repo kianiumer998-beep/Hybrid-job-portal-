@@ -1604,11 +1604,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           userRole={currentUser.role}
           counts={{
             applications: userApplications.length,
+            recommendedJobs: recommendedJobs.length,
             savedJobs: savedJobsList.length || savedJobIds.length,
             jobAlerts: jobAlerts.length,
             documents: userDocuments.length,
             jobListings: displayUserJobs.length,
             campaigns: userAds.length,
+            paymentTransactions: userTransactions.length,
             unreadNotifications: unreadNotifCount
           }}
           onOpenNotifications={() => setShowNotificationDrawer(true)}

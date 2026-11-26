@@ -2,15 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { 
   LayoutDashboard, 
   Search, 
-  Briefcase, 
   Building2, 
-  CreditCard, 
   Megaphone, 
   User, 
   ChevronRight, 
   ChevronDown, 
   X,
-  Menu,
   FileText,
   Sparkles,
   History,
@@ -20,9 +17,7 @@ import {
   Bell,
   Lock,
   MessageSquare,
-  ShieldCheck,
   Zap,
-  ArrowRight
 } from 'lucide-react';
 
 type DashboardTab = 'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns';
@@ -209,7 +204,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
 
               {isExpanded && (
                 <div id={`user-nav-${category.id}`} className="ml-3 sm:ml-4 pl-3 sm:pl-4 border-l border-slate-800 space-y-1 py-1">
-                  {category.subItems.map((subItem, idx) => {
+                  {category.subItems.map((subItem) => {
                     const active = isActive(subItem);
                     return (
                       <button

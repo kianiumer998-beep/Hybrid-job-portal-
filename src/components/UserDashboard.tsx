@@ -213,7 +213,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).slice(0, 100);
 
   const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => 
-    safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_${currentUser.id}`, 'professional')
+    safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_v2_${currentUser.id}`, 'professional')
   );
 
   const safeProfileAvatarUrl = useMemo(() => {
@@ -230,7 +230,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   );
 
   useEffect(() => {
-    safeLocalStorageSet(`dashboard_nav_mode_${currentUser.id}`, navigationMode);
+    safeLocalStorageSet(`dashboard_nav_mode_v2_${currentUser.id}`, navigationMode);
   }, [navigationMode, currentUser.id]);
 
   useEffect(() => {

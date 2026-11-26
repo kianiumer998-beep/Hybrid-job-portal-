@@ -75,7 +75,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
 
   const [campaignList, setCampaignList] = useState<BroadcastCampaign[]>(safeCampaigns);
   const resolvedInitialTab = hideProvidersTab && initialTab === 'providers' ? 'compose' : (initialTab || 'compose');
-  const [activeTab, setActiveTab] = useState<'compose' | 'history' | 'templates' | 'providers' | 'bulk' | 'recipients' | 'subscribers'>(resolvedInitialTab);
+  const [activeTab, setActiveTab] = useState<'compose' | 'history' | 'templates' | 'providers' | 'bulk' | 'recipients' | 'subscribers' | 'schedule'>(resolvedInitialTab);
   const [recipientCampaignId, setRecipientCampaignId] = useState<string>('');
   const [recipientHistory, setRecipientHistory] = useState<any[]>([]);
   const [recipientSummary, setRecipientSummary] = useState<any>(null);
@@ -84,6 +84,11 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const [recipientHistoryNotice, setRecipientHistoryNotice] = useState('');
   const [recipientRetryBusy, setRecipientRetryBusy] = useState(false);
   const [recipientPrepareBusy, setRecipientPrepareBusy] = useState(false);
+  const [scheduleDateTime, setScheduleDateTime] = useState('');
+  const [scheduleItems, setScheduleItems] = useState<any[]>([]);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [scheduleBusy, setScheduleBusy] = useState(false);
+  const [scheduleNotice, setScheduleNotice] = useState('');
 
   useEffect(() => {
     if (initialTab) {
@@ -94,6 +99,18 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   useEffect(() => {
     if (!recipientCampaignId && campaignList.length > 0) setRecipientCampaignId(campaignList[0].id);
   }, [campaignList, recipientCampaignId]);
+
+  useEffect(() => {
+    if (activeTab !== 'schedule') return;
+    let cancelled = false;
+    setScheduleLoading(true);
+    api.broadcasts.getSchedules().then((res: any) => {
+      if (!cancelled && res?.success) setScheduleItems(Array.isArray(res.schedules) ? res.schedules : []);
+    }).catch(() => {
+      if (!cancelled) setScheduleNotice('Could not load schedule list. Please check database connection and admin access.');
+    }).finally(() => { if (!cancelled) setScheduleLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeTab]);
 
   useEffect(() => {
     if (activeTab !== 'recipients' || !recipientCampaignId) return;
@@ -594,6 +611,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
             { id: 'compose', label: 'Compose Broadcast', icon: Send },
             { id: 'history', label: `Campaign History (${visibleCampaigns.length})`, icon: Clock },
             { id: 'recipients', label: 'Recipient Tracking', icon: Users },
+            { id: 'schedule', label: 'Schedule & Queue', icon: Clock },
             { id: 'subscribers', label: `Subscriber Plans (${safeSubscribers.length})`, icon: Users },
             { id: 'templates', label: 'Campaign Templates', icon: FileText },
             { id: 'bulk', label: 'Bulk Notifications', icon: Bell },
@@ -856,6 +874,78 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
             </div>
           </div>
 
+        </div>
+      )}
+
+      {activeTab === 'schedule' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 space-y-5">
+          <div>
+            <h3 className="text-sm font-bold text-white">Campaign Schedule & Queue</h3>
+            <p className="text-xs text-slate-400 mt-1">Save a future send time in Pakistan time. Automatic dispatch remains off until provider APIs and webhook handling are configured.</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end rounded-xl border border-slate-800 bg-slate-950 p-3">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-400 mb-1">Draft Campaign</label>
+              <select value={recipientCampaignId} onChange={e => setRecipientCampaignId(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
+                <option value="">Select campaign</option>
+                {campaignList.filter(camp => camp.status === 'Draft' || camp.status === 'Scheduled').map(camp => <option key={camp.id} value={camp.id}>{camp.title}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-400 mb-1">Date & Time (Pakistan)</label>
+              <input type="datetime-local" value={scheduleDateTime} onChange={e => setScheduleDateTime(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" />
+            </div>
+            <button type="button" disabled={!recipientCampaignId || !scheduleDateTime || scheduleBusy} onClick={async () => {
+              setScheduleBusy(true); setScheduleNotice('');
+              try {
+                const scheduledAt = new Date(scheduleDateTime).toISOString();
+                const result = await api.broadcasts.scheduleCampaign(recipientCampaignId, scheduledAt, 'Asia/Karachi');
+                if (!result?.success) throw new Error(result?.message || 'Schedule save failed.');
+                setScheduleNotice(result.message || 'Schedule saved; provider setup is still required for dispatch.');
+                const refreshed = await api.broadcasts.getSchedules();
+                if (refreshed?.success) setScheduleItems(Array.isArray(refreshed.schedules) ? refreshed.schedules : []);
+              } catch (err: any) {
+                setScheduleNotice(err?.message || 'Schedule save failed.');
+              } finally { setScheduleBusy(false); }
+            }} className="px-4 py-2.5 rounded-lg bg-amber-500 text-slate-950 text-xs font-black disabled:opacity-40">
+              {scheduleBusy ? 'Saving…' : 'Save Schedule'}
+            </button>
+          </div>
+          {scheduleNotice && <div className="text-xs text-slate-300 bg-slate-800 rounded-lg p-3">{scheduleNotice}</div>}
+          {scheduleLoading ? <div className="text-xs text-slate-400 py-5 text-center">Loading schedules…</div> : (
+            <div className="space-y-2">
+              {scheduleItems.map(item => (
+                <div key={item.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950 p-3">
+                  <div>
+                    <div className="text-xs font-bold text-white">{campaignList.find(camp => camp.id === item.campaignId)?.title || item.campaignId}</div>
+                    <div className="text-[11px] text-slate-400 mt-1">{new Date(item.scheduledAt).toLocaleString()} • {item.timezone} • {item.state}</div>
+                    <div className="text-[10px] text-amber-300 mt-1">{item.note}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" disabled={scheduleBusy || item.state === 'Paused' || item.state === 'Cancelled'} onClick={async () => {
+                      setScheduleBusy(true);
+                      try {
+                        const result = await api.broadcasts.updateScheduleState(item.campaignId, 'Paused');
+                        if (!result?.success) throw new Error(result?.message || 'Pause failed.');
+                        setScheduleItems(prev => prev.map(row => row.campaignId === item.campaignId ? {...row, state: 'Paused'} : row));
+                      } catch (err: any) { setScheduleNotice(err?.message || 'Pause failed.'); }
+                      finally { setScheduleBusy(false); }
+                    }} className="px-3 py-2 rounded-lg border border-amber-500/20 text-amber-300 text-xs disabled:opacity-40">Pause</button>
+                    <button type="button" disabled={scheduleBusy || item.state === 'Cancelled'} onClick={async () => {
+                      setScheduleBusy(true);
+                      try {
+                        const result = await api.broadcasts.updateScheduleState(item.campaignId, 'Cancelled');
+                        if (!result?.success) throw new Error(result?.message || 'Cancel failed.');
+                        setScheduleItems(prev => prev.map(row => row.campaignId === item.campaignId ? {...row, state: 'Cancelled'} : row));
+                      } catch (err: any) { setScheduleNotice(err?.message || 'Cancel failed.'); }
+                      finally { setScheduleBusy(false); }
+                    }} className="px-3 py-2 rounded-lg border border-rose-500/20 text-rose-300 text-xs disabled:opacity-40">Cancel</button>
+                  </div>
+                </div>
+              ))}
+              {!scheduleItems.length && <div className="text-xs text-slate-500 text-center py-5">No campaign schedules yet.</div>}
+            </div>
+          )}
         </div>
       )}
 

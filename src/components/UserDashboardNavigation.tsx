@@ -37,6 +37,8 @@ interface NavSubItem {
   isGlobal?: boolean;
   globalTab?: GlobalTab;
   isLogout?: boolean;
+  action?: 'notifications' | 'deposit' | 'subscription';
+  employerOnly?: boolean;
 }
 
 interface NavItem {
@@ -64,6 +66,10 @@ interface UserDashboardNavigationProps {
     isLogout?: boolean;
   }) => void;
   onLogout: () => void;
+  userRole: string;
+  onOpenNotifications: () => void;
+  onOpenDeposit: () => void;
+  onOpenSubscription: () => void;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -77,6 +83,10 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   activeNavId,
   onNavigate,
   onLogout,
+  userRole,
+  onOpenNotifications,
+  onOpenDeposit,
+  onOpenSubscription,
   isOpen,
   onClose
 }) => {
@@ -84,7 +94,8 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
 
   const menuStructure: NavItem[] = [
     { id: 'dashboard', label: 'Overview', icon: LayoutDashboard, subItems: [
-      { id: 'dash-overview', label: 'Dashboard & Membership', tab: 'overview', subView: 'metrics', icon: LayoutDashboard },
+      { id: 'dash-overview', label: 'Dashboard Overview', tab: 'overview', subView: 'metrics', icon: LayoutDashboard },
+      { id: 'membership-plan', label: 'Membership & Plans', tab: 'overview', subView: 'metrics', icon: Crown },
       { id: 'jobs-recommended', label: 'Recommended Jobs', tab: 'overview', subView: 'recommendations', icon: Sparkles },
     ]},
     { id: 'jobs', label: 'Find Jobs', icon: Search, subItems: [
@@ -99,25 +110,32 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
     ]},
     { id: 'employer-center', label: 'Employer Center', icon: Building2, subItems: [
       { id: 'emp-post', label: 'Post a Job', tab: 'post-job', icon: Plus },
-      { id: 'emp-listings', label: 'My Job Listings', tab: 'my-jobs', icon: Building2 },
+      { id: 'emp-listings', label: 'My Job Listings & Status', tab: 'my-jobs', icon: Building2 },
+      { id: 'emp-verification', label: 'Business Verification', tab: 'profile', accountSubTab: 'profile', icon: ShieldCheck, employerOnly: true },
     ]},
     { id: 'ads-campaigns', label: 'Ads & Campaigns', icon: Megaphone, subItems: [
       { id: 'ads-list', label: 'My Campaigns', tab: 'campaigns', subTab: 'my-campaigns', icon: Megaphone },
       { id: 'ads-create', label: 'Create Campaign', tab: 'campaigns', subTab: 'create', icon: Plus },
     ]},
     { id: 'membership-payments', label: 'Wallet & Payments', icon: Wallet, subItems: [
-      { id: 'mem-wallet', label: 'Wallet & Deposits', tab: 'campaigns', subTab: 'wallet', icon: Wallet },
+      { id: 'mem-wallet', label: 'Wallet & Balance', tab: 'campaigns', subTab: 'wallet', icon: Wallet },
+      { id: 'wallet-deposit', label: 'Add Funds / Deposit', action: 'deposit', icon: Plus },
+      { id: 'membership-renew', label: 'Renew / Upgrade Plan', action: 'subscription', icon: Crown },
       { id: 'mem-history', label: 'Payment History', tab: 'overview', subView: 'history', icon: History },
     ]},
     { id: 'communication', label: 'Alerts & Communication', icon: Bell, subItems: [
-      { id: 'mem-whatsapp', label: 'WhatsApp Alerts', isGlobal: true, globalTab: 'alerts', icon: Zap },
+      { id: 'mem-whatsapp', label: 'WhatsApp & Job Alerts', isGlobal: true, globalTab: 'alerts', icon: Zap },
+      { id: 'notifications-center', label: 'Notifications Center', action: 'notifications', icon: Bell },
       { id: 'acc-chat', label: 'Support Inbox', tab: 'chat', icon: MessageSquare },
     ]},
     { id: 'account-support', label: 'My Account', icon: User, subItems: [
       { id: 'acc-profile', label: 'Profile & Preferences', tab: 'profile', accountSubTab: 'profile', icon: User },
       { id: 'acc-security', label: 'Security & Password', tab: 'profile', accountSubTab: 'security', icon: Lock },
     ]},
-  ];
+  ].map((category) => ({
+    ...category,
+    subItems: category.subItems.filter((item) => !item.employerOnly || userRole === 'Employer/Job Poster')
+  })).filter((category) => category.id !== 'employer-center' || userRole === 'Employer/Job Poster');
   
   // Keep the active destination visible when returning to the dashboard or
   // switching between legacy and professional navigation modes.
@@ -224,6 +242,11 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                         onClick={() => {
                           if (subItem.isLogout) {
                             onLogout();
+                          } else if (subItem.action) {
+                            if (subItem.action === 'notifications') onOpenNotifications();
+                            if (subItem.action === 'deposit') onOpenDeposit();
+                            if (subItem.action === 'subscription') onOpenSubscription();
+                            onClose();
                           } else {
                             onNavigate({
                               id: subItem.id,

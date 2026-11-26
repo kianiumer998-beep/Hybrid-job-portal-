@@ -75,13 +75,44 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
 
   const [campaignList, setCampaignList] = useState<BroadcastCampaign[]>(safeCampaigns);
   const resolvedInitialTab = hideProvidersTab && initialTab === 'providers' ? 'compose' : (initialTab || 'compose');
-  const [activeTab, setActiveTab] = useState<'compose' | 'history' | 'templates' | 'providers' | 'bulk'>(resolvedInitialTab);
+  const [activeTab, setActiveTab] = useState<'compose' | 'history' | 'templates' | 'providers' | 'bulk' | 'recipients'>(resolvedInitialTab);
+  const [recipientCampaignId, setRecipientCampaignId] = useState<string>('');
+  const [recipientHistory, setRecipientHistory] = useState<any[]>([]);
+  const [recipientSummary, setRecipientSummary] = useState<any>(null);
+  const [recipientHistoryLoading, setRecipientHistoryLoading] = useState(false);
+  const [recipientHistoryError, setRecipientHistoryError] = useState('');
+  const [recipientRetryBusy, setRecipientRetryBusy] = useState(false);
 
   useEffect(() => {
     if (initialTab) {
       setActiveTab(hideProvidersTab && initialTab === 'providers' ? 'compose' : initialTab);
     }
   }, [initialTab, hideProvidersTab]);
+
+  useEffect(() => {
+    if (!recipientCampaignId && campaignList.length > 0) setRecipientCampaignId(campaignList[0].id);
+  }, [campaignList, recipientCampaignId]);
+
+  useEffect(() => {
+    if (activeTab !== 'recipients' || !recipientCampaignId) return;
+    let cancelled = false;
+    setRecipientHistoryLoading(true);
+    setRecipientHistoryError('');
+    Promise.all([
+      api.broadcasts.getRecipientHistory(recipientCampaignId, 1, 100),
+      api.broadcasts.getRecipientSummary(recipientCampaignId)
+    ]).then(([history, summary]) => {
+      if (cancelled) return;
+      if (!history?.success || !summary?.success) throw new Error(history?.message || summary?.message || 'Could not load recipient history.');
+      setRecipientHistory(Array.isArray(history.items) ? history.items : []);
+      setRecipientSummary(summary.summary || null);
+    }).catch((err: any) => {
+      if (!cancelled) setRecipientHistoryError(err?.message || 'Recipient history request failed.');
+    }).finally(() => {
+      if (!cancelled) setRecipientHistoryLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [activeTab, recipientCampaignId]);
 
   // Channel Gating Statuses (Fail-closed: explicit true required)
   const emailEnabled = featureFlags?.enableEmailAlerts === true;
@@ -492,6 +523,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
           {[
             { id: 'compose', label: 'Compose Broadcast', icon: Send },
             { id: 'history', label: `Campaign History (${visibleCampaigns.length})`, icon: Clock },
+            { id: 'recipients', label: 'Recipient Tracking', icon: Users },
             { id: 'templates', label: 'Campaign Templates', icon: FileText },
             { id: 'bulk', label: 'Bulk Notifications', icon: Bell },
             ...(!hideProvidersTab ? [{ id: 'providers', label: 'Provider Gateways', icon: Layers }] : [])
@@ -740,6 +772,69 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
             </div>
           </div>
 
+        </div>
+      )}
+
+      {activeTab === 'recipients' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-bold text-white">Recipient-wise Campaign Tracking</h3>
+              <p className="text-xs text-slate-400 mt-1">Provider responses are required before a recipient can be marked Sent or Delivered.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <select value={recipientCampaignId} onChange={e => setRecipientCampaignId(e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white max-w-full">
+                <option value="">Select campaign</option>
+                {campaignList.map(camp => <option key={camp.id} value={camp.id}>{camp.title} ({camp.channel})</option>)}
+              </select>
+              <button type="button" disabled={!recipientCampaignId || recipientRetryBusy} onClick={async () => {
+                setRecipientRetryBusy(true);
+                try {
+                  const res = await api.broadcasts.retryFailedRecipients(recipientCampaignId);
+                  if (!res?.success) throw new Error(res?.message || 'Retry request failed.');
+                  const [history, summary] = await Promise.all([
+                    api.broadcasts.getRecipientHistory(recipientCampaignId, 1, 100),
+                    api.broadcasts.getRecipientSummary(recipientCampaignId)
+                  ]);
+                  setRecipientHistory(Array.isArray(history?.items) ? history.items : []);
+                  setRecipientSummary(summary?.summary || null);
+                } catch (err: any) {
+                  setRecipientHistoryError(err?.message || 'Retry request failed.');
+                } finally {
+                  setRecipientRetryBusy(false);
+                }
+              }} className="px-3 py-2 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/20 text-xs font-bold disabled:opacity-40">
+                {recipientRetryBusy ? 'Retrying…' : 'Reset Failed for Retry'}
+              </button>
+            </div>
+          </div>
+          {recipientHistoryError && <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-lg p-3">{recipientHistoryError}</div>}
+          {recipientSummary?.counts && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+              {Object.entries(recipientSummary.counts).map(([status, count]) => (
+                <div key={status} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                  <div className="text-[10px] text-slate-500">{status}</div>
+                  <div className="text-lg font-black text-white">{String(count)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {recipientHistoryLoading ? <div className="text-xs text-slate-400 py-6 text-center">Loading recipient history…</div> : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] text-left text-xs">
+                <thead className="text-slate-500 border-b border-slate-800"><tr><th className="py-2 pr-3">Recipient ID</th><th className="py-2 pr-3">Channel</th><th className="py-2 pr-3">Contact</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3">Attempts</th><th className="py-2">Updated</th></tr></thead>
+                <tbody>{recipientHistory.map(item => <tr key={item.id} className="border-b border-slate-800/70">
+                  <td className="py-2 pr-3 font-mono text-slate-300">{item.subscriberId}</td>
+                  <td className="py-2 pr-3 text-slate-300">{item.channel}</td>
+                  <td className="py-2 pr-3 text-slate-400">{item.contactMask || '—'}</td>
+                  <td className="py-2 pr-3 text-amber-300">{item.status}</td>
+                  <td className="py-2 pr-3 text-slate-300">{item.attempts ?? 0}</td>
+                  <td className="py-2 text-slate-500">{item.updatedAt ? new Date(item.updatedAt).toLocaleString() : '—'}</td>
+                </tr>)}</tbody>
+              </table>
+              {!recipientHistory.length && <div className="text-xs text-slate-500 text-center py-6">No recipient records prepared yet. Provider delivery is not active until API integration is configured.</div>}
+            </div>
+          )}
         </div>
       )}
 

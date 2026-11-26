@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import { 
   LayoutDashboard, 
   Search, 
@@ -31,7 +32,7 @@ type GlobalTab = 'jobs' | 'cv' | 'alerts' | 'dashboard';
 interface NavSubItem {
   id: string;
   label: string;
-  icon?: any;
+  icon?: LucideIcon;
   tab?: DashboardTab;
   subView?: OverviewSubView;
   subTab?: AppSubTab | CampaignSubTab;
@@ -46,7 +47,7 @@ interface NavSubItem {
 interface NavItem {
   id: string;
   label: string;
-  icon: any;
+  icon: LucideIcon;
   subItems: NavSubItem[];
 }
 
@@ -93,6 +94,14 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   onClose
 }) => {
   const [expandedCategory, setExpandedCategory] = useState<string | null>('dashboard');
+
+  // Prevent background scrolling while the mobile drawer is open.
+  useEffect(() => {
+    if (!isOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [isOpen]);
 
   // Let mobile users dismiss the navigation with the standard Escape key.
   useEffect(() => {
@@ -215,18 +224,22 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   const NavContent = (
     <div className="flex flex-col h-full bg-slate-950 border-r border-slate-800 w-[min(85vw,20rem)] lg:w-64 overflow-y-auto">
       <div className="p-4 border-b border-slate-800 flex items-center justify-between lg:justify-start space-x-2">
-        <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center">
-            <LayoutDashboard className="w-5 h-5 text-slate-950" />
+        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-950/40">
+            <LayoutDashboard className="w-5 h-5 text-slate-950" aria-hidden="true" />
         </div>
-        <span className="font-black text-white tracking-tighter text-sm">MY DASHBOARD</span>
-        <button onClick={onClose} className="lg:hidden text-slate-400 hover:text-white">
-            <X className="w-5 h-5" />
+        <div className="min-w-0 flex-1">
+          <span className="block font-extrabold text-white tracking-tight text-sm">My Dashboard</span>
+          <span className="block text-[10px] font-medium tracking-wide text-slate-500">PERSONAL WORKSPACE</span>
+        </div>
+        <button type="button" aria-label="Close navigation" onClick={onClose} className="lg:hidden rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">
+            <X className="w-5 h-5" aria-hidden="true" />
         </button>
       </div>
 
-      <nav className="flex-1 px-2 py-4 space-y-1">
+      <nav aria-label="Dashboard sections" className="flex-1 px-2 py-4 space-y-1">
         {menuStructure.map((category) => {
           const isExpanded = expandedCategory === category.id;
+          const categoryHasActiveItem = category.subItems.some(isActive);
           return (
             <div key={category.id} className="space-y-1">
               <button
@@ -234,15 +247,16 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                 onClick={() => handleCategoryClick(category.id)}
                 aria-expanded={isExpanded}
                 aria-controls={`user-nav-${category.id}`}
-                className={`w-full flex items-center justify-between px-3 py-3 min-h-11 rounded-xl text-xs font-bold transition-all group ${
-                  isExpanded ? 'bg-slate-900 text-emerald-400' : 'text-slate-400 hover:bg-slate-900/50 hover:text-slate-200'
+                className={`w-full flex items-center justify-between px-3 py-3 min-h-11 rounded-xl text-xs font-bold transition-all group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 ${
+                  isExpanded ? 'bg-slate-900 text-emerald-400' : categoryHasActiveItem ? 'text-slate-200 bg-slate-900/40' : 'text-slate-400 hover:bg-slate-900/50 hover:text-slate-200'
                 }`}
               >
                 <div className="flex items-center space-x-2.5">
-                  <category.icon className={`w-4 h-4 ${isExpanded ? 'text-emerald-400' : 'text-slate-500 group-hover:text-slate-400'}`} />
+                  <category.icon aria-hidden="true" className={`w-4 h-4 ${isExpanded || categoryHasActiveItem ? 'text-emerald-400' : 'text-slate-500 group-hover:text-slate-400'}`} />
                   <span>{category.label}</span>
                 </div>
-                {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                {categoryHasActiveItem && !isExpanded && <span className="mr-1 h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />}
+                {isExpanded ? <ChevronDown aria-hidden="true" className="w-3.5 h-3.5" /> : <ChevronRight aria-hidden="true" className="w-3.5 h-3.5" />}
               </button>
 
               {isExpanded && (
@@ -278,7 +292,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                         }}
                         aria-current={active ? "page" : undefined}
                         title={subItem.label}
-                        className={`w-full flex items-center space-x-2 px-3 py-2.5 min-h-10 rounded-lg text-xs font-semibold transition-all ${
+                        className={`w-full flex items-center space-x-2 px-3 py-2.5 min-h-10 rounded-lg text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 ${
                           active 
                             ? 'text-emerald-400 bg-emerald-500/10' 
                             : subItem.isLogout
@@ -316,7 +330,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
       </aside>
 
       {/* Mobile Drawer */}
-      <div className={`lg:hidden fixed inset-0 z-50 transition-all duration-300 ${isOpen ? 'visible' : 'invisible pointer-events-none'}`}>
+      <div role="dialog" aria-modal="true" aria-label="Dashboard navigation" aria-hidden={!isOpen} className={`lg:hidden fixed inset-0 z-50 transition-all duration-300 ${isOpen ? 'visible' : 'invisible pointer-events-none'}`}>
         <button
           type="button"
           aria-label="Close dashboard navigation"

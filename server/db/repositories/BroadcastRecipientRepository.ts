@@ -1,4 +1,5 @@
 import { Collection } from 'mongodb';
+import * as crypto from 'crypto';
 import { getMongoDb, isMongoConfigured } from '../mongodb';
 
 export type BroadcastRecipientStatus =
@@ -59,7 +60,7 @@ export const BroadcastRecipientRepository = {
       unique.set(subscriberId + ':' + channel, { subscriberId, channel, contactMask: safeText(recipient.contactMask, 80) });
     }
     const docs = Array.from(unique.values()).map((r) => ({
-      id: 'bcr-' + require('crypto').createHash('sha256').update(id + '|' + r.subscriberId + '|' + r.channel).digest('hex'),
+      id: 'bcr-' + crypto.createHash('sha256').update(id + '|' + r.subscriberId + '|' + r.channel).digest('hex'),
       campaignId: id,
       subscriberId: r.subscriberId,
       channel: r.channel,

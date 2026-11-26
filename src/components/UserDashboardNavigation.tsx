@@ -367,3 +367,5 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
         </div>
       </nav>
     </>
+  );
+};

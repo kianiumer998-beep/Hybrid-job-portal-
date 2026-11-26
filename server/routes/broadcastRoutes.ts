@@ -3,6 +3,7 @@ import { BroadcastRepository, FeatureFlagsRepository } from '../db/repositories'
 import { requireAdminPermission } from '../auth/authManager';
 import { isMongoConfigured } from '../db/mongodb';
 import { BroadcastRecipientRepository } from '../db/repositories/BroadcastRecipientRepository';
+import { BroadcastScheduleRepository } from '../db/repositories/BroadcastScheduleRepository';
 
 export const broadcastRouter = express.Router();
 
@@ -83,6 +84,46 @@ broadcastRouter.post('/', requireAdminPermission('settings.manage'), async (req,
   }
 });
 
+
+// Admin schedule management. This records timing only; dispatch waits for real provider integration.
+broadcastRouter.get('/schedules', requireAdminPermission('settings.manage'), async (_req, res) => {
+  if (!isMongoConfigured()) return res.status(503).json({ success: false, message: 'Database unavailable' });
+  try {
+    const schedules = await BroadcastScheduleRepository.list();
+    res.json({ success: true, schedules, dispatchEnabled: false });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err?.message || 'Could not load schedules' });
+  }
+});
+
+broadcastRouter.post('/:campaignId/schedule', requireAdminPermission('settings.manage'), async (req, res) => {
+  if (!isMongoConfigured()) return res.status(503).json({ success: false, message: 'Database unavailable' });
+  try {
+    const campaign = await BroadcastRepository.getById(String(req.params.campaignId || ''));
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
+    if (campaign.status !== 'Draft' && campaign.status !== 'Scheduled') {
+      return res.status(409).json({ success: false, message: 'Only Draft or Scheduled campaigns can be scheduled.' });
+    }
+    const schedule = await BroadcastScheduleRepository.schedule(campaign.id, String(req.body?.scheduledAt || ''), String(req.body?.timezone || 'Asia/Karachi'));
+    res.status(201).json({ success: true, schedule, dispatchEnabled: false, message: 'Schedule saved. Provider connection is required before automatic dispatch.' });
+  } catch (err: any) {
+    res.status(400).json({ success: false, message: err?.message || 'Could not save campaign schedule' });
+  }
+});
+
+broadcastRouter.patch('/:campaignId/schedule-state', requireAdminPermission('settings.manage'), async (req, res) => {
+  if (!isMongoConfigured()) return res.status(503).json({ success: false, message: 'Database unavailable' });
+  try {
+    const campaign = await BroadcastRepository.getById(String(req.params.campaignId || ''));
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
+    const state = req.body?.state;
+    if (!['Paused', 'Cancelled', 'WaitingForProvider'].includes(state)) return res.status(400).json({ success: false, message: 'Invalid schedule state.' });
+    const result = await BroadcastScheduleRepository.updateState(campaign.id, state);
+    res.json({ success: true, ...result, dispatchEnabled: false });
+  } catch (err: any) {
+    res.status(400).json({ success: false, message: err?.message || 'Could not update schedule' });
+  }
+});
 
 // Recipient-level delivery ledger. Delivery statuses are written only by a real provider integration.
 broadcastRouter.post('/:campaignId/prepare-recipients', requireAdminPermission('settings.manage'), async (req, res) => {

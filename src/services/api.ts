@@ -772,6 +772,13 @@ export const api = {
         }
       );
     },
+    async prepareRecipients(campaignId: string, recipients: Array<{ subscriberId: string; channel: 'Email' | 'WhatsApp' | 'SMS'; contactMask?: string }>) {
+      return safeFetchJson<any>(`${API_BASE}/broadcasts/${encodeURIComponent(campaignId)}/prepare-recipients`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ recipients })
+      });
+    },
     async getRecipientHistory(campaignId: string, page = 1, pageSize = 50) {
       return safeFetchJson<any>(`${API_BASE}/broadcasts/${encodeURIComponent(campaignId)}/recipients?page=${page}&pageSize=${pageSize}`, {
         headers: getAuthHeader()

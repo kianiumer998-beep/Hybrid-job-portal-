@@ -772,6 +772,23 @@ export const api = {
         }
       );
     },
+    async getRecipientHistory(campaignId: string, page = 1, pageSize = 50) {
+      return safeFetchJson<any>(`${API_BASE}/broadcasts/${encodeURIComponent(campaignId)}/recipients?page=${page}&pageSize=${pageSize}`, {
+        headers: getAuthHeader()
+      });
+    },
+    async getRecipientSummary(campaignId: string) {
+      return safeFetchJson<any>(`${API_BASE}/broadcasts/${encodeURIComponent(campaignId)}/recipient-summary`, {
+        headers: getAuthHeader()
+      });
+    },
+    async retryFailedRecipients(campaignId: string) {
+      return safeFetchJson<any>(`${API_BASE}/broadcasts/${encodeURIComponent(campaignId)}/retry-failed`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({})
+      });
+    },
     async importLegacy(campaigns: any[]) {
       return safeFetchJson<{
         success: boolean;

@@ -90,7 +90,6 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   const menuStructure: NavItem[] = [
     { id: 'dashboard', label: 'Overview', icon: LayoutDashboard, subItems: [
       { id: 'dash-overview', label: 'Dashboard & Membership', tab: 'overview', subView: 'metrics', icon: LayoutDashboard },
-      { id: 'mem-history', label: 'Payment History', tab: 'overview', subView: 'history', icon: History },
       { id: 'jobs-recommended', label: 'Recommended Jobs', tab: 'overview', subView: 'recommendations', icon: Sparkles },
     ]},
     { id: 'jobs', label: 'Find Jobs', icon: Search, subItems: [
@@ -113,7 +112,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
     ]},
     { id: 'membership-payments', label: 'Wallet & Payments', icon: Wallet, subItems: [
       { id: 'mem-wallet', label: 'Wallet & Deposits', tab: 'campaigns', subTab: 'wallet', icon: Wallet },
-      { id: 'dash-overview', label: 'Subscription & Renewal', tab: 'overview', subView: 'metrics', icon: CreditCard },
+      { id: 'mem-history', label: 'Payment History', tab: 'overview', subView: 'history', icon: History },
     ]},
     { id: 'communication', label: 'Alerts & Communication', icon: Bell, subItems: [
       { id: 'mem-whatsapp', label: 'WhatsApp Alerts', isGlobal: true, globalTab: 'alerts', icon: Zap },
@@ -194,7 +193,9 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
           return (
             <div key={category.id} className="space-y-1">
               <button
-                onClick={() => handleCategoryClick(category.id)}\n                aria-expanded={isExpanded}\n                aria-controls={\`user-nav-\${category.id}\`}
+                onClick={() => handleCategoryClick(category.id)}
+                aria-expanded={isExpanded}
+                aria-controls={\`user-nav-\${category.id}\`}
                 className={`w-full flex items-center justify-between px-3 py-3 min-h-11 rounded-xl text-xs font-bold transition-all group ${
                   isExpanded ? 'bg-slate-900 text-emerald-400' : 'text-slate-400 hover:bg-slate-900/50 hover:text-slate-200'
                 }`}
@@ -229,7 +230,9 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                           }
                           if (window.innerWidth < 1024) onClose();
                         }}
-                        aria-current={active ? "page" : undefined}\n                        title={subItem.label}\n                        className={`w-full flex items-center space-x-2 px-3 py-2.5 min-h-10 rounded-lg text-xs font-semibold transition-all ${
+                        aria-current={active ? "page" : undefined}
+                        title={subItem.label}
+                        className={`w-full flex items-center space-x-2 px-3 py-2.5 min-h-10 rounded-lg text-xs font-semibold transition-all ${
                           active 
                             ? 'text-emerald-400 bg-emerald-500/10' 
                             : subItem.isLogout

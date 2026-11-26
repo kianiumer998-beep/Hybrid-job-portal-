@@ -342,11 +342,13 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
         default: return true;
       }
     });
-    const selectedSubscribers = camp.targetAudience === 'Subscribed Members' || camp.targetAudience === 'All Users'
-      ? safeSubscribers
-      : camp.targetAudience === 'Unpaid / Expired Users'
-        ? safeSubscribers.filter(s => s.status === 'Expired' || s.status === 'Pending')
-        : [];
+    const selectedSubscribers = camp.targetAudience === 'Subscribed Members'
+      ? safeSubscribers.filter(s => s.status === 'Active' || s.status === 'Expiring Soon')
+      : camp.targetAudience === 'All Users'
+        ? safeSubscribers
+        : camp.targetAudience === 'Unpaid / Expired Users'
+          ? safeSubscribers.filter(s => s.status === 'Expired' || s.status === 'Pending')
+          : [];
     const channels: Array<'Email' | 'WhatsApp' | 'SMS'> = camp.channel === 'Multi-Channel'
       ? ['Email', 'WhatsApp', 'SMS']
       : camp.channel === 'Email' || camp.channel === 'WhatsApp' || camp.channel === 'SMS'

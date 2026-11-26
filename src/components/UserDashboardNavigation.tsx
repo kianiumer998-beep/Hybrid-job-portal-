@@ -195,7 +195,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
               <button
                 onClick={() => handleCategoryClick(category.id)}
                 aria-expanded={isExpanded}
-                aria-controls={\`user-nav-\${category.id}\`}
+                aria-controls={`user-nav-${category.id}`}
                 className={`w-full flex items-center justify-between px-3 py-3 min-h-11 rounded-xl text-xs font-bold transition-all group ${
                   isExpanded ? 'bg-slate-900 text-emerald-400' : 'text-slate-400 hover:bg-slate-900/50 hover:text-slate-200'
                 }`}
@@ -208,7 +208,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
               </button>
 
               {isExpanded && (
-                <div id={\`user-nav-\${category.id}\`} className="ml-3 sm:ml-4 pl-3 sm:pl-4 border-l border-slate-800 space-y-1 py-1">
+                <div id={`user-nav-${category.id}`} className="ml-3 sm:ml-4 pl-3 sm:pl-4 border-l border-slate-800 space-y-1 py-1">
                   {category.subItems.map((subItem, idx) => {
                     const active = isActive(subItem);
                     return (

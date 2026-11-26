@@ -81,6 +81,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const [recipientSummary, setRecipientSummary] = useState<any>(null);
   const [recipientHistoryLoading, setRecipientHistoryLoading] = useState(false);
   const [recipientHistoryError, setRecipientHistoryError] = useState('');
+  const [recipientHistoryNotice, setRecipientHistoryNotice] = useState('');
   const [recipientRetryBusy, setRecipientRetryBusy] = useState(false);
   const [recipientPrepareBusy, setRecipientPrepareBusy] = useState(false);
 
@@ -368,8 +369,9 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
       ]);
       setRecipientHistory(Array.isArray(history?.items) ? history.items : []);
       setRecipientSummary(summary?.summary || null);
-      setRecipientHistoryError(prepared.message || `Prepared ${prepared.newlyPrepared || 0} new recipient/channel records. No messages were sent.`);
+      setRecipientHistoryNotice(prepared.message || `Prepared ${prepared.newlyPrepared || 0} new recipient/channel records. No messages were sent.`);
     } catch (err: any) {
+      setRecipientHistoryNotice('');
       setRecipientHistoryError(err?.message || 'Recipient preparation failed.');
     } finally {
       setRecipientPrepareBusy(false);
@@ -877,7 +879,8 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
               </button>
             </div>
           </div>
-          {recipientHistoryError && <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-lg p-3">{recipientHistoryError}</div>}
+          {recipientHistoryError && <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-lg p-3">{recipientHistoryError}</div>
+          {recipientHistoryNotice && <div className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">{recipientHistoryNotice}</div>}
           {recipientSummary?.counts && (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
               {Object.entries(recipientSummary.counts).map(([status, count]) => (

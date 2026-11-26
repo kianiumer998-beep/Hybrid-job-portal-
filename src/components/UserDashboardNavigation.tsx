@@ -279,6 +279,41 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
           {NavContent}
         </div>
       </div>
+
+      {/* Mobile quick navigation: frequent destinations only; full menu remains in the drawer. */}
+      <nav aria-label="Mobile quick navigation" className="lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-slate-800 bg-slate-950/95 backdrop-blur supports-[backdrop-filter]:bg-slate-950/85 pb-1">
+        <div className="mx-auto grid max-w-xl grid-cols-5">
+          {[
+            { id: 'dash-overview', label: 'Home', icon: LayoutDashboard, tab: 'overview' as DashboardTab, subView: 'metrics' as OverviewSubView },
+            { id: 'jobs-explore', label: 'Jobs', icon: Search, isGlobal: true, globalTab: 'jobs' as GlobalTab },
+            { id: 'career-cv', label: 'CV', icon: FileText, isGlobal: true, globalTab: 'cv' as GlobalTab },
+            { id: 'mem-whatsapp', label: 'Alerts', icon: Bell, isGlobal: true, globalTab: 'alerts' as GlobalTab },
+            { id: 'acc-profile', label: 'Account', icon: User, tab: 'profile' as DashboardTab, accountSubTab: 'profile' as const },
+          ].map((item) => {
+            const active = activeNavId === item.id || (!activeNavId && isActive(item));
+            return (
+              <button
+                key={item.id}
+                type="button"
+                aria-current={active ? "page" : undefined}
+                onClick={() => {
+                  onNavigate({
+                    id: item.id,
+                    tab: item.tab,
+                    subView: item.subView,
+                    accountSubTab: item.accountSubTab,
+                    isGlobal: item.isGlobal,
+                    globalTab: item.globalTab
+                  });
+                  onClose();
+                }}
+                className={`flex min-h-14 flex-col items-center justify-center gap-1 px-1 text-[10px] font-semibold transition-colors ${active ? 'text-emerald-400' : 'text-slate-400 hover:text-slate-200'}`}
+              >
+                <item.icon className="h-5 w-5" aria-hidden="true" />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
     </>
-  );
-};

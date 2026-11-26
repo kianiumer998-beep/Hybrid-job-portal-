@@ -222,7 +222,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   };
 
   const NavContent = (
-    <div className="flex flex-col h-full bg-slate-950 border-r border-slate-800 w-[min(85vw,20rem)] lg:w-64 overflow-y-auto">
+    <div className="flex flex-col h-full bg-slate-950 border-r border-slate-800 w-[min(88vw,21rem)] lg:w-64 overflow-y-auto">
       <div className="p-4 border-b border-slate-800 flex items-center justify-between lg:justify-start space-x-2">
         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-950/40">
             <LayoutDashboard className="w-5 h-5 text-slate-950" aria-hidden="true" />
@@ -344,8 +344,8 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
       </div>
 
       {/* Mobile quick navigation: frequent destinations only; full menu remains in the drawer. */}
-      <nav aria-label="Mobile quick navigation" className="lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-slate-800 bg-slate-950/95 backdrop-blur supports-[backdrop-filter]:bg-slate-950/85 pb-1">
-        <div className="mx-auto grid max-w-xl grid-cols-5">
+      <nav aria-label="Mobile quick navigation" className="lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-slate-800 bg-slate-950/95 backdrop-blur supports-[backdrop-filter]:bg-slate-950/85 pb-[env(safe-area-inset-bottom)]">
+        <div className="mx-auto grid max-w-xl grid-cols-5 px-1">
           {[
             { id: 'dash-overview', label: 'Home', icon: LayoutDashboard, tab: 'overview' as DashboardTab, subView: 'metrics' as OverviewSubView },
             { id: 'jobs-explore', label: 'Jobs', icon: Search, isGlobal: true, globalTab: 'jobs' as GlobalTab },
@@ -371,8 +371,9 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                   });
                   onClose();
                 }}
-                className={`flex min-h-14 flex-col items-center justify-center gap-1 px-1 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 ${active ? 'text-emerald-400' : 'text-slate-400 hover:text-slate-200'}`}
+                className={`relative flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 ${active ? 'text-emerald-300 bg-emerald-500/10' : 'text-slate-400 hover:text-slate-200'}`}
               >
+                {active && <span className="absolute top-1.5 h-0.5 w-5 rounded-full bg-emerald-400" aria-hidden="true" />}
                 <item.icon className="h-5 w-5" aria-hidden="true" />
                 <span>{item.label}</span>
               </button>

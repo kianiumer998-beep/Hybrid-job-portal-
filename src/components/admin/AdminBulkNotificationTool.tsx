@@ -337,7 +337,7 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
   const isEmailEnabled = featureFlags?.enableEmailAlerts === true;
   const isWhatsAppEnabled = featureFlags?.enableWhatsAppAlerts === true;
   const isSmsEnabled = featureFlags?.enableSmsAlerts === true;
-  const isMultiChannelEnabled = isEmailEnabled && isWhatsAppEnabled;
+  const isMultiChannelEnabled = isEmailEnabled && isWhatsAppEnabled && isSmsEnabled;
 
   const [initialStorageState] = useState<NotificationDraftStorageInspection>(() => {
     if (typeof localStorage === 'undefined') {
@@ -656,7 +656,7 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
                 >
                   <option value="In-App">In-App Notification Preview</option>
                   <option value="Multi-Channel" disabled={!isMultiChannelEnabled}>
-                    Multi-Channel {!isMultiChannelEnabled ? '(Disabled by Feature Flags)' : '(Draft Only)'}
+                    Multi-Channel (Email + WhatsApp + SMS) {!isMultiChannelEnabled ? '(Enable all 3 channels)' : '(Draft Only)'}
                   </option>
                   <option value="Email" disabled={!isEmailEnabled}>
                     Email {!isEmailEnabled ? '(Disabled by Feature Flags)' : '(Draft Only)'}

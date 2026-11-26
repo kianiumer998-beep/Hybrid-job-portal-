@@ -56,7 +56,7 @@ export const BroadcastScheduleRepository = {
     };
     await collection.updateOne(
       { campaignId: id },
-      { $set: record, $setOnInsert: { createdAt: now } },
+      { $set: record },
       { upsert: true }
     );
     return record;

@@ -1604,7 +1604,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           userRole={currentUser.role}
           counts={{
             applications: userApplications.length,
-            savedJobs: savedJobIds.length,
+            savedJobs: savedJobsList.length || savedJobIds.length,
             jobAlerts: jobAlerts.length,
             documents: userDocuments.length,
             jobListings: displayUserJobs.length,

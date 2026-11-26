@@ -78,6 +78,8 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const [activeTab, setActiveTab] = useState<'compose' | 'history' | 'templates' | 'providers' | 'bulk' | 'recipients' | 'subscribers' | 'schedule'>(resolvedInitialTab);
   const [recipientCampaignId, setRecipientCampaignId] = useState<string>('');
   const [recipientHistory, setRecipientHistory] = useState<any[]>([]);
+  const [recipientPage, setRecipientPage] = useState(1);
+  const [recipientTotal, setRecipientTotal] = useState(0);
   const [recipientSummary, setRecipientSummary] = useState<any>(null);
   const [recipientHistoryLoading, setRecipientHistoryLoading] = useState(false);
   const [recipientHistoryError, setRecipientHistoryError] = useState('');
@@ -118,12 +120,13 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
     setRecipientHistoryLoading(true);
     setRecipientHistoryError('');
     Promise.all([
-      api.broadcasts.getRecipientHistory(recipientCampaignId, 1, 100),
+      api.broadcasts.getRecipientHistory(recipientCampaignId, recipientPage, 100),
       api.broadcasts.getRecipientSummary(recipientCampaignId)
     ]).then(([history, summary]) => {
       if (cancelled) return;
       if (!history?.success || !summary?.success) throw new Error(history?.message || summary?.message || 'Could not load recipient history.');
       setRecipientHistory(Array.isArray(history.items) ? history.items : []);
+      setRecipientTotal(Number(history.total) || 0);
       setRecipientSummary(summary.summary || null);
     }).catch((err: any) => {
       if (!cancelled) setRecipientHistoryError(err?.message || 'Recipient history request failed.');
@@ -131,7 +134,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
       if (!cancelled) setRecipientHistoryLoading(false);
     });
     return () => { cancelled = true; };
-  }, [activeTab, recipientCampaignId]);
+  }, [activeTab, recipientCampaignId, recipientPage]);
 
   // Channel Gating Statuses (Fail-closed: explicit true required)
   const emailEnabled = featureFlags?.enableEmailAlerts === true;
@@ -384,10 +387,11 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
       const prepared = await api.broadcasts.prepareRecipients(camp.id, recipients);
       if (!prepared?.success) throw new Error(prepared?.message || 'Recipient preparation failed.');
       const [history, summary] = await Promise.all([
-        api.broadcasts.getRecipientHistory(camp.id, 1, 100),
+        api.broadcasts.getRecipientHistory(camp.id, recipientPage, 100),
         api.broadcasts.getRecipientSummary(camp.id)
       ]);
       setRecipientHistory(Array.isArray(history?.items) ? history.items : []);
+      setRecipientTotal(Number(history?.total) || 0);
       setRecipientSummary(summary?.summary || null);
       setRecipientHistoryNotice(prepared.message || `Prepared ${prepared.newlyPrepared || 0} new recipient/channel records. No messages were sent.`);
     } catch (err: any) {
@@ -1004,10 +1008,11 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                   const res = await api.broadcasts.retryFailedRecipients(recipientCampaignId);
                   if (!res?.success) throw new Error(res?.message || 'Retry request failed.');
                   const [history, summary] = await Promise.all([
-                    api.broadcasts.getRecipientHistory(recipientCampaignId, 1, 100),
+                    api.broadcasts.getRecipientHistory(recipientCampaignId, recipientPage, 100),
                     api.broadcasts.getRecipientSummary(recipientCampaignId)
                   ]);
                   setRecipientHistory(Array.isArray(history?.items) ? history.items : []);
+                  setRecipientTotal(Number(history?.total) || 0);
                   setRecipientSummary(summary?.summary || null);
                 } catch (err: any) {
                   setRecipientHistoryError(err?.message || 'Retry request failed.');
@@ -1045,6 +1050,13 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                 </tr>)}</tbody>
               </table>
               {!recipientHistory.length && <div className="text-xs text-slate-500 text-center py-6">No recipient records prepared yet. Provider delivery is not active until API integration is configured.</div>}
+              <div className="flex items-center justify-between gap-3 pt-3 text-xs text-slate-400">
+                <span>Showing {recipientTotal ? ((recipientPage - 1) * 100 + 1) : 0}–{Math.min(recipientPage * 100, recipientTotal)} of {recipientTotal}</span>
+                <div className="flex gap-2">
+                  <button type="button" disabled={recipientPage <= 1 || recipientHistoryLoading} onClick={() => setRecipientPage(p => Math.max(1, p - 1))} className="px-3 py-2 rounded-lg border border-slate-700 disabled:opacity-40">Previous</button>
+                  <button type="button" disabled={recipientPage * 100 >= recipientTotal || recipientHistoryLoading} onClick={() => setRecipientPage(p => p + 1)} className="px-3 py-2 rounded-lg border border-slate-700 disabled:opacity-40">Next</button>
+                </div>
+              </div>
             </div>
           )}
         </div>

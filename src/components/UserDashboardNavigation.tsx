@@ -123,8 +123,20 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   // switching between legacy and professional navigation modes.
   useEffect(() => {
     if (!activeNavId) return;
+    const legacyNavIdMap: Record<string, string> = {
+      'dash-recs': 'jobs-recommended',
+      'dash-history': 'mem-history',
+      'find-explore': 'jobs-explore',
+      'career-apps': 'jobs-applications',
+      'career-saved': 'jobs-saved',
+      'career-alerts': 'jobs-alerts',
+      'mem-status': 'dash-overview',
+      'mem-plans': 'dash-overview',
+      'ads-wallet': 'mem-wallet',
+    };
+    const effectiveActiveNavId = legacyNavIdMap[activeNavId] || activeNavId;
     const activeCategory = menuStructure.find((category) =>
-      category.subItems.some((item) => item.id === activeNavId)
+      category.subItems.some((item) => item.id === effectiveActiveNavId)
     );
     if (activeCategory) setExpandedCategory(activeCategory.id);
   }, [activeNavId]);

@@ -32,6 +32,7 @@ type GlobalTab = 'jobs' | 'cv' | 'alerts' | 'dashboard';
 interface NavSubItem {
   id: string;
   label: string;
+  description?: string;
   icon?: LucideIcon;
   tab?: DashboardTab;
   subView?: OverviewSubView;
@@ -128,44 +129,44 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
 
   const menuStructure: NavItem[] = ([
     { id: 'dashboard', label: 'Overview', icon: LayoutDashboard, subItems: [
-      { id: 'dash-overview', label: 'Dashboard Overview', tab: 'overview', subView: 'metrics', icon: LayoutDashboard },
-      { id: 'jobs-recommended', label: 'Recommended Jobs', tab: 'overview', subView: 'recommendations', icon: Sparkles },
+      { id: 'dash-overview', label: 'Dashboard Overview', description: 'Your activity and membership snapshot', tab: 'overview', subView: 'metrics', icon: LayoutDashboard },
+      { id: 'jobs-recommended', label: 'Recommended Jobs', description: 'Opportunities matched to your profile', tab: 'overview', subView: 'recommendations', icon: Sparkles },
     ]},
     { id: 'jobs', label: 'Find Jobs', icon: Search, subItems: [
-      { id: 'jobs-explore', label: 'Explore All Jobs', isGlobal: true, globalTab: 'jobs', icon: Search },
-      { id: 'jobs-applications', label: 'My Applications', tab: 'applications', subTab: 'submitted', icon: FileText, countKey: 'applications' },
-      { id: 'jobs-saved', label: 'Saved Jobs', tab: 'applications', subTab: 'saved', icon: Bookmark, countKey: 'savedJobs' },
-      { id: 'jobs-alerts', label: 'Job Alerts', tab: 'applications', subTab: 'alerts', icon: Bell, countKey: 'jobAlerts' },
+      { id: 'jobs-explore', label: 'Explore All Jobs', description: 'Browse openings and apply', isGlobal: true, globalTab: 'jobs', icon: Search },
+      { id: 'jobs-applications', label: 'My Applications', description: 'Track submitted applications and status', tab: 'applications', subTab: 'submitted', icon: FileText, countKey: 'applications' },
+      { id: 'jobs-saved', label: 'Saved Jobs', description: 'Your bookmarked opportunities', tab: 'applications', subTab: 'saved', icon: Bookmark, countKey: 'savedJobs' },
+      { id: 'jobs-alerts', label: 'Job Alerts', description: 'Create and manage matching alerts', tab: 'applications', subTab: 'alerts', icon: Bell, countKey: 'jobAlerts' },
     ]},
     { id: 'career-center', label: 'Career & CV', icon: FileText, subItems: [
-      { id: 'career-cv', label: 'CV Builder', isGlobal: true, globalTab: 'cv', icon: Zap },
-      { id: 'career-docs', label: 'My Documents', tab: 'applications', subTab: 'documents', icon: FileText, countKey: 'documents' },
+      { id: 'career-cv', label: 'CV Builder', description: 'Create or update your professional CV', isGlobal: true, globalTab: 'cv', icon: Zap },
+      { id: 'career-docs', label: 'My Documents', description: 'Resumes, cover letters and certificates', tab: 'applications', subTab: 'documents', icon: FileText, countKey: 'documents' },
     ]},
     { id: 'employer-center', label: 'Employer Center', icon: Building2, subItems: [
-      { id: 'emp-post', label: 'Post a Job', tab: 'post-job', icon: Plus },
-      { id: 'emp-listings', label: 'My Job Listings & Applicants', tab: 'my-jobs', icon: Building2, countKey: 'jobListings' },
-      { id: 'emp-verification', label: 'Business Verification', tab: 'profile', accountSubTab: 'profile', icon: ShieldCheck, employerOnly: true },
+      { id: 'emp-post', label: 'Post a Job', description: 'Create and submit a new job opening', tab: 'post-job', icon: Plus },
+      { id: 'emp-listings', label: 'My Job Listings & Applicants', description: 'Manage listings and review applicants', tab: 'my-jobs', icon: Building2, countKey: 'jobListings' },
+      { id: 'emp-verification', label: 'Business Verification', description: 'Submit and track company verification', tab: 'profile', accountSubTab: 'profile', icon: ShieldCheck, employerOnly: true },
     ]},
     { id: 'ads-campaigns', label: 'Ads & Campaigns', icon: Megaphone, subItems: [
-      { id: 'ads-list', label: 'My Campaigns', tab: 'campaigns', subTab: 'my-campaigns', icon: Megaphone, countKey: 'campaigns' },
-      { id: 'ads-create', label: 'Create Campaign', tab: 'campaigns', subTab: 'create', icon: Plus },
+      { id: 'ads-list', label: 'My Campaigns', description: 'Review campaign status and performance', tab: 'campaigns', subTab: 'my-campaigns', icon: Megaphone, countKey: 'campaigns' },
+      { id: 'ads-create', label: 'Create Campaign', description: 'Build and submit a new campaign', tab: 'campaigns', subTab: 'create', icon: Plus },
     ]},
     { id: 'membership-payments', label: 'Wallet & Payments', icon: Wallet, subItems: [
-      { id: 'mem-wallet', label: 'Wallet & Balance', tab: 'campaigns', subTab: 'wallet', icon: Wallet },
-      { id: 'membership-plan', label: 'Membership & Plans', action: 'subscription', icon: Crown },
-      { id: 'wallet-deposit', label: 'Add Funds / Deposit', action: 'deposit', icon: Plus },
-      { id: 'mem-history', label: 'Payment History', tab: 'overview', subView: 'history', icon: History },
+      { id: 'mem-wallet', label: 'Wallet & Balance', description: 'Available balance and held funds', tab: 'campaigns', subTab: 'wallet', icon: Wallet },
+      { id: 'membership-plan', label: 'Membership & Plans', description: 'View packages and manage renewal', action: 'subscription', icon: Crown },
+      { id: 'wallet-deposit', label: 'Add Funds / Deposit', description: 'Submit a wallet deposit and receipt', action: 'deposit', icon: Plus },
+      { id: 'mem-history', label: 'Payment History', description: 'Review transactions and payment status', tab: 'overview', subView: 'history', icon: History },
     ]},
     { id: 'communication', label: 'Alerts & Communication', icon: Bell, subItems: [
-      { id: 'mem-whatsapp', label: 'WhatsApp & Job Alerts', isGlobal: true, globalTab: 'alerts', icon: Zap },
-      { id: 'notifications-center', label: 'Notifications Center', action: 'notifications', icon: Bell, countKey: 'unreadNotifications' },
+      { id: 'mem-whatsapp', label: 'WhatsApp & Job Alerts', description: 'Manage your alert channels and settings', isGlobal: true, globalTab: 'alerts', icon: Zap },
+      { id: 'notifications-center', label: 'Notifications Center', description: 'View updates and unread notifications', action: 'notifications', icon: Bell, countKey: 'unreadNotifications' },
     ]},
     { id: 'help-support', label: 'Help & Support', icon: MessageSquare, subItems: [
-      { id: 'acc-chat', label: 'Support Inbox', tab: 'chat', icon: MessageSquare },
+      { id: 'acc-chat', label: 'Support Inbox', description: 'Contact support and follow replies', tab: 'chat', icon: MessageSquare },
     ]},
     { id: 'account-support', label: 'My Account', icon: User, subItems: [
-      { id: 'acc-profile', label: 'Profile & Preferences', tab: 'profile', accountSubTab: 'profile', icon: User },
-      { id: 'acc-security', label: 'Security & Password', tab: 'profile', accountSubTab: 'security', icon: Lock },
+      { id: 'acc-profile', label: 'Profile & Preferences', description: 'Update your personal and contact details', tab: 'profile', accountSubTab: 'profile', icon: User },
+      { id: 'acc-security', label: 'Security & Password', description: 'Change your account password securely', tab: 'profile', accountSubTab: 'security', icon: Lock },
     ]},
   ] as NavItem[]).map((category) => ({
     ...category,
@@ -259,7 +260,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
         </div>
         <div className="min-w-0 flex-1">
           <span className="block font-extrabold text-white tracking-tight text-sm">My Dashboard</span>
-          <span className="block text-[10px] font-medium tracking-wide text-slate-500">PERSONAL WORKSPACE</span>
+          <span className="block text-[10px] font-medium tracking-wide text-slate-500">{userRole === 'Employer/Job Poster' ? 'EMPLOYER WORKSPACE' : 'JOB SEEKER WORKSPACE'}</span>
         </div>
         <button type="button" aria-label="Close navigation" onClick={onClose} className="lg:hidden rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">
             <X className="w-5 h-5" aria-hidden="true" />
@@ -331,7 +332,10 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                         }`}
                       >
                         {subItem.icon && <subItem.icon className={`w-3 h-3 shrink-0 ${subItem.isLogout ? 'text-rose-400' : ''}`} />}
-                        <span className="min-w-0 flex-1 truncate text-left">{subItem.label}</span>
+                        <span className="min-w-0 flex-1 text-left">
+                          <span className="block truncate">{subItem.label}</span>
+                          {subItem.description && <span className={`mt-0.5 block truncate text-[10px] font-normal ${active ? 'text-emerald-200/70' : 'text-slate-600 group-hover:text-slate-500'}`}>{subItem.description}</span>}
+                        </span>
                         {subItem.countKey && counts[subItem.countKey] > 0 && (
                           <span className={`shrink-0 min-w-5 rounded-full px-1.5 py-0.5 text-center text-[10px] font-bold tabular-nums ${active ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400'}`} aria-label={`${counts[subItem.countKey]} ${subItem.label.toLowerCase()}`}>
                             {counts[subItem.countKey] > 99 ? '99+' : counts[subItem.countKey]}

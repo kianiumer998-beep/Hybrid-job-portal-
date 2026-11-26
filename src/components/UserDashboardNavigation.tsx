@@ -48,11 +48,13 @@ interface NavSubItem {
 
 interface UserDashboardNavigationCounts {
   applications: number;
+  recommendedJobs: number;
   savedJobs: number;
   jobAlerts: number;
   documents: number;
   jobListings: number;
   campaigns: number;
+  paymentTransactions: number;
   unreadNotifications: number;
 }
 
@@ -130,7 +132,8 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   const menuStructure: NavItem[] = ([
     { id: 'dashboard', label: 'Overview', icon: LayoutDashboard, subItems: [
       { id: 'dash-overview', label: 'Dashboard Overview', description: 'Your activity and membership snapshot', tab: 'overview', subView: 'metrics', icon: LayoutDashboard },
-      { id: 'jobs-recommended', label: 'Recommended Jobs', description: 'Opportunities matched to your profile', tab: 'overview', subView: 'recommendations', icon: Sparkles },
+      { id: 'jobs-recommended', label: 'Recommended Jobs', description: 'Explore roles matched to your skills and activity', tab: 'overview', subView: 'recommendations', icon: Sparkles, countKey: 'recommendedJobs' },
+
     ]},
     { id: 'jobs', label: 'Find Jobs', icon: Search, subItems: [
       { id: 'jobs-explore', label: 'Explore All Jobs', description: 'Browse openings and apply', isGlobal: true, globalTab: 'jobs', icon: Search },
@@ -144,7 +147,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
     ]},
     { id: 'employer-center', label: 'Employer Center', icon: Building2, subItems: [
       { id: 'emp-post', label: 'Post a Job', description: 'Create and submit a new job opening', tab: 'post-job', icon: Plus },
-      { id: 'emp-listings', label: 'My Job Listings & Applicants', description: 'Manage listings and review applicants', tab: 'my-jobs', icon: Building2, countKey: 'jobListings' },
+      { id: 'emp-listings', label: 'My Job Listings & Applicants', description: 'Track listing status, review applicants and manage submissions', tab: 'my-jobs', icon: Building2, countKey: 'jobListings' },
       { id: 'emp-verification', label: 'Business Verification', description: 'Submit and track company verification', tab: 'profile', accountSubTab: 'profile', icon: ShieldCheck, employerOnly: true },
     ]},
     { id: 'ads-campaigns', label: 'Ads & Campaigns', icon: Megaphone, subItems: [
@@ -153,12 +156,12 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
     ]},
     { id: 'membership-payments', label: 'Wallet & Payments', icon: Wallet, subItems: [
       { id: 'mem-wallet', label: 'Wallet & Balance', description: 'Available balance and held funds', tab: 'campaigns', subTab: 'wallet', icon: Wallet },
-      { id: 'membership-plan', label: 'Membership & Plans', description: 'View packages and manage renewal', action: 'subscription', icon: Crown },
-      { id: 'wallet-deposit', label: 'Add Funds / Deposit', description: 'Submit a wallet deposit and receipt', action: 'deposit', icon: Plus },
-      { id: 'mem-history', label: 'Payment History', description: 'Review transactions and payment status', tab: 'overview', subView: 'history', icon: History },
+      { id: 'membership-plan', label: 'Membership & Plans', description: 'Compare available plans, benefits and renewal options', action: 'subscription', icon: Crown },
+      { id: 'wallet-deposit', label: 'Add Funds / Deposit', description: 'Choose a payment method and submit your deposit proof', action: 'deposit', icon: Plus },
+      { id: 'mem-history', label: 'Payment History', description: 'Review billing records, amounts, methods, status and receipts', tab: 'overview', subView: 'history', icon: History, countKey: 'paymentTransactions' },
     ]},
     { id: 'communication', label: 'Alerts & Communication', icon: Bell, subItems: [
-      { id: 'mem-whatsapp', label: 'WhatsApp & Job Alerts', description: 'Manage your alert channels and settings', isGlobal: true, globalTab: 'alerts', icon: Zap },
+      { id: 'mem-whatsapp', label: 'WhatsApp & Job Alerts', description: 'Manage available alert channels and job notification preferences', isGlobal: true, globalTab: 'alerts', icon: Zap },
       { id: 'notifications-center', label: 'Notifications Center', description: 'View updates and unread notifications', action: 'notifications', icon: Bell, countKey: 'unreadNotifications' },
     ]},
     { id: 'help-support', label: 'Help & Support', icon: MessageSquare, subItems: [

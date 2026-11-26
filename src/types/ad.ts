@@ -204,6 +204,15 @@ export interface JobPostingFeeSettings {
   promoBannerText?: string;
 }
 
+export interface PlacementExpiryReminderConfig {
+  enabled: boolean;
+  hoursBefore: number;
+  inAppEnabled: boolean;
+  emailEnabled: boolean;
+  whatsappEnabled: boolean;
+  smsEnabled: boolean;
+}
+
 export interface CampaignPlacementOption {
   id: AdPlacement;
   name: string;
@@ -226,6 +235,7 @@ export interface CampaignPlacementOption {
   percentageUpliftPercent?: number; // Additional percentage on top of the existing multiplier
   maxConcurrentSlots?: number; // e.g. 3 simultaneous banners
   allowedPageIds?: string[];
+  expiryReminder?: PlacementExpiryReminderConfig;
 }
 
 export interface CampaignCustomizationConfig {

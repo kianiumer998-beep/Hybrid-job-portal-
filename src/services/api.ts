@@ -487,6 +487,23 @@ export const api = {
         headers: getAuthHeader(),
         body: JSON.stringify(pricingData)
       });
+    },
+    async dispatchReminder(payload: {
+      scope: 'early-access' | 'all-scheduled';
+      customSubject?: string;
+      customMessage?: string;
+      channels?: { inApp?: boolean; email?: boolean; whatsapp?: boolean; sms?: boolean };
+    }) {
+      return safeFetchJson<{
+        success: boolean;
+        scope?: string;
+        summary?: any;
+        message?: string;
+      }>(`${API_BASE}/pricing/reminders/dispatch`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(payload)
+      });
     }
   },
 

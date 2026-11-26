@@ -20,7 +20,9 @@ import {
 } from '../../../src/types/landing';
 import {
   DEFAULT_JOB_POSTING_PRICING_CONFIG,
-  DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG
+  DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG,
+  DEFAULT_TIER_EXPIRY_REMINDER,
+  DEFAULT_JOB_TIER_REMINDER_SETTINGS
 } from '../../../src/types/job';
 import { getMongoDb, isMongoConfigured, withMongoTimeout } from '../mongodb';
 import { normalizeSubscriptionFeatureCatalog, resolveEffectiveFeatureConfig, SUBSCRIPTION_FEATURES } from '../../services/subscriptionEntitlements';
@@ -174,7 +176,18 @@ function buildAuthoritativeDefaults(): any {
     subscriptionPackages: [],
     subscriptionFeatureCatalog: SUBSCRIPTION_FEATURES.map((feature) => ({ id: feature.id, label: feature.label, enabled: false, pricePkr: 0, durationDays: 30, includedSlots: 0, slotDurationDays: 30, ...(feature.id === 'campaign_credits' ? { campaignCredits: [] } : {}) })),
     subscriptionBundleDiscountPercent: 0,
-    subscriptionReminderSettings: { enabled: false, daysBefore: 3 },
+    subscriptionReminderSettings: {
+      enabled: false,
+      daysBefore: 3,
+      inAppEnabled: true,
+      inAppDaysBefore: 3,
+      emailEnabled: false,
+      emailDaysBefore: 3,
+      whatsappEnabled: false,
+      whatsappDaysBefore: 3,
+      smsEnabled: false,
+      smsDaysBefore: 3
+    },
     earlyAccess: {
       enabled: false,
       sourceTypes: ['scraped', 'user_posted', 'admin_created'],
@@ -187,7 +200,19 @@ function buildAuthoritativeDefaults(): any {
       description: 'Explore selected jobs before they become available to other members.',
       displayFields: ['title', 'company', 'department', 'city', 'deadlineDate'],
       showSource: true,
-      jobOverrides: []
+      jobOverrides: [],
+      reminderSettings: {
+        enabled: false,
+        notifyOnNewEarlyAccess: false,
+        notifyBeforePublicRelease: false,
+        hoursBeforeRelease: 2,
+        inAppEnabled: true,
+        emailEnabled: false,
+        whatsappEnabled: false,
+        smsEnabled: false,
+        customSubject: '',
+        customMessage: ''
+      }
     },
     cvBuilder: {
       standardPdfExportPkr: 0, pdfExportEnabled: true, pdfExportPkr: 0,
@@ -367,7 +392,25 @@ function deepMergePricing(base: any, incoming: any): any {
         featured: { ...(baseSlot.featured || { enabled: true, maxSlots: 4 }), ...(srcSlot.featured || {}) },
         urgent: { ...(baseSlot.urgent || { enabled: true, maxSlots: 4 }), ...(srcSlot.urgent || {}) },
         future: { ...(baseSlot.future || { enabled: true, maxSlots: 4 }), ...(srcSlot.future || {}) }
-      }
+      },
+      tierReminderSettings: (['vip', 'pinned', 'featured', 'urgent', 'future'] as const).reduce((acc: any, tierKey) => {
+        const baseTier = base.jobPosting?.tierReminderSettings?.[tierKey] || DEFAULT_JOB_TIER_REMINDER_SETTINGS[tierKey] || DEFAULT_TIER_EXPIRY_REMINDER;
+        const srcTier = src.jobPosting?.tierReminderSettings?.[tierKey] || {};
+        acc[tierKey] = {
+          ...DEFAULT_TIER_EXPIRY_REMINDER,
+          ...baseTier,
+          ...srcTier,
+          enabled: srcTier.enabled !== undefined ? srcTier.enabled === true : baseTier.enabled === true,
+          daysBefore: Number.isInteger(Number(srcTier.daysBefore))
+            ? Math.min(30, Math.max(1, Number(srcTier.daysBefore)))
+            : (Number.isInteger(Number(baseTier.daysBefore)) ? Math.min(30, Math.max(1, Number(baseTier.daysBefore))) : 3),
+          inAppEnabled: srcTier.inAppEnabled !== undefined ? srcTier.inAppEnabled === true : baseTier.inAppEnabled !== false,
+          emailEnabled: srcTier.emailEnabled !== undefined ? srcTier.emailEnabled === true : baseTier.emailEnabled === true,
+          whatsappEnabled: srcTier.whatsappEnabled !== undefined ? srcTier.whatsappEnabled === true : baseTier.whatsappEnabled === true,
+          smsEnabled: srcTier.smsEnabled !== undefined ? srcTier.smsEnabled === true : baseTier.smsEnabled === true
+        };
+        return acc;
+      }, {})
     },
     landingPageDesignSystem: normalizeLandingDesignSystem(
       src.landingPageDesignSystem ?? createDefaultLandingDesignSystem({ ...baseLanding, ...srcLanding }),
@@ -467,7 +510,87 @@ function deepMergePricing(base: any, incoming: any): any {
             enabled: item.enabled !== false,
             ...(typeof item.displayTitle === 'string' && item.displayTitle.trim() ? { displayTitle: item.displayTitle.trim().slice(0, 120) } : {})
           }))
-        : (base.earlyAccess?.jobOverrides || [])
+        : (base.earlyAccess?.jobOverrides || []),
+      reminderSettings: {
+        ...(base.earlyAccess?.reminderSettings || {}),
+        ...(src.earlyAccess?.reminderSettings || {}),
+        enabled: src.earlyAccess?.reminderSettings?.enabled !== undefined
+          ? src.earlyAccess.reminderSettings.enabled === true
+          : base.earlyAccess?.reminderSettings?.enabled === true,
+        notifyOnNewEarlyAccess: src.earlyAccess?.reminderSettings?.notifyOnNewEarlyAccess !== undefined
+          ? src.earlyAccess.reminderSettings.notifyOnNewEarlyAccess === true
+          : base.earlyAccess?.reminderSettings?.notifyOnNewEarlyAccess === true,
+        notifyBeforePublicRelease: src.earlyAccess?.reminderSettings?.notifyBeforePublicRelease !== undefined
+          ? src.earlyAccess.reminderSettings.notifyBeforePublicRelease === true
+          : base.earlyAccess?.reminderSettings?.notifyBeforePublicRelease === true,
+        hoursBeforeRelease: Number.isInteger(Number(src.earlyAccess?.reminderSettings?.hoursBeforeRelease))
+          ? Math.min(168, Math.max(1, Number(src.earlyAccess.reminderSettings.hoursBeforeRelease)))
+          : (Number.isInteger(Number(base.earlyAccess?.reminderSettings?.hoursBeforeRelease))
+            ? Math.min(168, Math.max(1, Number(base.earlyAccess.reminderSettings.hoursBeforeRelease)))
+            : 2),
+        inAppEnabled: src.earlyAccess?.reminderSettings?.inAppEnabled !== undefined
+          ? src.earlyAccess.reminderSettings.inAppEnabled === true
+          : base.earlyAccess?.reminderSettings?.inAppEnabled !== false,
+        emailEnabled: src.earlyAccess?.reminderSettings?.emailEnabled !== undefined
+          ? src.earlyAccess.reminderSettings.emailEnabled === true
+          : base.earlyAccess?.reminderSettings?.emailEnabled === true,
+        whatsappEnabled: src.earlyAccess?.reminderSettings?.whatsappEnabled !== undefined
+          ? src.earlyAccess.reminderSettings.whatsappEnabled === true
+          : base.earlyAccess?.reminderSettings?.whatsappEnabled === true,
+        smsEnabled: src.earlyAccess?.reminderSettings?.smsEnabled !== undefined
+          ? src.earlyAccess.reminderSettings.smsEnabled === true
+          : base.earlyAccess?.reminderSettings?.smsEnabled === true,
+        customSubject: typeof src.earlyAccess?.reminderSettings?.customSubject === 'string'
+          ? src.earlyAccess.reminderSettings.customSubject.trim().slice(0, 140)
+          : String(base.earlyAccess?.reminderSettings?.customSubject || '').slice(0, 140),
+        customMessage: typeof src.earlyAccess?.reminderSettings?.customMessage === 'string'
+          ? src.earlyAccess.reminderSettings.customMessage.trim().slice(0, 400)
+          : String(base.earlyAccess?.reminderSettings?.customMessage || '').slice(0, 400)
+      }
+    },
+    subscriptionReminderSettings: {
+      ...(base.subscriptionReminderSettings || {}),
+      ...(src.subscriptionReminderSettings || {}),
+      enabled: src.subscriptionReminderSettings?.enabled !== undefined
+        ? src.subscriptionReminderSettings.enabled === true
+        : base.subscriptionReminderSettings?.enabled === true,
+      daysBefore: Number.isInteger(Number(src.subscriptionReminderSettings?.daysBefore))
+        ? Math.min(30, Math.max(1, Number(src.subscriptionReminderSettings.daysBefore)))
+        : (Number.isInteger(Number(base.subscriptionReminderSettings?.daysBefore))
+          ? Math.min(30, Math.max(1, Number(base.subscriptionReminderSettings.daysBefore)))
+          : 3),
+      inAppEnabled: src.subscriptionReminderSettings?.inAppEnabled !== undefined
+        ? src.subscriptionReminderSettings.inAppEnabled === true
+        : (base.subscriptionReminderSettings?.inAppEnabled !== undefined ? base.subscriptionReminderSettings.inAppEnabled === true : true),
+      inAppDaysBefore: Number.isInteger(Number(src.subscriptionReminderSettings?.inAppDaysBefore))
+        ? Math.min(30, Math.max(1, Number(src.subscriptionReminderSettings.inAppDaysBefore)))
+        : (Number.isInteger(Number(base.subscriptionReminderSettings?.inAppDaysBefore))
+          ? Math.min(30, Math.max(1, Number(base.subscriptionReminderSettings.inAppDaysBefore)))
+          : Number(src.subscriptionReminderSettings?.daysBefore ?? base.subscriptionReminderSettings?.daysBefore ?? 3)),
+      emailEnabled: src.subscriptionReminderSettings?.emailEnabled !== undefined
+        ? src.subscriptionReminderSettings.emailEnabled === true
+        : (base.subscriptionReminderSettings?.emailEnabled !== undefined ? base.subscriptionReminderSettings.emailEnabled === true : base.subscriptionReminderSettings?.enabled === true),
+      emailDaysBefore: Number.isInteger(Number(src.subscriptionReminderSettings?.emailDaysBefore))
+        ? Math.min(30, Math.max(1, Number(src.subscriptionReminderSettings.emailDaysBefore)))
+        : (Number.isInteger(Number(base.subscriptionReminderSettings?.emailDaysBefore))
+          ? Math.min(30, Math.max(1, Number(base.subscriptionReminderSettings.emailDaysBefore)))
+          : Number(src.subscriptionReminderSettings?.daysBefore ?? base.subscriptionReminderSettings?.daysBefore ?? 3)),
+      whatsappEnabled: src.subscriptionReminderSettings?.whatsappEnabled !== undefined
+        ? src.subscriptionReminderSettings.whatsappEnabled === true
+        : base.subscriptionReminderSettings?.whatsappEnabled === true,
+      whatsappDaysBefore: Number.isInteger(Number(src.subscriptionReminderSettings?.whatsappDaysBefore))
+        ? Math.min(30, Math.max(1, Number(src.subscriptionReminderSettings.whatsappDaysBefore)))
+        : (Number.isInteger(Number(base.subscriptionReminderSettings?.whatsappDaysBefore))
+          ? Math.min(30, Math.max(1, Number(base.subscriptionReminderSettings.whatsappDaysBefore)))
+          : Number(src.subscriptionReminderSettings?.daysBefore ?? base.subscriptionReminderSettings?.daysBefore ?? 3)),
+      smsEnabled: src.subscriptionReminderSettings?.smsEnabled !== undefined
+        ? src.subscriptionReminderSettings.smsEnabled === true
+        : base.subscriptionReminderSettings?.smsEnabled === true,
+      smsDaysBefore: Number.isInteger(Number(src.subscriptionReminderSettings?.smsDaysBefore))
+        ? Math.min(30, Math.max(1, Number(src.subscriptionReminderSettings.smsDaysBefore)))
+        : (Number.isInteger(Number(base.subscriptionReminderSettings?.smsDaysBefore))
+          ? Math.min(30, Math.max(1, Number(base.subscriptionReminderSettings.smsDaysBefore)))
+          : Number(src.subscriptionReminderSettings?.daysBefore ?? base.subscriptionReminderSettings?.daysBefore ?? 3))
     },
     adPricingConfig: {
       ...(base.adPricingConfig || {}),
@@ -494,7 +617,22 @@ function deepMergePricing(base: any, incoming: any): any {
         ? [
             ...(base.campaignCustomizationConfig?.placementOptions || []).map((defaultOption: any) => {
               const savedOption = src.campaignCustomizationConfig.placementOptions.find((option: any) => option?.id === defaultOption.id);
-              return savedOption ? { ...defaultOption, ...savedOption } : defaultOption;
+              return savedOption
+                ? {
+                    ...defaultOption,
+                    ...savedOption,
+                    expiryReminder: {
+                      enabled: false,
+                      hoursBefore: 24,
+                      inAppEnabled: true,
+                      emailEnabled: false,
+                      whatsappEnabled: false,
+                      smsEnabled: false,
+                      ...(defaultOption.expiryReminder || {}),
+                      ...(savedOption.expiryReminder || {})
+                    }
+                  }
+                : defaultOption;
             }),
             ...src.campaignCustomizationConfig.placementOptions.filter((savedOption: any) =>
               !(base.campaignCustomizationConfig?.placementOptions || []).some((defaultOption: any) => defaultOption.id === savedOption?.id)
@@ -717,6 +855,22 @@ export class PricingRepository {
             }
           }
         }
+        if (option.expiryReminder !== undefined) {
+          if (!option.expiryReminder || typeof option.expiryReminder !== 'object' || Array.isArray(option.expiryReminder)) {
+            throw new Error(`Placement ${option.id} expiryReminder must be an object.`);
+          }
+          for (const boolField of ['enabled', 'inAppEnabled', 'emailEnabled', 'whatsappEnabled', 'smsEnabled'] as const) {
+            if (option.expiryReminder[boolField] !== undefined && typeof option.expiryReminder[boolField] !== 'boolean') {
+              throw new Error(`Placement ${option.id} expiryReminder.${boolField} must be a boolean.`);
+            }
+          }
+          if (option.expiryReminder.hoursBefore !== undefined) {
+            const hrs = Number(option.expiryReminder.hoursBefore);
+            if (!Number.isInteger(hrs) || hrs < 1 || hrs > 720) {
+              throw new Error(`Placement ${option.id} expiryReminder.hoursBefore must be an integer between 1 and 720.`);
+            }
+          }
+        }
       }
     }
 
@@ -795,6 +949,44 @@ export class PricingRepository {
           if (item.displayTitle !== undefined && (typeof item.displayTitle !== 'string' || item.displayTitle.trim().length > 120)) throw new Error(`earlyAccess.jobOverrides.${jobId}.displayTitle must be 120 characters or fewer.`);
         }
       }
+      if (early.reminderSettings !== undefined) {
+        const er = early.reminderSettings;
+        if (!er || typeof er !== 'object' || Array.isArray(er)) throw new Error('earlyAccess.reminderSettings must be an object.');
+        for (const field of ['enabled', 'notifyOnNewEarlyAccess', 'notifyBeforePublicRelease', 'inAppEnabled', 'emailEnabled', 'whatsappEnabled', 'smsEnabled'] as const) {
+          if (er[field] !== undefined && typeof er[field] !== 'boolean') throw new Error(`earlyAccess.reminderSettings.${field} must be a boolean.`);
+        }
+        if (er.hoursBeforeRelease !== undefined && (!Number.isInteger(Number(er.hoursBeforeRelease)) || Number(er.hoursBeforeRelease) < 1 || Number(er.hoursBeforeRelease) > 168)) {
+          throw new Error('earlyAccess.reminderSettings.hoursBeforeRelease must be a whole number between 1 and 168.');
+        }
+        if (er.customSubject !== undefined && (typeof er.customSubject !== 'string' || er.customSubject.length > 140)) {
+          throw new Error('earlyAccess.reminderSettings.customSubject must be 140 characters or fewer.');
+        }
+        if (er.customMessage !== undefined && (typeof er.customMessage !== 'string' || er.customMessage.length > 400)) {
+          throw new Error('earlyAccess.reminderSettings.customMessage must be 400 characters or fewer.');
+        }
+      }
+    }
+
+    if (updates.jobPosting?.tierReminderSettings !== undefined) {
+      const tr = updates.jobPosting.tierReminderSettings;
+      if (!tr || typeof tr !== 'object' || Array.isArray(tr)) {
+        throw new Error('jobPosting.tierReminderSettings must be an object.');
+      }
+      for (const tierKey of ['vip', 'pinned', 'featured', 'urgent', 'future'] as const) {
+        if (tr[tierKey] === undefined) continue;
+        const cfg = tr[tierKey];
+        if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) {
+          throw new Error(`jobPosting.tierReminderSettings.${tierKey} must be an object.`);
+        }
+        for (const boolField of ['enabled', 'inAppEnabled', 'emailEnabled', 'whatsappEnabled', 'smsEnabled'] as const) {
+          if (cfg[boolField] !== undefined && typeof cfg[boolField] !== 'boolean') {
+            throw new Error(`jobPosting.tierReminderSettings.${tierKey}.${boolField} must be a boolean.`);
+          }
+        }
+        if (cfg.daysBefore !== undefined && (!Number.isInteger(Number(cfg.daysBefore)) || Number(cfg.daysBefore) < 1 || Number(cfg.daysBefore) > 30)) {
+          throw new Error(`jobPosting.tierReminderSettings.${tierKey}.daysBefore must be an integer between 1 and 30.`);
+        }
+      }
     }
 
     if (updates.subscriptionBundleDiscountPercent !== undefined) validateNonNegativeNumber(updates.subscriptionBundleDiscountPercent, 'subscriptionBundleDiscountPercent', 100);
@@ -803,6 +995,14 @@ export class PricingRepository {
       if (!reminder || typeof reminder !== 'object' || Array.isArray(reminder)) throw new Error('subscriptionReminderSettings must be an object.');
       if (reminder.enabled !== undefined && typeof reminder.enabled !== 'boolean') throw new Error('subscriptionReminderSettings.enabled must be a boolean.');
       if (reminder.daysBefore !== undefined && (!Number.isInteger(Number(reminder.daysBefore)) || Number(reminder.daysBefore) < 1 || Number(reminder.daysBefore) > 30)) throw new Error('subscriptionReminderSettings.daysBefore must be a whole number between 1 and 30.');
+      for (const boolField of ['inAppEnabled', 'emailEnabled', 'whatsappEnabled', 'smsEnabled'] as const) {
+        if (reminder[boolField] !== undefined && typeof reminder[boolField] !== 'boolean') throw new Error(`subscriptionReminderSettings.${boolField} must be a boolean.`);
+      }
+      for (const daysField of ['inAppDaysBefore', 'emailDaysBefore', 'whatsappDaysBefore', 'smsDaysBefore'] as const) {
+        if (reminder[daysField] !== undefined && (!Number.isInteger(Number(reminder[daysField])) || Number(reminder[daysField]) < 1 || Number(reminder[daysField]) > 30)) {
+          throw new Error(`subscriptionReminderSettings.${daysField} must be a whole number between 1 and 30.`);
+        }
+      }
     }
     if (updates.subscriptionFeatureCatalog !== undefined) {
       if (!Array.isArray(updates.subscriptionFeatureCatalog) || updates.subscriptionFeatureCatalog.length > SUBSCRIPTION_FEATURES.length) throw new Error(`subscriptionFeatureCatalog must contain no more than ${SUBSCRIPTION_FEATURES.length} supported features.`);

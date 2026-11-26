@@ -403,14 +403,13 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
   {
     id: 'landing-customizer',
     classicCategory: 'ads',
-    proCategory: 'jobs-ads-control-center',
-    label: 'Landing Page Customizer',
+    proCategory: 'ads-campaigns',
+    label: 'Display & Landing Design',
     description: 'Customize homepage sections, job-card design, banners and landing-page layout.',
     urdu: 'ہوم پیج بینر ڈیزائنر',
     classicSubTabUrdu: 'ہوم پیج بینرز',
     icon: Edit3,
-    keywords: ['landing', 'homepage', 'hero', 'customizer', 'cards', 'theme', 'ہوم پیج'],
-    hideInProfessionalNav: true,
+    keywords: ['display', 'landing', 'design', 'homepage', 'hero', 'customizer', 'cards', 'theme', 'ہوم پیج'],
   },
 
   // 5. Finance & Payments
@@ -569,8 +568,8 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     id: 'whatsapp-manager',
     classicCategory: 'alerts',
     proCategory: 'communication-alerts',
-    label: 'WhatsApp Alerts & Proofs Hub',
-    description: 'Manage WhatsApp alerts, support widget details and group/contact settings.',
+    label: 'WhatsApp Support & Alerts Hub',
+    description: 'Configure official WhatsApp support number, alerts group link and floating chat widget.',
     classicSubTabLabel: () => '💬 WhatsApp Support & Alerts Hub',
     urdu: 'واٹس ایپ الرٹس مینجر',
     classicSubTabUrdu: 'واٹس ایپ الرٹس',

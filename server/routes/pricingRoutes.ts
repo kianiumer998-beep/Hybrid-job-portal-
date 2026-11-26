@@ -2,6 +2,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { PricingRepository, AuditRepository } from '../db/repositories';
 import { requireAdminPermission, requireAuth } from '../auth/authManager';
+import { dispatchEarlyAccessReminderNow, runSubscriptionReminderTick } from '../services/subscriptionReminderScheduler';
 
 export const pricingRouter = Router();
 const cvAiRecentRequests = new Map<string, number[]>();
@@ -225,5 +226,65 @@ pricingRouter.put('/', requireAdminPermission('finance.manage'), async (req, res
     });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error updating pricing' });
+  }
+});
+
+// 5. Manual Reminder Dispatch (Early Access Immediate Reminder or Full Scheduled Tick)
+pricingRouter.post('/reminders/dispatch', requireAdminPermission('finance.manage'), async (req, res) => {
+  try {
+    const scope = String(req.body?.scope || 'early-access');
+    if (scope === 'early-access') {
+      const customSubject = typeof req.body?.customSubject === 'string' ? req.body.customSubject.trim().slice(0, 140) : undefined;
+      const customMessage = typeof req.body?.customMessage === 'string' ? req.body.customMessage.trim().slice(0, 400) : undefined;
+      const rawChannels = req.body?.channels && typeof req.body.channels === 'object' ? req.body.channels : undefined;
+      const channels = rawChannels
+        ? {
+            inApp: rawChannels.inApp !== undefined ? Boolean(rawChannels.inApp) : undefined,
+            email: rawChannels.email !== undefined ? Boolean(rawChannels.email) : undefined,
+            whatsapp: rawChannels.whatsapp !== undefined ? Boolean(rawChannels.whatsapp) : undefined,
+            sms: rawChannels.sms !== undefined ? Boolean(rawChannels.sms) : undefined
+          }
+        : undefined;
+
+      const summary = await dispatchEarlyAccessReminderNow({
+        customSubject,
+        customMessage,
+        channels,
+        manualTrigger: true
+      });
+
+      await AuditRepository.addAfterPrimaryOperation({
+        user: (req as any).user?.name || (req as any).user?.email || 'Administrator',
+        role: (req as any).user?.role || 'Admin',
+        action: 'Early Access Reminder Dispatched',
+        target: `${summary.eligibleMembers} Early Access members · ${summary.jobsCount} jobs`,
+        status: 'Success'
+      }, 'POST /api/pricing/reminders/dispatch');
+
+      return res.json({
+        success: true,
+        scope,
+        summary,
+        message: summary.jobsCount === 0
+          ? 'No active Early Access jobs are currently locked. Reminder skipped.'
+          : `Dispatched to ${summary.eligibleMembers} Early Access member(s) for ${summary.jobsCount} job(s) (In-App: ${summary.inAppSent}, Email: ${summary.emailSent}, WhatsApp: ${summary.whatsappSent}, SMS: ${summary.smsSent}).`
+      });
+    }
+
+    if (scope === 'all-scheduled') {
+      const result = await runSubscriptionReminderTick(new Date());
+      return res.json({
+        success: true,
+        scope,
+        summary: result,
+        message: result.skipped
+          ? 'Reminder scheduler is already running.'
+          : `Processed ${result.scanned} account(s); dispatched ${result.notified} scheduled notification(s)/alert(s).`
+      });
+    }
+
+    return res.status(400).json({ success: false, message: 'Unsupported reminder dispatch scope.' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error dispatching reminders' });
   }
 });

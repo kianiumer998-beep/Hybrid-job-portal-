@@ -619,40 +619,47 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   };
 
   return (
-    <div className="admin-settings-mobile-compact space-y-6 animate-in fade-in duration-300">
-      {/* Header Banner */}
-      <div className="bg-gradient-to-r from-emerald-950/80 via-slate-900 to-slate-900 border border-emerald-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-        
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 relative z-10">
-          <div className="flex items-start space-x-4">
-            <div className="p-3.5 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400">
-              <MessageCircle className="w-8 h-8 stroke-[2.2]" />
+    <div className="admin-settings-mobile-compact space-y-4 animate-in fade-in duration-300">
+      {/* Compact Header Banner */}
+      <div className="bg-gradient-to-r from-emerald-950/80 via-slate-900 to-slate-900 border border-emerald-500/30 rounded-2xl p-4 sm:p-5 shadow-xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 relative z-10">
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 shrink-0">
+              <MessageCircle className="w-6 h-6 stroke-[2.2]" />
             </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <h3 className="text-xl sm:text-2xl font-black text-white">
-                  WhatsApp Support & Alert Streams Manager
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-base sm:text-xl font-black text-white leading-tight">
+                  WhatsApp Support &amp; Alerts Hub
                 </h3>
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                  واٹس ایپ ایڈمن کنٹرول
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border ${
+                  formData.enabled && hasValidPhone
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                    : 'bg-slate-800 text-slate-400 border-slate-700'
+                }`}>
+                  {formData.enabled && hasValidPhone ? 'Widget Live' : 'Widget Paused'}
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800/90 text-slate-300 border border-slate-700">
+                  {subscribersCount} Subscribers
                 </span>
               </div>
-              <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl leading-relaxed">
-                Add, customize, and verify your official WhatsApp Support Number, Community Group Links, auto-reply greetings, bubble prompts, and floating widget sizes across the entire portal.
+              <p className="text-[11px] sm:text-xs text-slate-300 mt-1 leading-relaxed">
+                Manage official WhatsApp support number, community alert group link, and the public floating chat widget.
               </p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-3">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             {testChatUrl ? (
               <a
                 href={testChatUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center space-x-2 transition-all shadow-lg shadow-emerald-500/20 active:scale-95 cursor-pointer"
+                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
               >
-                <ExternalLink className="w-4 h-4" />
+                <ExternalLink className="w-3.5 h-3.5" />
                 <span>Test Live WhatsApp Chat</span>
               </a>
             ) : (
@@ -661,26 +668,43 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
                 disabled
                 aria-disabled="true"
                 title="Enter a valid international WhatsApp phone number to enable live chat testing"
-                className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-500 border border-slate-700 font-black text-xs flex items-center space-x-2 opacity-60 cursor-not-allowed"
+                className="px-3.5 py-2 rounded-xl bg-slate-800 text-slate-500 border border-slate-700 font-bold text-xs flex items-center gap-1.5 opacity-60 cursor-not-allowed"
               >
-                <ExternalLink className="w-4 h-4" />
+                <ExternalLink className="w-3.5 h-3.5" />
                 <span>Test Live WhatsApp Chat</span>
               </button>
             )}
+
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={isSaving || isRestoringDefaults || isMigrationInFlight}
+              className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 transition-all cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Save className={`w-3.5 h-3.5 ${isSaving ? 'animate-spin' : ''}`} />
+              <span>{isSaving ? 'Saving...' : 'Save Changes'}</span>
+            </button>
           </div>
         </div>
       </div>
 
+      {/* Clear Scope Note so Payment Proofs & API Providers are not mixed up */}
+      <div className="bg-slate-900/70 border border-slate-800 rounded-xl px-3.5 py-2 text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-2">
+        <span>
+          <strong className="text-slate-200">Note:</strong> Candidate payment proof receipts are reviewed in <strong className="text-amber-300">Finance &amp; Payments → Payment Proofs</strong>, while automated WhatsApp/Email/SMS broadcast APIs are in <strong className="text-emerald-300">Broadcast Campaigns</strong>.
+        </span>
+      </div>
+
       {savedSuccess && (
-        <div className="bg-emerald-950/80 border border-emerald-500 rounded-2xl p-4 flex items-center space-x-3 text-emerald-300 text-sm font-bold shadow-lg animate-in fade-in">
-          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+        <div className="bg-emerald-950/80 border border-emerald-500 rounded-xl p-3 flex items-center gap-2.5 text-emerald-300 text-xs sm:text-sm font-bold shadow-lg animate-in fade-in">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>WhatsApp configuration saved successfully! (سیٹنگز محفوظ ہوگئیں)</span>
         </div>
       )}
 
       {saveError && (
-        <div className="bg-rose-950/80 border border-rose-500 rounded-2xl p-4 flex items-center space-x-3 text-rose-300 text-sm font-bold shadow-lg animate-in fade-in">
-          <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+        <div className="bg-rose-950/80 border border-rose-500 rounded-xl p-3 flex items-center gap-2.5 text-rose-300 text-xs sm:text-sm font-bold shadow-lg animate-in fade-in">
+          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
           <span>{saveError}</span>
         </div>
       )}
@@ -688,15 +712,13 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
       {showRetryMigration && (
         <div
           data-testid="legacy-migration-retry-banner"
-          className="bg-amber-950/80 border border-amber-500/70 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-amber-200 text-sm font-bold shadow-lg animate-in fade-in"
+          className="bg-amber-950/80 border border-amber-500/70 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 text-amber-200 text-xs font-bold shadow-lg animate-in fade-in"
         >
-          <div className="flex items-start space-x-3">
-            <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-            <div className="space-y-0.5">
-              <div>
-                {migrationError ||
-                  'Legacy WhatsApp group link migration could not be saved on server. Your saved link is preserved—click Retry Migration to try again.'}
-              </div>
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              {migrationError ||
+                'Legacy WhatsApp group link migration could not be saved on server. Your saved link is preserved—click Retry Migration to try again.'}
             </div>
           </div>
           <button
@@ -704,7 +726,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
             data-testid="retry-legacy-migration-btn"
             onClick={handleRetryMigration}
             disabled={isSaving || isRestoringDefaults || isMigrationInFlight}
-            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center space-x-2 shrink-0 transition-all cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 shrink-0 transition-all cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Retry Migration</span>
@@ -715,314 +737,241 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
       {isMigrationInFlight && !hasValidMongoGroupLink && (
         <div
           data-testid="legacy-migration-in-flight-banner"
-          className="bg-slate-900/90 border border-emerald-500/40 rounded-2xl p-3.5 flex items-center space-x-3 text-emerald-300 text-xs font-bold shadow-lg"
+          className="bg-slate-900/90 border border-emerald-500/40 rounded-xl p-3 flex items-center gap-2.5 text-emerald-300 text-xs font-bold shadow-lg"
         >
           <RefreshCw className="w-4 h-4 text-emerald-400 animate-spin shrink-0" />
           <span>Migrating legacy WhatsApp group link to server...</span>
         </div>
       )}
 
-      {/* Main Settings Form Grid */}
-      <form onSubmit={handleSave} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left 2 Cols: Main Configuration */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* SECTION 1: Phone & Agent Contact Details */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5">
-            <h4 className="text-sm font-black text-slate-200 uppercase tracking-wider flex items-center space-x-2">
-              <Phone className="w-4 h-4 text-emerald-400" />
-              <span>1. Official Support WhatsApp Number & Contact (واٹس ایپ نمبر)</span>
-            </h4>
+      {/* Main Compact Settings Form Grid */}
+      <form onSubmit={handleSave} className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+        {/* Left 8 Cols: Compact Configuration Cards */}
+        <div className="lg:col-span-8 space-y-4">
+          {/* SECTION 1: Phone, Agent & Alerts Group Link */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl space-y-3.5">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+              <h4 className="text-xs sm:text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                <Phone className="w-4 h-4 text-emerald-400" />
+                <span>1. Support Number &amp; Alerts Group (واٹس ایپ رابطہ)</span>
+              </h4>
+            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                  Official WhatsApp Number (Country code included) *
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                  Official WhatsApp Number *
                 </label>
                 <div className="relative">
-                  <span className="absolute left-3.5 top-3 text-slate-500 font-bold text-xs">+</span>
+                  <span className="absolute left-3 top-2 text-slate-500 font-bold text-xs">+</span>
                   <input
                     type="text"
                     value={formData.phoneNumber}
                     onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
-                    placeholder="e.g. 923XXXXXXXXX (country code + number)"
+                    placeholder="923XXXXXXXXX"
                     required={Boolean(formData.enabled)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors font-mono"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-7 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
                   />
                 </div>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  International format without spaces or symbols (8–15 digits including country code).
-                </p>
+                <p className="text-[10px] text-slate-500 mt-0.5">8–15 digits with country code.</p>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                  Support Representative / Agent Name *
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                  Support Representative Name *
                 </label>
                 <input
                   type="text"
                   value={formData.agentName}
                   onChange={(e) => setFormData({ ...formData, agentName: e.target.value })}
-                  placeholder="e.g. Ayesha (Lead HR Advisor)"
+                  placeholder="Ayesha (Lead HR Advisor)"
                   required
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                 />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Displayed on the floating chat tooltip bubble for visitors.
-                </p>
+                <p className="text-[10px] text-slate-500 mt-0.5">Shown on chat bubble header.</p>
               </div>
-            </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                Support Hours & Availability Label
-              </label>
-              <input
-                type="text"
-                value={formData.supportHoursText}
-                onChange={(e) => setFormData({ ...formData, supportHoursText: e.target.value })}
-                placeholder="e.g. Online • 9:00 AM - 9:00 PM PKT"
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                Default Pre-Filled Message for Candidates (Sent on WhatsApp click)
-              </label>
-              <textarea
-                rows={2}
-                value={formData.defaultMessage}
-                onChange={(e) => setFormData({ ...formData, defaultMessage: e.target.value })}
-                placeholder="Hello! I need assistance regarding job applications on HybridJobs.pk..."
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors resize-none"
-              />
-              <p className="text-[10px] text-slate-400 mt-1">
-                This is the pre-populated URL query message when the candidate arrives inside WhatsApp.
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                Official WhatsApp Community / Daily Job Alerts Group Link
-              </label>
-              <div className="flex items-center space-x-2">
+              <div className="sm:col-span-2 lg:col-span-1">
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                  Availability Hours Label
+                </label>
                 <input
-                  type="url"
-                  value={formData.groupLink || ''}
-                  onChange={(e) => setFormData({ ...formData, groupLink: e.target.value })}
-                  placeholder="https://chat.whatsapp.com/..."
-                  className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors font-mono"
+                  type="text"
+                  value={formData.supportHoursText}
+                  onChange={(e) => setFormData({ ...formData, supportHoursText: e.target.value })}
+                  placeholder="Online • 9:00 AM - 9:00 PM PKT"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                 />
-                <button
-                  type="button"
-                  onClick={() => handleCopyLink(formData.groupLink || '')}
-                  className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs flex items-center space-x-1.5 shrink-0 cursor-pointer"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>{copiedLink ? 'Copied!' : 'Copy'}</span>
-                </button>
               </div>
-              <p className="text-[10px] text-slate-400 mt-1">
-                Subscribers who purchase WhatsApp Job Alert Stream will receive this invite link upon confirmation.
-              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                  Daily Job Alerts Group Invite Link
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="url"
+                    value={formData.groupLink || ''}
+                    onChange={(e) => setFormData({ ...formData, groupLink: e.target.value })}
+                    placeholder="https://chat.whatsapp.com/..."
+                    className="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleCopyLink(formData.groupLink || '')}
+                    className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs flex items-center gap-1 shrink-0 cursor-pointer"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>{copiedLink ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-0.5">Sent to confirmed WhatsApp Job Alert subscribers.</p>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                  Pre-Filled Chat Message (Inside WhatsApp App)
+                </label>
+                <input
+                  type="text"
+                  value={formData.defaultMessage}
+                  onChange={(e) => setFormData({ ...formData, defaultMessage: e.target.value })}
+                  placeholder="Hello! I need assistance regarding job applications..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+                <p className="text-[10px] text-slate-500 mt-0.5">Auto-typed in WhatsApp when user clicks Start Chat.</p>
+              </div>
             </div>
           </div>
 
-          {/* SECTION 2: Widget & Greeting Bubble Customization */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5">
-            <h4 className="text-sm font-black text-slate-200 uppercase tracking-wider flex items-center space-x-2">
-              <Sparkles className="w-4 h-4 text-amber-400" />
-              <span>2. Widget & Greeting Customization</span>
-            </h4>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {/* WhatsApp Widget Enable/Disable */}
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3">
-                <div>
-                  <div className="text-xs font-black text-white">WhatsApp Widget</div>
-                  <div className="text-[11px] text-slate-400">Show button on public pages</div>
-                </div>
-                <div className="flex items-center justify-between pt-1">
-                  <span className="text-[10px] font-bold text-slate-400">
-                    {formData.enabled ? 'ENABLED' : 'DISABLED'}
-                  </span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.enabled}
-                      onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />
-                  </label>
-                </div>
-              </div>
-
-              {/* Greeting Bubble Enable/Disable */}
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3">
-                <div>
-                  <div className="text-xs font-black text-white">Greeting Bubble</div>
-                  <div className="text-[11px] text-slate-400">Show prompt tooltip bubble</div>
-                </div>
-                <div className="flex items-center justify-between pt-1">
-                  <span className="text-[10px] font-bold text-slate-400">
-                    {formData.showGreetingBubble !== false ? 'ENABLED' : 'DISABLED'}
-                  </span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.showGreetingBubble !== false}
-                      onChange={(e) => setFormData({ ...formData, showGreetingBubble: e.target.checked })}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />
-                  </label>
-                </div>
-              </div>
-
-              {/* Screen Corner Position */}
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3">
-                <div>
-                  <div className="text-xs font-black text-white">Screen Position</div>
-                  <div className="text-[11px] text-slate-400">Corner layout position</div>
-                </div>
-                <select
-                  value={formData.position}
-                  onChange={(e) => setFormData({ ...formData, position: e.target.value as any })}
-                  className="bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-1.5 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
-                >
-                  <option value="bottom-right">Bottom-Right (Standard)</option>
-                  <option value="bottom-left">Bottom-Left</option>
-                </select>
-              </div>
+          {/* SECTION 2: Floating Widget Behavior, Bubble & Sizing */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+              <h4 className="text-xs sm:text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-amber-400" />
+                <span>2. Floating Widget, Greeting Bubble &amp; Layout</span>
+              </h4>
             </div>
 
-            {/* Visible Greeting Text & CTA Button */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                  Greeting Bubble Message (Visible in floating prompt)
+            {/* Compact 4-Toggle Switch Row */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              {[
+                {
+                  label: 'Show Widget',
+                  sub: 'Public pages',
+                  checked: Boolean(formData.enabled),
+                  onChange: (val: boolean) => setFormData({ ...formData, enabled: val })
+                },
+                {
+                  label: 'Greeting Bubble',
+                  sub: 'Popup tooltip',
+                  checked: formData.showGreetingBubble !== false,
+                  onChange: (val: boolean) => setFormData({ ...formData, showGreetingBubble: val })
+                },
+                {
+                  label: "Online Badge '1'",
+                  sub: 'Unread dot',
+                  checked: formData.showOnlineBadge !== false,
+                  onChange: (val: boolean) => setFormData({ ...formData, showOnlineBadge: val })
+                },
+                {
+                  label: 'Pulse Aura',
+                  sub: 'Glow effect',
+                  checked: formData.enablePulseAnimation !== false,
+                  onChange: (val: boolean) => setFormData({ ...formData, enablePulseAnimation: val })
+                }
+              ].map((toggle) => (
+                <label
+                  key={toggle.label}
+                  className="bg-slate-950/70 border border-slate-800 rounded-xl p-2.5 flex items-center justify-between gap-2 cursor-pointer hover:border-emerald-500/30 transition-colors"
+                >
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-bold text-white truncate">{toggle.label}</div>
+                    <div className="text-[10px] text-slate-500 truncate">{toggle.sub}</div>
+                  </div>
+                  <div className="relative inline-flex items-center shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={toggle.checked}
+                      onChange={(e) => toggle.onChange(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-800 rounded-full peer peer-checked:after:translate-x-4 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500" />
+                  </div>
                 </label>
-                <textarea
-                  rows={2}
+              ))}
+            </div>
+
+            {/* Greeting Bubble Copy & Delay */}
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+              <div className="sm:col-span-6">
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                  Site Greeting Bubble Text (Visible on Website)
+                </label>
+                <input
+                  type="text"
                   value={formData.greetingText ?? DEFAULT_WHATSAPP_CONFIG.greetingText}
                   onChange={(e) => setFormData({ ...formData, greetingText: e.target.value })}
-                  placeholder="Need help applying for remote jobs, hiring candidates, or setting WhatsApp alerts? Chat directly with our team!"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors resize-none"
+                  placeholder="Need help applying for jobs or setting alerts?"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                  Greeting CTA Button Label
+              <div className="sm:col-span-3">
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                  CTA Button Label
                 </label>
                 <input
                   type="text"
                   value={formData.greetingCtaText ?? DEFAULT_WHATSAPP_CONFIG.greetingCtaText}
                   onChange={(e) => setFormData({ ...formData, greetingCtaText: e.target.value })}
                   placeholder="Start WhatsApp Chat"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors mb-2"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                 />
-                <p className="text-[10px] text-slate-400">
-                  Button text inside the speech bubble prompt.
-                </p>
+              </div>
+
+              <div className="sm:col-span-3">
+                <label className="block text-[11px] font-bold text-slate-300 mb-1 flex items-center gap-1">
+                  <Clock className="w-3 h-3 text-amber-400" />
+                  <span>Auto-Show Delay (sec)</span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="60"
+                  step="0.5"
+                  value={formData.autoShowDelaySeconds ?? 4.5}
+                  onChange={(e) => setFormData({ ...formData, autoShowDelaySeconds: parseFloat(e.target.value) || 0 })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono font-bold focus:outline-none focus:border-emerald-500"
+                />
               </div>
             </div>
-          </div>
 
-          {/* SECTION 3: Behavior & Animations */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5">
-            <h4 className="text-sm font-black text-slate-200 uppercase tracking-wider flex items-center space-x-2">
-              <Zap className="w-4 h-4 text-emerald-400" />
-              <span>3. Behavior, Delays & Badge Toggles</span>
-            </h4>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {/* Auto-Show Delay */}
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
-                <div className="flex items-center space-x-2 text-slate-300">
-                  <Clock className="w-3.5 h-3.5 text-amber-400" />
-                  <label className="text-xs font-bold">Auto-Show Delay</label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="number"
-                    min="0"
-                    max="60"
-                    step="0.5"
-                    value={formData.autoShowDelaySeconds ?? 4.5}
-                    onChange={(e) => setFormData({ ...formData, autoShowDelaySeconds: parseFloat(e.target.value) || 0 })}
-                    className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-mono font-bold focus:outline-none focus:border-emerald-500"
-                  />
-                  <span className="text-xs text-slate-400 font-bold">sec</span>
-                </div>
-                <p className="text-[10px] text-slate-500">Delay before bubble opens.</p>
+            {/* Position & 4 Compact Size Dropdowns */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-1">
+              <div className="col-span-2 sm:col-span-1">
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">Corner Position</label>
+                <select
+                  value={formData.position}
+                  onChange={(e) => setFormData({ ...formData, position: e.target.value as any })}
+                  className="w-full bg-slate-950 border border-slate-700 text-xs text-white rounded-xl px-2.5 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
+                >
+                  <option value="bottom-right">Bottom-Right</option>
+                  <option value="bottom-left">Bottom-Left</option>
+                </select>
               </div>
 
-              {/* Online Notification Badge */}
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-2">
-                <div className="flex items-center space-x-2 text-slate-300">
-                  <Bell className="w-3.5 h-3.5 text-emerald-400" />
-                  <label className="text-xs font-bold">Online Badge '1'</label>
-                </div>
-                <div className="flex items-center justify-between pt-1">
-                  <span className="text-[10px] font-bold text-slate-400">
-                    {formData.showOnlineBadge !== false ? 'SHOW BADGE' : 'HIDE BADGE'}
-                  </span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.showOnlineBadge !== false}
-                      onChange={(e) => setFormData({ ...formData, showOnlineBadge: e.target.checked })}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />
-                  </label>
-                </div>
-              </div>
-
-              {/* Pulse Aura Animation */}
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-2">
-                <div className="flex items-center space-x-2 text-slate-300">
-                  <Zap className="w-3.5 h-3.5 text-cyan-400" />
-                  <label className="text-xs font-bold">Aura Pulse Animation</label>
-                </div>
-                <div className="flex items-center justify-between pt-1">
-                  <span className="text-[10px] font-bold text-slate-400">
-                    {formData.enablePulseAnimation !== false ? 'ANIMATION ON' : 'ANIMATION OFF'}
-                  </span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.enablePulseAnimation !== false}
-                      onChange={(e) => setFormData({ ...formData, enablePulseAnimation: e.target.checked })}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />
-                  </label>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* SECTION 4: Size & Dimension Presets */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5">
-            <h4 className="text-sm font-black text-slate-200 uppercase tracking-wider flex items-center space-x-2">
-              <Sliders className="w-4 h-4 text-cyan-400" />
-              <span>4. Widget & Icon Size Customization</span>
-            </h4>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Mobile Size */}
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-3.5 space-y-2">
-                <div className="flex items-center space-x-2 text-slate-300">
-                  <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
-                  <label className="text-xs font-bold">Mobile Size</label>
-                </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1 flex items-center gap-1">
+                  <Smartphone className="w-3 h-3 text-emerald-400" />
+                  <span>Mobile Size</span>
+                </label>
                 <select
                   value={formData.mobileSize || 'standard'}
                   onChange={(e) => setFormData({ ...formData, mobileSize: e.target.value as any })}
-                  className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
+                  className="w-full bg-slate-950 border border-slate-700 text-xs text-white rounded-xl px-2.5 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
                 >
                   <option value="compact">Compact (48px)</option>
                   <option value="standard">Standard (56px)</option>
@@ -1030,16 +979,15 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
                 </select>
               </div>
 
-              {/* Desktop Size */}
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-3.5 space-y-2">
-                <div className="flex items-center space-x-2 text-slate-300">
-                  <Monitor className="w-3.5 h-3.5 text-cyan-400" />
-                  <label className="text-xs font-bold">Desktop Size</label>
-                </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1 flex items-center gap-1">
+                  <Monitor className="w-3 h-3 text-cyan-400" />
+                  <span>Desktop Size</span>
+                </label>
                 <select
                   value={formData.desktopSize || 'standard'}
                   onChange={(e) => setFormData({ ...formData, desktopSize: e.target.value as any })}
-                  className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
+                  className="w-full bg-slate-950 border border-slate-700 text-xs text-white rounded-xl px-2.5 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
                 >
                   <option value="compact">Compact (56px)</option>
                   <option value="standard">Standard (64px)</option>
@@ -1047,16 +995,15 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
                 </select>
               </div>
 
-              {/* Icon Size */}
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-3.5 space-y-2">
-                <div className="flex items-center space-x-2 text-slate-300">
-                  <Layers className="w-3.5 h-3.5 text-amber-400" />
-                  <label className="text-xs font-bold">Icon Size</label>
-                </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1 flex items-center gap-1">
+                  <Layers className="w-3 h-3 text-amber-400" />
+                  <span>Icon Size</span>
+                </label>
                 <select
                   value={formData.iconSize || 'standard'}
                   onChange={(e) => setFormData({ ...formData, iconSize: e.target.value as any })}
-                  className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
+                  className="w-full bg-slate-950 border border-slate-700 text-xs text-white rounded-xl px-2.5 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
                 >
                   <option value="compact">Compact</option>
                   <option value="standard">Standard</option>
@@ -1064,16 +1011,15 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
                 </select>
               </div>
 
-              {/* Bubble Size */}
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-3.5 space-y-2">
-                <div className="flex items-center space-x-2 text-slate-300">
-                  <MessageCircle className="w-3.5 h-3.5 text-indigo-400" />
-                  <label className="text-xs font-bold">Bubble Size</label>
-                </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1 flex items-center gap-1">
+                  <MessageCircle className="w-3 h-3 text-indigo-400" />
+                  <span>Bubble Width</span>
+                </label>
                 <select
                   value={formData.bubbleSize || 'standard'}
                   onChange={(e) => setFormData({ ...formData, bubbleSize: e.target.value as any })}
-                  className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
+                  className="w-full bg-slate-950 border border-slate-700 text-xs text-white rounded-xl px-2.5 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
                 >
                   <option value="compact">Compact (280px)</option>
                   <option value="standard">Standard (320px)</option>
@@ -1082,23 +1028,23 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
               </div>
             </div>
 
-            {/* ACTION BUTTONS ROW */}
-            <div className="pt-3 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-3">
+            {/* Bottom Action Bar */}
+            <div className="pt-3 border-t border-slate-800 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
               <button
                 type="button"
                 data-testid="restore-whatsapp-defaults-btn"
                 onClick={handleRestoreDefaults}
                 disabled={isSaving || isRestoringDefaults || isMigrationInFlight}
-                className="w-full sm:w-auto px-5 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <RefreshCw className={`w-4 h-4 text-amber-400 ${isRestoringDefaults ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isRestoringDefaults ? 'animate-spin' : ''}`} />
                 <span>{isRestoringDefaults ? 'Restoring Defaults...' : 'Restore Defaults'}</span>
               </button>
 
               <button
                 type="submit"
                 disabled={isSaving || isRestoringDefaults || isMigrationInFlight}
-                className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center space-x-2 shadow-xl shadow-emerald-500/25 transition-all cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 transition-all cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Save className={`w-4 h-4 ${isSaving ? 'animate-spin' : ''}`} />
                 <span>{isSaving ? 'Saving to Server...' : 'Save & Apply WhatsApp Configuration'}</span>
@@ -1107,52 +1053,46 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
           </div>
         </div>
 
-        {/* Right 1 Col: Live Preview & Quick Test */}
-        <div className="space-y-6">
-          {/* Live Mobile Widget Mockup */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+        {/* Right 4 Cols: Compact Live Preview & Urdu Test */}
+        <div className="lg:col-span-4 space-y-4">
+          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3.5">
             <div className="flex items-center justify-between">
-              <h4 className="text-xs font-black text-slate-200 uppercase tracking-wider flex items-center space-x-2">
+              <h4 className="text-xs font-black text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Live Widget Preview</span>
               </h4>
-              <div className="flex items-center space-x-1">
-                <span className={`text-[10px] px-2 py-0.5 rounded font-bold border ${
-                  formData.enabled 
-                    ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' 
-                    : 'text-rose-400 bg-rose-500/10 border-rose-500/20'
-                }`}>
-                  {formData.enabled ? 'Widget Active' : 'Widget Off'}
-                </span>
-              </div>
+              <span className={`text-[10px] px-2 py-0.5 rounded font-bold border ${
+                formData.enabled
+                  ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+                  : 'text-rose-400 bg-rose-500/10 border-rose-500/20'
+              }`}>
+                {formData.enabled ? 'Widget Active' : 'Widget Off'}
+              </span>
             </div>
 
-            {/* Bubble Mockup */}
             {formData.showGreetingBubble !== false ? (
-              <div className="bg-slate-950 border border-emerald-500/30 rounded-2xl p-4 shadow-xl space-y-3">
-                <div className="flex items-center space-x-3">
-                  <div className="w-9 h-9 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold text-sm relative">
+              <div className="bg-slate-950 border border-emerald-500/30 rounded-xl p-3 space-y-2.5">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 text-xs relative shrink-0">
                     💬
                     {formData.showOnlineBadge !== false && (
-                      <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full border border-slate-900" />
+                      <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 rounded-full border border-slate-900" />
                     )}
                   </div>
-                  <div>
-                    <div className="text-xs font-black text-white">{formData.agentName || 'Career Support'}</div>
-                    <div className="text-[10px] text-slate-400">{formData.supportHoursText}</div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-black text-white truncate">{formData.agentName || 'Career Support'}</div>
+                    <div className="text-[10px] text-slate-400 truncate">{formData.supportHoursText}</div>
                   </div>
                 </div>
 
-                <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 text-[11px] text-slate-300 leading-snug">
+                <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800 text-[11px] text-slate-300 leading-snug">
                   "{formData.greetingText || DEFAULT_WHATSAPP_CONFIG.greetingText}"
                 </div>
 
-                <div className="pt-1">
-                  <button type="button" className="w-full py-1.5 px-3 rounded-lg bg-emerald-500 text-slate-950 font-black text-[11px] flex items-center justify-center space-x-1">
-                    <Send className="w-3 h-3" />
-                    <span>{formData.greetingCtaText || 'Start WhatsApp Chat'}</span>
-                  </button>
-                </div>
+                <button type="button" className="w-full py-1.5 px-3 rounded-lg bg-emerald-500 text-slate-950 font-black text-[11px] flex items-center justify-center gap-1">
+                  <Send className="w-3 h-3" />
+                  <span>{formData.greetingCtaText || 'Start WhatsApp Chat'}</span>
+                </button>
 
                 <div className="text-center">
                   <span className={`text-[10px] font-mono ${hasValidPhone ? 'text-emerald-400' : 'text-amber-400'}`}>
@@ -1161,16 +1101,16 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 text-center text-xs text-slate-400 space-y-1">
+              <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-3 text-center text-xs text-slate-400 space-y-1">
                 <p className="font-bold text-amber-400">Greeting Bubble Disabled</p>
-                <p className="text-[11px]">The sticky button will open WhatsApp directly without showing the speech bubble.</p>
+                <p className="text-[11px]">Sticky icon opens WhatsApp directly without speech bubble.</p>
               </div>
             )}
 
-            {/* Urdu Quick Test Message */}
-            <div className="pt-2 space-y-2 border-t border-slate-800">
+            {/* Urdu Quick Test */}
+            <div className="pt-2.5 space-y-2 border-t border-slate-800">
               <label className="block text-[11px] font-bold text-slate-300">
-                Urdu Test Message (اردو ٹیسٹ میسج)
+                Urdu Quick Test (اردو ٹیسٹ میسج)
               </label>
               <textarea
                 rows={2}
@@ -1184,7 +1124,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
                   href={testUrduChatUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 font-bold text-xs flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                  className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                 >
                   <Send className="w-3.5 h-3.5" />
                   <span>Test Send Urdu Greeting on WhatsApp</span>
@@ -1195,7 +1135,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
                   disabled
                   aria-disabled="true"
                   title="Enter a valid international WhatsApp phone number to enable Urdu test chat"
-                  className="w-full py-2 px-3 rounded-xl bg-slate-900 text-slate-500 border border-slate-800 font-bold text-xs flex items-center justify-center space-x-1.5 opacity-60 cursor-not-allowed"
+                  className="w-full py-2 px-3 rounded-xl bg-slate-900 text-slate-500 border border-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 opacity-60 cursor-not-allowed"
                 >
                   <Send className="w-3.5 h-3.5" />
                   <span>Test Send Urdu Greeting on WhatsApp</span>
@@ -1204,26 +1144,14 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
             </div>
           </div>
 
-          {/* Quick Stats & Help Card */}
-          <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-5 space-y-3 text-xs">
-            <div className="flex items-center space-x-2 text-amber-400 font-black">
-              <HelpCircle className="w-4 h-4" />
-              <span>Admin Guidance (ایڈمن رہنمائی)</span>
+          {/* Compact Help Tips */}
+          <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-3.5 space-y-2 text-[11px] text-slate-400">
+            <div className="flex items-center gap-1.5 text-amber-400 font-black text-xs">
+              <HelpCircle className="w-3.5 h-3.5" />
+              <span>Quick Tips (رہنمائی)</span>
             </div>
-            <ul className="text-slate-400 space-y-2 text-[11px] leading-relaxed">
-              <li className="flex items-start space-x-2">
-                <span className="text-emerald-400 font-black">•</span>
-                <span>The configured number receives direct candidate queries, CV reviews, and proof of payment submissions.</span>
-              </li>
-              <li className="flex items-start space-x-2">
-                <span className="text-emerald-400 font-black">•</span>
-                <span>Greeting Bubble can be toggled on/off independently from the main floating sticky icon.</span>
-              </li>
-              <li className="flex items-start space-x-2">
-                <span className="text-emerald-400 font-black">•</span>
-                <span>Active subscribers count: <strong className="text-white">{subscribersCount}</strong> registered users.</span>
-              </li>
-            </ul>
+            <p>• Floating icon opens wa.me chat with your pre-filled message.</p>
+            <p>• Group invite link is shared only with paid/confirmed alert subscribers.</p>
           </div>
         </div>
       </form>

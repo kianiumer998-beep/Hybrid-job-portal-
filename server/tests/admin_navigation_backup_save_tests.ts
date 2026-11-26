@@ -1176,7 +1176,7 @@ async function runSuite() {
     assert.ok(dashSource.includes("adminTab === 'locations-manager' && canAccessAdminTab('locations-manager')"));
     assert.ok(dashSource.includes("<AdminLocationManager />"));
     assert.ok(dashSource.includes("<AdminWhatsAppManager"));
-    assert.ok(dashSource.includes("<AdminWhatsAppSettings"));
+    assert.strictEqual(dashSource.includes("<AdminWhatsAppSettings"), false, 'AdminWhatsAppSettings must not duplicate AdminWhatsAppManager');
     assert.ok(dashSource.includes("<AutomatedScraperHub"));
 
     for (const forbiddenRef of ['AdminUrlScraperController', 'ScrapedJobHistoryModule', 'AdminDuplicateResolutionModal']) {

@@ -45,6 +45,10 @@ interface AdminBroadcastCenterProps {
   onSendCampaign?: (newCampaign: Partial<BroadcastCampaign>) => Promise<{ success: boolean; campaign?: BroadcastCampaign; error?: string } | boolean | void> | void;
   onUpdateCommConfig?: (updated: CommunicationProviderConfig) => void;
   onRefreshCampaigns?: () => void;
+  initialTab?: 'compose' | 'history' | 'templates' | 'providers';
+  lockedChannel?: 'Email' | 'WhatsApp' | 'SMS';
+  hideProvidersTab?: boolean;
+  embedded?: boolean;
 }
 
 export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
@@ -58,14 +62,25 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   migrationError = null,
   onSendCampaign,
   onUpdateCommConfig,
-  onRefreshCampaigns
+  onRefreshCampaigns,
+  initialTab,
+  lockedChannel,
+  hideProvidersTab = false,
+  embedded = false
 }) => {
   const safeCampaigns = Array.isArray(campaigns) ? campaigns : [];
   const safeUsers = Array.isArray(users) ? users : [];
   const safeSubscribers = Array.isArray(subscribers) ? subscribers : [];
 
   const [campaignList, setCampaignList] = useState<BroadcastCampaign[]>(safeCampaigns);
-  const [activeTab, setActiveTab] = useState<'compose' | 'history' | 'templates' | 'providers'>('compose');
+  const resolvedInitialTab = hideProvidersTab && initialTab === 'providers' ? 'compose' : (initialTab || 'compose');
+  const [activeTab, setActiveTab] = useState<'compose' | 'history' | 'templates' | 'providers'>(resolvedInitialTab);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(hideProvidersTab && initialTab === 'providers' ? 'compose' : initialTab);
+    }
+  }, [initialTab, hideProvidersTab]);
 
   // Channel Gating Statuses (Fail-closed: explicit true required)
   const emailEnabled = featureFlags?.enableEmailAlerts === true;
@@ -73,10 +88,13 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const smsEnabled = featureFlags?.enableSmsAlerts === true;
   const multiChannelEnabled = emailEnabled && whatsappEnabled;
 
-  const [channel, setChannel] = useState<'Email' | 'WhatsApp' | 'SMS' | 'Push Notification' | 'Multi-Channel'>('SMS');
+  const [channel, setChannel] = useState<'Email' | 'WhatsApp' | 'SMS' | 'Push Notification' | 'Multi-Channel'>(lockedChannel || 'SMS');
 
-  // Synchronize channel selection when feature flags change
   useEffect(() => {
+    if (lockedChannel) {
+      setChannel(lockedChannel);
+      return;
+    }
     if (channel === 'Email' && !emailEnabled) {
       if (whatsappEnabled) setChannel('WhatsApp');
       else if (smsEnabled) setChannel('SMS');
@@ -95,7 +113,11 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
       else if (smsEnabled) setChannel('SMS');
       else setChannel('Push Notification');
     }
-  }, [emailEnabled, whatsappEnabled, smsEnabled, multiChannelEnabled, channel]);
+  }, [emailEnabled, whatsappEnabled, smsEnabled, multiChannelEnabled, channel, lockedChannel]);
+
+  const visibleCampaigns = lockedChannel
+    ? campaignList.filter((camp) => camp?.channel === lockedChannel || camp?.channel === 'Multi-Channel')
+    : campaignList;
 
   // Synchronize campaign list whenever prop updates
   useEffect(() => {
@@ -448,32 +470,35 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   };
 
   return (
-    <div className="admin-settings-mobile-compact space-y-6 text-white">
+    <div className={`admin-settings-mobile-compact ${embedded ? 'space-y-4' : 'space-y-6'} text-white`}>
       {/* Top Banner */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className={`bg-slate-900 border border-slate-800 rounded-2xl ${embedded ? 'p-4' : 'p-6'} shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4`}>
         <div>
           <div className="flex items-center space-x-2 text-indigo-400 text-xs font-bold uppercase tracking-wider mb-1">
             <Megaphone className="w-4 h-4" />
-            <span>Multi-Channel Communication & Broadcast Center</span>
+            <span>{lockedChannel ? `${lockedChannel} Broadcast Workspace` : 'Multi-Channel Communication & Broadcast Center'}</span>
           </div>
-          <h2 className="text-xl font-black text-white">Targeted Email, WhatsApp & Push Campaigns</h2>
+          <h2 className={`${embedded ? 'text-base sm:text-lg' : 'text-xl'} font-black text-white`}>
+            {lockedChannel ? `${lockedChannel} Campaigns, Templates & History` : 'Targeted Email, WhatsApp & Push Campaigns'}
+          </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Draft and manage templates for weekly job digests, urgent FPSC/WAPDA gazette alerts, employer discount notifications, and system announcements.
+            Draft and manage templates for job digests, urgent FPSC/WAPDA gazette alerts, employer discount notifications, and system announcements.
           </p>
         </div>
 
         {/* Sub-tabs */}
-        <div className="bg-slate-950 border border-slate-800 rounded-xl p-1 flex items-center space-x-1 text-xs">
+        <div className="bg-slate-950 border border-slate-800 rounded-xl p-1 flex flex-wrap items-center gap-1 text-xs">
           {[
             { id: 'compose', label: 'Compose Broadcast', icon: Send },
-            { id: 'history', label: `Campaign History (${campaignList.length})`, icon: Clock },
+            { id: 'history', label: `Campaign History (${visibleCampaigns.length})`, icon: Clock },
             { id: 'templates', label: 'Campaign Templates', icon: FileText },
-            { id: 'providers', label: 'Provider Gateways', icon: Layers }
+            ...(!hideProvidersTab ? [{ id: 'providers', label: 'Provider Gateways', icon: Layers }] : [])
           ].map((t) => {
             const Icon = t.icon;
             return (
               <button
                 key={t.id}
+                type="button"
                 onClick={() => setActiveTab(t.id as any)}
                 className={`px-3 py-2 rounded-lg font-bold flex items-center space-x-1.5 transition-all cursor-pointer ${
                   activeTab === t.id
@@ -489,32 +514,34 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
         </div>
       </div>
 
-      {/* Global Channel Master-Switch Banners */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-        <div className={`p-3 rounded-xl border flex items-center justify-between ${
-          emailEnabled ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
-        }`}>
-          <div className="flex items-center space-x-2">
-            <Mail className="w-4 h-4 shrink-0" />
-            <span>Email Alerts Master Switch: <strong>{emailEnabled ? 'ON (Enabled)' : 'OFF (Disabled)'}</strong></span>
+      {/* Global Channel Master-Switch Banners (Hidden if lockedChannel already shows master status in Channel Hub) */}
+      {!embedded && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <div className={`p-3 rounded-xl border flex items-center justify-between ${
+            emailEnabled ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+          }`}>
+            <div className="flex items-center space-x-2">
+              <Mail className="w-4 h-4 shrink-0" />
+              <span>Email Alerts Master Switch: <strong>{emailEnabled ? 'ON (Enabled)' : 'OFF (Disabled)'}</strong></span>
+            </div>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${emailEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+              {emailEnabled ? 'ACTIVE' : 'DISABLED'}
+            </span>
           </div>
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${emailEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
-            {emailEnabled ? 'ACTIVE' : 'DISABLED'}
-          </span>
-        </div>
 
-        <div className={`p-3 rounded-xl border flex items-center justify-between ${
-          whatsappEnabled ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
-        }`}>
-          <div className="flex items-center space-x-2">
-            <MessageCircle className="w-4 h-4 shrink-0" />
-            <span>WhatsApp Alerts Master Switch: <strong>{whatsappEnabled ? 'ON (Enabled)' : 'OFF (Disabled)'}</strong></span>
+          <div className={`p-3 rounded-xl border flex items-center justify-between ${
+            whatsappEnabled ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+          }`}>
+            <div className="flex items-center space-x-2">
+              <MessageCircle className="w-4 h-4 shrink-0" />
+              <span>WhatsApp Alerts Master Switch: <strong>{whatsappEnabled ? 'ON (Enabled)' : 'OFF (Disabled)'}</strong></span>
+            </div>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${whatsappEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+              {whatsappEnabled ? 'ACTIVE' : 'DISABLED'}
+            </span>
           </div>
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${whatsappEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
-            {whatsappEnabled ? 'ACTIVE' : 'DISABLED'}
-          </span>
         </div>
-      </div>
+      )}
 
       {/* TAB 1: COMPOSE CAMPAIGN */}
       {activeTab === 'compose' && (
@@ -561,17 +588,36 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-slate-300 mb-1">Communication Channel</label>
-                  <select
-                    value={channel}
-                    onChange={(e) => setChannel(e.target.value as any)}
-                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold"
-                  >
-                    <option value="Email" disabled={!emailEnabled}>📧 Email Campaign {!emailEnabled ? '(Disabled)' : ''}</option>
-                    <option value="WhatsApp" disabled={!whatsappEnabled}>💬 Official WhatsApp Alerts {!whatsappEnabled ? '(Disabled)' : ''}</option>
-                    <option value="SMS" disabled={!smsEnabled}>📱 Direct SMS Blast {!smsEnabled ? '(Disabled)' : ''}</option>
-                    <option value="Push Notification">🔔 Browser Web Push Notification</option>
-                    <option value="Multi-Channel" disabled={!multiChannelEnabled}>⚡ Multi-Channel {!multiChannelEnabled ? '(Disabled - Requires Email & WhatsApp)' : ''}</option>
-                  </select>
+                  {lockedChannel ? (
+                    <div className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold flex items-center justify-between">
+                      <span>
+                        {lockedChannel === 'Email'
+                          ? '📧 Email Campaign'
+                          : lockedChannel === 'WhatsApp'
+                          ? '💬 Official WhatsApp Alerts'
+                          : '📱 Direct SMS Blast'}
+                      </span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded ${
+                        (lockedChannel === 'Email' ? emailEnabled : lockedChannel === 'WhatsApp' ? whatsappEnabled : smsEnabled)
+                          ? 'bg-emerald-500/20 text-emerald-300'
+                          : 'bg-rose-500/20 text-rose-300'
+                      }`}>
+                        {(lockedChannel === 'Email' ? emailEnabled : lockedChannel === 'WhatsApp' ? whatsappEnabled : smsEnabled) ? 'ACTIVE' : 'DISABLED'}
+                      </span>
+                    </div>
+                  ) : (
+                    <select
+                      value={channel}
+                      onChange={(e) => setChannel(e.target.value as any)}
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold"
+                    >
+                      <option value="Email" disabled={!emailEnabled}>📧 Email Campaign {!emailEnabled ? '(Disabled)' : ''}</option>
+                      <option value="WhatsApp" disabled={!whatsappEnabled}>💬 Official WhatsApp Alerts {!whatsappEnabled ? '(Disabled)' : ''}</option>
+                      <option value="SMS" disabled={!smsEnabled}>📱 Direct SMS Blast {!smsEnabled ? '(Disabled)' : ''}</option>
+                      <option value="Push Notification">🔔 Browser Web Push Notification</option>
+                      <option value="Multi-Channel" disabled={!multiChannelEnabled}>⚡ Multi-Channel {!multiChannelEnabled ? '(Disabled - Requires Email & WhatsApp)' : ''}</option>
+                    </select>
+                  )}
                 </div>
 
                 <div>
@@ -632,9 +678,9 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
 
               <button
                 type="submit"
-                disabled={isSending || (channel === 'Email' && !emailEnabled) || (channel === 'WhatsApp' && !whatsappEnabled) || (channel === 'Multi-Channel' && !multiChannelEnabled)}
+                disabled={isSending || (channel === 'Email' && !emailEnabled) || (channel === 'WhatsApp' && !whatsappEnabled) || (channel === 'SMS' && !smsEnabled) || (channel === 'Multi-Channel' && !multiChannelEnabled)}
                 className={`px-6 py-3 font-black rounded-xl shadow-lg flex items-center space-x-2 cursor-pointer transition-all active:scale-95 text-xs ${
-                  isSending || (channel === 'Email' && !emailEnabled) || (channel === 'WhatsApp' && !whatsappEnabled) || (channel === 'Multi-Channel' && !multiChannelEnabled)
+                  isSending || (channel === 'Email' && !emailEnabled) || (channel === 'WhatsApp' && !whatsappEnabled) || (channel === 'SMS' && !smsEnabled) || (channel === 'Multi-Channel' && !multiChannelEnabled)
                     ? 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-50'
                     : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20'
                 }`}
@@ -704,7 +750,9 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
               <span>Campaign History & Saved Drafts</span>
             </h3>
             <div className="flex items-center space-x-3">
-              <span className="text-xs font-mono text-slate-400">{campaignList.length} Total Campaigns</span>
+              <span className="text-xs font-mono text-slate-400">
+                {visibleCampaigns.length} {lockedChannel ? `${lockedChannel} ` : 'Total '}Campaigns
+              </span>
               {onRefreshCampaigns && (
                 <button
                   type="button"
@@ -748,15 +796,17 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
               <Clock className="w-6 h-6 animate-spin mx-auto text-amber-400" />
               <p className="text-xs">Loading broadcast campaigns from database...</p>
             </div>
-          ) : campaignList.length === 0 ? (
+          ) : visibleCampaigns.length === 0 ? (
             <div className="py-12 text-center text-slate-500 space-y-2">
               <Megaphone className="w-8 h-8 mx-auto text-slate-600 opacity-50" />
-              <p className="font-bold text-slate-400 text-sm">No broadcast campaigns saved yet</p>
-              <p className="text-xs text-slate-500">Draft your first multi-channel broadcast campaign in the Compose tab above.</p>
+              <p className="font-bold text-slate-400 text-sm">
+                No {lockedChannel ? `${lockedChannel} ` : ''}broadcast campaigns saved yet
+              </p>
+              <p className="text-xs text-slate-500">Draft your first {lockedChannel || 'multi-channel'} broadcast campaign in the Compose tab above.</p>
             </div>
           ) : (
             <div className="divide-y divide-slate-800 text-xs">
-              {campaignList.map((camp) => (
+              {visibleCampaigns.map((camp) => (
               <div key={camp.id} className="py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div className="space-y-1">
                   <div className="flex items-center space-x-2">
@@ -812,14 +862,15 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
           
           {/* Template 1 */}
+          {(!lockedChannel || lockedChannel === 'Email') && (
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3 shadow-xl flex flex-col justify-between">
             <div className="space-y-2">
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                Weekly Digest
+                Email Weekly Digest
               </span>
               <h4 className="font-bold text-sm text-white">Top 50 Government & Corporate Openings</h4>
               <p className="text-slate-400 text-[11px] leading-relaxed">
-                Highlights the week's highest-paying tech vacancies and gazetted BPS-16/17/18 government openings.
+                Highlights the week&apos;s highest-paying tech vacancies and gazetted BPS-16/17/18 government openings.
               </p>
             </div>
             <button
@@ -837,8 +888,10 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
               {emailEnabled ? 'Use This Template →' : 'Template Disabled (Email OFF)'}
             </button>
           </div>
+          )}
 
           {/* Template 2 */}
+          {(!lockedChannel || lockedChannel === 'WhatsApp') && (
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3 shadow-xl flex flex-col justify-between">
             <div className="space-y-2">
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
@@ -864,12 +917,14 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
               {whatsappEnabled ? 'Use This Template →' : 'Template Disabled (WhatsApp OFF)'}
             </button>
           </div>
+          )}
 
           {/* Template 3 */}
+          {(!lockedChannel || lockedChannel === 'Email') && (
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3 shadow-xl flex flex-col justify-between">
             <div className="space-y-2">
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                Employer Promotion
+                Email Employer Promotion
               </span>
               <h4 className="font-bold text-sm text-white">Employer 30% Off Featured Post Promo</h4>
               <p className="text-slate-400 text-[11px] leading-relaxed">
@@ -891,6 +946,36 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
               {emailEnabled ? 'Use This Template →' : 'Template Disabled (Email OFF)'}
             </button>
           </div>
+          )}
+
+          {/* Template 4 (SMS Template) */}
+          {(!lockedChannel || lockedChannel === 'SMS') && (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3 shadow-xl flex flex-col justify-between">
+            <div className="space-y-2">
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                SMS Flash Alert (160 Chars)
+              </span>
+              <h4 className="font-bold text-sm text-white">Concise Govt / Walk-in SMS Alert</h4>
+              <p className="text-slate-400 text-[11px] leading-relaxed">
+                Compact single-segment SMS copy crafted for instant candidate click-throughs and expiry warnings.
+              </p>
+            </div>
+            <button
+              onClick={() => handleApplyTemplate({
+                subject: 'SMS Flash Job Alert',
+                body: 'Hi {{candidate_name}}, 25+ new FPSC & Provincial BPS-17 jobs open now. Apply before deadline on CareerPak!',
+                channel: 'SMS',
+                audience: 'Subscribed Members'
+              })}
+              disabled={!smsEnabled}
+              className={`w-full py-2.5 font-bold rounded-xl cursor-pointer text-center ${
+                smsEnabled ? 'bg-indigo-400 hover:bg-indigo-300 text-slate-950' : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+              }`}
+            >
+              {smsEnabled ? 'Use This Template →' : 'Template Disabled (SMS OFF)'}
+            </button>
+          </div>
+          )}
 
         </div>
       )}

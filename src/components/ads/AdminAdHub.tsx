@@ -2067,6 +2067,100 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
                           </div>
                         </div>
 
+                        {/* Row 4: Pre-Expiry Notification & Multi-Channel Reminders for this Ad Placement */}
+                        <div className="pt-2.5 border-t border-slate-800/80 bg-slate-950/60 px-3 py-2 rounded-xl space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <label className="flex items-center gap-2 text-[11px] font-bold text-slate-200 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={placement.expiryReminder?.enabled === true}
+                                onChange={(e) =>
+                                  handleUpdatePlacementRate(typedKey, {
+                                    expiryReminder: {
+                                      enabled: e.target.checked,
+                                      hoursBefore: placement.expiryReminder?.hoursBefore ?? 24,
+                                      inAppEnabled: placement.expiryReminder?.inAppEnabled !== false,
+                                      emailEnabled: placement.expiryReminder?.emailEnabled === true,
+                                      whatsappEnabled: placement.expiryReminder?.whatsappEnabled === true,
+                                      smsEnabled: placement.expiryReminder?.smsEnabled === true
+                                    }
+                                  })
+                                }
+                                className="w-3.5 h-3.5 rounded border-slate-700 accent-amber-400 cursor-pointer"
+                              />
+                              <Bell className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                              <span>Pre-Expiry Notifications &amp; Channel Reminders</span>
+                            </label>
+                            <div className="flex items-center gap-1.5 text-[11px]">
+                              <span className="text-slate-400">Notify Before:</span>
+                              <input
+                                type="number"
+                                min={1}
+                                max={720}
+                                disabled={placement.expiryReminder?.enabled !== true}
+                                value={placement.expiryReminder?.hoursBefore ?? 24}
+                                onChange={(e) =>
+                                  handleUpdatePlacementRate(typedKey, {
+                                    expiryReminder: {
+                                      enabled: placement.expiryReminder?.enabled === true,
+                                      hoursBefore: Math.min(720, Math.max(1, Math.floor(Number(e.target.value) || 24))),
+                                      inAppEnabled: placement.expiryReminder?.inAppEnabled !== false,
+                                      emailEnabled: placement.expiryReminder?.emailEnabled === true,
+                                      whatsappEnabled: placement.expiryReminder?.whatsappEnabled === true,
+                                      smsEnabled: placement.expiryReminder?.smsEnabled === true
+                                    }
+                                  })
+                                }
+                                className="w-16 px-1.5 py-0.5 rounded-lg bg-slate-900 border border-slate-700 text-center font-mono font-bold text-xs text-white disabled:opacity-40"
+                              />
+                              <span className="text-[10px] text-slate-400">hrs</span>
+                            </div>
+                          </div>
+                          {placement.expiryReminder?.enabled === true && (
+                            <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                              {(
+                                [
+                                  ['inAppEnabled', 'In-App Notification', 'text-amber-300', 'accent-amber-400'],
+                                  ['emailEnabled', 'Email', 'text-sky-300', 'accent-sky-400'],
+                                  ['whatsappEnabled', 'WhatsApp', 'text-emerald-300', 'accent-emerald-400'],
+                                  ['smsEnabled', 'SMS', 'text-indigo-300', 'accent-indigo-400']
+                                ] as const
+                              ).map(([field, label, textCls, accentCls]) => {
+                                const isChecked =
+                                  field === 'inAppEnabled'
+                                    ? placement.expiryReminder?.inAppEnabled !== false
+                                    : placement.expiryReminder?.[field] === true;
+                                return (
+                                  <label
+                                    key={field}
+                                    className={`flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[10px] font-bold cursor-pointer ${textCls}`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={(e) =>
+                                        handleUpdatePlacementRate(typedKey, {
+                                          expiryReminder: {
+                                            enabled: true,
+                                            hoursBefore: placement.expiryReminder?.hoursBefore ?? 24,
+                                            inAppEnabled: placement.expiryReminder?.inAppEnabled !== false,
+                                            emailEnabled: placement.expiryReminder?.emailEnabled === true,
+                                            whatsappEnabled: placement.expiryReminder?.whatsappEnabled === true,
+                                            smsEnabled: placement.expiryReminder?.smsEnabled === true,
+                                            [field]: e.target.checked
+                                          }
+                                        })
+                                      }
+                                      className={accentCls}
+                                    />
+                                    <span>{label}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+
                         {typedKey === 'top-header' && (
                           <div className="pt-2.5 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-indigo-500/5 border border-indigo-500/20 px-3 py-2.5 rounded-xl">
                             <div className="space-y-1 min-w-0">

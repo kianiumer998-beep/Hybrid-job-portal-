@@ -20,6 +20,7 @@ import { PricingRepository } from '../db/repositories/PricingRepository';
 import { buildEarlyAccessDisplayJob, getEarlyAccessLandingConfig, getEarlyAccessReleaseAt, isEarlyAccessJobLocked } from '../services/earlyAccessPolicy';
 import { hasActiveSubscriptionFeature } from '../services/subscriptionEntitlements';
 import { dispatchPremiumInstantJobAlerts } from '../services/premiumJobAlertService';
+import { maybeNotifyEarlyAccessUnlock } from '../services/subscriptionReminderScheduler';
 import { evaluateApplyAccess } from '../services/applyAccessPolicy';
 
 // 1. Get Live Approved Jobs with Query Filters & Pagination
@@ -522,6 +523,7 @@ jobRouter.post('/queue/pending/:id/approve', requireAdminPermission('jobs.manage
       return res.status(404).json({ success: false, message: 'Pending job not found.' });
     }
     try { await dispatchPremiumInstantJobAlerts(approved); } catch (alertError: any) { console.error('[Premium Job Alerts] Single approval dispatch failed:', alertError?.message || alertError); }
+    try { await maybeNotifyEarlyAccessUnlock(approved); } catch (eaErr: any) { console.error('[Early Access Alert] Single approval dispatch failed:', eaErr?.message || eaErr); }
     const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Job Moderator',
@@ -776,6 +778,7 @@ jobRouter.post('/bulk-approve', requireAdminPermission('jobs.manage'), async (re
     const result = await JobRepository.bulkApprovePending(idsToApprove);
     for (const approvedJob of (result.approvedJobs || [])) {
       try { await dispatchPremiumInstantJobAlerts(approvedJob); } catch (alertError: any) { console.error('[Premium Job Alerts] Bulk approval dispatch failed:', alertError?.message || alertError); }
+      try { await maybeNotifyEarlyAccessUnlock(approvedJob); } catch (eaErr: any) { console.error('[Early Access Alert] Bulk approval dispatch failed:', eaErr?.message || eaErr); }
     }
     const combinedErrors = [...unresolvedErrors, ...result.errors];
     const totalFailureCount = combinedErrors.length;

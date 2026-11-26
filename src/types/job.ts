@@ -682,6 +682,35 @@ export const DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG: HomepagePrioritySlotConfig =
   future: { enabled: true, maxSlots: 4 }
 };
 
+export interface TierExpiryReminderConfig {
+  enabled: boolean;
+  daysBefore: number;
+  inAppEnabled: boolean;
+  emailEnabled: boolean;
+  whatsappEnabled: boolean;
+  smsEnabled: boolean;
+}
+
+export type JobTierReminderKey = 'vip' | 'pinned' | 'featured' | 'urgent' | 'future';
+export type JobTierReminderSettings = Record<JobTierReminderKey, TierExpiryReminderConfig>;
+
+export const DEFAULT_TIER_EXPIRY_REMINDER: TierExpiryReminderConfig = {
+  enabled: false,
+  daysBefore: 3,
+  inAppEnabled: true,
+  emailEnabled: true,
+  whatsappEnabled: false,
+  smsEnabled: false
+};
+
+export const DEFAULT_JOB_TIER_REMINDER_SETTINGS: JobTierReminderSettings = {
+  vip: { ...DEFAULT_TIER_EXPIRY_REMINDER },
+  pinned: { ...DEFAULT_TIER_EXPIRY_REMINDER },
+  featured: { ...DEFAULT_TIER_EXPIRY_REMINDER },
+  urgent: { ...DEFAULT_TIER_EXPIRY_REMINDER },
+  future: { ...DEFAULT_TIER_EXPIRY_REMINDER }
+};
+
 export interface JobPostingPricingConfig {
   standardFeePkr: number;       // Base fee for standard job posting (PKR)
   urgentFeePkr: number;         // Priority surcharge for Urgent Hiring badge & boost (PKR)
@@ -722,6 +751,7 @@ export interface JobPostingPricingConfig {
 
   // STEP66-B.1: Universal Priority Placement Slots Config
   homepagePrioritySlotConfig?: HomepagePrioritySlotConfig;
+  tierReminderSettings?: JobTierReminderSettings;
 
   // Dynamic Fee & Exemption Fields synced from Authoritative Backend Pricing
   categoryPostingFees?: CategoryPostingFee[];
@@ -767,6 +797,7 @@ export const DEFAULT_JOB_POSTING_PRICING_CONFIG: JobPostingPricingConfig = {
   vipBundleDescription: 'Full package: Top Pinned #1 + Urgent Badge + Gold Highlighting.',
 
   homepagePrioritySlotConfig: DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG,
+  tierReminderSettings: DEFAULT_JOB_TIER_REMINDER_SETTINGS,
   categoryPostingFees: DEFAULT_CATEGORY_POSTING_FEES,
   exemptUserEmails: [],
   isFreeAllPostings: false,

@@ -115,7 +115,7 @@ import { AdminFeeManager, CompleteFeeConfigSavePayload } from './admin/AdminFeeM
 import { AdminActivityLogs } from './admin/AdminActivityLogs';
 import { AdminBulkNotificationTool } from './admin/AdminBulkNotificationTool';
 import { AdminWhatsAppManager } from './admin/AdminWhatsAppManager';
-import { AdminWhatsAppSettings } from './admin/AdminWhatsAppSettings';
+import { AdminChannelControlHub } from './admin/AdminChannelControlHub';
 import { AdminPaymentVerificationHub, PaymentVerificationResult } from './admin/AdminPaymentVerificationHub';
 import { AdminPricingController } from './admin/AdminPricingController';
 import { AdminSubscriptionStudio } from './admin/AdminSubscriptionStudio';
@@ -1007,10 +1007,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'ad-campaign-ops'
     | 'landing-design';
 
-  const [jobsAdsWorkspaceArea, setJobsAdsWorkspaceArea] = useState<'jobs' | 'campaigns'>('jobs');
+  const [jobsAdsWorkspaceArea, setJobsAdsWorkspaceArea] = useState<'jobs' | 'campaigns' | 'whatsapp' | 'email' | 'sms'>('jobs');
   const [jobsWorkspaceSection, setJobsWorkspaceSection] = useState<JobsWorkspaceSectionId>('pending');
   const [newWorkspaceSection, setNewWorkspaceSection] = useState<NewWorkspaceSectionId>('job-tiers-pricing');
-  const [campaignWorkspaceSection, setCampaignWorkspaceSection] = useState<'advertisements' | 'campaign-center' | 'landing-customizer'>('advertisements');
+  const [campaignWorkspaceSection, setCampaignWorkspaceSection] = useState<'advertisements' | 'campaign-center'>('advertisements');
+  const [broadcastInitialTab, setBroadcastInitialTab] = useState<'compose' | 'history' | undefined>(undefined);
 
   const [activeCategory, setActiveCategory] = useState<AdminCategory>('jobs');
   const [navMode, setNavMode] = useState<AdminNavMode>('classic');
@@ -1147,7 +1148,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const canAccessAdminTab = (tabId: string): boolean => {
     if (tabId === 'jobs-ads-control-center') {
-      return ['jobs', 'pending', 'add-job', 'ai-enhancer', 'pricing-controller', 'fee-management', 'fee-logs', 'advertisements', 'campaign-center', 'landing-customizer']
+      return [
+        'jobs',
+        'pending',
+        'add-job',
+        'ai-enhancer',
+        'pricing-controller',
+        'fee-management',
+        'fee-logs',
+        'advertisements',
+        'campaign-center',
+        'whatsapp-manager',
+        'broadcast-center'
+      ]
         .some((moduleId) => checkAdminTabPermission(effectiveAdminRole, effectiveAdminPerms, isVerifiedAdmin, moduleId));
     }
     if (tabId === 'new') {
@@ -1157,9 +1170,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const jobsWorkspaceTabIds = ['pending', 'jobs', 'add-job', 'ai-enhancer', 'pricing-controller', 'fee-logs'];
-  const campaignWorkspaceTabIds = ['advertisements', 'campaign-center', 'landing-customizer'];
+  const campaignWorkspaceTabIds = ['advertisements', 'campaign-center'];
   const canAccessJobsWorkspace = jobsWorkspaceTabIds.some(canAccessAdminTab);
   const canAccessCampaignWorkspace = campaignWorkspaceTabIds.some(canAccessAdminTab);
+  const canAccessChannelWorkspace =
+    hasAdminUiPermission('finance.manage') ||
+    hasAdminUiPermission('settings.manage') ||
+    hasAdminUiPermission('advertisements.manage');
   const accessibleNewSections = NEW_WORKSPACE_SECTIONS.filter((section) => canAccessNewSection(section.id));
   const effectiveNewSection: NewWorkspaceSectionId | null =
     (accessibleNewSections.find((section) => section.id === newWorkspaceSection)?.id ??
@@ -1182,14 +1199,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     'landing-design': 'landing-customizer'
   };
 
+  const isChannelWorkspaceArea =
+    jobsAdsWorkspaceArea === 'whatsapp' ||
+    jobsAdsWorkspaceArea === 'email' ||
+    jobsAdsWorkspaceArea === 'sms';
+
   const effectiveAdminTab = adminTab === 'jobs-ads-control-center'
-    ? (jobsAdsWorkspaceArea === 'jobs' && canAccessJobsWorkspace
+    ? (isChannelWorkspaceArea && canAccessChannelWorkspace
+        ? 'channel-hub'
+        : jobsAdsWorkspaceArea === 'jobs' && canAccessJobsWorkspace
         ? (jobsWorkspaceSection === 'new' && effectiveNewSection
             ? newSectionTargetTabMap[effectiveNewSection]
             : (canAccessAdminTab(jobsWorkspaceSection) ? jobsWorkspaceSection : jobsWorkspaceTabIds.find(canAccessAdminTab) || 'jobs'))
         : (canAccessCampaignWorkspace
             ? (canAccessAdminTab(campaignWorkspaceSection) ? campaignWorkspaceSection : campaignWorkspaceTabIds.find(canAccessAdminTab) || 'campaign-center')
-            : jobsWorkspaceTabIds.find(canAccessAdminTab) || 'jobs'))
+            : canAccessJobsWorkspace
+            ? jobsWorkspaceTabIds.find(canAccessAdminTab) || 'jobs'
+            : canAccessChannelWorkspace
+            ? 'channel-hub'
+            : 'jobs'))
     : adminTab;
 
   const canAccessAdminCategory = (cat: AdminCategory): boolean => {
@@ -3788,17 +3816,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* TAB: WHATSAPP SUPPORT & ALERTS MANAGER */}
       {adminTab === 'whatsapp-manager' && canAccessAdminTab('whatsapp-manager') && (
-        <div className="space-y-6">
-          <AdminWhatsAppManager
-            config={currentWhatsAppConfig}
-            onUpdateConfig={handleUpdateWhatsApp}
-            subscribersCount={subscribers.length}
-          />
-          <AdminWhatsAppSettings
-            config={currentWhatsAppConfig}
-            onSave={handleUpdateWhatsApp}
-          />
-        </div>
+        <AdminWhatsAppManager
+          config={currentWhatsAppConfig}
+          onUpdateConfig={handleUpdateWhatsApp}
+          subscribersCount={subscribers.length}
+        />
       )}
 
       {/* TAB: ADMINISTRATOR SECURITY */}
@@ -3904,14 +3926,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </span>
               <h3 className="text-lg font-black text-white mt-1">Management &amp; Campaign Workspaces</h3>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 w-full sm:w-auto">
               {canAccessJobsWorkspace && (
                 <button
                   type="button"
                   onClick={() => setJobsAdsWorkspaceArea('jobs')}
-                  className={`px-5 py-2.5 rounded-2xl text-xs font-black tracking-wide transition-all cursor-pointer shadow-lg ${
+                  className={`px-4 py-2.5 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer whitespace-nowrap ${
                     jobsAdsWorkspaceArea === 'jobs'
-                      ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-amber-500/30 scale-105 border-2 border-amber-300'
+                      ? 'bg-amber-500 text-slate-950 border border-amber-300 shadow-lg shadow-amber-500/20'
                       : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
                   }`}
                 >
@@ -3922,18 +3944,82 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <button
                   type="button"
                   onClick={() => setJobsAdsWorkspaceArea('campaigns')}
-                  className={`px-5 py-2.5 rounded-2xl text-xs font-black tracking-wide transition-all cursor-pointer shadow-lg ${
-                    jobsAdsWorkspaceArea === 'campaigns' || !canAccessJobsWorkspace
-                      ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-slate-950 shadow-emerald-500/30 scale-105 border-2 border-emerald-300'
+                  className={`px-4 py-2.5 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer whitespace-nowrap ${
+                    jobsAdsWorkspaceArea === 'campaigns' || (!canAccessJobsWorkspace && !isChannelWorkspaceArea)
+                      ? 'bg-emerald-500 text-slate-950 border border-emerald-300 shadow-lg shadow-emerald-500/20'
                       : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
                   }`}
                 >
                   📢 Ads &amp; Campaigns
                 </button>
               )}
+              {canAccessChannelWorkspace && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setJobsAdsWorkspaceArea('whatsapp')}
+                    className={`px-4 py-2.5 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer whitespace-nowrap ${
+                      jobsAdsWorkspaceArea === 'whatsapp'
+                        ? 'bg-emerald-500 text-slate-950 border border-emerald-300 shadow-lg shadow-emerald-500/20'
+                        : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    💬 WhatsApp
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setJobsAdsWorkspaceArea('email')}
+                    className={`px-4 py-2.5 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer whitespace-nowrap ${
+                      jobsAdsWorkspaceArea === 'email'
+                        ? 'bg-sky-400 text-slate-950 border border-sky-300 shadow-lg shadow-sky-500/20'
+                        : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    ✉️ Email
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setJobsAdsWorkspaceArea('sms')}
+                    className={`px-4 py-2.5 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer whitespace-nowrap ${
+                      jobsAdsWorkspaceArea === 'sms'
+                        ? 'bg-indigo-400 text-slate-950 border border-indigo-300 shadow-lg shadow-indigo-500/20'
+                        : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    📱 SMS
+                  </button>
+                </>
+              )}
             </div>
           </div>
-          {jobsAdsWorkspaceArea === 'jobs' && canAccessJobsWorkspace ? (
+          {isChannelWorkspaceArea && canAccessChannelWorkspace ? (
+            <AdminChannelControlHub
+              activeChannel={jobsAdsWorkspaceArea as 'whatsapp' | 'email' | 'sms'}
+              featureFlags={featureFlags}
+              onToggleFeatureFlag={handleToggleFeature}
+              whatsAppConfig={currentWhatsAppConfig}
+              onUpdateWhatsAppConfig={handleUpdateWhatsApp}
+              subscribersCount={subscribers.length}
+              adPricingConfig={pricingConfig}
+              onUpdatePricingConfig={onUpdatePricingConfig}
+              campaignConfig={campaignConfig}
+              onUpdateCampaignConfig={onUpdateCampaignConfig}
+              onSyncAuthoritativePricing={onSyncAuthoritativePricing}
+              onUpdateCommConfig={handleUpdateCommConfig}
+              canManagePricing={hasAdminUiPermission('finance.manage')}
+              canManageSettings={hasAdminUiPermission('settings.manage')}
+              canManageAds={hasAdminUiPermission('advertisements.manage')}
+              broadcastCampaigns={broadcastCampaigns}
+              users={users}
+              subscribers={subscribers}
+              commConfig={commConfig}
+              isBroadcastLoading={isBroadcastLoading}
+              broadcastLoadError={broadcastLoadError}
+              broadcastMigrationError={broadcastMigrationError}
+              onSendBroadcastCampaign={handleSaveBroadcastCampaign}
+              onRefreshBroadcastCampaigns={fetchBroadcastCampaigns}
+            />
+          ) : jobsAdsWorkspaceArea === 'jobs' && canAccessJobsWorkspace ? (
             <div className="flex flex-wrap gap-2 pt-1">
               {([
                 ['pending', 'Submitted / Pending'],
@@ -3949,9 +4035,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   onClick={() => setJobsWorkspaceSection(id)}
                   className={`px-4 py-2.5 rounded-xl text-xs font-black tracking-wide cursor-pointer transition-all shadow-md ${
                     jobsWorkspaceSection === id
-                      ? id === 'new'
-                        ? 'bg-emerald-500 text-slate-950 border-2 border-emerald-300 shadow-emerald-500/20'
-                        : 'bg-amber-500 text-slate-950 border-2 border-amber-300 shadow-amber-500/20 scale-[1.02]'
+                      ? 'bg-amber-500 text-slate-950 border-2 border-amber-300 shadow-amber-500/20 scale-[1.02]'
                       : 'bg-slate-950 text-slate-300 border border-slate-800 hover:bg-slate-800/80'
                   }`}
                 >
@@ -3963,8 +4047,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div className="flex flex-wrap gap-2 pt-1">
               {([
                 ['advertisements', 'Campaign Setup, Slots & Rates'],
-                ['campaign-center', 'Campaign Operations'],
-                ['landing-customizer', 'Display & Landing Design']
+                ['campaign-center', 'Campaign Operations']
               ] as const).filter(([id]) => canAccessAdminTab(id)).map(([id, label]) => (
                 <button
                   key={id}
@@ -4386,6 +4469,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onSendCampaign={handleSaveBroadcastCampaign}
           onRefreshCampaigns={fetchBroadcastCampaigns}
           onUpdateCommConfig={handleUpdateCommConfig}
+          initialTab={broadcastInitialTab}
         />
       )}
 

@@ -16,11 +16,21 @@ import {
   Gift,
   Plus,
   Trash2,
-  Percent
+  Percent,
+  Bell,
+  Mail,
+  MessageCircle,
+  Smartphone,
+  Send
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { SubscriptionPlansBuilder } from './SubscriptionPlansBuilder';
 import { DEFAULT_CATEGORY_POSTING_FEES } from '../../types/landing';
+import {
+  DEFAULT_JOB_TIER_REMINDER_SETTINGS,
+  DEFAULT_TIER_EXPIRY_REMINDER,
+  JobTierReminderKey
+} from '../../types/job';
 
 interface AdminPricingControllerProps {
   onPricingSaved?: (authoritativePricing: any) => void;
@@ -74,7 +84,8 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
       featuredDurationDays: 30,
       featuredTopDurationDays: 30,
       futureJobDurationDays: 60,
-      vipBundleDurationDays: 45
+      vipBundleDurationDays: 45,
+      tierReminderSettings: { ...DEFAULT_JOB_TIER_REMINDER_SETTINGS }
     },
     advertisements: {
       bannerPerDayPkr: 1500,
@@ -91,7 +102,19 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
       enabled: false, sourceTypes: ['scraped', 'user_posted', 'admin_created'], durationHours: 24,
       showOnLanding: true, showJobCount: true, showCountdown: true, maxJobs: 10,
       heading: 'Premium Early Access', description: 'Explore selected jobs before they become available to other members.',
-      displayFields: ['title', 'company', 'department', 'city', 'deadlineDate'], showSource: true, jobOverrides: []
+      displayFields: ['title', 'company', 'department', 'city', 'deadlineDate'], showSource: true, jobOverrides: [],
+      reminderSettings: {
+        enabled: false,
+        notifyOnNewEarlyAccess: false,
+        notifyBeforePublicRelease: false,
+        hoursBeforeRelease: 2,
+        inAppEnabled: true,
+        emailEnabled: false,
+        whatsappEnabled: false,
+        smsEnabled: false,
+        customSubject: '',
+        customMessage: ''
+      }
     },
     subscriptions: {
       freeTierPrice: 0,
@@ -118,6 +141,9 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
   const [earlyAccessJobs, setEarlyAccessJobs] = useState<any[]>([]);
   const [selectedEarlyAccessJobId, setSelectedEarlyAccessJobId] = useState('');
   const [earlyAccessJobSearch, setEarlyAccessJobSearch] = useState('');
+  const [sendingEaReminder, setSendingEaReminder] = useState(false);
+  const [eaReminderFeedback, setEaReminderFeedback] = useState<string | null>(null);
+  const [eaReminderError, setEaReminderError] = useState<string | null>(null);
 
   const [priorityMetrics, setPriorityMetrics] = useState<{
     tierCounts: { vip: number; pinned: number; featured: number; urgent: number; future?: number };
@@ -157,11 +183,23 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
             ...prev.jobPosting,
             ...(data.pricing.jobPosting || {}),
             globalDiscount: discount,
-            isFreeAllPostings: isFree
+            isFreeAllPostings: isFree,
+            tierReminderSettings: {
+              ...DEFAULT_JOB_TIER_REMINDER_SETTINGS,
+              ...(prev.jobPosting?.tierReminderSettings || {}),
+              ...(data.pricing.jobPosting?.tierReminderSettings || {})
+            }
           },
           advertisements: { ...prev.advertisements, ...(data.pricing.advertisements || {}) },
           subscriptions: { ...prev.subscriptions, ...(data.pricing.subscriptions || {}) },
-          earlyAccess: { ...prev.earlyAccess, ...(data.pricing.earlyAccess || {}) },
+          earlyAccess: {
+            ...prev.earlyAccess,
+            ...(data.pricing.earlyAccess || {}),
+            reminderSettings: {
+              ...(prev.earlyAccess?.reminderSettings || {}),
+              ...(data.pricing.earlyAccess?.reminderSettings || {})
+            }
+          },
           cvBuilder: { ...prev.cvBuilder, ...(data.pricing.cvBuilder || {}), templates: Array.isArray(data.pricing.cvBuilder?.templates) ? data.pricing.cvBuilder.templates : prev.cvBuilder.templates }
         }));
       } else {
@@ -309,6 +347,128 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
         [field]: value
       }
     }));
+  };
+
+  const updateTierReminder = (tierKey: JobTierReminderKey, patch: Partial<typeof DEFAULT_TIER_EXPIRY_REMINDER>) => {
+    setPricing((prev: any) => {
+      const currentAll = prev.jobPosting?.tierReminderSettings || DEFAULT_JOB_TIER_REMINDER_SETTINGS;
+      const currentTier = currentAll[tierKey] || DEFAULT_TIER_EXPIRY_REMINDER;
+      return {
+        ...prev,
+        jobPosting: {
+          ...prev.jobPosting,
+          tierReminderSettings: {
+            ...currentAll,
+            [tierKey]: {
+              ...DEFAULT_TIER_EXPIRY_REMINDER,
+              ...currentTier,
+              ...patch
+            }
+          }
+        }
+      };
+    });
+  };
+
+  const handleDispatchEarlyAccessReminder = async () => {
+    setSendingEaReminder(true);
+    setEaReminderError(null);
+    setEaReminderFeedback(null);
+    try {
+      const rem = pricing.earlyAccess?.reminderSettings || {};
+      const res = await api.pricing.dispatchReminder({
+        scope: 'early-access',
+        customSubject: rem.customSubject || undefined,
+        customMessage: rem.customMessage || undefined,
+        channels: {
+          inApp: rem.inAppEnabled !== false,
+          email: rem.emailEnabled === true,
+          whatsapp: rem.whatsappEnabled === true,
+          sms: rem.smsEnabled === true
+        }
+      });
+      if (!res?.success) {
+        throw new Error(res?.message || 'Failed to dispatch Early Access reminder.');
+      }
+      setEaReminderFeedback(res.message || 'Early Access reminders dispatched.');
+    } catch (err: any) {
+      setEaReminderError(err?.message || 'Could not dispatch Early Access reminder.');
+    } finally {
+      setSendingEaReminder(false);
+    }
+  };
+
+  const renderTierReminderStrip = (tierKey: JobTierReminderKey) => {
+    const cfg = pricing.jobPosting?.tierReminderSettings?.[tierKey] || DEFAULT_TIER_EXPIRY_REMINDER;
+    return (
+      <div className="pt-2.5 mt-1 border-t border-slate-800/80 bg-slate-900/70 px-3 py-2 rounded-lg space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <label className="flex items-center gap-2 text-xs font-bold text-slate-200 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={cfg.enabled === true}
+              onChange={(e) => updateTierReminder(tierKey, { enabled: e.target.checked })}
+              className="w-3.5 h-3.5 accent-amber-400 cursor-pointer"
+            />
+            <Bell className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span>Pre-Expiry Notifications &amp; Reminders</span>
+          </label>
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <span className="text-slate-400">Lead Time:</span>
+            <input
+              type="number"
+              min={1}
+              max={30}
+              disabled={cfg.enabled !== true}
+              value={cfg.daysBefore ?? 3}
+              onChange={(e) => updateTierReminder(tierKey, { daysBefore: Math.min(30, Math.max(1, Number(e.target.value) || 1)) })}
+              className="w-14 px-2 py-0.5 bg-slate-950 border border-slate-700 rounded text-center text-white font-mono font-bold text-xs disabled:opacity-40"
+            />
+            <span className="text-slate-400">days before</span>
+          </div>
+        </div>
+        {cfg.enabled === true && (
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <label className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-950 border border-slate-800 text-[10px] font-bold text-amber-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={cfg.inAppEnabled !== false}
+                onChange={(e) => updateTierReminder(tierKey, { inAppEnabled: e.target.checked })}
+                className="accent-amber-400"
+              />
+              <span>In-App Notification</span>
+            </label>
+            <label className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-950 border border-slate-800 text-[10px] font-bold text-sky-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={cfg.emailEnabled === true}
+                onChange={(e) => updateTierReminder(tierKey, { emailEnabled: e.target.checked })}
+                className="accent-sky-400"
+              />
+              <span>Email</span>
+            </label>
+            <label className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-950 border border-slate-800 text-[10px] font-bold text-emerald-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={cfg.whatsappEnabled === true}
+                onChange={(e) => updateTierReminder(tierKey, { whatsappEnabled: e.target.checked })}
+                className="accent-emerald-400"
+              />
+              <span>WhatsApp</span>
+            </label>
+            <label className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-950 border border-slate-800 text-[10px] font-bold text-indigo-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={cfg.smsEnabled === true}
+                onChange={(e) => updateTierReminder(tierKey, { smsEnabled: e.target.checked })}
+                className="accent-indigo-400"
+              />
+              <span>SMS</span>
+            </label>
+          </div>
+        )}
+      </div>
+    );
   };
 
   const handleUpdateCategoryFee = (categoryId: string, updates: Partial<any>) => {
@@ -630,6 +790,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                   />
                 </div>
               </div>
+              {renderTierReminderStrip('vip')}
             </div>
 
             {/* 2. Pinned Top #1 */}
@@ -711,6 +872,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                   Employer bookings of this tier rank 2nd (right after VIP) in Pinned Top Slots.
                 </p>
               </div>
+              {renderTierReminderStrip('pinned')}
             </div>
 
             {/* 3. Featured Placement (3rd Rank) */}
@@ -812,6 +974,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                   Ranks 3rd after VIP and Pinned Top. Separate from Future Job (Advance Intake).
                 </p>
               </div>
+              {renderTierReminderStrip('featured')}
             </div>
 
             {/* 4. Urgent Hiring */}
@@ -888,6 +1051,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                   />
                 </div>
               </div>
+              {renderTierReminderStrip('urgent')}
             </div>
 
             {/* 5. Future Job (Advance Intake — Not Featured) */}
@@ -967,6 +1131,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                   />
                 </div>
               </div>
+              {renderTierReminderStrip('future')}
             </div>
 
             {/* 6. Standard Job */}
@@ -1421,6 +1586,210 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                 </div>
               );
             })()}
+          </div>
+
+          {/* 6. Early Access Notifications & Multi-Channel Reminders */}
+          <div className="rounded-xl border border-emerald-500/30 bg-slate-950/75 p-3 sm:p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-slate-800 pb-2.5">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Bell className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span className="text-xs sm:text-sm font-black text-white">Early Access Notifications &amp; Channel Reminders</span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Notify active Early Access members via In-App Notification, Email, WhatsApp, or SMS when new jobs unlock or before public release.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <label className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-bold text-slate-200 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={pricing.earlyAccess?.reminderSettings?.enabled === true}
+                    onChange={(e) => setPricing((prev: any) => ({
+                      ...prev,
+                      earlyAccess: {
+                        ...prev.earlyAccess,
+                        reminderSettings: {
+                          ...(prev.earlyAccess?.reminderSettings || {}),
+                          enabled: e.target.checked
+                        }
+                      }
+                    }))}
+                    className="w-3.5 h-3.5 accent-emerald-400"
+                  />
+                  <span>Enable Auto Alerts</span>
+                </label>
+
+                <button
+                  type="button"
+                  onClick={handleDispatchEarlyAccessReminder}
+                  disabled={sendingEaReminder}
+                  className="min-h-[34px] px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{sendingEaReminder ? 'Sending...' : 'Send Early Access Reminder Now'}</span>
+                </button>
+              </div>
+            </div>
+
+            {eaReminderFeedback && (
+              <div role="status" className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-200 flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 shrink-0" />
+                <span>{eaReminderFeedback}</span>
+              </div>
+            )}
+            {eaReminderError && (
+              <div role="alert" className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-[11px] text-rose-200 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{eaReminderError}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs">
+              <label className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/75 px-3 py-2 cursor-pointer">
+                <div>
+                  <div className="font-bold text-slate-200">On New Early Access Job Unlock</div>
+                  <div className="text-[10px] text-slate-400">Auto-alert members when approved</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={pricing.earlyAccess?.reminderSettings?.notifyOnNewEarlyAccess === true}
+                  onChange={(e) => setPricing((prev: any) => ({
+                    ...prev,
+                    earlyAccess: {
+                      ...prev.earlyAccess,
+                      reminderSettings: {
+                        ...(prev.earlyAccess?.reminderSettings || {}),
+                        notifyOnNewEarlyAccess: e.target.checked
+                      }
+                    }
+                  }))}
+                  className="w-4 h-4 accent-emerald-400"
+                />
+              </label>
+
+              <label className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/75 px-3 py-2 cursor-pointer">
+                <div>
+                  <div className="font-bold text-slate-200">Pre-Release Reminder</div>
+                  <div className="text-[10px] text-slate-400">Before exclusivity ends</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={pricing.earlyAccess?.reminderSettings?.notifyBeforePublicRelease === true}
+                  onChange={(e) => setPricing((prev: any) => ({
+                    ...prev,
+                    earlyAccess: {
+                      ...prev.earlyAccess,
+                      reminderSettings: {
+                        ...(prev.earlyAccess?.reminderSettings || {}),
+                        notifyBeforePublicRelease: e.target.checked
+                      }
+                    }
+                  }))}
+                  className="w-4 h-4 accent-emerald-400"
+                />
+              </label>
+
+              <div className="rounded-lg border border-slate-800 bg-slate-900/75 px-3 py-2 flex items-center justify-between gap-2">
+                <span className="text-[11px] font-bold text-slate-300">Remind Hours Before Release</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={168}
+                  value={pricing.earlyAccess?.reminderSettings?.hoursBeforeRelease ?? 2}
+                  onChange={(e) => setPricing((prev: any) => ({
+                    ...prev,
+                    earlyAccess: {
+                      ...prev.earlyAccess,
+                      reminderSettings: {
+                        ...(prev.earlyAccess?.reminderSettings || {}),
+                        hoursBeforeRelease: Math.min(168, Math.max(1, Number(e.target.value) || 1))
+                      }
+                    }
+                  }))}
+                  className="w-16 px-2 py-1 rounded bg-slate-950 border border-slate-700 text-center text-white font-mono font-bold text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              {[
+                { key: 'inAppEnabled', label: 'In-App Notification', icon: Bell, accent: 'text-amber-300' },
+                { key: 'emailEnabled', label: 'Email Reminder', icon: Mail, accent: 'text-sky-300' },
+                { key: 'whatsappEnabled', label: 'WhatsApp Reminder', icon: MessageCircle, accent: 'text-emerald-300' },
+                { key: 'smsEnabled', label: 'SMS Reminder', icon: Smartphone, accent: 'text-indigo-300' }
+              ].map((ch) => {
+                const Icon = ch.icon;
+                const rem = pricing.earlyAccess?.reminderSettings || {};
+                const active = ch.key === 'inAppEnabled' ? rem.inAppEnabled !== false : rem[ch.key] === true;
+                return (
+                  <label key={ch.key} className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-2.5 py-2 cursor-pointer">
+                    <span className={`flex items-center gap-1.5 text-[11px] font-bold ${ch.accent}`}>
+                      <Icon className="w-3.5 h-3.5 shrink-0" />
+                      <span>{ch.label}</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={active}
+                      onChange={(e) => setPricing((prev: any) => ({
+                        ...prev,
+                        earlyAccess: {
+                          ...prev.earlyAccess,
+                          reminderSettings: {
+                            ...(prev.earlyAccess?.reminderSettings || {}),
+                            [ch.key]: e.target.checked
+                          }
+                        }
+                      }))}
+                      className="accent-emerald-400 cursor-pointer"
+                    />
+                  </label>
+                );
+              })}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">Custom Notification / Email Subject (Optional)</label>
+                <input
+                  type="text"
+                  maxLength={140}
+                  value={pricing.earlyAccess?.reminderSettings?.customSubject || ''}
+                  onChange={(e) => setPricing((prev: any) => ({
+                    ...prev,
+                    earlyAccess: {
+                      ...prev.earlyAccess,
+                      reminderSettings: {
+                        ...(prev.earlyAccess?.reminderSettings || {}),
+                        customSubject: e.target.value
+                      }
+                    }
+                  }))}
+                  placeholder="Premium Early Access: Exclusive Jobs Unlocked Now"
+                  className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">Custom Reminder Intro Message (Optional)</label>
+                <input
+                  type="text"
+                  maxLength={400}
+                  value={pricing.earlyAccess?.reminderSettings?.customMessage || ''}
+                  onChange={(e) => setPricing((prev: any) => ({
+                    ...prev,
+                    earlyAccess: {
+                      ...prev.earlyAccess,
+                      reminderSettings: {
+                        ...(prev.earlyAccess?.reminderSettings || {}),
+                        customMessage: e.target.value
+                      }
+                    }
+                  }))}
+                  placeholder="Check out newly unlocked priority jobs before public access opens."
+                  className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs"
+                />
+              </div>
+            </div>
           </div>
         </div>
       )}

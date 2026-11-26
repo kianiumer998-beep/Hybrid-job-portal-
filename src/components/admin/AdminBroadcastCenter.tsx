@@ -32,6 +32,7 @@ import {
   WhatsAppProviderType
 } from '../../types/adminSuite';
 import { api } from '../../services/api';
+import { AdminBulkNotificationTool } from './AdminBulkNotificationTool';
 
 interface AdminBroadcastCenterProps {
   campaigns?: BroadcastCampaign[];
@@ -74,7 +75,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
 
   const [campaignList, setCampaignList] = useState<BroadcastCampaign[]>(safeCampaigns);
   const resolvedInitialTab = hideProvidersTab && initialTab === 'providers' ? 'compose' : (initialTab || 'compose');
-  const [activeTab, setActiveTab] = useState<'compose' | 'history' | 'templates' | 'providers'>(resolvedInitialTab);
+  const [activeTab, setActiveTab] = useState<'compose' | 'history' | 'templates' | 'providers' | 'bulk'>(resolvedInitialTab);
 
   useEffect(() => {
     if (initialTab) {
@@ -492,6 +493,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
             { id: 'compose', label: 'Compose Broadcast', icon: Send },
             { id: 'history', label: `Campaign History (${visibleCampaigns.length})`, icon: Clock },
             { id: 'templates', label: 'Campaign Templates', icon: FileText },
+            { id: 'bulk', label: 'Bulk Notifications', icon: Bell },
             ...(!hideProvidersTab ? [{ id: 'providers', label: 'Provider Gateways', icon: Layers }] : [])
           ].map((t) => {
             const Icon = t.icon;
@@ -738,6 +740,16 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
             </div>
           </div>
 
+        </div>
+      )}
+
+      {/* TAB: CENTRALIZED LEGACY BULK NOTIFICATION TOOL */}
+      {activeTab === 'bulk' && (
+        <div className="space-y-3">
+          <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/10 p-3 text-xs text-indigo-200">
+            Legacy bulk notification options are available here so admins can manage broadcast drafts and audience targeting from the channel workspace. Existing local draft storage is preserved.
+          </div>
+          <AdminBulkNotificationTool users={safeUsers} subscribers={safeSubscribers} featureFlags={featureFlags} />
         </div>
       )}
 

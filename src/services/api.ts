@@ -762,6 +762,7 @@ export const api = {
       subject: string;
       messageBody: string;
       recipientsCount?: number;
+      linkedAdId?: string;
     }) {
       return safeFetchJson<{ success: boolean; campaign?: BroadcastCampaign; message?: string }>(
         `${API_BASE}/broadcasts`,

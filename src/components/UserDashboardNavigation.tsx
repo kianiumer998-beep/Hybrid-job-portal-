@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   LayoutDashboard, 
   Search, 
@@ -88,39 +88,52 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   const [expandedCategory, setExpandedCategory] = useState<string | null>('dashboard');
 
   const menuStructure: NavItem[] = [
-    { id: 'dashboard', label: 'DASHBOARD', icon: LayoutDashboard, subItems: [
-      { id: 'dash-overview', label: 'Overview & Subscription', tab: 'overview', subView: 'metrics', icon: LayoutDashboard },
-    ]},
-    { id: 'jobs', label: 'JOBS', icon: Search, subItems: [
-      { id: 'jobs-explore', label: 'Explore Jobs', isGlobal: true, globalTab: 'jobs', icon: Search },
+    { id: 'dashboard', label: 'Overview', icon: LayoutDashboard, subItems: [
+      { id: 'dash-overview', label: 'Dashboard & Membership', tab: 'overview', subView: 'metrics', icon: LayoutDashboard },
+      { id: 'mem-history', label: 'Payment History', tab: 'overview', subView: 'history', icon: History },
       { id: 'jobs-recommended', label: 'Recommended Jobs', tab: 'overview', subView: 'recommendations', icon: Sparkles },
+    ]},
+    { id: 'jobs', label: 'Find Jobs', icon: Search, subItems: [
+      { id: 'jobs-explore', label: 'Explore All Jobs', isGlobal: true, globalTab: 'jobs', icon: Search },
       { id: 'jobs-applications', label: 'My Applications', tab: 'applications', subTab: 'submitted', icon: FileText },
       { id: 'jobs-saved', label: 'Saved Jobs', tab: 'applications', subTab: 'saved', icon: Bookmark },
       { id: 'jobs-alerts', label: 'Job Alerts', tab: 'applications', subTab: 'alerts', icon: Bell },
     ]},
-    { id: 'career-center', label: 'CAREER CENTER', icon: Briefcase, subItems: [
-      { id: 'career-docs', label: 'My Documents', tab: 'applications', subTab: 'documents', icon: FileText },
+    { id: 'career-center', label: 'Career & CV', icon: FileText, subItems: [
       { id: 'career-cv', label: 'CV Builder', isGlobal: true, globalTab: 'cv', icon: Zap },
+      { id: 'career-docs', label: 'My Documents', tab: 'applications', subTab: 'documents', icon: FileText },
     ]},
-    { id: 'employer-center', label: 'EMPLOYER CENTER', icon: Building2, subItems: [
+    { id: 'employer-center', label: 'Employer Center', icon: Building2, subItems: [
       { id: 'emp-post', label: 'Post a Job', tab: 'post-job', icon: Plus },
       { id: 'emp-listings', label: 'My Job Listings', tab: 'my-jobs', icon: Building2 },
     ]},
-    { id: 'membership-payments', label: 'MEMBERSHIP & PAYMENTS', icon: CreditCard, subItems: [
-      { id: 'mem-history', label: 'Payment History', tab: 'overview', subView: 'history', icon: History },
-      { id: 'mem-wallet', label: 'Wallet & Deposits', tab: 'campaigns', subTab: 'wallet', icon: Wallet },
-      { id: 'mem-whatsapp', label: 'WhatsApp Alerts', isGlobal: true, globalTab: 'alerts', icon: Zap },
-    ]},
-    { id: 'ads-campaigns', label: 'ADVERTISEMENTS', icon: Megaphone, subItems: [
+    { id: 'ads-campaigns', label: 'Ads & Campaigns', icon: Megaphone, subItems: [
       { id: 'ads-list', label: 'My Campaigns', tab: 'campaigns', subTab: 'my-campaigns', icon: Megaphone },
       { id: 'ads-create', label: 'Create Campaign', tab: 'campaigns', subTab: 'create', icon: Plus },
     ]},
-    { id: 'account-support', label: 'MY ACCOUNT', icon: User, subItems: [
-      { id: 'acc-profile', label: 'Profile', tab: 'profile', accountSubTab: 'profile', icon: User },
-      { id: 'acc-security', label: 'Security', tab: 'profile', accountSubTab: 'security', icon: Lock },
+    { id: 'membership-payments', label: 'Wallet & Payments', icon: Wallet, subItems: [
+      { id: 'mem-wallet', label: 'Wallet & Deposits', tab: 'campaigns', subTab: 'wallet', icon: Wallet },
+      { id: 'dash-overview', label: 'Subscription & Renewal', tab: 'overview', subView: 'metrics', icon: CreditCard },
+    ]},
+    { id: 'communication', label: 'Alerts & Communication', icon: Bell, subItems: [
+      { id: 'mem-whatsapp', label: 'WhatsApp Alerts', isGlobal: true, globalTab: 'alerts', icon: Zap },
       { id: 'acc-chat', label: 'Support Inbox', tab: 'chat', icon: MessageSquare },
     ]},
+    { id: 'account-support', label: 'My Account', icon: User, subItems: [
+      { id: 'acc-profile', label: 'Profile & Preferences', tab: 'profile', accountSubTab: 'profile', icon: User },
+      { id: 'acc-security', label: 'Security & Password', tab: 'profile', accountSubTab: 'security', icon: Lock },
+    ]},
   ];
+  
+  // Keep the active destination visible when returning to the dashboard or
+  // switching between legacy and professional navigation modes.
+  useEffect(() => {
+    if (!activeNavId) return;
+    const activeCategory = menuStructure.find((category) =>
+      category.subItems.some((item) => item.id === activeNavId)
+    );
+    if (activeCategory) setExpandedCategory(activeCategory.id);
+  }, [activeNavId]);
 
   const handleCategoryClick = (id: string) => {
     setExpandedCategory(expandedCategory === id ? null : id);
@@ -164,12 +177,12 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   };
 
   const NavContent = (
-    <div className="flex flex-col h-full bg-slate-950 border-r border-slate-800 w-64 overflow-y-auto">
+    <div className="flex flex-col h-full bg-slate-950 border-r border-slate-800 w-[min(85vw,20rem)] lg:w-64 overflow-y-auto">
       <div className="p-4 border-b border-slate-800 flex items-center justify-between lg:justify-start space-x-2">
         <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center">
             <LayoutDashboard className="w-5 h-5 text-slate-950" />
         </div>
-        <span className="font-black text-white tracking-tighter text-sm">PRO DASHBOARD</span>
+        <span className="font-black text-white tracking-tighter text-sm">MY DASHBOARD</span>
         <button onClick={onClose} className="lg:hidden text-slate-400 hover:text-white">
             <X className="w-5 h-5" />
         </button>
@@ -181,8 +194,8 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
           return (
             <div key={category.id} className="space-y-1">
               <button
-                onClick={() => handleCategoryClick(category.id)}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-black transition-all group ${
+                onClick={() => handleCategoryClick(category.id)}\n                aria-expanded={isExpanded}\n                aria-controls={\`user-nav-\${category.id}\`}
+                className={`w-full flex items-center justify-between px-3 py-3 min-h-11 rounded-xl text-xs font-bold transition-all group ${
                   isExpanded ? 'bg-slate-900 text-emerald-400' : 'text-slate-400 hover:bg-slate-900/50 hover:text-slate-200'
                 }`}
               >
@@ -194,12 +207,12 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
               </button>
 
               {isExpanded && (
-                <div className="ml-4 pl-4 border-l border-slate-800 space-y-1 py-1">
+                <div id={\`user-nav-\${category.id}\`} className="ml-3 sm:ml-4 pl-3 sm:pl-4 border-l border-slate-800 space-y-1 py-1">
                   {category.subItems.map((subItem, idx) => {
                     const active = isActive(subItem);
                     return (
                       <button
-                        key={idx}
+                        key={subItem.id}
                         onClick={() => {
                           if (subItem.isLogout) {
                             onLogout();
@@ -216,7 +229,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                           }
                           if (window.innerWidth < 1024) onClose();
                         }}
-                        className={`w-full flex items-center space-x-2 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                        aria-current={active ? "page" : undefined}\n                        title={subItem.label}\n                        className={`w-full flex items-center space-x-2 px-3 py-2.5 min-h-10 rounded-lg text-xs font-semibold transition-all ${
                           active 
                             ? 'text-emerald-400 bg-emerald-500/10' 
                             : subItem.isLogout

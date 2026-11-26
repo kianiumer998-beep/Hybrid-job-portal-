@@ -1541,6 +1541,7 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
       {subTab === 'broadcast' && (
         <AdminBroadcastCenter
           embedded
+          hideProvidersTab
           lockedChannel={channelLabelCaps}
           initialTab={broadcastInitialTab}
           campaigns={broadcastCampaigns}

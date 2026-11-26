@@ -42,6 +42,17 @@ interface NavSubItem {
   isLogout?: boolean;
   action?: 'notifications' | 'deposit' | 'subscription';
   employerOnly?: boolean;
+  countKey?: keyof UserDashboardNavigationCounts;
+}
+
+interface UserDashboardNavigationCounts {
+  applications: number;
+  savedJobs: number;
+  jobAlerts: number;
+  documents: number;
+  jobListings: number;
+  campaigns: number;
+  unreadNotifications: number;
 }
 
 interface NavItem {
@@ -70,6 +81,7 @@ interface UserDashboardNavigationProps {
   }) => void;
   onLogout: () => void;
   userRole: string;
+  counts: UserDashboardNavigationCounts;
   onOpenNotifications: () => void;
   onOpenDeposit: () => void;
   onOpenSubscription: () => void;
@@ -87,6 +99,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   onNavigate,
   onLogout,
   userRole,
+  counts,
   onOpenNotifications,
   onOpenDeposit,
   onOpenSubscription,
@@ -121,21 +134,21 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
     ]},
     { id: 'jobs', label: 'Find Jobs', icon: Search, subItems: [
       { id: 'jobs-explore', label: 'Explore All Jobs', isGlobal: true, globalTab: 'jobs', icon: Search },
-      { id: 'jobs-applications', label: 'My Applications', tab: 'applications', subTab: 'submitted', icon: FileText },
-      { id: 'jobs-saved', label: 'Saved Jobs', tab: 'applications', subTab: 'saved', icon: Bookmark },
-      { id: 'jobs-alerts', label: 'Job Alerts', tab: 'applications', subTab: 'alerts', icon: Bell },
+      { id: 'jobs-applications', label: 'My Applications', tab: 'applications', subTab: 'submitted', icon: FileText, countKey: 'applications' },
+      { id: 'jobs-saved', label: 'Saved Jobs', tab: 'applications', subTab: 'saved', icon: Bookmark, countKey: 'savedJobs' },
+      { id: 'jobs-alerts', label: 'Job Alerts', tab: 'applications', subTab: 'alerts', icon: Bell, countKey: 'jobAlerts' },
     ]},
     { id: 'career-center', label: 'Career & CV', icon: FileText, subItems: [
       { id: 'career-cv', label: 'CV Builder', isGlobal: true, globalTab: 'cv', icon: Zap },
-      { id: 'career-docs', label: 'My Documents', tab: 'applications', subTab: 'documents', icon: FileText },
+      { id: 'career-docs', label: 'My Documents', tab: 'applications', subTab: 'documents', icon: FileText, countKey: 'documents' },
     ]},
     { id: 'employer-center', label: 'Employer Center', icon: Building2, subItems: [
       { id: 'emp-post', label: 'Post a Job', tab: 'post-job', icon: Plus },
-      { id: 'emp-listings', label: 'My Job Listings & Status', tab: 'my-jobs', icon: Building2 },
+      { id: 'emp-listings', label: 'My Job Listings & Status', tab: 'my-jobs', icon: Building2, countKey: 'jobListings' },
       { id: 'emp-verification', label: 'Business Verification', tab: 'profile', accountSubTab: 'profile', icon: ShieldCheck, employerOnly: true },
     ]},
     { id: 'ads-campaigns', label: 'Ads & Campaigns', icon: Megaphone, subItems: [
-      { id: 'ads-list', label: 'My Campaigns', tab: 'campaigns', subTab: 'my-campaigns', icon: Megaphone },
+      { id: 'ads-list', label: 'My Campaigns', tab: 'campaigns', subTab: 'my-campaigns', icon: Megaphone, countKey: 'campaigns' },
       { id: 'ads-create', label: 'Create Campaign', tab: 'campaigns', subTab: 'create', icon: Plus },
     ]},
     { id: 'membership-payments', label: 'Wallet & Payments', icon: Wallet, subItems: [
@@ -146,7 +159,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
     ]},
     { id: 'communication', label: 'Alerts & Communication', icon: Bell, subItems: [
       { id: 'mem-whatsapp', label: 'WhatsApp & Job Alerts', isGlobal: true, globalTab: 'alerts', icon: Zap },
-      { id: 'notifications-center', label: 'Notifications Center', action: 'notifications', icon: Bell },
+      { id: 'notifications-center', label: 'Notifications Center', action: 'notifications', icon: Bell, countKey: 'unreadNotifications' },
       { id: 'acc-chat', label: 'Support Inbox', tab: 'chat', icon: MessageSquare },
     ]},
     { id: 'account-support', label: 'My Account', icon: User, subItems: [
@@ -301,8 +314,13 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                         }`}
                       >
                         {subItem.icon && <subItem.icon className={`w-3 h-3 shrink-0 ${subItem.isLogout ? 'text-rose-400' : ''}`} />}
-                        <span className="truncate">{subItem.label}</span>
-                        {active && <div className="w-1 h-1 rounded-full bg-emerald-400 ml-auto" />}
+                        <span className="min-w-0 flex-1 truncate text-left">{subItem.label}</span>
+                        {subItem.countKey && counts[subItem.countKey] > 0 && (
+                          <span className={`shrink-0 min-w-5 rounded-full px-1.5 py-0.5 text-center text-[10px] font-bold tabular-nums ${active ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400'}`} aria-label={`${counts[subItem.countKey]} ${subItem.label.toLowerCase()}`}>
+                            {counts[subItem.countKey] > 99 ? '99+' : counts[subItem.countKey]}
+                          </span>
+                        )}
+                        {active && <div className="w-1 h-1 rounded-full bg-emerald-400 ml-1" />}
                       </button>
                     );
                   })}

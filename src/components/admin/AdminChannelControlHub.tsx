@@ -137,7 +137,7 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
   onSendBroadcastCampaign,
   onRefreshBroadcastCampaigns
 }) => {
-  const [subTab, setSubTab] = useState<ChannelSubTab>('pricing');
+  const [subTab, setSubTab] = useState<ChannelSubTab>('broadcast');
   const [broadcastInitialTab, setBroadcastInitialTab] = useState<'compose' | 'history'>('compose');
   const [isTogglingFlag, setIsTogglingFlag] = useState(false);
 
@@ -734,15 +734,13 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
     {
       id: 'pricing',
       label:
-        activeChannel === 'whatsapp'
-          ? 'Rates, Reminders & Packages'
-          : activeChannel === 'email'
-          ? 'Rates, Reminders & Packages'
-          : 'Rates, Reminders & SMS Ad Slot'
+        activeChannel === 'sms'
+          ? 'Channel Settings & SMS Ad Slot'
+          : 'Channel Settings & Packages'
     },
-    { id: 'broadcast', label: 'Broadcast & History' },
+    { id: 'broadcast', label: 'Broadcast Center' },
     ...(activeChannel === 'whatsapp' ? [{ id: 'widget' as const, label: 'Widget & Chat Design' }] : []),
-    { id: 'gateway', label: 'Gateway API, Test & Logs' }
+    { id: 'gateway', label: 'API Tests & Delivery Logs' }
   ];
 
   const openEmbeddedBroadcast = (tab: 'compose' | 'history') => {
@@ -1543,7 +1541,6 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
       {subTab === 'broadcast' && (
         <AdminBroadcastCenter
           embedded
-          hideProvidersTab
           lockedChannel={channelLabelCaps}
           initialTab={broadcastInitialTab}
           campaigns={broadcastCampaigns}

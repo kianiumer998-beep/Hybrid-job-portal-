@@ -189,13 +189,13 @@ export const BroadcastRepository = {
     return safe as BroadcastCampaign;
   },
 
-  async setCampaignStatus(id: string, status: 'Draft' | 'Scheduled') {
+  async setCampaignStatus(id: string, status: 'Draft' | 'Scheduled', scheduledAt?: string | null) {
     const dbColl = await this.getCollection();
     await this.ensureIndexes(dbColl);
     const cleanId = String(id || '').trim().slice(0, 160);
     const result = await dbColl.updateOne(
       { id: cleanId, status: { $in: ['Draft', 'Scheduled'] } } as any,
-      { $set: { status, updatedAt: new Date().toISOString() } } as any
+      { $set: { status, updatedAt: new Date().toISOString(), ...(scheduledAt ? { scheduledAt } : {}) }, ...(scheduledAt === null ? { $unset: { scheduledAt: '' } } : {}) } as any
     );
     if (!result.matchedCount) throw new Error('Campaign was not found or cannot change schedule status.');
     return this.getById(cleanId);

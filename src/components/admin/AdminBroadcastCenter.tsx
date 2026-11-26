@@ -160,6 +160,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
 
   // Composer state
   const [title, setTitle] = useState('');
+  const [linkedAdId, setLinkedAdId] = useState('');
   const [targetAudience, setTargetAudience] = useState<
     'All Users' | 'Job Seekers Only' | 'Employers / Posters' | 'Subscribed Members' | 'Unpaid / Expired Users' | 'Government Job Seekers' | 'Overseas / Gulf Candidates'
   >('Job Seekers Only');
@@ -430,7 +431,8 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
       subject: subject.trim() || title.trim(),
       messageBody: messageBody.trim(),
       recipientsCount: audienceCount,
-      categoryFilter: 'All Categories'
+      categoryFilter: 'All Categories',
+      linkedAdId: linkedAdId.trim() || undefined
     };
 
     try {
@@ -686,6 +688,19 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                   placeholder="e.g. FPSC Gazette 08/2026 Urgent WhatsApp Alert"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-medium"
                 />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-300 mb-1">Related Posted Job / Ad ID (optional)</label>
+                <input
+                  type="text"
+                  value={linkedAdId}
+                  onChange={(e) => setLinkedAdId(e.target.value)}
+                  maxLength={160}
+                  placeholder="Paste existing posted job or ad campaign ID"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-medium"
+                />
+                <p className="text-[10px] text-slate-500 mt-1">This records the relationship for campaign reporting; it does not publish or approve the job/ad.</p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

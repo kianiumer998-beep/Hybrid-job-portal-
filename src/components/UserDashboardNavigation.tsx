@@ -14,6 +14,8 @@ import {
   Bookmark,
   Plus,
   Wallet,
+  Crown,
+  ShieldCheck,
   Bell,
   Lock,
   MessageSquare,

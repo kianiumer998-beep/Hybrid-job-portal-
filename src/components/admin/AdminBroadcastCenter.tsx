@@ -1053,9 +1053,9 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                   </div>
                   <div className="text-slate-400 text-xs font-mono">
                     {camp.status === 'Draft' ? (
-                      <>Status: <span className="text-amber-400">Draft</span> • Audience: <span className="text-amber-400">{camp.targetAudience}</span> (~{camp.recipientsCount} Estimated Reach)</>
+                      <>Status: <span className="text-amber-400">Draft</span> • Audience: <span className="text-amber-400">{camp.targetAudience}</span> (~{camp.recipientsCount} Estimated Reach){camp.linkedAdId ? <> • Related Job/Ad: <span className="text-indigo-300">{camp.linkedAdId}</span></> : null}</>
                     ) : (
-                      <>{camp.sentAt ? `Sent at: ${camp.sentAt} • ` : ''}Audience: <span className="text-amber-400">{camp.targetAudience}</span> (~{camp.recipientsCount} Estimated Reach)</>
+                      <>{camp.sentAt ? `Sent at: ${camp.sentAt} • ` : ''}Audience: <span className="text-amber-400">{camp.targetAudience}</span> (~{camp.recipientsCount} Estimated Reach){camp.linkedAdId ? <> • Related Job/Ad: <span className="text-indigo-300">{camp.linkedAdId}</span></> : null}</>
                     )}
                   </div>
                   <div className="text-slate-500 text-[11px] line-clamp-1">

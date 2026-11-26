@@ -565,18 +565,6 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
 
   // 7. Communication & Alerts
   {
-    id: 'whatsapp-manager',
-    classicCategory: 'alerts',
-    proCategory: 'communication-alerts',
-    label: 'WhatsApp Support & Alerts Hub',
-    description: 'Configure official WhatsApp support number, alerts group link and floating chat widget.',
-    classicSubTabLabel: () => '💬 WhatsApp Support & Alerts Hub',
-    urdu: 'واٹس ایپ الرٹس مینجر',
-    classicSubTabUrdu: 'واٹس ایپ الرٹس',
-    icon: MessageSquare,
-    keywords: ['whatsapp', 'wa', 'alerts', 'group link', 'sticky button', 'support', 'واٹس ایپ']
-  },
-  {
     id: 'broadcast-center',
     classicCategory: 'alerts',
     proCategory: 'communication-alerts',
@@ -587,17 +575,6 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicSubTabUrdu: 'براڈکاسٹ میسجز',
     icon: Send,
     keywords: ['broadcast', 'email', 'sms', 'campaigns', 'templates', 'providers', 'براڈکاسٹ']
-  },
-  {
-    id: 'bulk-notifications',
-    classicCategory: 'alerts',
-    proCategory: 'communication-alerts',
-    label: 'Pro Bulk Notification Tool',
-    description: 'Send bulk portal notifications to selected user groups.',
-    classicSubTabLabel: () => '🚀 Pro Bulk Notification Tool',
-    urdu: 'بلک نوٹیفکیشنز',
-    icon: Send,
-    keywords: ['bulk', 'notifications', 'push', 'mass alert', 'نوٹیفکیشنز']
   },
 
   // 8. Platform Settings & Data

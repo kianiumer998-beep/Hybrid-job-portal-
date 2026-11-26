@@ -129,7 +129,6 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   const menuStructure: NavItem[] = ([
     { id: 'dashboard', label: 'Overview', icon: LayoutDashboard, subItems: [
       { id: 'dash-overview', label: 'Dashboard Overview', tab: 'overview', subView: 'metrics', icon: LayoutDashboard },
-      { id: 'membership-plan', label: 'Membership & Plans', tab: 'overview', subView: 'metrics', icon: Crown },
       { id: 'jobs-recommended', label: 'Recommended Jobs', tab: 'overview', subView: 'recommendations', icon: Sparkles },
     ]},
     { id: 'jobs', label: 'Find Jobs', icon: Search, subItems: [
@@ -153,6 +152,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
     ]},
     { id: 'membership-payments', label: 'Wallet & Payments', icon: Wallet, subItems: [
       { id: 'mem-wallet', label: 'Wallet & Balance', tab: 'campaigns', subTab: 'wallet', icon: Wallet },
+      { id: 'membership-plan', label: 'Membership & Plans', action: 'subscription', icon: Crown },
       { id: 'wallet-deposit', label: 'Add Funds / Deposit', action: 'deposit', icon: Plus },
       { id: 'membership-renew', label: 'Renew / Upgrade Plan', action: 'subscription', icon: Crown },
       { id: 'mem-history', label: 'Payment History', tab: 'overview', subView: 'history', icon: History },
@@ -160,6 +160,8 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
     { id: 'communication', label: 'Alerts & Communication', icon: Bell, subItems: [
       { id: 'mem-whatsapp', label: 'WhatsApp & Job Alerts', isGlobal: true, globalTab: 'alerts', icon: Zap },
       { id: 'notifications-center', label: 'Notifications Center', action: 'notifications', icon: Bell, countKey: 'unreadNotifications' },
+    ]},
+    { id: 'help-support', label: 'Help & Support', icon: MessageSquare, subItems: [
       { id: 'acc-chat', label: 'Support Inbox', tab: 'chat', icon: MessageSquare },
     ]},
     { id: 'account-support', label: 'My Account', icon: User, subItems: [
@@ -169,7 +171,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   ] as NavItem[]).map((category) => ({
     ...category,
     subItems: category.subItems.filter((item) => !item.employerOnly || userRole === 'Employer/Job Poster')
-  })).filter((category) => category.id !== 'employer-center' || userRole === 'Employer/Job Poster');
+  }));
   
   // Keep the active destination visible when returning to the dashboard or
   // switching between legacy and professional navigation modes.
@@ -192,6 +194,22 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
     );
     if (activeCategory) setExpandedCategory(activeCategory.id);
   }, [activeNavId]);
+
+  // Open the correct section when the dashboard is entered from a deep link,
+  // a global page, or the Classic menu (where no Professional item is selected).
+  useEffect(() => {
+    if (activeNavId) return;
+    const categoryByTab: Record<DashboardTab, string> = {
+      overview: overviewSubView === 'history' ? 'membership-payments' : 'dashboard',
+      profile: 'account-support',
+      applications: appSubTab === 'documents' ? 'career-center' : 'jobs',
+      'post-job': 'employer-center',
+      'my-jobs': 'employer-center',
+      chat: 'help-support',
+      campaigns: campaignSubTab === 'wallet' ? 'membership-payments' : 'ads-campaigns'
+    };
+    setExpandedCategory(categoryByTab[activeTab]);
+  }, [activeNavId, activeTab, overviewSubView, appSubTab, campaignSubTab]);
 
   const handleCategoryClick = (id: string) => {
     setExpandedCategory(expandedCategory === id ? null : id);

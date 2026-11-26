@@ -213,7 +213,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).slice(0, 100);
 
   const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => 
-    safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_v2_${currentUser.id}`, 'professional')
+    safeLocalStorageGet<'classic' | 'professional'>(
+      `dashboard_nav_mode_v2_${currentUser.id}`,
+      safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_${currentUser.id}`, 'professional')
+    )
   );
 
   const safeProfileAvatarUrl = useMemo(() => {
@@ -1599,6 +1602,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           accountSubTab={accountSubTab}
           activeNavId={activeNavId}
           userRole={currentUser.role}
+          counts={{
+            applications: userApplications.length,
+            savedJobs: savedJobIds.length,
+            jobAlerts: jobAlerts.length,
+            documents: userDocuments.length,
+            jobListings: displayUserJobs.length,
+            campaigns: userAds.length,
+            unreadNotifications: unreadNotifCount
+          }}
           onOpenNotifications={() => setShowNotificationDrawer(true)}
           onOpenDeposit={() => setOpenDepositModalTrigger(true)}
           onOpenSubscription={onOpenSubscriptionModal}

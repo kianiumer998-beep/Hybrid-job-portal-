@@ -82,6 +82,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const [recipientHistoryLoading, setRecipientHistoryLoading] = useState(false);
   const [recipientHistoryError, setRecipientHistoryError] = useState('');
   const [recipientRetryBusy, setRecipientRetryBusy] = useState(false);
+  const [recipientPrepareBusy, setRecipientPrepareBusy] = useState(false);
 
   useEffect(() => {
     if (initialTab) {
@@ -309,6 +310,71 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   };
 
   const audienceCount = calculateAudienceCount();
+
+  const buildCampaignRecipientRows = (camp: BroadcastCampaign) => {
+    const selectedUsers = safeUsers.filter(u => {
+      switch (camp.targetAudience) {
+        case 'Job Seekers Only': return !u?.role?.toLowerCase()?.includes('employer') && !u?.companyName;
+        case 'Employers / Posters': return u?.role?.toLowerCase()?.includes('employer') || !!u?.companyName;
+        case 'Unpaid / Expired Users': return u?.plan === 'Free' || u?.membershipStatus === 'Expired';
+        case 'Government Job Seekers': return Array.isArray(u.skills) && u.skills.some(s => /govt|bps/i.test(s));
+        case 'Overseas / Gulf Candidates': return !!u.address && /gulf|dubai|uk|saudi|uae/i.test(u.address);
+        case 'Subscribed Members': return false;
+        default: return true;
+      }
+    });
+    const selectedSubscribers = camp.targetAudience === 'Subscribed Members' || camp.targetAudience === 'All Users'
+      ? safeSubscribers
+      : camp.targetAudience === 'Unpaid / Expired Users'
+        ? safeSubscribers.filter(s => s.status === 'Expired' || s.status === 'Pending')
+        : [];
+    const channels: Array<'Email' | 'WhatsApp' | 'SMS'> = camp.channel === 'Multi-Channel'
+      ? ['Email', 'WhatsApp', 'SMS']
+      : camp.channel === 'Email' || camp.channel === 'WhatsApp' || camp.channel === 'SMS'
+        ? [camp.channel]
+        : [];
+    const records = new Map<string, { subscriberId: string; channel: 'Email' | 'WhatsApp' | 'SMS'; contactMask?: string }>();
+    const addPerson = (person: any) => {
+      const subscriberId = String(person?.id || '').trim();
+      if (!subscriberId) return;
+      const email = String(person?.email || '').trim();
+      const phone = String(person?.phone || '').trim();
+      for (const ch of channels) {
+        const contact = ch === 'Email' ? email : phone;
+        if (!contact) continue;
+        const mask = ch === 'Email'
+          ? (email.includes('@') ? email.slice(0, 2) + '***@' + email.split('@')[1] : 'email')
+          : (phone.length > 4 ? '***' + phone.slice(-4) : 'phone');
+        records.set(subscriberId + ':' + ch, { subscriberId, channel: ch, contactMask: mask });
+      }
+    };
+    selectedUsers.forEach(addPerson);
+    selectedSubscribers.forEach(addPerson);
+    return Array.from(records.values());
+  };
+
+  const handlePrepareRecipients = async () => {
+    const camp = campaignList.find(c => c.id === recipientCampaignId);
+    if (!camp) return;
+    setRecipientPrepareBusy(true);
+    setRecipientHistoryError('');
+    try {
+      const recipients = buildCampaignRecipientRows(camp);
+      const prepared = await api.broadcasts.prepareRecipients(camp.id, recipients);
+      if (!prepared?.success) throw new Error(prepared?.message || 'Recipient preparation failed.');
+      const [history, summary] = await Promise.all([
+        api.broadcasts.getRecipientHistory(camp.id, 1, 100),
+        api.broadcasts.getRecipientSummary(camp.id)
+      ]);
+      setRecipientHistory(Array.isArray(history?.items) ? history.items : []);
+      setRecipientSummary(summary?.summary || null);
+      setRecipientHistoryError(prepared.message || `Prepared ${prepared.newlyPrepared || 0} new recipient/channel records. No messages were sent.`);
+    } catch (err: any) {
+      setRecipientHistoryError(err?.message || 'Recipient preparation failed.');
+    } finally {
+      setRecipientPrepareBusy(false);
+    }
+  };
 
   const handleApplyTemplate = (tpl: { subject: string; body: string; channel: any; audience: any }) => {
     if (tpl.channel === 'Email' && !emailEnabled) {
@@ -787,6 +853,9 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                 <option value="">Select campaign</option>
                 {campaignList.map(camp => <option key={camp.id} value={camp.id}>{camp.title} ({camp.channel})</option>)}
               </select>
+              <button type="button" disabled={!recipientCampaignId || recipientPrepareBusy} onClick={handlePrepareRecipients} className="px-3 py-2 rounded-lg bg-indigo-500/15 text-indigo-300 border border-indigo-500/20 text-xs font-bold disabled:opacity-40">
+                {recipientPrepareBusy ? 'Preparing…' : 'Prepare Recipient List'}
+              </button>
               <button type="button" disabled={!recipientCampaignId || recipientRetryBusy} onClick={async () => {
                 setRecipientRetryBusy(true);
                 try {

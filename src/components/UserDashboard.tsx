@@ -213,7 +213,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).slice(0, 100);
 
   const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => 
-    safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_${currentUser.id}`, 'classic')
+    safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_${currentUser.id}`, 'professional')
   );
 
   const safeProfileAvatarUrl = useMemo(() => {

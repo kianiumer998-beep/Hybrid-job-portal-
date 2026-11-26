@@ -54,9 +54,10 @@ export const BroadcastScheduleRepository = {
       updatedAt: now,
       note: 'Scheduled time saved. Dispatch is disabled until a verified provider integration is configured.'
     };
+    const { createdAt, ...updateFields } = record;
     await collection.updateOne(
       { campaignId: id },
-      { $set: record },
+      { $set: updateFields, $setOnInsert: { createdAt } },
       { upsert: true }
     );
     return record;

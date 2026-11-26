@@ -75,7 +75,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
 
   const [campaignList, setCampaignList] = useState<BroadcastCampaign[]>(safeCampaigns);
   const resolvedInitialTab = hideProvidersTab && initialTab === 'providers' ? 'compose' : (initialTab || 'compose');
-  const [activeTab, setActiveTab] = useState<'compose' | 'history' | 'templates' | 'providers' | 'bulk' | 'recipients'>(resolvedInitialTab);
+  const [activeTab, setActiveTab] = useState<'compose' | 'history' | 'templates' | 'providers' | 'bulk' | 'recipients' | 'subscribers'>(resolvedInitialTab);
   const [recipientCampaignId, setRecipientCampaignId] = useState<string>('');
   const [recipientHistory, setRecipientHistory] = useState<any[]>([]);
   const [recipientSummary, setRecipientSummary] = useState<any>(null);
@@ -592,6 +592,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
             { id: 'compose', label: 'Compose Broadcast', icon: Send },
             { id: 'history', label: `Campaign History (${visibleCampaigns.length})`, icon: Clock },
             { id: 'recipients', label: 'Recipient Tracking', icon: Users },
+            { id: 'subscribers', label: `Subscriber Plans (${safeSubscribers.length})`, icon: Users },
             { id: 'templates', label: 'Campaign Templates', icon: FileText },
             { id: 'bulk', label: 'Bulk Notifications', icon: Bell },
             ...(!hideProvidersTab ? [{ id: 'providers', label: 'Provider Gateways', icon: Layers }] : [])
@@ -840,6 +841,38 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
             </div>
           </div>
 
+        </div>
+      )}
+
+      {activeTab === 'subscribers' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 space-y-4">
+          <div>
+            <h3 className="text-sm font-bold text-white">Subscriber Plans & Expiry</h3>
+            <p className="text-xs text-slate-400 mt-1">Uses the existing subscriber records and reconciled subscription status. No duplicate subscription store is created.</p>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {(['Active', 'Expiring Soon', 'Pending', 'Expired'] as const).map(status => (
+              <div key={status} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                <div className="text-[10px] text-slate-500">{status}</div>
+                <div className="text-lg font-black text-white">{safeSubscribers.filter(s => s.status === status).length}</div>
+              </div>
+            ))}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-xs">
+              <thead className="text-slate-500 border-b border-slate-800"><tr><th className="py-2 pr-3">Subscriber</th><th className="py-2 pr-3">Plan</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3">Expiry</th><th className="py-2 pr-3">Email</th><th className="py-2 pr-3">WhatsApp</th><th className="py-2">SMS</th></tr></thead>
+              <tbody>{safeSubscribers.map(sub => <tr key={sub.id} className="border-b border-slate-800/70">
+                <td className="py-2 pr-3"><div className="text-slate-200">{sub.name}</div><div className="text-[10px] text-slate-500">{sub.email}</div></td>
+                <td className="py-2 pr-3 text-slate-300">{sub.plan}</td>
+                <td className="py-2 pr-3 text-slate-300">{sub.status}</td>
+                <td className="py-2 pr-3 text-slate-400">{sub.expiryDate || 'Not set'}</td>
+                <td className="py-2 pr-3 text-slate-400">{sub.email ? 'Available' : 'Missing'}</td>
+                <td className="py-2 pr-3 text-slate-400">{sub.whatsappEnabled && sub.phone ? 'Eligible' : 'Off / Missing'}</td>
+                <td className="py-2 text-slate-400">{sub.phone ? 'Available' : 'Missing'}</td>
+              </tr>)}</tbody>
+            </table>
+            {!safeSubscribers.length && <div className="text-xs text-slate-500 text-center py-6">No subscriber records are available from the existing admin data source.</div>}
+          </div>
         </div>
       )}
 

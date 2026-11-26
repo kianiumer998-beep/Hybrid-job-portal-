@@ -143,7 +143,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
     ]},
     { id: 'employer-center', label: 'Employer Center', icon: Building2, subItems: [
       { id: 'emp-post', label: 'Post a Job', tab: 'post-job', icon: Plus },
-      { id: 'emp-listings', label: 'My Job Listings & Status', tab: 'my-jobs', icon: Building2, countKey: 'jobListings' },
+      { id: 'emp-listings', label: 'My Job Listings & Applicants', tab: 'my-jobs', icon: Building2, countKey: 'jobListings' },
       { id: 'emp-verification', label: 'Business Verification', tab: 'profile', accountSubTab: 'profile', icon: ShieldCheck, employerOnly: true },
     ]},
     { id: 'ads-campaigns', label: 'Ads & Campaigns', icon: Megaphone, subItems: [
@@ -154,7 +154,6 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
       { id: 'mem-wallet', label: 'Wallet & Balance', tab: 'campaigns', subTab: 'wallet', icon: Wallet },
       { id: 'membership-plan', label: 'Membership & Plans', action: 'subscription', icon: Crown },
       { id: 'wallet-deposit', label: 'Add Funds / Deposit', action: 'deposit', icon: Plus },
-      { id: 'membership-renew', label: 'Renew / Upgrade Plan', action: 'subscription', icon: Crown },
       { id: 'mem-history', label: 'Payment History', tab: 'overview', subView: 'history', icon: History },
     ]},
     { id: 'communication', label: 'Alerts & Communication', icon: Bell, subItems: [

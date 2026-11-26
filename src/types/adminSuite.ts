@@ -68,6 +68,7 @@ export interface BroadcastCampaign {
   subject: string;
   messageBody: string;
   sentAt?: string;
+  scheduledAt?: string;
   status: 'Draft' | 'Scheduled' | 'Sent' | 'Failed';
   recipientsCount: number;
   openRate?: number;

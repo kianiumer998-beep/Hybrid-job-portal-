@@ -212,10 +212,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const parseResubmissionLines = (value: string) =>
     value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).slice(0, 100);
 
-  const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => 
-    safeLocalStorageGet<'classic' | 'professional'>(
+  const [navigationMode, setNavigationMode] = useState<'classic' | 'professional' | 'new'>(() => 
+    safeLocalStorageGet<'classic' | 'professional' | 'new'>(
       `dashboard_nav_mode_v2_${currentUser.id}`,
-      safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_${currentUser.id}`, 'professional')
+      safeLocalStorageGet<'classic' | 'professional' | 'new'>(`dashboard_nav_mode_${currentUser.id}`, 'professional')
     )
   );
 
@@ -1591,10 +1591,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           : 'bg-slate-800 text-slate-300 border-slate-700';
 
   return (
-    <div className={`min-h-screen bg-slate-950 transition-all duration-300 ${navigationMode === 'professional' ? 'lg:pl-64 pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0' : ''}`}>
+    <div className={`min-h-screen bg-slate-950 transition-all duration-300 ${navigationMode !== 'classic' ? 'lg:pl-64 pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0' : ''}`}>
       
-      {navigationMode === 'professional' && (
+      {navigationMode !== 'classic' && (
         <UserDashboardNavigation
+          variant={navigationMode === 'new' ? 'new' : 'professional'}
           activeTab={activeTab}
           overviewSubView={overviewSubView}
           appSubTab={appSubTab}
@@ -1628,7 +1629,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         {/* Header Profile Card - UNIFIED ACCOUNT */}
         <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-3 sm:p-6 text-white shadow-xl flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 sm:gap-6">
           <div className="flex items-center space-x-2.5 sm:space-x-4 w-full md:w-auto min-w-0">
-            {navigationMode === 'professional' && (
+            {navigationMode !== 'classic' && (
               <button 
                 onClick={() => setIsProMenuOpen(true)}
                 aria-label="Open dashboard navigation"
@@ -1667,27 +1668,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 w-full md:w-auto">
-            {/* MODE SWITCHER */}
-            <div className="bg-slate-800/80 border border-slate-700 p-1 rounded-xl flex items-center shadow-lg mr-0 sm:mr-2">
-              <button
-                onClick={() => {
-                  setNavigationMode('classic');
-                  setActiveNavId(null);
-                }}
-                className={`px-3 py-2 rounded-lg text-[10px] font-black transition-all ${
-                  navigationMode === 'classic' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                CLASSIC
-              </button>
-              <button
-                onClick={() => setNavigationMode('professional')}
-                className={`px-2.5 py-1 rounded-lg text-[9px] font-black transition-all ${
-                  navigationMode === 'professional' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                PRO MENU
-              </button>
+            {/* THREE-MENU COMPARISON SWITCHER — Classic and Professional remain available. */}
+            <div className="bg-slate-800/80 border border-slate-700 p-1 rounded-xl flex items-center shadow-lg mr-0 sm:mr-2" role="group" aria-label="Choose dashboard menu">
+              <button type="button" aria-pressed={navigationMode === 'classic'} onClick={() => { setNavigationMode('classic'); setActiveNavId(null); }}
+                className={'px-2.5 py-2 rounded-lg text-[9px] font-black transition-all ' + (navigationMode === 'classic' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300')}>CLASSIC</button>
+              <button type="button" aria-pressed={navigationMode === 'professional'} onClick={() => setNavigationMode('professional')}
+                className={'px-2.5 py-2 rounded-lg text-[9px] font-black transition-all ' + (navigationMode === 'professional' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300')}>PRO MENU</button>
+              <button type="button" aria-pressed={navigationMode === 'new'} onClick={() => setNavigationMode('new')}
+                className={'px-2.5 py-2 rounded-lg text-[9px] font-black transition-all ' + (navigationMode === 'new' ? 'bg-indigo-400 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300')}>NEW MENU</button>
             </div>
 
             {navigationMode === 'classic' && (
@@ -1727,7 +1715,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       </div>
 
       {/* Persistent dashboard breadcrumb: keep users oriented and provide a safe return path. */}
-      {navigationMode === 'professional' && (() => {
+      {navigationMode !== 'classic' && (() => {
         const sectionNames: Record<string, string> = {
           overview: 'Overview',
           profile: 'My Account',

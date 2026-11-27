@@ -11,26 +11,26 @@ const DEFAULT_CONFIG: Config = {
   defaultMode: 'professional',
   allowModeSwitching: true,
   quickActions: [
-    { id: 'dash-overview', label: 'Home', icon: 'LayoutDashboard', destination: '/dashboard', enabled: true, mobile: true, desktop: false },
+    { id: 'dash-overview', label: 'Home', icon: 'LayoutDashboard', destination: '/user/dashboard/dash-overview', enabled: true, mobile: true, desktop: false },
     { id: 'jobs-explore', label: 'Jobs', icon: 'Search', destination: '/jobs', enabled: true, mobile: true, desktop: false },
     { id: 'career-cv', label: 'CV', icon: 'FileText', destination: '/cv', enabled: true, mobile: true, desktop: false },
     { id: 'mem-whatsapp', label: 'Alerts', icon: 'Bell', destination: '/alerts', enabled: true, mobile: true, desktop: false },
-    { id: 'acc-profile', label: 'Account', icon: 'User', destination: '/dashboard/profile', enabled: true, mobile: true, desktop: false }
+    { id: 'acc-profile', label: 'Account', icon: 'User', destination: '/user/dashboard/acc-profile', enabled: true, mobile: true, desktop: false }
   ]
 };
 
 const DESTINATIONS = [
-  ['dash-overview','Dashboard Overview','/dashboard'],['jobs-recommended','Recommended Jobs','/dashboard/recommendations'],
-  ['jobs-explore','Explore All Jobs','/jobs'],['jobs-applications','My Applications','/dashboard/applications'],
-  ['jobs-saved','Saved Jobs','/dashboard/saved-jobs'],['jobs-alerts','Job Alerts','/dashboard/job-alerts'],
-  ['career-cv','CV Builder','/cv'],['career-docs','My Documents','/dashboard/documents'],
-  ['emp-post','Post a Job','/dashboard/post-job'],['emp-listings','My Job Listings','/dashboard/my-jobs'],
-  ['emp-verification','Business Verification','/dashboard/verification'],['ads-list','My Campaigns','/dashboard/campaigns'],
-  ['ads-create','Create Campaign','/dashboard/campaigns/create'],['mem-wallet','Wallet & Balance','/dashboard/wallet'],
-  ['membership-plan','Membership & Plans','/dashboard/membership'],['wallet-deposit','Add Funds / Deposit','/dashboard/deposit'],
-  ['mem-history','Payment History','/dashboard/payment-history'],['mem-whatsapp','WhatsApp & Job Alerts','/alerts'],
-  ['notifications-center','Notifications Center','/dashboard/notifications'],['acc-chat','Support Inbox','/dashboard/support'],
-  ['acc-profile','Profile & Preferences','/dashboard/profile'],['acc-security','Security & Password','/dashboard/security']
+  ['dash-overview','Dashboard Overview','/user/dashboard/dash-overview'],['jobs-recommended','Recommended Jobs','/user/dashboard/jobs-recommended'],
+  ['jobs-explore','Explore All Jobs','/jobs'],['jobs-applications','My Applications','/user/dashboard/jobs-applications'],
+  ['jobs-saved','Saved Jobs','/user/dashboard/jobs-saved'],['jobs-alerts','Job Alerts','/user/dashboard/jobs-alerts'],
+  ['career-cv','CV Builder','/cv'],['career-docs','My Documents','/user/dashboard/career-docs'],
+  ['emp-post','Post a Job','/user/dashboard/emp-post'],['emp-listings','My Job Listings','/user/dashboard/emp-listings'],
+  ['emp-verification','Business Verification','/user/dashboard/emp-verification'],['ads-list','My Campaigns','/user/dashboard/ads-list'],
+  ['ads-create','Create Campaign','/user/dashboard/ads-create'],['mem-wallet','Wallet & Balance','/user/dashboard/mem-wallet'],
+  ['membership-plan','Membership & Plans','/user/dashboard/membership-plan'],['wallet-deposit','Add Funds / Deposit','/user/dashboard/wallet-deposit'],
+  ['mem-history','Payment History','/user/dashboard/mem-history'],['mem-whatsapp','WhatsApp & Job Alerts','/alerts'],
+  ['notifications-center','Notifications Center','/user/dashboard/notifications-center'],['acc-chat','Support Inbox','/user/dashboard/acc-chat'],
+  ['acc-profile','Profile & Preferences','/user/dashboard/acc-profile'],['acc-security','Security & Password','/user/dashboard/acc-security']
 ] as const;
 
 export const AdminUserDashboardNavigationSettings: React.FC = () => {
@@ -73,14 +73,13 @@ export const AdminUserDashboardNavigationSettings: React.FC = () => {
   };
   const saveMenuStyles = async () => {
     setSavingMenu(true); setMessage('');
-    const payload: Config = {
-      ...savedConfig,
+    const payload = {
       enabledModes: config.enabledModes,
       defaultMode: config.enabledModes.includes(config.defaultMode) ? config.defaultMode : config.enabledModes[0],
       allowModeSwitching: config.allowModeSwitching
     };
     try {
-      const result: any = await api.settings.updateUserDashboardNavigation(payload);
+      const result: any = await api.settings.updateUserDashboardNavigation(payload, 'menuStyles');
       if (result?.success && result.config) {
         const normalized = { ...DEFAULT_CONFIG, ...result.config } as Config;
         setSavedConfig(normalized);
@@ -93,9 +92,9 @@ export const AdminUserDashboardNavigationSettings: React.FC = () => {
 
   const saveQuickActions = async () => {
     setSavingQuickActions(true); setMessage('');
-    const payload: Config = { ...savedConfig, quickActions: config.quickActions };
+    const payload = { quickActions: config.quickActions };
     try {
-      const result: any = await api.settings.updateUserDashboardNavigation(payload);
+      const result: any = await api.settings.updateUserDashboardNavigation(payload, 'quickActions');
       if (result?.success && result.config) {
         const normalized = { ...DEFAULT_CONFIG, ...result.config } as Config;
         setSavedConfig(normalized);

@@ -4301,7 +4301,7 @@ export default function App() {
       )}
 
       {/* The dashboard has its own admin-configured navigation. Hide the public/guest header there to prevent duplicate menus after login. */}
-      {activeTab !== 'dashboard' && (
+      {(activeTab !== 'dashboard' || (showAdminView && isAdminLoggedIn)) && (
         <Header
           activeTab={activeTab}
           setActiveTab={(tab) => {

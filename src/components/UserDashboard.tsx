@@ -1491,6 +1491,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     globalTab?: any;
   }) => {
     setActiveNavId(params.id);
+    const selectedRoute = USER_DASHBOARD_ROUTES[params.id];
+    if (selectedRoute && !selectedRoute.globalTab && !selectedRoute.action) {
+      const nextPath = getUserDashboardPath(params.id);
+      if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath);
+    }
 
     if (params.isGlobal && params.globalTab && onNavigateGlobalTab) {
       onNavigateGlobalTab(params.globalTab);

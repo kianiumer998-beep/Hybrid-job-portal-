@@ -468,7 +468,7 @@ export default function App() {
       ? (window.location.pathname.startsWith('/user/dashboard') ? window.location.pathname : '/user/dashboard/dash-overview')
       : activeTab === 'jobs' ? '/jobs' : `/${activeTab}`;
     if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath);
-  }, [activeTab, showAdminView]);
+  }, [activeTab]);
   const [showAdminView, setShowAdminView] = useState<boolean>(() => {
     const payload = decodeStoredAuthTokenPayload();
     const isAuthorizedAdminToken = Boolean(
@@ -4714,6 +4714,8 @@ export default function App() {
                   setSubscriptionModalOpen(true);
                 }}
                 onNavigateGlobalTab={navigateGlobalTab}
+                dashboardMenuOpen={dashboardMenuOpen}
+                onDashboardMenuClose={() => setDashboardMenuOpen(false)}
               />
             )}
 

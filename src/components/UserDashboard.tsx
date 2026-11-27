@@ -212,10 +212,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const parseResubmissionLines = (value: string) =>
     value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).slice(0, 100);
 
-  const [navigationMode, setNavigationMode] = useState<'classic' | 'professional' | 'new'>(() => 
-    safeLocalStorageGet<'classic' | 'professional' | 'new'>(
+  const [navigationMode, setNavigationMode] = useState<'classic' | 'professional' | 'new' | 'classic-new'>(() => 
+    safeLocalStorageGet<'classic' | 'professional' | 'new' | 'classic-new'>(
       `dashboard_nav_mode_v2_${currentUser.id}`,
-      safeLocalStorageGet<'classic' | 'professional' | 'new'>(`dashboard_nav_mode_${currentUser.id}`, 'professional')
+      safeLocalStorageGet<'classic' | 'professional' | 'new' | 'classic-new'>(`dashboard_nav_mode_${currentUser.id}`, 'professional')
     )
   );
 
@@ -1595,7 +1595,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       
       {navigationMode !== 'classic' && (
         <UserDashboardNavigation
-          variant={navigationMode === 'new' ? 'new' : 'professional'}
+          variant={navigationMode === 'new' ? 'new' : navigationMode === 'classic-new' ? 'classic-new' : 'professional'}
           activeTab={activeTab}
           overviewSubView={overviewSubView}
           appSubTab={appSubTab}
@@ -1676,6 +1676,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 className={'px-2.5 py-2 rounded-lg text-[9px] font-black transition-all ' + (navigationMode === 'professional' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300')}>PRO MENU</button>
               <button type="button" aria-pressed={navigationMode === 'new'} onClick={() => setNavigationMode('new')}
                 className={'px-2.5 py-2 rounded-lg text-[9px] font-black transition-all ' + (navigationMode === 'new' ? 'bg-indigo-400 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300')}>NEW MENU</button>
+              <button type="button" aria-pressed={navigationMode === 'classic-new'} onClick={() => setNavigationMode('classic-new')}
+                className={'px-2 py-2 rounded-lg text-[9px] font-black transition-all whitespace-nowrap ' + (navigationMode === 'classic-new' ? 'bg-emerald-300 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300')}>CLASSIC NEW</button>
             </div>
 
             {navigationMode === 'classic' && (

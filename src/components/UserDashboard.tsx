@@ -11,6 +11,7 @@ import { JobSeoPreviewModal } from './common/JobSeoPreviewModal';
 
 import { UserDashboardNavigation } from './UserDashboardNavigation';
 import { safeLocalStorageGet, safeLocalStorageSet } from '../utils/safeStorage';
+import { getUserDashboardPath, getUserDashboardRouteId, getUserDashboardRouteIdForState, USER_DASHBOARD_ROUTES } from '../utils/userDashboardRouting';
 
 const EMPLOYER_ALLOWED_APP_STATUSES = [
   'Pending',
@@ -158,13 +159,19 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   onOpenSubscriptionModal,
   onNavigateGlobalTab
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns'>(initialTab);
+  const initialRouteId = typeof window !== 'undefined' ? getUserDashboardRouteId(window.location.pathname) : null;
+  const initialRoute = initialRouteId ? USER_DASHBOARD_ROUTES[initialRouteId] : null;
+  const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns'>(initialRoute?.tab || initialTab);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [overviewSubView, setOverviewSubView] = useState<'metrics' | 'recommendations' | 'history'>('metrics');
-  const [appSubTab, setAppSubTab] = useState<'submitted' | 'saved' | 'alerts' | 'documents'>('submitted');
-  const [campaignSubTab, setCampaignSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>('my-campaigns');
-  const [accountSubTab, setAccountSubTab] = useState<'profile' | 'security'>(() =>
-    safeLocalStorageGet<string | null>(`dashboard_active_nav_id_${currentUser.id}`, null) === 'acc-security' ? 'security' : 'profile'
+  const [overviewSubView, setOverviewSubView] = useState<'metrics' | 'recommendations' | 'history'>(initialRoute?.subView || 'metrics');
+  const [appSubTab, setAppSubTab] = useState<'submitted' | 'saved' | 'alerts' | 'documents'>(
+    initialRoute?.tab === 'applications' && initialRoute.subTab ? initialRoute.subTab as 'submitted' | 'saved' | 'alerts' | 'documents' : 'submitted'
+  );
+  const [campaignSubTab, setCampaignSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>(
+    initialRoute?.tab === 'campaigns' && initialRoute.subTab ? initialRoute.subTab as 'my-campaigns' | 'create' | 'wallet' : 'my-campaigns'
+  );
+  const [accountSubTab, setAccountSubTab] = useState<'profile' | 'security'>(
+    initialRoute?.accountSubTab || (safeLocalStorageGet<string | null>(`dashboard_active_nav_id_${currentUser.id}`, null) === 'acc-security' ? 'security' : 'profile')
   );
   const [selectedPaymentTransaction, setSelectedPaymentTransaction] = useState<PaymentTransaction | null>(null);
   const [openDepositModalTrigger, setOpenDepositModalTrigger] = useState<boolean>(false);
@@ -260,8 +267,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     }
   }, [currentUser.avatarUrl]);
   const [isProMenuOpen, setIsProMenuOpen] = useState<boolean>(false);
-  const [activeNavId, setActiveNavId] = useState<string | null>(() => 
-    safeLocalStorageGet<string | null>(`dashboard_active_nav_id_${currentUser.id}`, null)
+  const [activeNavId, setActiveNavId] = useState<string | null>(() =>
+    initialRouteId || safeLocalStorageGet<string | null>(`dashboard_active_nav_id_${currentUser.id}`, null)
   );
 
   useEffect(() => {
@@ -494,7 +501,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [docUploading, setDocUploading] = useState(false);
 
   useEffect(() => {
-    if (initialTab) {
+    if (initialTab && !getUserDashboardRouteId(window.location.pathname)) {
       setActiveTab(initialTab);
       // Clear a previously saved Professional-menu selection when the parent opens
       // the dashboard on a different destination. The menu then derives the active
@@ -502,6 +509,52 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       setActiveNavId(null);
     }
   }, [initialTab]);
+
+  // Restore dashboard sections from deep links and browser Back/Forward events.
+  useEffect(() => {
+    const restoreDashboardRoute = () => {
+      const routeId = getUserDashboardRouteId(window.location.pathname);
+      if (!routeId) return;
+      const route = USER_DASHBOARD_ROUTES[routeId];
+      if (route.globalTab) {
+        onNavigateGlobalTab?.(route.globalTab);
+        return;
+      }
+      setActiveNavId(routeId);
+      setActiveTab(route.tab);
+      if (route.subView) setOverviewSubView(route.subView);
+      if (route.tab === 'applications' && route.subTab) {
+        setAppSubTab(route.subTab as 'submitted' | 'saved' | 'alerts' | 'documents');
+      }
+      if (route.tab === 'campaigns' && route.subTab) {
+        setCampaignSubTab(route.subTab as 'my-campaigns' | 'create' | 'wallet');
+      }
+      if (route.accountSubTab) setAccountSubTab(route.accountSubTab);
+      if (route.action === 'deposit') setOpenDepositModalTrigger(true);
+      if (route.action === 'subscription') onOpenSubscriptionModal();
+    };
+    restoreDashboardRoute();
+    window.addEventListener('popstate', restoreDashboardRoute);
+    return () => window.removeEventListener('popstate', restoreDashboardRoute);
+  }, []);
+
+  // Every dashboard destination has a shareable, refresh-safe URL. pushState is
+  // used rather than assigning location so the app remains a fast SPA.
+  useEffect(() => {
+    if (!window.location.pathname.startsWith('/user/dashboard')) return;
+    const routeId = getUserDashboardRouteIdForState({
+      activeNavId,
+      activeTab,
+      overviewSubView,
+      appSubTab,
+      campaignSubTab,
+      accountSubTab
+    });
+    const nextPath = getUserDashboardPath(routeId);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, '', nextPath);
+    }
+  }, [activeNavId, activeTab, overviewSubView, appSubTab, campaignSubTab, accountSubTab]);
 
   // User Profile Form State
   const [profileName, setProfileName] = useState(currentUser.name);

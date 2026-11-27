@@ -427,7 +427,17 @@ export async function executeBulkMembershipEnforcement(params: {
 
 export default function App() {
   // Navigation & View State
-  const [activeTab, setActiveTab] = useState<'jobs' | 'cv' | 'alerts' | 'dashboard'>('jobs');
+  const [activeTab, setActiveTab] = useState<'jobs' | 'cv' | 'alerts' | 'dashboard'>(() => {
+    if (typeof window === 'undefined') return 'jobs';
+    const path = window.location.pathname;
+    const payload = decodeStoredAuthTokenPayload();
+    const isRegisteredUserRoute = path.startsWith('/user/dashboard') &&
+      payload && !(ADMIN_ROLES as readonly string[]).includes(String(payload.role || ''));
+    if (isRegisteredUserRoute) return 'dashboard';
+    if (path === '/cv') return 'cv';
+    if (path === '/alerts') return 'alerts';
+    return 'jobs';
+  });
   const [showAdminView, setShowAdminView] = useState<boolean>(() => {
     const payload = decodeStoredAuthTokenPayload();
     const isAuthorizedAdminToken = Boolean(
@@ -446,6 +456,61 @@ export default function App() {
     return true;
   });
   const [dismissAnnouncement, setDismissAnnouncement] = useState<boolean>(false);
+
+  // Keep public, registered-user and administrator SPA routes synchronized with browser history.
+  useEffect(() => {
+    const syncTopLevelRoute = () => {
+      const path = window.location.pathname;
+      const payload = decodeStoredAuthTokenPayload();
+      const role = String(payload?.role || '');
+      const isAdmin = Boolean(payload && (ADMIN_ROLES as readonly string[]).includes(role));
+
+      if (path === '/admin' || path.startsWith('/admin/')) {
+        if (isAdmin) {
+          const routeTab = path.match(/^\/admin\/([^/]+)/)?.[1];
+          setAdminInitialTab(routeTab || 'analytics');
+          setShowAdminView(true);
+          return;
+        }
+        window.history.replaceState({}, '', '/');
+        setShowAdminView(false);
+        setActiveTab('jobs');
+        return;
+      }
+
+      if (path.startsWith('/user/dashboard')) {
+        if (payload && !isAdmin) {
+          setActiveTab('dashboard');
+          return;
+        }
+        window.history.replaceState({}, '', '/');
+        setActiveTab('jobs');
+        return;
+      }
+
+      if (path === '/cv') setActiveTab('cv');
+      else if (path === '/alerts') setActiveTab('alerts');
+      else setActiveTab('jobs');
+    };
+    syncTopLevelRoute();
+    window.addEventListener('popstate', syncTopLevelRoute);
+    return () => window.removeEventListener('popstate', syncTopLevelRoute);
+  }, []);
+
+  // If a top-level SPA tab is changed by any existing UI control, keep its URL in sync.
+  // Initial load is left untouched so the public home page can remain at '/'.
+  const previousTopLevelTabRef = useRef(activeTab);
+  useEffect(() => {
+    const previousTab = previousTopLevelTabRef.current;
+    previousTopLevelTabRef.current = activeTab;
+    if (previousTab === activeTab || showAdminView) return;
+    const nextPath = activeTab === 'dashboard'
+      ? (window.location.pathname.startsWith('/user/dashboard') ? window.location.pathname : '/user/dashboard/dash-overview')
+      : activeTab === 'jobs' ? '/jobs' : `/${activeTab}`;
+    if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath);
+  }, [activeTab, showAdminView]);
+
+
 
   // User Country Selection State (Pop-up on entry if not set)
   const [userSelectedCountry, setUserSelectedCountry] = useState<CountryOption | null>(() => {
@@ -1617,14 +1682,25 @@ export default function App() {
   const [legalModalOpen, setLegalModalOpen] = useState<boolean>(false);
   const [legalModalTab, setLegalModalTab] = useState<'disclaimer' | 'privacy' | 'terms' | 'contact'>('disclaimer');
   const [userDashboardInitialTab, setUserDashboardInitialTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat'>('overview');
+  const [adminInitialTab, setAdminInitialTab] = useState<string>(() => {
+    if (typeof window === 'undefined') return 'analytics';
+    return window.location.pathname.match(/^\/admin\/([^/]+)/)?.[1] || 'analytics';
+  });
 
   const handlePostJobClick = () => {
     setUserDashboardInitialTab('post-job');
     if (currentUser) {
+      window.history.pushState({}, '', '/user/dashboard/emp-post');
       setActiveTab('dashboard');
     } else {
       setAuthModalOpen(true);
     }
+  };
+
+  const navigateGlobalTab = (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => {
+    const nextPath = tab === 'dashboard' ? '/user/dashboard/dash-overview' : `/${tab}`;
+    if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath);
+    setActiveTab(tab);
   };
 
 
@@ -2982,6 +3058,7 @@ export default function App() {
   const handleLoginSuccess = (account: UserAccount) => {
     const sanitized = sanitizeBackendUser(account);
     setCurrentUser(sanitized);
+    window.history.pushState({}, '', '/user/dashboard/dash-overview');
     setActiveTab('dashboard');
     setUsers(prev => {
       const idx = prev.findIndex(u => u.id === sanitized.id || u.email === sanitized.email);
@@ -4318,7 +4395,15 @@ export default function App() {
               try {
                 localStorage.setItem('hybrid_admin_view_preference', 'false');
               } catch {}
+              window.history.pushState({}, '', '/');
               setShowAdminView(false);
+            }}
+            initialTab={adminInitialTab}
+            onNavigateTab={(tabId) => {
+              if (!/^[a-z0-9-]+$/.test(tabId)) return;
+              const nextPath = `/admin/${tabId}`;
+              if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath);
+              setAdminInitialTab(tabId);
             }}
             ads={advertisements}
             onAddAd={handleAddAd}
@@ -4669,6 +4754,7 @@ export default function App() {
                 onUpdateApplicationStatus={handleUpdateEmployerApplicationStatus}
                 onLogout={async () => {
                   await api.auth.logout();
+                  window.history.replaceState({}, '', '/');
                   try {
                     localStorage.removeItem('hybrid_admin_view_preference');
                     localStorage.removeItem('hybrid_user_is_subscribed');
@@ -4690,7 +4776,7 @@ export default function App() {
                   setSelectedJobTitleForSub('');
                   setSubscriptionModalOpen(true);
                 }}
-                onNavigateGlobalTab={setActiveTab}
+                onNavigateGlobalTab={navigateGlobalTab}
               />
             )}
 

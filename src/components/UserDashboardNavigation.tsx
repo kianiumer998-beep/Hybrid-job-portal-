@@ -119,6 +119,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   quickActionsOnly = false
 }) => {
   const [expandedCategory, setExpandedCategory] = useState<string | null>('dashboard');
+  const [newMenuCollapsed, setNewMenuCollapsed] = useState(false);
   const drawerContentRef = useRef<HTMLDivElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
@@ -430,9 +431,13 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
         </button>
       </div>
 
-      {variant !== 'new' && <div className="flex items-center justify-end gap-2 px-3 pt-2">
-        <button type="button" onClick={() => setExpandedCategory(expandedCategory === '__all__' ? null : '__all__')} className="rounded-md border border-slate-800 px-2 py-1 text-[9px] font-bold text-emerald-300 hover:bg-slate-900">{expandedCategory === '__all__' ? 'Collapse All' : 'Expand All'}</button>
-      </div>}
+      <div className="flex items-center justify-end gap-2 px-3 pt-2">
+        {variant === 'new' ? (
+          <button type="button" onClick={() => setNewMenuCollapsed(value => !value)} aria-expanded={!newMenuCollapsed} className="rounded-md border border-slate-800 px-2 py-1 text-[9px] font-bold text-indigo-300 hover:bg-slate-900">{newMenuCollapsed ? 'Expand All' : 'Collapse All'}</button>
+        ) : (
+          <button type="button" onClick={() => setExpandedCategory(expandedCategory === '__all__' ? null : '__all__')} aria-expanded={expandedCategory === '__all__'} className="rounded-md border border-slate-800 px-2 py-1 text-[9px] font-bold text-emerald-300 hover:bg-slate-900">{expandedCategory === '__all__' ? 'Collapse All' : 'Expand All'}</button>
+        )}
+      </div>
       <nav aria-label={variant === 'new' ? 'New dashboard menu' : 'Dashboard sections'} className="flex-1 px-2 py-3 space-y-2">
         {variant === 'new' ? (
           <div className="space-y-3">
@@ -446,7 +451,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                   <category.icon aria-hidden="true" className="h-4 w-4 text-indigo-300" />
                   <h3 className="text-[11px] font-black text-slate-200">{category.label}</h3>
                 </div>
-                <div className="space-y-1">
+                {!newMenuCollapsed && <div className="space-y-1">
                   {category.subItems.map((subItem) => {
                     const active = isActive(subItem);
                     return (
@@ -474,13 +479,13 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                       </button>
                     );
                   })}
-                </div>
+                </div>}
               </section>
             ))}
           </div>
         ) : (
           menuStructure.map((category) => {
-          const isExpanded = expandedCategory === category.id;
+          const isExpanded = expandedCategory === '__all__' || expandedCategory === category.id;
           const categoryHasActiveItem = category.subItems.some(isActive);
           return (
             <div key={category.id} className="space-y-1">

@@ -439,9 +439,6 @@ export default function App() {
     return 'jobs';
   });
   const [dashboardMenuOpen, setDashboardMenuOpen] = useState(false);
-  useEffect(() => {
-    if (activeTab !== 'dashboard' || showAdminView) setDashboardMenuOpen(false);
-  }, [activeTab, showAdminView]);
   const [showAdminView, setShowAdminView] = useState<boolean>(() => {
     const payload = decodeStoredAuthTokenPayload();
     const isAuthorizedAdminToken = Boolean(
@@ -459,6 +456,9 @@ export default function App() {
     } catch {}
     return true;
   });
+  useEffect(() => {
+    if (activeTab !== 'dashboard' || showAdminView) setDashboardMenuOpen(false);
+  }, [activeTab, showAdminView]);
   const [dismissAnnouncement, setDismissAnnouncement] = useState<boolean>(false);
 
   // Keep public, registered-user and administrator SPA routes synchronized with browser history.

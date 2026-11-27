@@ -1319,11 +1319,11 @@ export const api = {
     async getUserDashboardNavigation() {
       return safeFetchJson<{ success: boolean; config?: any; message?: string }>(`${API_BASE}/settings/user-dashboard-navigation`);
     },
-    async updateUserDashboardNavigation(config: any) {
+    async updateUserDashboardNavigation(config: any, section?: 'menuStyles' | 'quickActions') {
       return safeFetchJson<{ success: boolean; config?: any; message?: string }>(`${API_BASE}/settings/user-dashboard-navigation`, {
         method: 'PUT',
         headers: getAuthHeader(),
-        body: JSON.stringify({ config })
+        body: JSON.stringify({ section, config })
       });
     },
     async getCommunication() {

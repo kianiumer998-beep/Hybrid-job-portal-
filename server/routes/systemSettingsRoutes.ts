@@ -399,7 +399,7 @@ const USER_DASHBOARD_DESTINATIONS = new Set([
   'mem-whatsapp', 'notifications-center', 'acc-chat', 'acc-profile', 'acc-security'
 ]);
 
-function validateUserDashboardNavigationConfig(raw: any): { valid: boolean; message?: string; config?: any } {
+function validateUserDashboardNavigationConfig(raw: any, section?: 'menuStyles' | 'quickActions'): { valid: boolean; message?: string; config?: any } {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { valid: false, message: 'Navigation configuration must be an object.' };
   const enabledModes = Array.isArray(raw.enabledModes) ? [...new Set(raw.enabledModes)] : [];
   if (!enabledModes.length || enabledModes.some((mode: any) => typeof mode !== 'string' || !USER_DASHBOARD_MENU_MODES.has(mode))) {
@@ -408,25 +408,36 @@ function validateUserDashboardNavigationConfig(raw: any): { valid: boolean; mess
   const defaultMode = String(raw.defaultMode || '');
   if (!enabledModes.includes(defaultMode)) return { valid: false, message: 'Default menu must be one of the enabled menu styles.' };
   if (typeof raw.allowModeSwitching !== 'boolean') return { valid: false, message: 'Menu switching must be a boolean value.' };
-  if (!Array.isArray(raw.quickActions) || raw.quickActions.length > 5) return { valid: false, message: 'Quick Actions must contain no more than five entries.' };
-  const seen = new Set<string>();
-  const quickActions = [];
-  for (const item of raw.quickActions) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return { valid: false, message: 'Invalid Quick Action entry.' };
-    const id = String(item.id || '').trim();
-    if (!USER_DASHBOARD_DESTINATIONS.has(id) || seen.has(id)) return { valid: false, message: 'Quick Actions must use unique existing menu destinations.' };
-    seen.add(id);
-    const label = String(item.label || '').trim();
-    const icon = String(item.icon || '').trim();
-    const destination = String(item.destination || '').trim();
-    if (!label || label.length > 24 || !USER_DASHBOARD_QUICK_ACTION_ICONS.has(icon)) return { valid: false, message: 'Quick Action label or icon is invalid.' };
-    if (!destination.startsWith('/') || destination.startsWith('//') || destination.length > 160 || /[\\\\\\r\\n]/.test(destination)) {
-      return { valid: false, message: 'Destination must be a valid internal path beginning with one slash.' };
+
+  // Menu-style saves intentionally do not validate legacy Quick Action paths.
+  // A stale/invalid preview address must never prevent menu preferences saving.
+  let quickActions = Array.isArray(raw.quickActions) ? raw.quickActions : [];
+  if (section !== 'menuStyles') {
+    if (!Array.isArray(raw.quickActions) || raw.quickActions.length > 5) return { valid: false, message: 'Quick Actions must contain no more than five entries.' };
+    const seen = new Set<string>();
+    quickActions = [];
+    for (const item of raw.quickActions) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return { valid: false, message: 'Invalid Quick Action entry.' };
+      const id = String(item.id || '').trim();
+      if (!USER_DASHBOARD_DESTINATIONS.has(id) || seen.has(id)) return { valid: false, message: 'Quick Actions must use unique existing menu destinations.' };
+      seen.add(id);
+      const label = String(item.label || '').trim();
+      const icon = String(item.icon || '').trim();
+      const destination = String(item.destination || '').trim();
+      let isInternalPath = false;
+      try {
+        const parsed = new URL(destination, 'https://internal.invalid');
+        isInternalPath = destination.startsWith('/') && !destination.startsWith('//') &&
+          parsed.origin === 'https://internal.invalid' && !destination.includes('\\') &&
+          !/[\\u0000-\\u001F\\u007F]/.test(destination);
+      } catch {}
+      if (!label || label.length > 24 || !USER_DASHBOARD_QUICK_ACTION_ICONS.has(icon)) return { valid: false, message: 'Quick Action label or icon is invalid.' };
+      if (!isInternalPath || destination.length > 160) return { valid: false, message: 'Destination must be a valid internal path beginning with one slash. Enter a path only, not a domain URL.' };
+      if (typeof item.enabled !== 'boolean' || typeof item.mobile !== 'boolean' || typeof item.desktop !== 'boolean') {
+        return { valid: false, message: 'Quick Action visibility and enabled values must be boolean.' };
+      }
+      quickActions.push({ id, label, icon, destination, enabled: item.enabled, mobile: item.mobile, desktop: item.desktop });
     }
-    if (typeof item.enabled !== 'boolean' || typeof item.mobile !== 'boolean' || typeof item.desktop !== 'boolean') {
-      return { valid: false, message: 'Quick Action visibility and enabled values must be boolean.' };
-    }
-    quickActions.push({ id, label, icon, destination, enabled: item.enabled, mobile: item.mobile, desktop: item.desktop });
   }
   return { valid: true, config: { enabledModes, defaultMode, allowModeSwitching: raw.allowModeSwitching, quickActions } };
 }
@@ -445,7 +456,18 @@ systemSettingsRouter.get('/user-dashboard-navigation', async (_req, res) => {
 // Admin-only update. The repository performs a MongoDB-backed write; no JSON/localStorage fallback.
 systemSettingsRouter.put('/user-dashboard-navigation', requireAdminPermission('settings.manage'), async (req, res) => {
   try {
-    const validation = validateUserDashboardNavigationConfig(req.body?.config ?? req.body);
+    const section = req.body?.section as 'menuStyles' | 'quickActions' | undefined;
+    if (section && section !== 'menuStyles' && section !== 'quickActions') {
+      return res.status(400).json({ success: false, message: 'Unknown dashboard navigation settings section.' });
+    }
+    const submitted = req.body?.config ?? req.body;
+    const current = await SystemSettingsRepository.getUserDashboardNavigationConfig();
+    const merged = section === 'menuStyles'
+      ? { ...current, enabledModes: submitted?.enabledModes, defaultMode: submitted?.defaultMode, allowModeSwitching: submitted?.allowModeSwitching }
+      : section === 'quickActions'
+        ? { ...current, quickActions: submitted?.quickActions }
+        : submitted;
+    const validation = validateUserDashboardNavigationConfig(merged, section);
     if (!validation.valid || !validation.config) return res.status(400).json({ success: false, message: validation.message });
     const saved = await SystemSettingsRepository.saveUserDashboardNavigationConfig(validation.config);
     const auditOutcome = await AuditRepository.addAfterPrimaryOperation({

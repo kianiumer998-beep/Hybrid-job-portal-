@@ -45,7 +45,7 @@ const normalizeQuickAction = (item: QuickAction): QuickAction => {
     const parsed = new URL(destination, 'https://internal.invalid');
     valid = destination.startsWith('/') && !destination.startsWith('//') &&
       parsed.origin === 'https://internal.invalid' && !destination.includes('\\') &&
-      !/[\\u0000-\\u001F\\u007F]/.test(destination) && destination.length <= 160;
+      !/[\u0000-\u001F\u007F]/.test(destination) && destination.length <= 160;
   } catch {}
   return { ...item, destination: valid ? destination : getCanonicalDestination(item.id) };
 };

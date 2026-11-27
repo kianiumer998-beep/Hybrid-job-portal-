@@ -468,6 +468,7 @@ export default function App() {
           setActiveTab('dashboard');
           return;
         }
+        window.history.replaceState({}, '', '/');
       }
       if (path === '/cv') setActiveTab('cv');
       else if (path === '/alerts') setActiveTab('alerts');

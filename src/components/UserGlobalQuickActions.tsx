@@ -49,6 +49,7 @@ export const UserGlobalQuickActions: React.FC<UserGlobalQuickActionsProps> = ({
     return () => { mounted = false; };
   }, [currentUser?.id]);
 
+  // The dashboard renders its own configured quick navigation; avoid showing a duplicate bar here.
   if (!currentUser || activeTab === 'dashboard') return null;
 
   const visibleActions = quickActions

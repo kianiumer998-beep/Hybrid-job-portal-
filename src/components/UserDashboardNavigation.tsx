@@ -28,6 +28,7 @@ type OverviewSubView = 'metrics' | 'recommendations' | 'history';
 type AppSubTab = 'submitted' | 'saved' | 'alerts' | 'documents';
 type CampaignSubTab = 'my-campaigns' | 'create' | 'wallet';
 type GlobalTab = 'jobs' | 'cv' | 'alerts' | 'dashboard';
+const QUICK_ACTION_ICONS: Record<string, LucideIcon> = { LayoutDashboard, Search, Building2, Megaphone, User, FileText, Sparkles, History, Bookmark, Plus, Wallet, Crown, ShieldCheck, Bell, Lock, MessageSquare, Zap };
 
 interface NavSubItem {
   id: string;
@@ -310,6 +311,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
     const expandedMenu = menuStructure.find((category) => category.id === expandedCategory);
     return (
       <div className="relative z-30 w-full border-b border-slate-800 bg-slate-950/95 shadow-lg shadow-slate-950/30 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-1.5"><span className="text-[11px] font-black tracking-wider text-white">MENU</span><span className="max-w-[65%] truncate text-[9px] text-slate-500">{userIdentity}</span></div>
         <nav aria-label="Classic New top icon menu" className="mx-auto grid max-w-7xl grid-cols-4 gap-1 px-2 py-2 min-[380px]:grid-cols-5 sm:grid-cols-6 sm:gap-2 sm:px-4">
           {menuStructure.map((category) => {
             const isExpanded = expandedCategory === category.id;
@@ -375,6 +377,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
             const target = menuStructure.flatMap(category => category.subItems).find(subItem => subItem.id === item.id);
             if (!target || (target.employerOnly && userRole !== 'Employer/Job Poster')) return null;
             const active = isActive(target);
+            const ActionIcon = QUICK_ACTION_ICONS[item.icon] || target.icon;
             return <button key={item.id} type="button" aria-current={active ? "page" : undefined}
               onClick={() => {
                 if (target.action === 'notifications') onOpenNotifications();
@@ -385,7 +388,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
               }}
               className={"relative flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[9px] font-semibold " + (active ? "text-emerald-300 bg-emerald-500/10" : "text-slate-400 hover:text-slate-200")}>
               {active && <span className="absolute top-1 h-0.5 w-4 rounded-full bg-emerald-400" aria-hidden="true" />}
-              {target.icon && <target.icon className="h-4 w-4" aria-hidden="true" />}<span className="max-w-full truncate">{item.label}</span>
+              {ActionIcon && <ActionIcon className="h-4 w-4" aria-hidden="true" />}<span className="max-w-full truncate">{item.label}</span>
             </button>;
           })}
         </div>
@@ -576,6 +579,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
             const target = menuStructure.flatMap(category => category.subItems).find(subItem => subItem.id === item.id);
             if (!target || (target.employerOnly && userRole !== 'Employer/Job Poster')) return null;
             const active = isActive(target);
+            const ActionIcon = QUICK_ACTION_ICONS[item.icon] || target.icon;
             return (
               <button key={item.id} type="button" aria-current={active ? "page" : undefined}
                 onClick={() => {

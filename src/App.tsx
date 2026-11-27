@@ -473,6 +473,7 @@ export default function App() {
       else if (path === '/alerts') setActiveTab('alerts');
       else setActiveTab('jobs');
     };
+    syncTopLevelRoute();
     window.addEventListener('popstate', syncTopLevelRoute);
     return () => window.removeEventListener('popstate', syncTopLevelRoute);
   }, []);
@@ -4709,6 +4710,7 @@ export default function App() {
                 onUpdateApplicationStatus={handleUpdateEmployerApplicationStatus}
                 onLogout={async () => {
                   await api.auth.logout();
+                  window.history.replaceState({}, '', '/');
                   try {
                     localStorage.removeItem('hybrid_admin_view_preference');
                     localStorage.removeItem('hybrid_user_is_subscribed');

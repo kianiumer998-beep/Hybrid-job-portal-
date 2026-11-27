@@ -536,7 +536,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     restoreDashboardRoute();
     window.addEventListener('popstate', restoreDashboardRoute);
     return () => window.removeEventListener('popstate', restoreDashboardRoute);
-  }, [onNavigateGlobalTab, onOpenSubscriptionModal]);
+  }, []);
 
   // Every dashboard destination has a shareable, refresh-safe URL. pushState is
   // used rather than assigning location so the app remains a fast SPA.

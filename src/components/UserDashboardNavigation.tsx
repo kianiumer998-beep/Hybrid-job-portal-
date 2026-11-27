@@ -360,8 +360,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
             ))}
           </div>
         ) : (
-
-        {menuStructure.map((category) => {
+          menuStructure.map((category) => {
           const isExpanded = expandedCategory === category.id;
           const categoryHasActiveItem = category.subItems.some(isActive);
           return (
@@ -441,8 +440,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
               )}
             </div>
           );
-        })}
-
+        })
         )}
       </nav>
 

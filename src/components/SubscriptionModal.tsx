@@ -147,6 +147,18 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     };
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !isSubmitting && !isWalletPurchasing) {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [isOpen, isSubmitting, isWalletPurchasing, onClose]);
+
   if (!isOpen) return null;
 
   const activePackage = packages.find(p => p.id === selectedPackageId);
@@ -414,10 +426,10 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md overflow-y-auto">
-      <div className="relative w-full max-w-xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden my-8 animate-in fade-in zoom-in duration-200">
+      <div role="dialog" aria-modal="true" aria-labelledby="subscription-modal-title" className="relative w-full max-w-xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden my-8 animate-in fade-in zoom-in duration-200">
         
         {/* Top Header */}
-        <div className="p-6 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border-b border-slate-800 relative">
+        <div className="sticky top-0 z-20 p-6 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border-b border-slate-800 relative">
           <button
             onClick={onClose}
             className="absolute top-5 right-5 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
@@ -430,7 +442,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
             <span>{modalCustoms.badgeText || (whatsappEnabledGlobal ? 'Instant WhatsApp & Direct Apply Unlock' : 'Direct Apply & Pro Alerts Unlock')}</span>
           </div>
 
-          <h2 className="text-2xl font-black text-white leading-snug">
+          <h2 id="subscription-modal-title" className="pr-10 text-2xl font-black text-white leading-snug">
             {modalCustoms.title ? (
               modalCustoms.title
             ) : initialSelectedJobTitle ? (

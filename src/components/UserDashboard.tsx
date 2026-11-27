@@ -1726,6 +1726,63 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         </div>
       </div>
 
+      {/* Persistent dashboard breadcrumb: keep users oriented and provide a safe return path. */}
+      {navigationMode === 'professional' && (() => {
+        const sectionNames: Record<string, string> = {
+          overview: 'Overview',
+          profile: 'My Account',
+          applications: 'Find Jobs / Career',
+          'post-job': 'Employer Center',
+          'my-jobs': 'Employer Center',
+          chat: 'Help & Support',
+          campaigns: campaignSubTab === 'wallet' ? 'Wallet & Payments' : 'Ads & Campaigns'
+        };
+        const pageNames: Record<string, string> = {
+          'dash-overview': 'Dashboard Overview',
+          'jobs-recommended': 'Recommended Jobs',
+          'jobs-applications': 'My Applications',
+          'jobs-saved': 'Saved Jobs',
+          'jobs-alerts': 'Job Alerts',
+          'career-docs': 'My Documents',
+          'career-cv': 'CV Builder',
+          'emp-post': 'Post a Job',
+          'emp-listings': 'My Job Listings & Applicants',
+          'emp-verification': 'Business Verification',
+          'ads-list': 'My Campaigns',
+          'ads-create': 'Create Campaign',
+          'mem-wallet': 'Wallet & Balance',
+          'membership-plan': 'Membership & Plans',
+          'wallet-deposit': 'Add Funds / Deposit',
+          'mem-history': 'Payment History',
+          'mem-whatsapp': 'WhatsApp & Job Alerts',
+          'notifications-center': 'Notifications Center',
+          'acc-chat': 'Support Inbox',
+          'acc-profile': 'Profile & Preferences',
+          'acc-security': 'Security & Password'
+        };
+        const currentPage = pageNames[activeNavId || ''] || (
+          activeTab === 'overview' ? (overviewSubView === 'history' ? 'Payment History' : overviewSubView === 'recommendations' ? 'Recommended Jobs' : 'Dashboard Overview') :
+          activeTab === 'profile' ? (accountSubTab === 'security' ? 'Security & Password' : 'Profile & Preferences') :
+          activeTab === 'applications' ? ({ submitted: 'My Applications', saved: 'Saved Jobs', alerts: 'Job Alerts', documents: 'My Documents' } as Record<string, string>)[appSubTab] :
+          activeTab === 'post-job' ? 'Post a Job' :
+          activeTab === 'my-jobs' ? 'My Job Listings & Applicants' :
+          activeTab === 'chat' ? 'Support Inbox' :
+          ({ 'my-campaigns': 'My Campaigns', create: 'Create Campaign', wallet: 'Wallet & Balance' } as Record<string, string>)[campaignSubTab]
+        );
+        return (
+          <nav aria-label="Dashboard breadcrumb" className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2 text-xs">
+            <button type="button" onClick={() => onNavigateGlobalTab?.('jobs')} className="font-bold text-emerald-300 hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 rounded" title="Go to HybridJobs.pk homepage">HybridJobs.pk</button>
+            <span aria-hidden="true" className="text-slate-600">/</span>
+            <button type="button" onClick={() => { setActiveTab('overview'); setOverviewSubView('metrics'); setActiveNavId('dash-overview'); }} className="text-slate-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 rounded">Dashboard</button>
+            <span aria-hidden="true" className="text-slate-600">/</span>
+            <span className="text-slate-400">{sectionNames[activeTab] || 'Dashboard'}</span>
+            <span aria-hidden="true" className="text-slate-600">/</span>
+            <span aria-current="page" className="font-semibold text-white">{currentPage}</span>
+            <button type="button" onClick={() => { setActiveTab('overview'); setOverviewSubView('metrics'); setActiveNavId('dash-overview'); }} className="ml-auto rounded-lg border border-slate-700 px-2.5 py-1 text-[10px] font-bold text-slate-300 hover:border-emerald-500/40 hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">Back to Dashboard</button>
+          </nav>
+        );
+      })()}
+
       {/* PERSISTENT GLOBAL QUICK ACTION BAR (VISIBLE ACROSS ALL DASHBOARD TABS) */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-2xl sm:rounded-2xl p-3 sm:p-4 shadow-lg flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">

@@ -397,15 +397,15 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
             <LayoutDashboard className="w-5 h-5 text-slate-950" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
-          <span className="block font-extrabold text-white tracking-tight text-sm">{variant === 'new' ? 'New Menu' : variant === 'classic-new' ? 'Classic New' : 'My Dashboard'}</span>
-          <span className="block text-[10px] font-medium tracking-wide text-slate-500">{variant === 'new' ? 'COMPARISON MODE' : variant === 'classic-new' ? 'CLASSIC STYLE • EXPANDABLE MENU' : userRole === 'Employer/Job Poster' ? 'EMPLOYER WORKSPACE' : 'JOB SEEKER WORKSPACE'}</span>
+          <span className="block font-extrabold text-white tracking-tight text-sm">{variant === 'new' ? 'New Menu' : 'My Dashboard'}</span>
+          <span className="block text-[10px] font-medium tracking-wide text-slate-500">{variant === 'new' ? 'COMPARISON MODE' : userRole === 'Employer/Job Poster' ? 'EMPLOYER WORKSPACE' : 'JOB SEEKER WORKSPACE'}</span>
         </div>
         <button type="button" aria-label="Close navigation" onClick={onClose} className="lg:hidden rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">
             <X className="w-5 h-5" aria-hidden="true" />
         </button>
       </div>
 
-      <nav aria-label={variant === 'new' ? 'New dashboard menu' : variant === 'classic-new' ? 'Classic New dashboard menu' : 'Dashboard sections'} className="flex-1 px-2 py-4 space-y-3">
+      <nav aria-label={variant === 'new' ? 'New dashboard menu' : 'Dashboard sections'} className="flex-1 px-2 py-4 space-y-3">
         {variant === 'new' ? (
           <div className="space-y-3">
             <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 px-3 py-2">

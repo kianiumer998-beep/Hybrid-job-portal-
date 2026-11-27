@@ -326,6 +326,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                   (isExpanded || categoryHasActiveItem ? 'bg-emerald-500/10 text-emerald-300' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-100')}>
                 <CategoryIcon aria-hidden="true" className="h-4 w-4 sm:h-5 sm:w-5" />
                 <span className="flex w-full items-center justify-center gap-1 break-words text-[9px] font-bold leading-tight min-[380px]:text-[10px] sm:text-[11px]">{category.label}{isExpanded ? <ChevronDown aria-hidden="true" className="h-3 w-3 shrink-0" /> : <ChevronRight aria-hidden="true" className="h-3 w-3 shrink-0" />}</span>
+                <ChevronDown aria-hidden="true" className={'absolute right-1.5 bottom-1.5 h-3 w-3 transition-transform ' + (isExpanded ? 'rotate-180' : '')} />
                 {categoryHasActiveItem && <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />}
               </button>
             );

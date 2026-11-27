@@ -4726,7 +4726,6 @@ export default function App() {
                 key={currentUser.id}
                 currentUser={currentUser}
                 dashboardMenuOpen={dashboardMenuOpen}
-                onToggleDashboardMenu={() => setDashboardMenuOpen((open) => !open)}
                 onCloseDashboardMenu={() => setDashboardMenuOpen(false)}
                 userJobs={userJobs}
                 chatMessages={chatMessages}

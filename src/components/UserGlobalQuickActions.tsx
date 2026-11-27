@@ -49,7 +49,7 @@ export const UserGlobalQuickActions: React.FC<UserGlobalQuickActionsProps> = ({
     return () => { mounted = false; };
   }, [currentUser?.id]);
 
-  if (!currentUser) return null;
+  if (!currentUser || activeTab === 'dashboard') return null;
 
   const visibleActions = quickActions
     .filter((item) => item?.enabled === true && item?.mobile === true && USER_DASHBOARD_ROUTES[item.id] && !USER_DASHBOARD_ROUTES[item.id].action)

@@ -463,7 +463,7 @@ export default function App() {
   useEffect(() => {
     const previousTab = previousTopLevelTabRef.current;
     previousTopLevelTabRef.current = activeTab;
-    if (previousTab === activeTab || showAdminView) return;
+    if (previousTab === activeTab) return;
     const nextPath = activeTab === 'dashboard'
       ? (window.location.pathname.startsWith('/user/dashboard') ? window.location.pathname : '/user/dashboard/dash-overview')
       : activeTab === 'jobs' ? '/jobs' : `/${activeTab}`;
@@ -4716,6 +4716,7 @@ export default function App() {
                 onNavigateGlobalTab={navigateGlobalTab}
                 dashboardMenuOpen={dashboardMenuOpen}
                 onDashboardMenuClose={() => setDashboardMenuOpen(false)}
+                onDashboardMenuOpen={() => setDashboardMenuOpen(true)}
               />
             )}
 

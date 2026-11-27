@@ -1717,16 +1717,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         {/* Header Profile Card - UNIFIED ACCOUNT */}
         <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-3 sm:p-6 text-white shadow-xl flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 sm:gap-6">
           <div className="flex items-center space-x-2.5 sm:space-x-4 w-full md:w-auto min-w-0">
-            {(navigationMode === 'professional' || navigationMode === 'new' || navigationMode === 'classic-new') && (
-              <button 
-                onClick={() => setIsProMenuOpen(true)}
-                aria-label="Open dashboard navigation"
-                aria-expanded={isProMenuOpen}
-                className="lg:hidden p-2.5 min-h-11 min-w-11 bg-slate-800 border border-slate-700 rounded-xl text-emerald-400 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
-              >
-                <Menu className="w-4 h-4" /><span className="ml-1 text-[10px] font-black tracking-wide">MENU</span>
-              </button>
-            )}
             <div className="w-10 h-10 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-600 p-0.5 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
               <div className="relative w-full h-full bg-slate-950 rounded-[10px] sm:rounded-[14px] flex items-center justify-center overflow-hidden font-black text-base sm:text-2xl text-emerald-400">
                 <span>{(currentUser.name || '?').charAt(0).toUpperCase()}</span>
@@ -1756,6 +1746,18 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 w-full md:w-auto">
+            {(navigationMode === 'professional' || navigationMode === 'new' || navigationMode === 'classic') && (
+              <button
+                type="button"
+                onClick={() => navigationMode === 'classic' ? setIsMobileMenuOpen(value => !value) : setIsProMenuOpen(true)}
+                aria-expanded={navigationMode === 'classic' ? isMobileMenuOpen : isProMenuOpen}
+                aria-label="Open dashboard menu"
+                className="lg:hidden inline-flex items-center gap-1.5 min-h-11 px-3 rounded-xl bg-slate-800 border border-emerald-500/30 text-emerald-400 text-xs font-black shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+              >
+                {(navigationMode === 'classic' ? isMobileMenuOpen : isProMenuOpen) ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+                <span>MENU</span>
+              </button>
+            )}
             {showMenuModeSwitcher && (
               <div className="w-full sm:w-auto bg-slate-800/80 border border-slate-700 p-1 rounded-xl flex flex-wrap items-center justify-center shadow-lg mr-0 sm:mr-2" role="group" aria-label="Choose dashboard menu">
                 {enabledMenuModes.map((mode) => <button key={mode} type="button" aria-pressed={navigationMode === mode} onClick={() => { setNavigationMode(mode); if (mode === "classic") setActiveNavId(null); }}
@@ -1765,17 +1767,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </div>
             )}
 
-            {navigationMode === 'classic' && (
-              <button
-                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                aria-expanded={isMobileMenuOpen}
-                aria-label="Toggle Classic Navigation Menu"
-                className="md:hidden flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 text-emerald-400 border border-emerald-500/30 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
-              >
-                {isMobileMenuOpen ? <X className="w-3.5 h-3.5" /> : <Menu className="w-3.5 h-3.5" />}
-                <span>MENU</span>
-              </button>
-            )}
           <button
             onClick={() => setShowNotificationDrawer(!showNotificationDrawer)}
             aria-label="Notifications"

@@ -299,7 +299,8 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
     return true;
   };
 
-  // Classic New keeps the complete New Menu structure and navigation actions,
+  // Classic New keeps the complete New Menu structure and navigation actions.
+  // Responsive category grid guarantees 4, 5, or 6 visible icon tabs per row.
   // but presents its main categories as Classic-style icon tabs across the top.
   if (variant === 'classic-new') {
     const expandedMenu = menuStructure.find((category) => category.id === expandedCategory);

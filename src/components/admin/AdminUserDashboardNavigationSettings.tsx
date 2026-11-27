@@ -35,15 +35,21 @@ const DESTINATIONS = [
 
 export const AdminUserDashboardNavigationSettings: React.FC = () => {
   const [config, setConfig] = useState<Config>(DEFAULT_CONFIG);
+  const [savedConfig, setSavedConfig] = useState<Config>(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [savingMenu, setSavingMenu] = useState(false);
+  const [savingQuickActions, setSavingQuickActions] = useState(false);
   const [message, setMessage] = useState('');
   const [newDestination, setNewDestination] = useState<string>(DESTINATIONS[0][0]);
 
   useEffect(() => {
     let mounted = true;
     api.settings.getUserDashboardNavigation().then((result: any) => {
-      if (mounted && result?.success && result.config) setConfig({ ...DEFAULT_CONFIG, ...result.config });
+      if (mounted && result?.success && result.config) {
+        const normalized = { ...DEFAULT_CONFIG, ...result.config } as Config;
+        setConfig(normalized);
+        setSavedConfig(normalized);
+      }
     }).catch(() => {}).finally(() => { if (mounted) setLoading(false); });
     return () => { mounted = false; };
   }, []);
@@ -65,16 +71,39 @@ export const AdminUserDashboardNavigationSettings: React.FC = () => {
       id: def[0], label: def[1], icon: 'LayoutDashboard', destination: def[2], enabled: true, mobile: true, desktop: false
     }] }));
   };
-  const save = async () => {
-    setSaving(true); setMessage('');
+  const saveMenuStyles = async () => {
+    setSavingMenu(true); setMessage('');
+    const payload: Config = {
+      ...savedConfig,
+      enabledModes: config.enabledModes,
+      defaultMode: config.enabledModes.includes(config.defaultMode) ? config.defaultMode : config.enabledModes[0],
+      allowModeSwitching: config.allowModeSwitching
+    };
     try {
-      const result: any = await api.settings.updateUserDashboardNavigation(config);
+      const result: any = await api.settings.updateUserDashboardNavigation(payload);
       if (result?.success && result.config) {
-        setConfig({ ...DEFAULT_CONFIG, ...result.config });
-        setMessage('Settings successfully saved to server.');
-      } else setMessage(result?.message || 'Save failed. Existing saved settings were not changed.');
-    } catch { setMessage('Unable to save settings. Please try again.'); }
-    finally { setSaving(false); }
+        const normalized = { ...DEFAULT_CONFIG, ...result.config } as Config;
+        setSavedConfig(normalized);
+        setConfig(prev => ({ ...prev, enabledModes: normalized.enabledModes, defaultMode: normalized.defaultMode, allowModeSwitching: normalized.allowModeSwitching }));
+        setMessage('Menu styles saved successfully.');
+      } else setMessage(result?.message || 'Menu styles save failed. Saved server settings were kept.');
+    } catch { setMessage('Menu styles could not be saved. Please try again.'); }
+    finally { setSavingMenu(false); }
+  };
+
+  const saveQuickActions = async () => {
+    setSavingQuickActions(true); setMessage('');
+    const payload: Config = { ...savedConfig, quickActions: config.quickActions };
+    try {
+      const result: any = await api.settings.updateUserDashboardNavigation(payload);
+      if (result?.success && result.config) {
+        const normalized = { ...DEFAULT_CONFIG, ...result.config } as Config;
+        setSavedConfig(normalized);
+        setConfig(prev => ({ ...prev, quickActions: normalized.quickActions }));
+        setMessage('Quick Actions saved successfully.');
+      } else setMessage(result?.message || 'Quick Actions save failed. Saved server settings were kept.');
+    } catch { setMessage('Quick Actions could not be saved. Please try again.'); }
+    finally { setSavingQuickActions(false); }
   };
 
   if (loading) return <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 text-xs text-slate-400">Loading user dashboard settings…</div>;
@@ -110,6 +139,9 @@ export const AdminUserDashboardNavigationSettings: React.FC = () => {
       <p className="text-[10px] text-amber-300/80">Address preview/reference is an internal path. The actual dashboard action is resolved by its existing menu destination ID and permission checks; editing a path cannot grant access to another page.</p>
     </div>
     {message && <p role="status" className="text-xs text-emerald-300">{message}</p>}
-    <div className="flex justify-end"><button type="button" onClick={save} disabled={saving || !config.enabledModes.length} className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-xs font-black text-slate-950 disabled:opacity-50"><Save className="h-4 w-4"/>{saving?'Saving…':'Save Navigation Settings'}</button></div>
+    <div className="flex flex-col sm:flex-row sm:justify-between gap-2">
+      <button type="button" onClick={saveMenuStyles} disabled={savingMenu || !config.enabledModes.length} className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-xs font-black text-slate-950 disabled:opacity-50"><Save className="h-4 w-4"/>{savingMenu?'Saving menu…':'Save Menu Styles'}</button>
+      <button type="button" onClick={saveQuickActions} disabled={savingQuickActions} className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/50 bg-slate-950 px-4 py-2.5 text-xs font-black text-emerald-300 disabled:opacity-50"><Save className="h-4 w-4"/>{savingQuickActions?'Saving actions…':'Save Quick Actions'}</button>
+    </div>
   </section>;
 };

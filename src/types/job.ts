@@ -659,9 +659,12 @@ export interface ScraperBatchRun {
   logTrace: string[];
 }
 
+export type PriorityTierRotateOrder = 'latest' | 'sequential' | 'shuffle';
+
 export interface PriorityCategorySlotConfig {
   enabled: boolean;
   maxSlots: number;
+  rotateOrder?: PriorityTierRotateOrder;
 }
 
 export interface HomepagePrioritySlotConfig {
@@ -675,11 +678,11 @@ export interface HomepagePrioritySlotConfig {
 
 export const DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG: HomepagePrioritySlotConfig = {
   enabled: true,
-  vip: { enabled: true, maxSlots: 2 },
-  pinned: { enabled: true, maxSlots: 2 },
-  featured: { enabled: true, maxSlots: 4 },
-  urgent: { enabled: true, maxSlots: 4 },
-  future: { enabled: true, maxSlots: 4 }
+  vip: { enabled: true, maxSlots: 2, rotateOrder: 'sequential' },
+  pinned: { enabled: true, maxSlots: 2, rotateOrder: 'sequential' },
+  featured: { enabled: true, maxSlots: 4, rotateOrder: 'sequential' },
+  urgent: { enabled: true, maxSlots: 4, rotateOrder: 'sequential' },
+  future: { enabled: true, maxSlots: 4, rotateOrder: 'sequential' }
 };
 
 export interface TierExpiryReminderConfig {

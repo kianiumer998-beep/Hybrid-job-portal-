@@ -201,6 +201,37 @@ export const BroadcastRepository = {
     return this.getById(cleanId);
   },
 
+  async markCampaignDeliveryResult(
+    id: string,
+    input: {
+      status: 'Draft' | 'Scheduled' | 'Sent' | 'Failed';
+      sentAt?: string;
+      recipientsCount?: number;
+      sentCount?: number;
+      failedCount?: number;
+    }
+  ) {
+    const dbColl = await this.getCollection();
+    await this.ensureIndexes(dbColl);
+    const cleanId = String(id || '').trim().slice(0, 160);
+    const updateDoc: Record<string, any> = {
+      status: input.status,
+      updatedAt: new Date().toISOString()
+    };
+    if (input.sentAt) updateDoc.sentAt = input.sentAt;
+    if (typeof input.recipientsCount === 'number' && Number.isFinite(input.recipientsCount)) {
+      updateDoc.recipientsCount = Math.max(0, Math.floor(input.recipientsCount));
+    }
+    if (typeof input.sentCount === 'number' && Number.isFinite(input.sentCount)) {
+      updateDoc.sentCount = Math.max(0, Math.floor(input.sentCount));
+    }
+    if (typeof input.failedCount === 'number' && Number.isFinite(input.failedCount)) {
+      updateDoc.failedCount = Math.max(0, Math.floor(input.failedCount));
+    }
+    await dbColl.updateOne({ id: cleanId } as any, { $set: updateDoc });
+    return this.getById(cleanId);
+  },
+
   async createCampaign(input: any, coll?: Collection<BroadcastCampaign>): Promise<BroadcastCampaign> {
     const dbColl = await this.getCollection(coll);
     await this.ensureIndexes(dbColl);

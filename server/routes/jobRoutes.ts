@@ -211,6 +211,7 @@ jobRouter.get('/priority', async (req, res) => {
       );
     }
 
+    res.set('Cache-Control', 'no-store');
     res.json({
       success: true,
       tierCounts: result.tierCounts,

@@ -21,8 +21,9 @@ import {
   Trash2
 } from 'lucide-react';
 import { api } from '../../services/api';
-import { AdminFeatureFlags, Subscriber, UserAccount } from '../../types/job';
+import { AdminFeatureFlags, Job, Subscriber, UserAccount } from '../../types/job';
 import {
+  Advertisement,
   AdPricingConfig,
   CampaignCustomizationConfig,
   DEFAULT_AD_PRICING_CONFIG,
@@ -41,9 +42,11 @@ import {
 import { WhatsAppSupportConfig } from '../WhatsAppStickyButton';
 import { AdminWhatsAppManager } from './AdminWhatsAppManager';
 import { AdminBroadcastCenter } from './AdminBroadcastCenter';
+import { AdminMasterRuleEngine } from './AdminMasterRuleEngine';
 
-export type AdminChannelKey = 'whatsapp' | 'email' | 'sms';
-type ChannelSubTab = 'pricing' | 'broadcast' | 'widget' | 'gateway';
+export type AdminChannelKey = 'whatsapp' | 'email' | 'sms' | 'combined';
+type SingleChannelKey = 'whatsapp' | 'email' | 'sms';
+type ChannelSubTab = 'pricing' | 'broadcast' | 'widget' | 'gateway' | 'rule-engine';
 
 interface AdminChannelControlHubProps {
   activeChannel: AdminChannelKey;
@@ -64,22 +67,25 @@ interface AdminChannelControlHubProps {
   broadcastCampaigns?: BroadcastCampaign[];
   users?: UserAccount[];
   subscribers?: Subscriber[];
+  jobs?: Job[];
+  ads?: Advertisement[];
   commConfig?: CommunicationProviderConfig;
   isBroadcastLoading?: boolean;
   broadcastLoadError?: string | null;
   broadcastMigrationError?: string | null;
   onSendBroadcastCampaign?: (newCampaign: Partial<BroadcastCampaign>) => Promise<{ success: boolean; campaign?: BroadcastCampaign; error?: string } | boolean | void> | void;
+  onCampaignUpdated?: (campaign: BroadcastCampaign) => void;
   onRefreshBroadcastCampaigns?: () => void;
   onOpenBroadcast?: (subTab: 'compose' | 'history') => void;
 }
 
-const CHANNEL_CATALOG_ID: Record<AdminChannelKey, 'whatsapp_alerts' | 'email_alerts' | 'sms_alerts'> = {
+const CHANNEL_CATALOG_ID: Record<SingleChannelKey, 'whatsapp_alerts' | 'email_alerts' | 'sms_alerts'> = {
   whatsapp: 'whatsapp_alerts',
   email: 'email_alerts',
   sms: 'sms_alerts'
 };
 
-const CHANNEL_FLAG_KEY: Record<AdminChannelKey, keyof AdminFeatureFlags> = {
+const CHANNEL_FLAG_KEY: Record<SingleChannelKey, keyof AdminFeatureFlags> = {
   whatsapp: 'enableWhatsAppAlerts',
   email: 'enableEmailAlerts',
   sms: 'enableSmsAlerts'
@@ -130,21 +136,31 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
   broadcastCampaigns = [],
   users = [],
   subscribers = [],
+  jobs = [],
+  ads = [],
   commConfig,
   isBroadcastLoading = false,
   broadcastLoadError = null,
   broadcastMigrationError = null,
   onSendBroadcastCampaign,
+  onCampaignUpdated,
   onRefreshBroadcastCampaigns
 }) => {
-  const [subTab, setSubTab] = useState<ChannelSubTab>('broadcast');
+  const [subTab, setSubTab] = useState<ChannelSubTab>(activeChannel === 'combined' ? 'rule-engine' : 'pricing');
   const [broadcastInitialTab, setBroadcastInitialTab] = useState<'compose' | 'history'>('compose');
   const [isTogglingFlag, setIsTogglingFlag] = useState(false);
+  const [gatewayChannelChoice, setGatewayChannelChoice] = useState<SingleChannelKey>('whatsapp');
 
-  // Reset invalid sub-tab when switching between WhatsApp / Email / SMS
+  // Reset invalid sub-tab when switching channels
   useEffect(() => {
-    if (subTab === 'widget' && activeChannel !== 'whatsapp') {
-      setSubTab('pricing');
+    if (activeChannel === 'combined') {
+      if (subTab !== 'rule-engine' && subTab !== 'broadcast' && subTab !== 'gateway') {
+        setSubTab('rule-engine');
+      }
+    } else {
+      if (subTab === 'rule-engine' || (subTab === 'widget' && activeChannel !== 'whatsapp')) {
+        setSubTab('pricing');
+      }
     }
     setPricingError('');
     setPricingSuccess('');
@@ -191,7 +207,8 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
     () => (Array.isArray(pricing?.subscriptionPackages) ? pricing.subscriptionPackages : []),
     [pricing]
   );
-  const featureId = CHANNEL_CATALOG_ID[activeChannel];
+  const singleChannelKey: SingleChannelKey = activeChannel === 'combined' ? 'whatsapp' : activeChannel;
+  const featureId = CHANNEL_CATALOG_ID[singleChannelKey];
   const channelCatalogFeature = useMemo(
     () => catalog.find((item: any) => item.id === featureId) || null,
     [catalog, featureId]
@@ -650,9 +667,11 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
     }
   };
 
+  const currentGatewayChannel: SingleChannelKey = activeChannel === 'combined' ? gatewayChannelChoice : singleChannelKey;
+
   const handleTestChannelConnection = async () => {
     if (!testRecipient.trim()) {
-      setProviderTestError(activeChannel === 'email' ? 'Enter a test email address first.' : 'Enter an international phone number first.');
+      setProviderTestError(currentGatewayChannel === 'email' ? 'Enter a test email address first.' : 'Enter an international phone number first.');
       return;
     }
     setIsProviderTesting(true);
@@ -660,7 +679,7 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
     setProviderTestMessage(null);
     try {
       const result = await api.communicationProviders.test({
-        channel: activeChannel,
+        channel: currentGatewayChannel,
         recipient: testRecipient.trim()
       });
       if (result?.success) {
@@ -680,14 +699,24 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
   };
 
   // --- Channel Metadata & Master Flag ---
-  const flagKey = CHANNEL_FLAG_KEY[activeChannel];
+  const flagKey = CHANNEL_FLAG_KEY[singleChannelKey];
   const isChannelEnabled = featureFlags?.[flagKey] === true;
 
   const channelMeta = useMemo(() => {
+    if (activeChannel === 'combined') {
+      return {
+        title: 'All Channels Combined Broadcast',
+        subtitle: 'Send one Job or Ad broadcast simultaneously via Email, WhatsApp & SMS.',
+        icon: Megaphone,
+        accentClass: 'text-amber-400',
+        activePill: 'bg-amber-500 text-slate-950 border-amber-400',
+        testPlaceholder: 'alerts-test@yourdomain.com'
+      };
+    }
     if (activeChannel === 'whatsapp') {
       return {
         title: 'WhatsApp Control Hub',
-        subtitle: 'WhatsApp alert rates, quotas, subscription packages, sticky support widget design, and Cloud API / Twilio gateway.',
+        subtitle: 'Rates, quotas, packages, chat widget & WhatsApp Cloud/Twilio gateway.',
         icon: MessageCircle,
         accentClass: 'text-emerald-400',
         activePill: 'bg-emerald-500 text-slate-950 border-emerald-400',
@@ -697,7 +726,7 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
     if (activeChannel === 'email') {
       return {
         title: 'Email Control Hub',
-        subtitle: 'Email alert pricing, monthly quotas, expiry reminders, packages, and SMTP / SendGrid / Resend gateway.',
+        subtitle: 'Rates, quotas, expiry reminders, packages & SMTP/SendGrid/Resend API.',
         icon: Mail,
         accentClass: 'text-sky-400',
         activePill: 'bg-sky-400 text-slate-950 border-sky-300',
@@ -706,7 +735,7 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
     }
     return {
       title: 'SMS Control Hub',
-      subtitle: 'SMS alert quotas, packages, Direct SMS Ad placement slot rates, and Twilio SMS gateway.',
+      subtitle: 'SMS quotas, packages, Direct SMS Ad slots & Twilio SMS API.',
       icon: Smartphone,
       accentClass: 'text-indigo-400',
       activePill: 'bg-indigo-400 text-slate-950 border-indigo-300',
@@ -716,127 +745,193 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
 
   const ChannelIcon = channelMeta.icon;
   const filteredChannelLogs = useMemo(
-    () => deliveryLogs.filter((row: any) => String(row?.channel || '').toLowerCase() === activeChannel),
-    [deliveryLogs, activeChannel]
+    () => deliveryLogs.filter((row: any) => String(row?.channel || '').toLowerCase() === currentGatewayChannel),
+    [deliveryLogs, currentGatewayChannel]
   );
 
-  const handleToggleChannelMasterSwitch = async () => {
+  const handleToggleChannelMasterSwitch = async (targetFlag: keyof AdminFeatureFlags = flagKey) => {
     if (!canManageSettings || isTogglingFlag) return;
     setIsTogglingFlag(true);
     try {
-      await onToggleFeatureFlag(flagKey);
+      await onToggleFeatureFlag(targetFlag);
     } finally {
       setIsTogglingFlag(false);
     }
   };
 
-  const subTabs: Array<{ id: ChannelSubTab; label: string }> = [
-    {
-      id: 'pricing',
-      label:
-        activeChannel === 'sms'
-          ? 'Channel Settings & SMS Ad Slot'
-          : 'Channel Settings & Packages'
-    },
-    { id: 'broadcast', label: 'Broadcast Center' },
-    ...(activeChannel === 'whatsapp' ? [{ id: 'widget' as const, label: 'Widget & Chat Design' }] : []),
-    { id: 'gateway', label: 'API Tests & Delivery Logs' }
-  ];
+  const subTabs: Array<{ id: ChannelSubTab; label: string }> = activeChannel === 'combined'
+    ? [
+        { id: 'rule-engine', label: '⚡ Master Expiry & Usage Rule Engine' },
+        { id: 'broadcast', label: '📣 Broadcast & Multi-Channel Center' },
+        { id: 'gateway', label: '🔌 Channel Gateways & Delivery Logs' }
+      ]
+    : [
+        {
+          id: 'pricing',
+          label: activeChannel === 'sms' ? 'Rates & SMS Ad Slot' : 'Rates & Packages'
+        },
+        { id: 'broadcast', label: 'Broadcast Center' },
+        ...(activeChannel === 'whatsapp' ? [{ id: 'widget' as const, label: 'Chat Widget' }] : []),
+        { id: 'gateway', label: 'Gateway & Logs' }
+      ];
 
   const openEmbeddedBroadcast = (tab: 'compose' | 'history') => {
     setBroadcastInitialTab(tab);
     setSubTab('broadcast');
   };
 
-  const channelLabelCaps = activeChannel === 'whatsapp' ? 'WhatsApp' : activeChannel === 'email' ? 'Email' : 'SMS';
-  const channelReminderKey = activeChannel === 'whatsapp' ? 'whatsappEnabled' : activeChannel === 'email' ? 'emailEnabled' : 'smsEnabled';
-  const channelReminderDaysKey = activeChannel === 'whatsapp' ? 'whatsappDaysBefore' : activeChannel === 'email' ? 'emailDaysBefore' : 'smsDaysBefore';
+  const channelLabelCaps = singleChannelKey === 'whatsapp' ? 'WhatsApp' : singleChannelKey === 'email' ? 'Email' : 'SMS';
+  const channelReminderKey = singleChannelKey === 'whatsapp' ? 'whatsappEnabled' : singleChannelKey === 'email' ? 'emailEnabled' : 'smsEnabled';
+  const channelReminderDaysKey = singleChannelKey === 'whatsapp' ? 'whatsappDaysBefore' : singleChannelKey === 'email' ? 'emailDaysBefore' : 'smsDaysBefore';
 
   return (
-    <section className="space-y-4 text-white">
+    <section className="space-y-3 text-white">
       {/* Compact Channel Command Header + Inline Broadcast Shortcuts */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-4 space-y-3">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-          <div className="min-w-0 space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-2.5 sm:p-3.5 space-y-2.5">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2.5">
+          <div className="min-w-0 space-y-0.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <ChannelIcon className={`w-4 h-4 shrink-0 ${channelMeta.accentClass}`} />
-              <h3 className="text-sm sm:text-base font-black text-white truncate">{channelMeta.title}</h3>
-              <span
-                className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
-                  isChannelEnabled
-                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                    : 'bg-slate-800 text-slate-400 border-slate-700'
-                }`}
-              >
-                {isChannelEnabled ? 'Active' : 'Disabled'}
-              </span>
+              <h3 className="text-xs sm:text-sm font-black text-white truncate">{channelMeta.title}</h3>
+              {activeChannel !== 'combined' && (
+                <span
+                  className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                    isChannelEnabled
+                      ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                      : 'bg-slate-800 text-slate-400 border-slate-700'
+                  }`}
+                >
+                  {isChannelEnabled ? 'Active' : 'Off'}
+                </span>
+              )}
             </div>
-            <p className="text-[11px] sm:text-xs text-slate-400 leading-snug">{channelMeta.subtitle}</p>
+            <p className="text-[11px] text-slate-400 leading-snug">{channelMeta.subtitle}</p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            {canManageSettings && (
+          {activeChannel === 'combined' ? (
+            <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+              {canManageSettings && (['email', 'whatsapp', 'sms'] as const).map((ch) => {
+                const k = CHANNEL_FLAG_KEY[ch];
+                const on = featureFlags?.[k] === true;
+                const lbl = ch === 'email' ? 'Email' : ch === 'whatsapp' ? 'WA' : 'SMS';
+                return (
+                  <button
+                    key={ch}
+                    type="button"
+                    disabled={isTogglingFlag}
+                    onClick={() => handleToggleChannelMasterSwitch(k)}
+                    className={`min-h-[32px] px-2.5 py-1 rounded-lg text-[10px] font-black border cursor-pointer whitespace-nowrap disabled:opacity-50 ${
+                      on
+                        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                        : 'bg-slate-950 text-slate-400 border-slate-700'
+                    }`}
+                  >
+                    {lbl}: {on ? 'ON' : 'OFF'}
+                  </button>
+                );
+              })}
               <button
                 type="button"
-                onClick={handleToggleChannelMasterSwitch}
-                disabled={isTogglingFlag}
-                className={`min-h-[38px] px-3 py-1.5 rounded-xl text-[11px] font-black transition-all cursor-pointer border whitespace-nowrap ${
-                  isChannelEnabled
-                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25'
-                    : 'bg-slate-950 text-slate-300 border-slate-700 hover:border-slate-500'
-                } disabled:opacity-50`}
+                onClick={() => openEmbeddedBroadcast('compose')}
+                className="min-h-[32px] px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[10px] font-black flex items-center gap-1 cursor-pointer whitespace-nowrap"
               >
-                {isTogglingFlag ? 'Updating...' : isChannelEnabled ? 'Master Switch: ON' : 'Master Switch: OFF'}
+                <Megaphone className="w-3 h-3" />
+                <span>Compose</span>
               </button>
-            )}
+              <button
+                type="button"
+                onClick={() => openEmbeddedBroadcast('history')}
+                className="min-h-[32px] px-2.5 py-1 rounded-lg bg-slate-950 hover:bg-slate-800 text-slate-200 border border-slate-700 text-[10px] font-bold flex items-center gap-1 cursor-pointer whitespace-nowrap"
+              >
+                <Clock className="w-3 h-3 text-slate-400" />
+                <span>History</span>
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+              {canManageSettings && (
+                <button
+                  type="button"
+                  onClick={() => handleToggleChannelMasterSwitch(flagKey)}
+                  disabled={isTogglingFlag}
+                  className={`min-h-[34px] px-2.5 py-1 rounded-lg text-[11px] font-black transition-all cursor-pointer border whitespace-nowrap ${
+                    isChannelEnabled
+                      ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25'
+                      : 'bg-slate-950 text-slate-300 border-slate-700 hover:border-slate-500'
+                  } disabled:opacity-50`}
+                >
+                  {isTogglingFlag ? '...' : isChannelEnabled ? 'Master: ON' : 'Master: OFF'}
+                </button>
+              )}
 
-            <button
-              type="button"
-              onClick={() => openEmbeddedBroadcast('compose')}
-              className="min-h-[38px] px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-black flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-            >
-              <Megaphone className="w-3.5 h-3.5" />
-              <span>Compose Broadcast</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => openEmbeddedBroadcast('compose')}
+                className="min-h-[34px] px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-black flex items-center gap-1 cursor-pointer whitespace-nowrap"
+              >
+                <Megaphone className="w-3 h-3" />
+                <span>Compose</span>
+              </button>
 
-            <button
-              type="button"
-              onClick={() => openEmbeddedBroadcast('history')}
-              className="min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-200 border border-slate-700 text-[11px] font-bold flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-            >
-              <Clock className="w-3.5 h-3.5 text-slate-400" />
-              <span>Broadcast History</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => openEmbeddedBroadcast('history')}
+                className="min-h-[34px] px-2.5 py-1 rounded-lg bg-slate-950 hover:bg-slate-800 text-slate-200 border border-slate-700 text-[11px] font-bold flex items-center gap-1 cursor-pointer whitespace-nowrap"
+              >
+                <Clock className="w-3 h-3 text-slate-400" />
+                <span>History</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Segmented Sub-Tab Strip (Mobile + Desktop Compact) */}
+        {subTabs.length > 1 && (
+          <div className="flex items-center gap-1 overflow-x-auto pb-0.5 pt-2 border-t border-slate-800 scrollbar-none">
+            {subTabs.map((t) => {
+              const isActive = subTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setSubTab(t.id)}
+                  className={`min-h-[32px] px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap shrink-0 cursor-pointer border transition-all ${
+                    isActive
+                      ? channelMeta.activePill
+                      : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700 hover:text-white'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
           </div>
-        </div>
-
-        {/* Segmented Sub-Tab Strip (Mobile + Desktop Responsive) */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 pt-2 border-t border-slate-800">
-          {subTabs.map((t) => {
-            const isActive = subTab === t.id;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setSubTab(t.id)}
-                className={`min-h-[36px] px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-bold whitespace-nowrap shrink-0 cursor-pointer border transition-all ${
-                  isActive
-                    ? channelMeta.activePill
-                    : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700 hover:text-white'
-                }`}
-              >
-                {t.label}
-              </button>
-            );
-          })}
-          <span className="ml-auto hidden xl:inline-block text-[10px] text-slate-500 whitespace-nowrap">
-            Unified workspace for {channelLabelCaps} pricing, reminders, broadcasts &amp; gateway
-          </span>
-        </div>
+        )}
       </div>
 
+      {/* SUB-TAB: MASTER EXPIRY & USAGE RULE ENGINE */}
+      {subTab === 'rule-engine' && activeChannel === 'combined' && (
+        <AdminMasterRuleEngine
+          pricing={pricing}
+          onUpdatePricing={(updated) => {
+            setPricing(updated);
+            onSyncAuthoritativePricing?.(updated);
+          }}
+          canManagePricing={canManagePricing}
+          canManageSettings={canManageSettings}
+          featureFlags={featureFlags}
+          commConfig={commConfig}
+          users={users}
+          subscribers={subscribers}
+          ads={ads}
+          jobs={jobs}
+          onSwitchToBroadcast={() => setSubTab('broadcast')}
+          onSwitchToGateways={() => setSubTab('gateway')}
+        />
+      )}
+
       {/* SUB-TAB 1: CHANNEL RATES, QUOTAS, SMS AD SLOT & PACKAGES */}
-      {subTab === 'pricing' && (
+      {subTab === 'pricing' && activeChannel !== 'combined' && (
         <div className="space-y-4">
           {pricingLoading ? (
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-xs text-slate-400 flex items-center gap-2">
@@ -1542,17 +1637,20 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
         <AdminBroadcastCenter
           embedded
           hideProvidersTab
-          lockedChannel={channelLabelCaps}
+          lockedChannel={activeChannel === 'combined' ? undefined : channelLabelCaps}
           initialTab={broadcastInitialTab}
           campaigns={broadcastCampaigns}
           users={users}
           subscribers={subscribers}
+          jobs={jobs}
+          ads={ads}
           commConfig={commConfig}
           featureFlags={featureFlags}
           isLoading={isBroadcastLoading}
           loadError={broadcastLoadError}
           migrationError={broadcastMigrationError}
           onSendCampaign={onSendBroadcastCampaign}
+          onCampaignUpdated={onCampaignUpdated}
           onRefreshCampaigns={onRefreshBroadcastCampaigns}
           onUpdateCommConfig={onUpdateCommConfig}
         />
@@ -1576,12 +1674,57 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
             </div>
           ) : (
             <>
+              {/* Channel Selector when inside Broadcast & Notifications Gateway Tab */}
+              {activeChannel === 'combined' && (
+                <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="text-xs font-black text-amber-300 flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-amber-400" />
+                    <span>Select Gateway Configuration Target:</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setGatewayChannelChoice('whatsapp')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        currentGatewayChannel === 'whatsapp'
+                          ? 'bg-emerald-500 text-slate-950 font-black shadow-sm'
+                          : 'bg-slate-900 text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      💬 WhatsApp Gateway
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGatewayChannelChoice('email')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        currentGatewayChannel === 'email'
+                          ? 'bg-sky-400 text-slate-950 font-black shadow-sm'
+                          : 'bg-slate-900 text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      ✉️ Email Gateway
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGatewayChannelChoice('sms')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        currentGatewayChannel === 'sms'
+                          ? 'bg-indigo-400 text-slate-950 font-black shadow-sm'
+                          : 'bg-slate-900 text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      📱 SMS Gateway
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Live Channel Gateway Test Box */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-4 space-y-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <h4 className="text-xs sm:text-sm font-black text-white">
-                      Test Live {activeChannel.toUpperCase()} Gateway
+                      Test Live {currentGatewayChannel.toUpperCase()} Gateway
                     </h4>
                     <p className="text-[11px] text-slate-400">
                       Send a real test dispatch through the saved encrypted provider credentials (rate-limited to 1 per 30s).
@@ -1600,10 +1743,10 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
 
                 <div className="flex flex-col sm:flex-row gap-2 text-xs">
                   <input
-                    type={activeChannel === 'email' ? 'email' : 'text'}
+                    type={currentGatewayChannel === 'email' ? 'email' : 'text'}
                     value={testRecipient}
                     onChange={(e) => setTestRecipient(e.target.value)}
-                    placeholder={channelMeta.testPlaceholder}
+                    placeholder={currentGatewayChannel === 'email' ? 'alerts-test@yourdomain.com' : '+923001234567'}
                     className="flex-1 px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono"
                   />
                   <button
@@ -1613,7 +1756,7 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
                     className="min-h-[38px] px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
                   >
                     <Send className="w-3.5 h-3.5" />
-                    <span>{isProviderTesting ? 'Sending Test...' : `Send Test ${activeChannel.toUpperCase()}`}</span>
+                    <span>{isProviderTesting ? 'Sending Test...' : `Send Test ${currentGatewayChannel.toUpperCase()}`}</span>
                   </button>
                 </div>
 
@@ -1627,7 +1770,7 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
                     {providerTestError}
                   </p>
                 )}
-                {activeChannel === 'email' && emailProvider === 'smtp' && (
+                {currentGatewayChannel === 'email' && emailProvider === 'smtp' && (
                   <p className="text-[10px] text-amber-300">
                     Note: SMTP live test dispatch requires Resend or SendGrid API adapter selected.
                   </p>
@@ -1643,9 +1786,9 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
                   <div className="flex items-center gap-2">
                     <ShieldCheck className={`w-4 h-4 ${channelMeta.accentClass}`} />
                     <span className="font-black text-white uppercase text-[11px] tracking-wider">
-                      {activeChannel === 'whatsapp'
+                      {currentGatewayChannel === 'whatsapp'
                         ? 'WhatsApp Encrypted Gateway API'
-                        : activeChannel === 'email'
+                        : currentGatewayChannel === 'email'
                         ? 'Email Encrypted Gateway API'
                         : 'SMS Encrypted Gateway API'}
                     </span>
@@ -1666,7 +1809,7 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
                   </div>
                 )}
 
-                {activeChannel === 'email' && (
+                {currentGatewayChannel === 'email' && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     <div>
                       <label className="block font-bold text-slate-300 mb-1">Email Adapter</label>
@@ -1799,7 +1942,7 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
                   </div>
                 )}
 
-                {activeChannel === 'whatsapp' && (
+                {currentGatewayChannel === 'whatsapp' && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     <div>
                       <label className="block font-bold text-slate-300 mb-1">WhatsApp Adapter</label>
@@ -1895,7 +2038,7 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
                   </div>
                 )}
 
-                {activeChannel === 'sms' && (
+                {currentGatewayChannel === 'sms' && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                     <div>
                       <label className="block font-bold text-slate-300 mb-1">SMS Provider Adapter</label>
@@ -1963,7 +2106,7 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
                     className="min-h-[38px] px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                   >
                     <Lock className="w-3.5 h-3.5" />
-                    <span>{isProviderSaving ? 'Encrypting & Saving...' : `Save ${activeChannel.toUpperCase()} Gateway`}</span>
+                    <span>{isProviderSaving ? 'Encrypting & Saving...' : `Save ${currentGatewayChannel.toUpperCase()} Gateway`}</span>
                   </button>
                 </div>
               </form>
@@ -1972,13 +2115,13 @@ export const AdminChannelControlHub: React.FC<AdminChannelControlHubProps> = ({
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-4 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-black text-white">
-                    Recent {activeChannel.toUpperCase()} Delivery Logs ({filteredChannelLogs.length})
+                    Recent {currentGatewayChannel.toUpperCase()} Delivery Logs ({filteredChannelLogs.length})
                   </h4>
                   <span className="text-[10px] text-slate-500">90-day retention</span>
                 </div>
                 {filteredChannelLogs.length === 0 ? (
                   <p className="text-[11px] text-slate-500">
-                    No {activeChannel} delivery logs recorded yet.
+                    No {currentGatewayChannel} delivery logs recorded yet.
                   </p>
                 ) : (
                   <div className="overflow-x-auto">

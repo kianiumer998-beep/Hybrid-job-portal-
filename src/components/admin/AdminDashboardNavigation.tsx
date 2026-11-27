@@ -41,7 +41,6 @@ export type AdminCategory =
   | 'ads'
   | 'payments'
   | 'users'
-  | 'alerts'
   | 'settings';
 
 export type ProAdminCategoryId =
@@ -52,7 +51,6 @@ export type ProAdminCategoryId =
   | 'ads-campaigns'
   | 'finance-payments'
   | 'users-kyc-support'
-  | 'communication-alerts'
   | 'platform-settings-data';
 
 export type AdminNavMode = 'classic' | 'professional';
@@ -81,9 +79,6 @@ export type AdminCanonicalTabId =
   | 'employer-kyc'
   | 'subscribers'
   | 'chat-hub'
-  | 'whatsapp-manager'
-  | 'broadcast-center'
-  | 'bulk-notifications'
   | 'locations-manager'
   | 'apply-settings'
   | 'modal-content-manager'
@@ -94,12 +89,22 @@ export type AdminCanonicalTabId =
   | 'data-backup'
   | 'admin-security';
 
-export type AdminNavTabId = AdminCanonicalTabId | 'stats' | 'url-scraper' | 'scraped-history';
+export type AdminNavTabId =
+  | AdminCanonicalTabId
+  | 'stats'
+  | 'url-scraper'
+  | 'scraped-history'
+  | 'whatsapp-manager'
+  | 'broadcast-center'
+  | 'bulk-notifications';
 
 export const ADMIN_TAB_ALIASES: Record<string, AdminCanonicalTabId> = {
   stats: 'analytics',
   'url-scraper': 'scraper',
-  'scraped-history': 'scraper'
+  'scraped-history': 'scraper',
+  'whatsapp-manager': 'jobs-ads-control-center',
+  'broadcast-center': 'jobs-ads-control-center',
+  'bulk-notifications': 'jobs-ads-control-center'
 };
 
 export function resolveCanonicalAdminTab(tabId: string): AdminCanonicalTabId | string {
@@ -186,12 +191,6 @@ export const CLASSIC_ADMIN_CATEGORIES: ClassicCategoryDefinition[] = [
     urdu: 'صارفین'
   },
   {
-    id: 'alerts',
-    label: '📣 Alerts & WhatsApp',
-    allModulesTitle: '📣 Alerts & Broadcasts (الرٹس اور پیغامات)',
-    urdu: 'الرٹس'
-  },
-  {
     id: 'settings',
     label: '⚙️ Settings & SEO',
     allModulesTitle: '⚙️ Settings, SEO & Vault (سیٹنگز اور گوگل ایس ای او)',
@@ -250,13 +249,6 @@ export const PROFESSIONAL_ADMIN_CATEGORIES: ProCategoryDefinition[] = [
     icon: Users
   },
   {
-    id: 'communication-alerts',
-    label: 'Communication & Alerts',
-    description: 'Configure WhatsApp, email, SMS and bulk notifications.',
-    urdu: 'پیغامات، واٹس ایپ اور الرٹس',
-    icon: MessageSquare
-  },
-  {
     id: 'platform-settings-data',
     label: 'Platform Settings & Data',
     description: 'Manage platform behaviour, forms, locations, security and data.',
@@ -297,10 +289,27 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     classicCategory: 'jobs',
     proCategory: 'jobs-ads-control-center',
     label: 'Jobs & Ads Control Center',
-    description: 'One workspace for job submissions, approvals, job rates, campaign slots, sizes, schedules and campaign fees.',
-    urdu: 'جابز اور اشتہارات کا مرکزی کنٹرول',
+    description: 'One workspace for jobs, approvals, rates, campaigns, promotional banners, WhatsApp, Email, SMS & Broadcasts.',
+    urdu: 'جابز، اشتہارات اور براڈکاسٹ کنٹرول',
     icon: Megaphone,
-    keywords: ['jobs ads control center', 'job submissions', 'campaign settings', 'campaign slots', 'job rates', 'job fees', 'کیمپین', 'جابز']
+    aliases: ['whatsapp-manager', 'broadcast-center', 'bulk-notifications'],
+    keywords: [
+      'jobs ads control center',
+      'job submissions',
+      'campaign settings',
+      'campaign slots',
+      'job rates',
+      'job fees',
+      'whatsapp',
+      'email',
+      'sms',
+      'broadcast',
+      'bulk notifications',
+      'واٹس ایپ',
+      'براڈکاسٹ',
+      'کیمپین',
+      'جابز'
+    ]
   },
 
   // 2. Jobs & Moderation
@@ -563,44 +572,7 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     keywords: ['chat', 'inbox', 'support', 'messages', 'helpdesk', 'reply', 'چیٹ', 'سپورٹ']
   },
 
-  // 7. Communication & Alerts
-  {
-    id: 'whatsapp-manager',
-    classicCategory: 'alerts',
-    proCategory: 'communication-alerts',
-    label: 'WhatsApp Support & Alerts Hub',
-    description: 'Configure official WhatsApp support number, alerts group link and floating chat widget.',
-    classicSubTabLabel: () => '💬 WhatsApp Support & Alerts Hub',
-    urdu: 'واٹس ایپ الرٹس مینجر',
-    classicSubTabUrdu: 'واٹس ایپ الرٹس',
-    icon: MessageSquare,
-    keywords: ['whatsapp', 'wa', 'alerts', 'group link', 'sticky button', 'support', 'واٹس ایپ']
-  },
-  {
-    id: 'broadcast-center',
-    classicCategory: 'alerts',
-    proCategory: 'communication-alerts',
-    label: 'Broadcast Campaigns (Email/SMS)',
-    description: 'Create and manage email/SMS broadcast campaigns and provider settings.',
-    classicSubTabLabel: () => '📣 Email & WhatsApp Broadcasts',
-    urdu: 'براڈکاسٹ پیغامات',
-    classicSubTabUrdu: 'براڈکاسٹ میسجز',
-    icon: Send,
-    keywords: ['broadcast', 'email', 'sms', 'campaigns', 'templates', 'providers', 'براڈکاسٹ']
-  },
-  {
-    id: 'bulk-notifications',
-    classicCategory: 'alerts',
-    proCategory: 'communication-alerts',
-    label: 'Pro Bulk Notification Tool',
-    description: 'Send bulk portal notifications to selected user groups.',
-    classicSubTabLabel: () => '🚀 Pro Bulk Notification Tool',
-    urdu: 'بلک نوٹیفکیشنز',
-    icon: Send,
-    keywords: ['bulk', 'notifications', 'push', 'mass alert', 'نوٹیفکیشنز']
-  },
-
-  // 8. Platform Settings & Data
+  // 7. Platform Settings & Data (WhatsApp/Email/SMS/Broadcasts live in Jobs & Ads Control Center)
   {
     id: 'locations-manager',
     classicCategory: 'settings',
@@ -786,11 +758,12 @@ export function resolveModuleBadge(
 }
 
 export const CLASSIC_CATEGORY_MODULE_ORDER: Record<AdminCategory, AdminCanonicalTabId[]> = {
-  jobs: ['jobs', 'pending', 'add-job', 'ai-enhancer'],
+  jobs: ['jobs-ads-control-center', 'jobs', 'pending', 'add-job', 'ai-enhancer'],
   scraper: ['scraper'],
   ads: ['campaign-center', 'advertisements', 'landing-customizer'],
   payments: [
     'pricing-controller',
+    'subscription-studio',
     'cv-settings',
     'admin-payment-methods',
     'payment-proofs',
@@ -799,7 +772,6 @@ export const CLASSIC_CATEGORY_MODULE_ORDER: Record<AdminCategory, AdminCanonical
     'currency-forex'
   ],
   users: ['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'],
-  alerts: ['whatsapp-manager', 'broadcast-center', 'bulk-notifications'],
   settings: [
     'locations-manager',
     'apply-settings',

@@ -272,6 +272,13 @@ export function isSameLogicalJobRecord(pendingDoc: any, existingLive: any): bool
 }
 
 export class JobRepository {
+  private static priorityTierRotationCounters: Record<string, number> = {
+    vip: 0,
+    pinned: 0,
+    featured: 0,
+    urgent: 0,
+    future: 0
+  };
   /**
    * Reads all approved / active jobs directly from MongoDB with filtering, sorting, and pagination.
    */
@@ -795,17 +802,11 @@ export class JobRepository {
       candidateJobs = candidateJobs.filter((job) => !isEarlyAccessJobLocked(job, filter.earlyAccessPolicy?.config, filter.earlyAccessPolicy?.now));
     }
 
-    const vipJobs: any[] = [];
-    const pinnedJobs: any[] = [];
-    const featuredJobs: any[] = [];
-    const urgentJobs: any[] = [];
-    const futureJobs: any[] = [];
-
-    let vipOccupancy = 0;
-    let pinnedOccupancy = 0;
-    let featuredOccupancy = 0;
-    let urgentOccupancy = 0;
-    let futureOccupancy = 0;
+    const allVip: any[] = [];
+    const allPinned: any[] = [];
+    const allFeatured: any[] = [];
+    const allUrgent: any[] = [];
+    const allFuture: any[] = [];
 
     for (const job of candidateJobs) {
       if (checkJobExpired(job)) continue;
@@ -823,38 +824,59 @@ export class JobRepository {
         continue;
       }
 
-      // Assign strictly to its effective tier; never downgrade when slots are full
+      // Collect all candidates in their strict effective tier so rotation/shuffling treats every sponsor fairly
       if (effectiveTier === 'vip') {
-        vipOccupancy++;
-        if (vipJobs.length < limits.vip) {
-          vipJobs.push({ ...job, activePriorityTier: 'vip' });
-        }
+        allVip.push({ ...job, activePriorityTier: 'vip' });
       } else if (effectiveTier === 'pinned') {
-        pinnedOccupancy++;
-        if (pinnedJobs.length < limits.pinned) {
-          pinnedJobs.push({ ...job, activePriorityTier: 'pinned' });
-        }
+        allPinned.push({ ...job, activePriorityTier: 'pinned' });
       } else if (effectiveTier === 'featured') {
-        featuredOccupancy++;
-        if (featuredJobs.length < limits.featured) {
-          featuredJobs.push({ ...job, activePriorityTier: 'featured' });
-        }
+        allFeatured.push({ ...job, activePriorityTier: 'featured' });
       } else if (effectiveTier === 'urgent') {
-        urgentOccupancy++;
-        if (urgentJobs.length < limits.urgent) {
-          urgentJobs.push({ ...job, activePriorityTier: 'urgent' });
-        }
+        allUrgent.push({ ...job, activePriorityTier: 'urgent' });
       } else if (effectiveTier === 'future') {
-        futureOccupancy++;
-        if (futureJobs.length < limits.future) {
-          futureJobs.push({ ...job, activePriorityTier: 'future' });
-        }
+        allFuture.push({ ...job, activePriorityTier: 'future' });
       }
     }
 
+    const applyTierOrder = (tierKey: 'vip' | 'pinned' | 'featured' | 'urgent' | 'future', list: any[], maxSlots: number): any[] => {
+      if (list.length === 0 || maxSlots <= 0) return [];
+      const orderMode = slotConfig[tierKey]?.rotateOrder || 'sequential';
+      if (list.length === 1 || orderMode === 'latest') {
+        return list.slice(0, maxSlots);
+      }
+      if (orderMode === 'shuffle') {
+        const shuffled = [...list];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          const tmp = shuffled[i];
+          shuffled[i] = shuffled[j];
+          shuffled[j] = tmp;
+        }
+        return shuffled.slice(0, maxSlots);
+      }
+      // 'sequential': rotate smoothly using monotonic per-tier server counter
+      const nextCursor = (JobRepository.priorityTierRotationCounters[tierKey] || 0);
+      JobRepository.priorityTierRotationCounters[tierKey] = (nextCursor + 1) % 100000;
+      const offset = nextCursor % list.length;
+      const rotated = offset === 0 ? [...list] : [...list.slice(offset), ...list.slice(0, offset)];
+      return rotated.slice(0, maxSlots);
+    };
+
+    const vipJobs = applyTierOrder('vip', allVip, limits.vip);
+    const pinnedJobs = applyTierOrder('pinned', allPinned, limits.pinned);
+    const featuredJobs = applyTierOrder('featured', allFeatured, limits.featured);
+    const urgentJobs = applyTierOrder('urgent', allUrgent, limits.urgent);
+    const futureJobs = applyTierOrder('future', allFuture, limits.future);
+
     return {
       jobs: [...vipJobs, ...pinnedJobs, ...featuredJobs, ...urgentJobs, ...futureJobs],
-      tierCounts: { vip: vipOccupancy, pinned: pinnedOccupancy, featured: featuredOccupancy, urgent: urgentOccupancy, future: futureOccupancy },
+      tierCounts: {
+        vip: allVip.length,
+        pinned: allPinned.length,
+        featured: allFeatured.length,
+        urgent: allUrgent.length,
+        future: allFuture.length
+      },
       slotLimits: limits
     };
   }

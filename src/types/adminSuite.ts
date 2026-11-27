@@ -71,6 +71,8 @@ export interface BroadcastCampaign {
   scheduledAt?: string;
   status: 'Draft' | 'Scheduled' | 'Sent' | 'Failed';
   recipientsCount: number;
+  sentCount?: number;
+  failedCount?: number;
   openRate?: number;
   clickRate?: number;
 }

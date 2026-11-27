@@ -38,6 +38,11 @@ import { TopBannerAd } from './components/ads/TopBannerAd';
 import { PopupAdModal } from './components/ads/PopupAdModal';
 import { ToastNotificationAd } from './components/ads/ToastNotificationAd';
 import { AdNotificationDrawer } from './components/ads/AdNotificationDrawer';
+import {
+  RotatingPromoBannersSection,
+  RotatingAnnouncementCardsSection,
+  RotatingSidebarAds
+} from './components/ads/RotatingPlacementWidgets';
 import { 
   Advertisement, 
   INITIAL_ADVERTISEMENTS, 
@@ -4293,17 +4298,22 @@ export default function App() {
 
       {/* Top Header Sticky Announcement / Banner Ad. The landing customizer's
           section visibility switch controls this global paid placement. */}
-      {landingConfig.sections.find((section) => section.id === 'top-sponsor-ads')?.isEnabled !== false && (
-        <TopBannerAd
-          ads={advertisements}
-          currentPage={activeTab}
-          onAdClick={handleAdClick}
-          onNavigateTab={setActiveTab}
-          bannerDimensions={campaignConfig.bannerDimensions}
-          bannerAppearance={campaignConfig.bannerAppearance}
-          bannerBehavior={campaignConfig.bannerBehavior}
-        />
-      )}
+      {landingConfig.sections.find((section) => section.id === 'top-sponsor-ads')?.isEnabled !== false && (() => {
+        const topHeaderCfg = campaignConfig.placementOptions.find((o) => o.id === 'top-header');
+        return (
+          <TopBannerAd
+            ads={advertisements}
+            currentPage={activeTab}
+            onAdClick={handleAdClick}
+            onNavigateTab={setActiveTab}
+            bannerDimensions={campaignConfig.bannerDimensions}
+            bannerAppearance={campaignConfig.bannerAppearance}
+            bannerBehavior={campaignConfig.bannerBehavior}
+            rotationSettings={topHeaderCfg?.rotationSettings}
+            maxConcurrentSlots={topHeaderCfg?.maxConcurrentSlots}
+          />
+        );
+      })()}
 
       {/* Keep public header controls visible; logged-in dashboard users use their configured dashboard menu instead of the guest hamburger. */}
       <Header
@@ -4519,47 +4529,21 @@ export default function App() {
                         Number(banner.discountPercent) <= 100 &&
                         (!banner.validUntil || (/^\d{4}-\d{2}-\d{2}$/.test(banner.validUntil) && banner.validUntil >= todayKey))
                       );
-                      const promoPlacementEnabled = campaignConfig.placementOptions.some((option) => option.id === 'promo-discount-banner' && option.isEnabled);
+                      const promoOpt = campaignConfig.placementOptions.find((option) => option.id === 'promo-discount-banner');
+                      const promoPlacementEnabled = Boolean(promoOpt?.isEnabled);
                       const paidPromoAds = promoPlacementEnabled
                         ? advertisements.filter((ad) => ad.placement === 'promo-discount-banner' && isAdCurrentlyRunning(ad))
                         : [];
-                      if (activeBanners.length === 0 && paidPromoAds.length === 0) return null;
                       return (
-                        <div key="section-promo" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3">
-                          {activeBanners.map((banner) => (
-                            <div key={banner.id} className={`relative overflow-hidden rounded-2xl p-4 sm:p-5 bg-gradient-to-r ${banner.bgGradient || 'from-amber-600 via-rose-600 to-indigo-700'} text-white shadow-xl shadow-amber-500/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-white/20`}>
-                              <div className="space-y-1">
-                                <div className="flex items-center space-x-2">
-                                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-black/30 backdrop-blur-sm border border-white/30 text-white">{banner.badgeText || '🔥 SPECIAL OFFER'}</span>
-                                  <span className="text-xs font-black font-mono bg-white/20 px-2 py-0.5 rounded text-white">{banner.discountPercent}% OFF</span>
-                                  {banner.promoCode && <span className="text-xs font-mono font-bold bg-black/40 px-2 py-0.5 rounded border border-white/20">Use Code: {banner.promoCode}</span>}
-                                </div>
-                                <h4 className="text-sm sm:text-base font-black tracking-tight">{banner.title}</h4>
-                                <p className="text-xs text-white/90 max-w-2xl">{banner.description}</p>
-                              </div>
-                              <button onClick={() => { if (currentUser) setActiveTab('dashboard'); else setAuthModalOpen(true); }} className="px-5 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0">
-                                {banner.ctaText || 'Book Discount Ad'} →
-                              </button>
-                            </div>
-                          ))}
-                          {paidPromoAds.map((ad) => (
-                            <div key={ad.id} className="relative overflow-hidden rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-rose-700 via-amber-600 to-indigo-700 text-white shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-white/20">
-                              <div className="space-y-2">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-black/30 border border-white/30">{ad.badgeText || 'SPECIAL OFFER'}</span>
-                                  <span className="text-xs font-black font-mono bg-white/20 px-2 py-0.5 rounded">{ad.discountPercent}% OFF</span>
-                                  {ad.promoCode && <span className="text-xs font-mono font-bold bg-black/40 px-2 py-0.5 rounded">Use Code: {ad.promoCode}</span>}
-                                </div>
-                                {ad.imageUrl && <img src={ad.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="max-h-24 max-w-full rounded-lg object-contain" />}
-                                <h4 className="text-sm sm:text-base font-black tracking-tight">{ad.headline}</h4>
-                                <p className="text-xs text-white/90 max-w-2xl">{ad.bodyText}</p>
-                              </div>
-                              <button onClick={() => { void handlePaidAdCta(ad); }} className="px-5 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0">
-                                {ad.ctaText || 'Claim Offer'} →
-                              </button>
-                            </div>
-                          ))}
-                        </div>
+                        <RotatingPromoBannersSection
+                          key="section-promo"
+                          ads={paidPromoAds}
+                          activeBanners={activeBanners}
+                          rotationSettings={promoOpt?.rotationSettings}
+                          maxConcurrentSlots={promoOpt?.maxConcurrentSlots ?? 1}
+                          onPaidAdCta={(ad) => { void handlePaidAdCta(ad); }}
+                          onPromoBannerCta={() => { if (currentUser) setActiveTab('dashboard'); else setAuthModalOpen(true); }}
+                        />
                       );
                     }
 
@@ -4594,59 +4578,43 @@ export default function App() {
 
                     if (section.id === 'custom-announcements') {
                       const activeCards = (landingConfig.customCards || []).filter(c => c.isEnabled).sort((a, b) => a.order - b.order);
-                      const announcementPlacementEnabled = campaignConfig.placementOptions.some((option) => option.id === 'dynamic-announcement-card' && option.isEnabled);
+                      const annOpt = campaignConfig.placementOptions.find((option) => option.id === 'dynamic-announcement-card');
+                      const announcementPlacementEnabled = Boolean(annOpt?.isEnabled);
                       const paidAnnouncementAds = announcementPlacementEnabled
                         ? advertisements.filter((ad) => ad.placement === 'dynamic-announcement-card' && isAdCurrentlyRunning(ad))
                         : [];
                       const activePromo = (campaignConfig.promoBanners || []).find((promo) =>
                         promo.isEnabled && (!promo.validUntil || new Date(promo.validUntil + 'T23:59:59').getTime() >= Date.now())
                       );
-                      const showPromoDesktop = landingConfig.showLandingPromoCardDesktop === true && (activeCards.length + paidAnnouncementAds.length) % 2 === 1 && Boolean(activePromo);
+                      const showPromoDesktop = landingConfig.showLandingPromoCardDesktop === true;
                       const showPromoMobile = landingConfig.showLandingPromoCardMobile === true && Boolean(activePromo);
-                      if (activeCards.length === 0 && paidAnnouncementAds.length === 0 && !showPromoMobile && !showPromoDesktop) return null;
                       return (
-                        <div key="section-cards" className="w-full max-w-7xl mx-auto px-2 sm:px-4 md:px-6 lg:px-8">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-3 items-stretch">
-                            {activeCards.map((card, index) => (
-                              <div key={card.id} className={`min-w-0 p-3 sm:p-4 rounded-xl bg-gradient-to-r ${card.bgGradient || 'from-slate-900 to-indigo-950'} border border-white/10 text-white flex flex-col justify-between gap-3 shadow-lg ${index === activeCards.length - 1 && (activeCards.length + paidAnnouncementAds.length) % 2 === 1 && !showPromoDesktop && paidAnnouncementAds.length === 0 ? 'md:col-span-2' : ''}`}>
-                                <div className="min-w-0 space-y-1.5">
-                                  {card.imageUrl && <img src={card.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="w-full max-h-32 sm:max-h-36 rounded-lg object-cover border border-white/10" />}
-                                  {card.badge && <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">{card.badge}</span>}
-                                  <h4 className="text-base sm:text-lg font-black leading-snug">{card.title}</h4>
-                                  <p className="text-xs text-slate-300 leading-snug">{card.description}</p>
-                                </div>
-                                <button onClick={() => handleAdDestination(card.buttonUrl)} className="self-start px-3.5 py-2 rounded-lg bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md">{card.buttonText} →</button>
-                              </div>
-                            ))}
-                            {paidAnnouncementAds.map((ad) => (
-                              <div key={ad.id} className={`min-w-0 p-3 sm:p-4 rounded-xl bg-gradient-to-r from-slate-900 to-indigo-950 border border-white/10 text-white flex flex-col justify-between gap-3 shadow-lg ${ad === paidAnnouncementAds[paidAnnouncementAds.length - 1] && (activeCards.length + paidAnnouncementAds.length) % 2 === 1 && !showPromoDesktop ? 'md:col-span-2' : ''}`}>
-                                <div className="min-w-0 space-y-1.5">
-                                  {ad.imageUrl && <img src={ad.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="w-full max-h-32 sm:max-h-36 rounded-lg object-cover border border-white/10" />}
-                                  <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">{ad.badgeText || 'SPONSORED ANNOUNCEMENT'}</span>
-                                  <h4 className="text-base sm:text-lg font-black leading-snug">{ad.headline}</h4>
-                                  <p className="text-xs text-slate-300 leading-snug">{ad.bodyText}</p>
-                                </div>
-                                <button onClick={() => { void handlePaidAdCta(ad); }} className="self-start px-3.5 py-2 rounded-lg bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md">{ad.ctaText || 'Learn More'} →</button>
-                              </div>
-                            ))}
-                            {activePromo && (showPromoDesktop || showPromoMobile) && (
-                              <article className={`min-w-0 p-3 sm:p-4 rounded-xl bg-gradient-to-r from-rose-950 via-slate-900 to-amber-950 border border-rose-400/30 text-white flex flex-col justify-between gap-3 shadow-lg ${showPromoMobile ? (showPromoDesktop ? 'flex' : 'flex md:hidden') : (showPromoDesktop ? 'hidden md:flex' : 'hidden')}`}>
-                                <div className="min-w-0 space-y-1.5">
-                                  <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-200 border border-rose-300/30 inline-block">{activePromo.badgeText || 'SPECIAL PROMOTION'}</span>
-                                  <h4 className="text-base sm:text-lg font-black leading-snug">{activePromo.title}</h4>
-                                  <p className="text-xs text-slate-200 leading-snug">{activePromo.description}</p>
-                                  {activePromo.discountPercent > 0 && <p className="text-xl font-black text-amber-300">{activePromo.discountPercent}% OFF</p>}
-                                  {activePromo.promoCode && <p className="text-[11px] text-rose-100">Code: <strong>{activePromo.promoCode}</strong></p>}
-                                </div>
-                                {activePromo.ctaText && <button onClick={() => activePromo.ctaUrl ? handleAdDestination(activePromo.ctaUrl) : undefined} className="self-start px-3.5 py-2 rounded-lg bg-rose-500 text-white font-bold text-xs hover:bg-rose-400 transition-all cursor-pointer shadow-md">{activePromo.ctaText} →</button>}
-                              </article>
-                            )}
-                          </div>
-                        </div>
+                        <RotatingAnnouncementCardsSection
+                          key="section-cards"
+                          activeCards={activeCards}
+                          paidAnnouncementAds={paidAnnouncementAds}
+                          activePromo={activePromo}
+                          showPromoDesktop={showPromoDesktop}
+                          showPromoMobile={showPromoMobile}
+                          rotationSettings={annOpt?.rotationSettings}
+                          maxConcurrentSlots={annOpt?.maxConcurrentSlots ?? 2}
+                          onPaidAdCta={(ad) => { void handlePaidAdCta(ad); }}
+                          onAdDestination={handleAdDestination}
+                        />
                       );
                     }
 
                     if (section.id === 'jobs-feed') {
+                      const feedOpt = campaignConfig.placementOptions.find((o) => o.id === 'feed-inline');
+                      const sidebarOpt = campaignConfig.placementOptions.find((o) => o.id === 'sidebar');
+                      const sidebarEnabled = sidebarOpt?.isEnabled !== false;
+                      const hasSidebarAds = sidebarEnabled && advertisements.some(
+                        (ad) =>
+                          isAdCurrentlyRunning(ad) &&
+                          ad.placement === 'sidebar' &&
+                          (ad.targetPages.includes('all') || ad.targetPages.includes(activeTab))
+                      );
+                      const showAsideColumn = landingDesignSystem.activeDesignId === 'design-4' || hasSidebarAds;
                       return (
                         <div key="section-jobs-feed" id="jobs-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
                           {/* Filters Bar */}
@@ -4668,8 +4636,8 @@ export default function App() {
                             onUpgrade={() => { setSelectedJobTitleForSub(''); setSelectedGate({ title: 'Premium Early Access', message: 'Unlock selected jobs before they become available to other members.' }); setPremiumUpgradeModalOpen(true); }}
                             onExplore={() => { const el = document.getElementById('jobs-section'); el?.scrollIntoView({ behavior: 'smooth' }); }}
                           />
-                          {/* Design 4 editorial two-column job feed; all existing filters, cards and ad rules stay intact. */}
-                          <div className={landingDesignSystem.activeDesignId === 'design-4' ? 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-6 items-start' : ''}>
+                          {/* Two-column feed when Design 4 or active Sidebar widget ads are present; preserves full width otherwise. */}
+                          <div className={showAsideColumn ? 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-6 items-start' : ''}>
                             <div className="min-w-0">
                           {/* Job Cards Grid with Pagination and Inline Ads */}
                           <JobListings
@@ -4689,26 +4657,43 @@ export default function App() {
                             bannerDimensions={campaignConfig.bannerDimensions}
                             feedCardAppearance={campaignConfig.feedCardAppearance}
                             jobCardDesign={landingConfig.jobCardDesign}
+                            feedRotationSettings={feedOpt?.rotationSettings}
+                            homepagePrioritySlotConfig={jobPostingPricing.homepagePrioritySlotConfig}
                             onAdClick={handleAdClick}
                             onNavigateTab={setActiveTab}
                           />
                             </div>
-                            {landingDesignSystem.activeDesignId === 'design-4' && (
+                            {showAsideColumn && (
                               <aside className="space-y-4">
-                                <div className="rounded-2xl border border-emerald-500/25 bg-slate-900 p-5 shadow-xl">
-                                  <span className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-400">Career toolkit</span>
-                                  <h3 className="mt-2 text-xl font-black text-white">Make your next move count.</h3>
-                                  <p className="mt-2 text-sm leading-relaxed text-slate-400">Create an ATS-friendly CV and get ready to apply with confidence.</p>
-                                  <button onClick={() => setActiveTab('cv')} className="mt-4 w-full rounded-xl bg-emerald-400 px-4 py-3 text-sm font-black text-slate-950 hover:bg-emerald-300">Open CV Builder →</button>
-                                </div>
-                                <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-                                  <h3 className="text-sm font-black text-white">Explore job sectors</h3>
-                                  <div className="mt-3 flex flex-wrap gap-2">
-                                    {['Government', 'Information Technology', 'Healthcare', 'Engineering', 'Education', 'Finance', 'Remote & Hybrid'].map((category) => (
-                                      <span key={category} className="rounded-full border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-300">{category}</span>
-                                    ))}
-                                  </div>
-                                </div>
+                                {hasSidebarAds && (
+                                  <RotatingSidebarAds
+                                    ads={advertisements}
+                                    currentPage={activeTab}
+                                    isEnabled={sidebarEnabled}
+                                    rotationSettings={sidebarOpt?.rotationSettings}
+                                    maxConcurrentSlots={sidebarOpt?.maxConcurrentSlots ?? 1}
+                                    onAdClick={handleAdClick}
+                                    onNavigateTab={setActiveTab}
+                                  />
+                                )}
+                                {landingDesignSystem.activeDesignId === 'design-4' && (
+                                  <>
+                                    <div className="rounded-2xl border border-emerald-500/25 bg-slate-900 p-5 shadow-xl">
+                                      <span className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-400">Career toolkit</span>
+                                      <h3 className="mt-2 text-xl font-black text-white">Make your next move count.</h3>
+                                      <p className="mt-2 text-sm leading-relaxed text-slate-400">Create an ATS-friendly CV and get ready to apply with confidence.</p>
+                                      <button onClick={() => setActiveTab('cv')} className="mt-4 w-full rounded-xl bg-emerald-400 px-4 py-3 text-sm font-black text-slate-950 hover:bg-emerald-300">Open CV Builder →</button>
+                                    </div>
+                                    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+                                      <h3 className="text-sm font-black text-white">Explore job sectors</h3>
+                                      <div className="mt-3 flex flex-wrap gap-2">
+                                        {['Government', 'Information Technology', 'Healthcare', 'Engineering', 'Education', 'Finance', 'Remote & Hybrid'].map((category) => (
+                                          <span key={category} className="rounded-full border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-300">{category}</span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </>
+                                )}
                               </aside>
                             )}
                           </div>
@@ -5038,6 +5023,7 @@ export default function App() {
           currentPage={activeTab}
           popupSettings={campaignConfig.popupSettings}
           popupAppearance={campaignConfig.popupAppearance}
+          rotationSettings={campaignConfig.placementOptions.find((o) => o.id === 'popup-modal')?.rotationSettings}
           onAdClick={handleAdClick}
           onNavigateTab={setActiveTab}
         />
@@ -5047,6 +5033,7 @@ export default function App() {
       <ToastNotificationAd
         ads={advertisements}
         currentPage={activeTab}
+        rotationSettings={campaignConfig.placementOptions.find((o) => o.id === 'toast-float')?.rotationSettings}
         onAdClick={handleAdClick}
         onNavigateTab={setActiveTab}
       />

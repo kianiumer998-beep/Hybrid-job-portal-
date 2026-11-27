@@ -21,7 +21,8 @@ import {
   Mail,
   MessageCircle,
   Smartphone,
-  Send
+  Send,
+  Package
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { SubscriptionPlansBuilder } from './SubscriptionPlansBuilder';
@@ -144,6 +145,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
   const [sendingEaReminder, setSendingEaReminder] = useState(false);
   const [eaReminderFeedback, setEaReminderFeedback] = useState<string | null>(null);
   const [eaReminderError, setEaReminderError] = useState<string | null>(null);
+  const [cachedEaFee, setCachedEaFee] = useState<number>(500);
 
   const [priorityMetrics, setPriorityMetrics] = useState<{
     tierCounts: { vip: number; pinned: number; featured: number; urgent: number; future?: number };
@@ -234,15 +236,19 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
     }
   };
 
-  const updatePrioritySlot = (tier: 'vip' | 'pinned' | 'featured' | 'urgent' | 'future', field: 'enabled' | 'maxSlots', value: any) => {
+  const updatePrioritySlot = (
+    tier: 'vip' | 'pinned' | 'featured' | 'urgent' | 'future',
+    field: 'enabled' | 'maxSlots' | 'rotateOrder',
+    value: any
+  ) => {
     setPricing((prev: any) => {
       const currentConfig = prev.jobPosting?.homepagePrioritySlotConfig || {
         enabled: true,
-        vip: { enabled: true, maxSlots: 2 },
-        pinned: { enabled: true, maxSlots: 2 },
-        featured: { enabled: true, maxSlots: 4 },
-        urgent: { enabled: true, maxSlots: 4 },
-        future: { enabled: true, maxSlots: 4 }
+        vip: { enabled: true, maxSlots: 2, rotateOrder: 'sequential' },
+        pinned: { enabled: true, maxSlots: 2, rotateOrder: 'sequential' },
+        featured: { enabled: true, maxSlots: 4, rotateOrder: 'sequential' },
+        urgent: { enabled: true, maxSlots: 4, rotateOrder: 'sequential' },
+        future: { enabled: true, maxSlots: 4, rotateOrder: 'sequential' }
       };
       return {
         ...prev,
@@ -251,7 +257,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
           homepagePrioritySlotConfig: {
             ...currentConfig,
             [tier]: {
-              ...(currentConfig[tier] || { enabled: true, maxSlots: 4 }),
+              ...(currentConfig[tier] || { enabled: true, maxSlots: 4, rotateOrder: 'sequential' }),
               [field]: field === 'maxSlots' ? Math.max(0, Math.floor(Number(value) || 0)) : value
             }
           }
@@ -396,6 +402,130 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
     } finally {
       setSendingEaReminder(false);
     }
+  };
+
+  const getEarlyAccessCatalogEntry = (cfg: any = pricing) => {
+    const catalog = Array.isArray(cfg?.subscriptionFeatureCatalog) ? cfg.subscriptionFeatureCatalog : [];
+    const found = catalog.find((item: any) => item?.id === 'early_access');
+    return {
+      id: 'early_access',
+      label: found?.label || 'Premium Early Access',
+      enabled: found?.enabled === true,
+      pricePkr: Math.max(0, Math.round(Number(found?.pricePkr ?? 500) || 0)),
+      durationDays: Math.max(1, Math.min(3650, Math.floor(Number(found?.durationDays ?? 30) || 30))),
+      includedSlots: Number.isInteger(Number(found?.includedSlots)) ? Number(found.includedSlots) : 0,
+      slotDurationDays: Number.isInteger(Number(found?.slotDurationDays)) ? Number(found.slotDurationDays) : 30
+    };
+  };
+
+  const updateEarlyAccessCatalog = (patch: Partial<{ label: string; enabled: boolean; pricePkr: number; durationDays: number }>) => {
+    setPricing((prev: any) => {
+      const existingCatalog = Array.isArray(prev.subscriptionFeatureCatalog) ? [...prev.subscriptionFeatureCatalog] : [];
+      const current = getEarlyAccessCatalogEntry(prev);
+      const nextEntry = {
+        ...current,
+        ...patch,
+        pricePkr: patch.pricePkr !== undefined ? Math.max(0, Math.round(Number(patch.pricePkr) || 0)) : current.pricePkr,
+        durationDays: patch.durationDays !== undefined ? Math.max(1, Math.min(3650, Math.floor(Number(patch.durationDays) || 1))) : current.durationDays
+      };
+      const idx = existingCatalog.findIndex((item: any) => item?.id === 'early_access');
+      if (idx >= 0) {
+        existingCatalog[idx] = { ...existingCatalog[idx], ...nextEntry };
+      } else {
+        existingCatalog.push(nextEntry);
+      }
+      return { ...prev, subscriptionFeatureCatalog: existingCatalog };
+    });
+  };
+
+  const updateSubscriptionReminder = (patch: Record<string, any>) => {
+    setPricing((prev: any) => {
+      const cur = prev.subscriptionReminderSettings || {};
+      const baseDays = Math.min(30, Math.max(1, Math.floor(Number(patch.daysBefore ?? cur.daysBefore ?? 3) || 3)));
+      return {
+        ...prev,
+        subscriptionReminderSettings: {
+          enabled: cur.enabled === true,
+          daysBefore: baseDays,
+          inAppEnabled: cur.inAppEnabled !== false,
+          emailEnabled: cur.emailEnabled === true,
+          whatsappEnabled: cur.whatsappEnabled === true,
+          smsEnabled: cur.smsEnabled === true,
+          inAppDaysBefore: Math.min(30, Math.max(1, Math.floor(Number(cur.inAppDaysBefore ?? baseDays) || baseDays))),
+          emailDaysBefore: Math.min(30, Math.max(1, Math.floor(Number(cur.emailDaysBefore ?? baseDays) || baseDays))),
+          whatsappDaysBefore: Math.min(30, Math.max(1, Math.floor(Number(cur.whatsappDaysBefore ?? baseDays) || baseDays))),
+          smsDaysBefore: Math.min(30, Math.max(1, Math.floor(Number(cur.smsDaysBefore ?? baseDays) || baseDays))),
+          ...patch
+        }
+      };
+    });
+  };
+
+  const updateEarlyAccessPackageById = (pkgId: string, updater: (pkg: any) => any) => {
+    setPricing((prev: any) => {
+      const list = Array.isArray(prev.subscriptionPackages) ? prev.subscriptionPackages : [];
+      const nextPackages = list.map((item: any) => (item.id === pkgId ? updater(item) : item));
+      const updatedTarget = nextPackages.find((item: any) => item.id === pkgId);
+      let nextCatalog = Array.isArray(prev.subscriptionFeatureCatalog) ? [...prev.subscriptionFeatureCatalog] : [];
+      if (updatedTarget?.pricingMode === 'catalog') {
+        const currentEa = getEarlyAccessCatalogEntry(prev);
+        const idx = nextCatalog.findIndex((item: any) => item?.id === 'early_access');
+        if (idx >= 0) {
+          nextCatalog[idx] = { ...nextCatalog[idx], enabled: true };
+        } else {
+          nextCatalog.push({ ...currentEa, enabled: true });
+        }
+      }
+      return {
+        ...prev,
+        subscriptionFeatureCatalog: nextCatalog,
+        subscriptionPackages: nextPackages
+      };
+    });
+  };
+
+  const handleAddEarlyAccessPackage = () => {
+    const eaCatalog = getEarlyAccessCatalogEntry(pricing);
+    const existingList = Array.isArray(pricing.subscriptionPackages) ? pricing.subscriptionPackages : [];
+    const eaCount = existingList.filter((pkg: any) => Array.isArray(pkg?.featureIds) && pkg.featureIds.includes('early_access')).length;
+    const basePrice = Math.max(0, Math.round(Number(eaCatalog.pricePkr ?? 500) || 0));
+    const baseDays = Math.max(1, Math.min(3650, Math.floor(Number(eaCatalog.durationDays ?? 30) || 30)));
+    const unlockHours = Math.max(1, Math.floor(Number(pricing.earlyAccess?.durationHours ?? 24) || 24));
+    const newPkg = {
+      id: `pkg-early-access-${Date.now()}`,
+      name: eaCount === 0 ? 'Early Access Pass' : `Early Access Pass #${eaCount + 1}`,
+      badge: 'Early Access',
+      description: `Unlock priority jobs ${unlockHours}h before public release for ${baseDays} days.`,
+      enabled: true,
+      popular: false,
+      pricingMode: eaCatalog.enabled ? 'catalog' : 'fixed',
+      configuredPricePkr: basePrice,
+      pricePkr: basePrice,
+      durationDays: baseDays,
+      bundleDiscountPercent: 0,
+      featureIds: ['early_access'],
+      featureOverrides: {
+        early_access: {
+          pricePkr: basePrice,
+          durationDays: baseDays
+        }
+      },
+      features: [
+        `${unlockHours}h early job unlock advantage`,
+        `${baseDays}-day Early Access validity`
+      ]
+    };
+    setPricing((prev: any) => {
+      const list = Array.isArray(prev.subscriptionPackages) ? prev.subscriptionPackages : [];
+      return { ...prev, subscriptionPackages: [...list, newPkg] };
+    });
+  };
+
+  const handleRemoveEarlyAccessPackage = (pkgId: string) => {
+    setPricing((prev: any) => {
+      const list = Array.isArray(prev.subscriptionPackages) ? prev.subscriptionPackages : [];
+      return { ...prev, subscriptionPackages: list.filter((p: any) => p.id !== pkgId) };
+    });
   };
 
   const renderTierReminderStrip = (tierKey: JobTierReminderKey) => {
@@ -778,16 +908,30 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                     {priorityMetrics.tierCounts.vip} / {pricing.jobPosting?.homepagePrioritySlotConfig?.vip?.maxSlots ?? 4} Occupied
                   </span>
                 </div>
-                <div className="flex items-center space-x-2">
-                  <span className="text-[11px] text-slate-300 font-medium">Max Card Slots:</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="50"
-                    value={pricing.jobPosting?.homepagePrioritySlotConfig?.vip?.maxSlots ?? 4}
-                    onChange={(e) => updatePrioritySlot('vip', 'maxSlots', e.target.value)}
-                    className="w-16 px-2 py-1 bg-slate-900 border border-amber-500/40 rounded text-center text-white font-black text-xs focus:ring-1 focus:ring-amber-500"
-                  />
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-[11px] text-slate-300 font-medium">Within-Tier Order:</span>
+                    <select
+                      value={pricing.jobPosting?.homepagePrioritySlotConfig?.vip?.rotateOrder || 'sequential'}
+                      onChange={(e) => updatePrioritySlot('vip', 'rotateOrder', e.target.value)}
+                      className="px-2 py-1 bg-slate-900 border border-amber-500/40 rounded text-[11px] text-amber-200 font-bold cursor-pointer"
+                    >
+                      <option value="sequential">Sequence Rotate (On Refresh)</option>
+                      <option value="shuffle">Fair Random Shuffle</option>
+                      <option value="latest">Latest First (Fixed)</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[11px] text-slate-300 font-medium">Max Card Slots:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="50"
+                      value={pricing.jobPosting?.homepagePrioritySlotConfig?.vip?.maxSlots ?? 4}
+                      onChange={(e) => updatePrioritySlot('vip', 'maxSlots', e.target.value)}
+                      className="w-16 px-2 py-1 bg-slate-900 border border-amber-500/40 rounded text-center text-white font-black text-xs focus:ring-1 focus:ring-amber-500"
+                    />
+                  </div>
                 </div>
               </div>
               {renderTierReminderStrip('vip')}
@@ -856,16 +1000,30 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                       {priorityMetrics.tierCounts.pinned} / {pricing.jobPosting?.homepagePrioritySlotConfig?.pinned?.maxSlots ?? 4} Occupied
                     </span>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-[11px] text-slate-300 font-medium">Max Card Slots:</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="50"
-                      value={pricing.jobPosting?.homepagePrioritySlotConfig?.pinned?.maxSlots ?? 4}
-                      onChange={(e) => updatePrioritySlot('pinned', 'maxSlots', e.target.value)}
-                      className="w-16 px-2 py-1 bg-slate-900 border border-blue-500/40 rounded text-center text-white font-black text-xs focus:ring-1 focus:ring-blue-500"
-                    />
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-[11px] text-slate-300 font-medium">Within-Tier Order:</span>
+                      <select
+                        value={pricing.jobPosting?.homepagePrioritySlotConfig?.pinned?.rotateOrder || 'sequential'}
+                        onChange={(e) => updatePrioritySlot('pinned', 'rotateOrder', e.target.value)}
+                        className="px-2 py-1 bg-slate-900 border border-blue-500/40 rounded text-[11px] text-blue-200 font-bold cursor-pointer"
+                      >
+                        <option value="sequential">Sequence Rotate (On Refresh)</option>
+                        <option value="shuffle">Fair Random Shuffle</option>
+                        <option value="latest">Latest First (Fixed)</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-[11px] text-slate-300 font-medium">Max Card Slots:</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="50"
+                        value={pricing.jobPosting?.homepagePrioritySlotConfig?.pinned?.maxSlots ?? 4}
+                        onChange={(e) => updatePrioritySlot('pinned', 'maxSlots', e.target.value)}
+                        className="w-16 px-2 py-1 bg-slate-900 border border-blue-500/40 rounded text-center text-white font-black text-xs focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
                   </div>
                 </div>
                 <p className="text-[10px] text-blue-200/80">
@@ -958,16 +1116,30 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                       {priorityMetrics.tierCounts.featured} / {pricing.jobPosting?.homepagePrioritySlotConfig?.featured?.maxSlots ?? 4} Occupied
                     </span>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-[11px] text-slate-300 font-medium">Max Card Slots:</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="50"
-                      value={pricing.jobPosting?.homepagePrioritySlotConfig?.featured?.maxSlots ?? 4}
-                      onChange={(e) => updatePrioritySlot('featured', 'maxSlots', e.target.value)}
-                      className="w-16 px-2 py-1 bg-slate-900 border border-purple-500/40 rounded text-center text-white font-black text-xs focus:ring-1 focus:ring-purple-500"
-                    />
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-[11px] text-slate-300 font-medium">Within-Tier Order:</span>
+                      <select
+                        value={pricing.jobPosting?.homepagePrioritySlotConfig?.featured?.rotateOrder || 'sequential'}
+                        onChange={(e) => updatePrioritySlot('featured', 'rotateOrder', e.target.value)}
+                        className="px-2 py-1 bg-slate-900 border border-purple-500/40 rounded text-[11px] text-purple-200 font-bold cursor-pointer"
+                      >
+                        <option value="sequential">Sequence Rotate (On Refresh)</option>
+                        <option value="shuffle">Fair Random Shuffle</option>
+                        <option value="latest">Latest First (Fixed)</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-[11px] text-slate-300 font-medium">Max Card Slots:</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="50"
+                        value={pricing.jobPosting?.homepagePrioritySlotConfig?.featured?.maxSlots ?? 4}
+                        onChange={(e) => updatePrioritySlot('featured', 'maxSlots', e.target.value)}
+                        className="w-16 px-2 py-1 bg-slate-900 border border-purple-500/40 rounded text-center text-white font-black text-xs focus:ring-1 focus:ring-purple-500"
+                      />
+                    </div>
                   </div>
                 </div>
                 <p className="text-[10px] text-purple-200/80">
@@ -1039,16 +1211,30 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                     {priorityMetrics.tierCounts.urgent} / {pricing.jobPosting?.homepagePrioritySlotConfig?.urgent?.maxSlots ?? 4} Occupied
                   </span>
                 </div>
-                <div className="flex items-center space-x-2">
-                  <span className="text-[11px] text-slate-300 font-medium">Max Card Slots:</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="50"
-                    value={pricing.jobPosting?.homepagePrioritySlotConfig?.urgent?.maxSlots ?? 4}
-                    onChange={(e) => updatePrioritySlot('urgent', 'maxSlots', e.target.value)}
-                    className="w-16 px-2 py-1 bg-slate-900 border border-rose-500/40 rounded text-center text-white font-black text-xs focus:ring-1 focus:ring-rose-500"
-                  />
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-[11px] text-slate-300 font-medium">Within-Tier Order:</span>
+                    <select
+                      value={pricing.jobPosting?.homepagePrioritySlotConfig?.urgent?.rotateOrder || 'sequential'}
+                      onChange={(e) => updatePrioritySlot('urgent', 'rotateOrder', e.target.value)}
+                      className="px-2 py-1 bg-slate-900 border border-rose-500/40 rounded text-[11px] text-rose-200 font-bold cursor-pointer"
+                    >
+                      <option value="sequential">Sequence Rotate (On Refresh)</option>
+                      <option value="shuffle">Fair Random Shuffle</option>
+                      <option value="latest">Latest First (Fixed)</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[11px] text-slate-300 font-medium">Max Card Slots:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="50"
+                      value={pricing.jobPosting?.homepagePrioritySlotConfig?.urgent?.maxSlots ?? 4}
+                      onChange={(e) => updatePrioritySlot('urgent', 'maxSlots', e.target.value)}
+                      className="w-16 px-2 py-1 bg-slate-900 border border-rose-500/40 rounded text-center text-white font-black text-xs focus:ring-1 focus:ring-rose-500"
+                    />
+                  </div>
                 </div>
               </div>
               {renderTierReminderStrip('urgent')}
@@ -1119,16 +1305,30 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                     {priorityMetrics.tierCounts.future ?? 0} / {pricing.jobPosting?.homepagePrioritySlotConfig?.future?.maxSlots ?? 4} Occupied
                   </span>
                 </div>
-                <div className="flex items-center space-x-2">
-                  <span className="text-[11px] text-slate-300 font-medium">Max Card Slots:</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="50"
-                    value={pricing.jobPosting?.homepagePrioritySlotConfig?.future?.maxSlots ?? 4}
-                    onChange={(e) => updatePrioritySlot('future', 'maxSlots', e.target.value)}
-                    className="w-16 px-2 py-1 bg-slate-900 border border-indigo-500/40 rounded text-center text-white font-black text-xs focus:ring-1 focus:ring-indigo-500"
-                  />
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-[11px] text-slate-300 font-medium">Within-Tier Order:</span>
+                    <select
+                      value={pricing.jobPosting?.homepagePrioritySlotConfig?.future?.rotateOrder || 'sequential'}
+                      onChange={(e) => updatePrioritySlot('future', 'rotateOrder', e.target.value)}
+                      className="px-2 py-1 bg-slate-900 border border-indigo-500/40 rounded text-[11px] text-indigo-200 font-bold cursor-pointer"
+                    >
+                      <option value="sequential">Sequence Rotate (On Refresh)</option>
+                      <option value="shuffle">Fair Random Shuffle</option>
+                      <option value="latest">Latest First (Fixed)</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[11px] text-slate-300 font-medium">Max Card Slots:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="50"
+                      value={pricing.jobPosting?.homepagePrioritySlotConfig?.future?.maxSlots ?? 4}
+                      onChange={(e) => updatePrioritySlot('future', 'maxSlots', e.target.value)}
+                      className="w-16 px-2 py-1 bg-slate-900 border border-indigo-500/40 rounded text-center text-white font-black text-xs focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
                 </div>
               </div>
               {renderTierReminderStrip('future')}
@@ -1198,7 +1398,7 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
           </div>
           <p className="text-xs text-slate-300">
             The active campaign calculator uses the Ad Hub Rate Card (hourly, daily, weekly and monthly rates, placement/page multipliers and SMS charges).
-            Open <strong>Ads & Campaigns → Ad Hub & Banner Slots → Rate Card & Pricing Matrix</strong> to manage those values.
+            Open <strong>Ads &amp; Campaigns → Rate Card &amp; Pricing Matrix</strong> to manage those values.
           </p>
           <p className="text-[11px] text-slate-500">
             Older advertisement rate fields remain preserved in the saved configuration for backward compatibility. They are not edited here and are not the active campaign-calculation source.
@@ -1227,53 +1427,157 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                     {pricing.earlyAccess?.enabled === true ? 'Active' : 'Paused'}
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-400">Give active Premium members a configurable time advantage before public release.</p>
+                <p className="text-[11px] text-slate-400">Configure Early Access rates, pass validity days, unlock timing, expiry notifications, and standalone/bundle plans.</p>
               </div>
             </div>
-            <label className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-slate-950/80 px-3 py-1.5 text-xs font-bold text-slate-200 cursor-pointer hover:border-emerald-400/50 transition-colors shrink-0">
-              <input
-                type="checkbox"
-                checked={pricing.earlyAccess?.enabled === true}
-                onChange={(e) => setPricing((prev: any) => ({ ...prev, earlyAccess: { ...prev.earlyAccess, enabled: e.target.checked } }))}
-                className="w-3.5 h-3.5 rounded border-slate-600 text-emerald-500 focus:ring-emerald-500"
-              />
-              <span>Enable Early Access</span>
-            </label>
-          </div>
-
-          {/* 1. Timing & Landing Capacity — Compact Side-by-Side Boxes (Mobile & Desktop) */}
-          <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
-            <div className="rounded-xl border border-emerald-500/25 bg-slate-950/75 p-2.5 sm:p-3 space-y-1.5">
-              <label className="block text-[11px] sm:text-xs text-emerald-300 font-bold leading-tight">
-                Early Access Duration (Hours)
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <label className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-slate-950/80 px-3 py-1.5 text-xs font-bold text-slate-200 cursor-pointer hover:border-emerald-400/50 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={pricing.earlyAccess?.enabled === true}
+                  onChange={(e) => setPricing((prev: any) => ({ ...prev, earlyAccess: { ...prev.earlyAccess, enabled: e.target.checked } }))}
+                  className="w-3.5 h-3.5 rounded border-slate-600 text-emerald-500 focus:ring-emerald-500"
+                />
+                <span>Enable Early Access</span>
               </label>
-              <input
-                type="number"
-                min="1"
-                max="8760"
-                step="1"
-                value={pricing.earlyAccess?.durationHours ?? 24}
-                onChange={(e) => setPricing((prev: any) => ({ ...prev, earlyAccess: { ...prev.earlyAccess, durationHours: Math.max(1, Math.min(8760, Math.floor(Number(e.target.value) || 1))) } }))}
-                className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-bold text-xs sm:text-sm focus:border-emerald-500/60 focus:outline-none"
-              />
-              <p className="text-[10px] text-slate-500 leading-tight">24h = 1 day • 48h = 2 days</p>
-            </div>
-
-            <div className="rounded-xl border border-emerald-500/25 bg-slate-950/75 p-2.5 sm:p-3 space-y-1.5">
-              <label className="block text-[11px] sm:text-xs text-emerald-300 font-bold leading-tight">
-                Maximum Landing Page Jobs
-              </label>
-              <input
-                type="number"
-                min="1"
-                max="100"
-                value={pricing.earlyAccess?.maxJobs ?? 10}
-                onChange={(e) => setPricing((prev: any) => ({ ...prev, earlyAccess: { ...prev.earlyAccess, maxJobs: Math.max(1, Math.min(100, Math.floor(Number(e.target.value) || 1))) } }))}
-                className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-bold text-xs sm:text-sm focus:border-emerald-500/60 focus:outline-none"
-              />
-              <p className="text-[10px] text-slate-500 leading-tight">Max cards shown (1–100)</p>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving || Boolean(loadError)}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-black transition-all ${
+                  saving || loadError
+                    ? 'bg-slate-700 text-slate-300 cursor-not-allowed opacity-70'
+                    : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer shadow-sm'
+                }`}
+              >
+                {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                <span>{saving ? 'Saving...' : 'Save Changes'}</span>
+              </button>
             </div>
           </div>
+
+          {/* 1. Early Access Pricing, Pass Validity Days & Timing */}
+          {(() => {
+            const eaCatalog = getEarlyAccessCatalogEntry(pricing);
+            const isEaFreeMode = eaCatalog.pricePkr === 0;
+            return (
+              <div className="rounded-xl border border-emerald-500/30 bg-slate-950/75 p-3 sm:p-3.5 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[10px] font-black uppercase">
+                      Early Access Tier
+                    </span>
+                    <span className="text-xs font-bold text-white">Rate, Validity Days &amp; Timing</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <select
+                      value={isEaFreeMode ? 'free' : 'paid'}
+                      onChange={(e) => {
+                        if (e.target.value === 'free') {
+                          if (eaCatalog.pricePkr > 0) setCachedEaFee(eaCatalog.pricePkr);
+                          updateEarlyAccessCatalog({ pricePkr: 0 });
+                        } else {
+                          updateEarlyAccessCatalog({ pricePkr: cachedEaFee > 0 ? cachedEaFee : 500 });
+                        }
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-xs text-emerald-300 font-bold"
+                    >
+                      <option value="paid">Paid Mode</option>
+                      <option value="free">100% Free Mode</option>
+                    </select>
+                    <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={eaCatalog.enabled}
+                        onChange={(e) => updateEarlyAccessCatalog({ enabled: e.target.checked })}
+                        className="w-3.5 h-3.5 rounded border-slate-600 text-emerald-500"
+                      />
+                      <span>Enable in Subscription Catalog</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+                  <div className="rounded-xl border border-emerald-500/25 bg-slate-900/75 p-2.5 space-y-1.5">
+                    <label className="block text-[11px] text-emerald-300 font-bold leading-tight">
+                      Early Access Rate (PKR)
+                    </label>
+                    {!isEaFreeMode ? (
+                      <input
+                        type="number"
+                        min={0}
+                        max={10000000}
+                        step={1}
+                        value={eaCatalog.pricePkr}
+                        onChange={(e) => {
+                          const val = Math.max(0, Math.round(Number(e.target.value) || 0));
+                          if (val > 0) setCachedEaFee(val);
+                          updateEarlyAccessCatalog({ pricePkr: val });
+                        }}
+                        className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-white font-bold text-xs sm:text-sm focus:border-emerald-500/60 focus:outline-none"
+                      />
+                    ) : (
+                      <div className="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-300 font-bold">
+                        Free Mode Active (0 PKR)
+                      </div>
+                    )}
+                    <p className="text-[10px] text-slate-500 leading-tight">Base catalog rate for Early Access plans</p>
+                  </div>
+
+                  <div className="rounded-xl border border-emerald-500/25 bg-slate-900/75 p-2.5 space-y-1.5">
+                    <label className="block text-[11px] text-emerald-300 font-bold leading-tight">
+                      Pass Validity (Days)
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={3650}
+                      step={1}
+                      value={eaCatalog.durationDays}
+                      onChange={(e) =>
+                        updateEarlyAccessCatalog({
+                          durationDays: Math.max(1, Math.min(3650, Math.floor(Number(e.target.value) || 1)))
+                        })
+                      }
+                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-white font-bold text-xs sm:text-sm focus:border-emerald-500/60 focus:outline-none"
+                    />
+                    <p className="text-[10px] text-slate-500 leading-tight">Default plan validity (1–3650 days)</p>
+                  </div>
+
+                  <div className="rounded-xl border border-emerald-500/25 bg-slate-900/75 p-2.5 space-y-1.5">
+                    <label className="block text-[11px] text-emerald-300 font-bold leading-tight">
+                      Early Unlock Window (Hours)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="8760"
+                      step="1"
+                      value={pricing.earlyAccess?.durationHours ?? 24}
+                      onChange={(e) => setPricing((prev: any) => ({ ...prev, earlyAccess: { ...prev.earlyAccess, durationHours: Math.max(1, Math.min(8760, Math.floor(Number(e.target.value) || 1))) } }))}
+                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-white font-bold text-xs sm:text-sm focus:border-emerald-500/60 focus:outline-none"
+                    />
+                    <p className="text-[10px] text-slate-500 leading-tight">24h = 1 day • 48h = 2 days head start</p>
+                  </div>
+
+                  <div className="rounded-xl border border-emerald-500/25 bg-slate-900/75 p-2.5 space-y-1.5">
+                    <label className="block text-[11px] text-emerald-300 font-bold leading-tight">
+                      Maximum Landing Page Jobs
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={pricing.earlyAccess?.maxJobs ?? 10}
+                      onChange={(e) => setPricing((prev: any) => ({ ...prev, earlyAccess: { ...prev.earlyAccess, maxJobs: Math.max(1, Math.min(100, Math.floor(Number(e.target.value) || 1))) } }))}
+                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-white font-bold text-xs sm:text-sm focus:border-emerald-500/60 focus:outline-none"
+                    />
+                    <p className="text-[10px] text-slate-500 leading-tight">Max cards shown (1–100)</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* 2. Apply Early Access to Job Sources */}
           <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 sm:p-3.5 space-y-2">
@@ -1790,7 +2094,354 @@ export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
                 />
               </div>
             </div>
+            {/* Pass Expiry Notifications & Reminders (Tier-style Pre-Expiry Controls) */}
+            {(() => {
+              const subRem = pricing.subscriptionReminderSettings || {};
+              const expiryEnabled = subRem.enabled === true;
+              const leadDays = Math.min(30, Math.max(1, Math.floor(Number(subRem.daysBefore ?? 3) || 3)));
+              return (
+                <div className="pt-2.5 mt-1 border-t border-slate-800/80 bg-slate-900/70 px-3 py-2.5 rounded-lg space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="flex items-center gap-2 text-xs font-bold text-slate-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={expiryEnabled}
+                        onChange={(e) => updateSubscriptionReminder({ enabled: e.target.checked })}
+                        className="w-3.5 h-3.5 accent-amber-400 cursor-pointer"
+                      />
+                      <Bell className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span>Pre-Expiry Notifications &amp; Reminders (Early Access Passes)</span>
+                    </label>
+                    <div className="flex items-center gap-1.5 text-[11px]">
+                      <span className="text-slate-400">Lead Time:</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={30}
+                        disabled={!expiryEnabled}
+                        value={leadDays}
+                        onChange={(e) => {
+                          const val = Math.min(30, Math.max(1, Math.floor(Number(e.target.value) || 1)));
+                          updateSubscriptionReminder({
+                            daysBefore: val,
+                            inAppDaysBefore: val,
+                            emailDaysBefore: val,
+                            whatsappDaysBefore: val,
+                            smsDaysBefore: val
+                          });
+                        }}
+                        className="w-14 px-2 py-0.5 bg-slate-950 border border-slate-700 rounded text-center text-white font-mono font-bold text-xs disabled:opacity-40"
+                      />
+                      <span className="text-slate-400">days before expiry</span>
+                    </div>
+                  </div>
+                  {expiryEnabled && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-950 border border-slate-800 text-[10px] font-bold text-amber-300 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={subRem.inAppEnabled !== false}
+                            onChange={(e) => updateSubscriptionReminder({ inAppEnabled: e.target.checked })}
+                            className="accent-amber-400"
+                          />
+                          <span>In-App Notification</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-950 border border-slate-800 text-[10px] font-bold text-sky-300 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={subRem.emailEnabled === true}
+                            onChange={(e) => updateSubscriptionReminder({ emailEnabled: e.target.checked })}
+                            className="accent-sky-400"
+                          />
+                          <span>Email</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-950 border border-slate-800 text-[10px] font-bold text-emerald-300 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={subRem.whatsappEnabled === true}
+                            onChange={(e) => updateSubscriptionReminder({ whatsappEnabled: e.target.checked })}
+                            className="accent-emerald-400"
+                          />
+                          <span>WhatsApp</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-950 border border-slate-800 text-[10px] font-bold text-indigo-300 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={subRem.smsEnabled === true}
+                            onChange={(e) => updateSubscriptionReminder({ smsEnabled: e.target.checked })}
+                            className="accent-indigo-400"
+                          />
+                          <span>SMS</span>
+                        </label>
+                      </div>
+                      <span className="text-[10px] text-slate-500">Synced with Subscription expiry reminders</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
+
+          {/* 7. Early Access Packages & Plans Builder */}
+          {(() => {
+            const eaCatalog = getEarlyAccessCatalogEntry(pricing);
+            const allPkgs = Array.isArray(pricing.subscriptionPackages) ? pricing.subscriptionPackages : [];
+            const eaPackages = allPkgs.filter(
+              (pkg: any) => Array.isArray(pkg?.featureIds) && pkg.featureIds.includes('early_access')
+            );
+
+            return (
+              <div className="rounded-xl border border-emerald-500/30 bg-slate-950/75 p-3 sm:p-4 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-800 pb-2.5">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Package className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="text-xs sm:text-sm font-black text-white">
+                        Early Access Packages &amp; Plans ({eaPackages.length})
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Create and manage standalone or bundled Early Access plans directly here. Synced automatically with Subscriptions.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddEarlyAccessPackage}
+                    className="min-h-[34px] px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black flex items-center gap-1.5 cursor-pointer shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Create Early Access Plan</span>
+                  </button>
+                </div>
+
+                {eaPackages.length === 0 ? (
+                  <div className="p-4 rounded-xl bg-slate-900/75 border border-slate-800 text-xs text-slate-400 text-center">
+                    No plans currently include <span className="font-mono text-emerald-300">early_access</span>. Click &quot;Create Early Access Plan&quot; above to add a plan.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {eaPackages.map((pkg: any) => {
+                      const isStandalone = Array.isArray(pkg.featureIds) && pkg.featureIds.length === 1;
+                      const discountPct = Math.min(100, Math.max(0, Number(pkg.bundleDiscountPercent ?? 0) || 0));
+                      const catalogCalculatedPrice = Math.max(
+                        0,
+                        Math.round(eaCatalog.pricePkr * (1 - discountPct / 100))
+                      );
+                      const displayedPrice = Number(pkg.configuredPricePkr ?? pkg.pricePkr ?? 0);
+
+                      return (
+                        <div key={pkg.id} className="bg-slate-900/80 border border-slate-800 rounded-xl p-3 space-y-2.5 text-xs">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1 space-y-1.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-950 border border-slate-700 text-slate-300">
+                                  {isStandalone ? 'Standalone' : `Bundle (${pkg.featureIds.length} features)`}
+                                </span>
+                                {pkg.popular && (
+                                  <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300">
+                                    Popular
+                                  </span>
+                                )}
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/25 text-emerald-300">
+                                  {pkg.pricingMode === 'catalog'
+                                    ? `Catalog: PKR ${catalogCalculatedPrice}`
+                                    : displayedPrice === 0
+                                    ? 'Free (0 PKR)'
+                                    : `Fixed: PKR ${displayedPrice}`}
+                                </span>
+                              </div>
+                              <input
+                                type="text"
+                                maxLength={80}
+                                value={pkg.name || ''}
+                                placeholder="Plan Name (e.g. Early Access Pass)"
+                                onChange={(e) => updateEarlyAccessPackageById(pkg.id, (cur) => ({ ...cur, name: e.target.value }))}
+                                className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-bold text-xs"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveEarlyAccessPackage(pkg.id)}
+                              title="Delete plan"
+                              className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/25 cursor-pointer shrink-0"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[10px] text-slate-400 mb-0.5">Badge Label</label>
+                              <input
+                                type="text"
+                                maxLength={40}
+                                value={pkg.badge || ''}
+                                placeholder="Early Access"
+                                onChange={(e) => updateEarlyAccessPackageById(pkg.id, (cur) => ({ ...cur, badge: e.target.value }))}
+                                className="w-full px-2 py-1 rounded-lg bg-slate-950 border border-slate-700 text-slate-200 text-xs"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] text-slate-400 mb-0.5">Short Description</label>
+                              <input
+                                type="text"
+                                maxLength={200}
+                                value={pkg.description || ''}
+                                placeholder="Priority early job unlock plan"
+                                onChange={(e) => updateEarlyAccessPackageById(pkg.id, (cur) => ({ ...cur, description: e.target.value }))}
+                                className="w-full px-2 py-1 rounded-lg bg-slate-950 border border-slate-700 text-slate-200 text-xs"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            <div>
+                              <div className="flex items-center justify-between mb-0.5">
+                                <label className="text-[10px] text-slate-400">Price (PKR)</label>
+                                {pkg.pricingMode !== 'catalog' && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      updateEarlyAccessPackageById(pkg.id, (cur) => {
+                                        const curPrice = Number(cur.configuredPricePkr ?? cur.pricePkr ?? 0);
+                                        const nextPrice = curPrice === 0 ? (eaCatalog.pricePkr > 0 ? eaCatalog.pricePkr : 500) : 0;
+                                        return { ...cur, configuredPricePkr: nextPrice, pricePkr: nextPrice };
+                                      })
+                                    }
+                                    className="text-[9px] font-bold text-emerald-300 hover:underline cursor-pointer"
+                                  >
+                                    {displayedPrice === 0 ? 'Set Paid' : 'Set Free'}
+                                  </button>
+                                )}
+                              </div>
+                              <input
+                                type="number"
+                                min={0}
+                                disabled={pkg.pricingMode === 'catalog'}
+                                value={pkg.pricingMode === 'catalog' ? catalogCalculatedPrice : displayedPrice}
+                                onChange={(e) => {
+                                  const val = Math.max(0, Math.round(Number(e.target.value) || 0));
+                                  updateEarlyAccessPackageById(pkg.id, (cur) => ({
+                                    ...cur,
+                                    configuredPricePkr: val,
+                                    pricePkr: val,
+                                    featureOverrides: {
+                                      ...(cur.featureOverrides || {}),
+                                      early_access: {
+                                        ...(cur.featureOverrides?.early_access || {}),
+                                        pricePkr: val
+                                      }
+                                    }
+                                  }));
+                                }}
+                                className="w-full px-2 py-1 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono tabular-nums font-bold text-xs disabled:opacity-55"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] text-slate-400 mb-0.5">Validity (Days)</label>
+                              <input
+                                type="number"
+                                min={1}
+                                max={3650}
+                                value={pkg.durationDays ?? 30}
+                                onChange={(e) => {
+                                  const val = Math.max(1, Math.min(3650, Math.floor(Number(e.target.value) || 1)));
+                                  updateEarlyAccessPackageById(pkg.id, (cur) => ({
+                                    ...cur,
+                                    durationDays: val,
+                                    featureOverrides: {
+                                      ...(cur.featureOverrides || {}),
+                                      early_access: {
+                                        ...(cur.featureOverrides?.early_access || {}),
+                                        durationDays: val
+                                      }
+                                    }
+                                  }));
+                                }}
+                                className="w-full px-2 py-1 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono tabular-nums font-bold text-xs"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] text-slate-400 mb-0.5">Discount %</label>
+                              <input
+                                type="number"
+                                min={0}
+                                max={100}
+                                value={pkg.bundleDiscountPercent ?? 0}
+                                onChange={(e) =>
+                                  updateEarlyAccessPackageById(pkg.id, (cur) => ({
+                                    ...cur,
+                                    bundleDiscountPercent: Math.min(100, Math.max(0, Number(e.target.value) || 0))
+                                  }))
+                                }
+                                className="w-full px-2 py-1 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono tabular-nums font-bold text-xs"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-slate-800/80 text-[11px]">
+                            <div className="flex items-center gap-3">
+                              <label className="flex items-center gap-1.5 text-slate-300 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={pkg.enabled !== false}
+                                  onChange={(e) => updateEarlyAccessPackageById(pkg.id, (cur) => ({ ...cur, enabled: e.target.checked }))}
+                                  className="accent-emerald-500"
+                                />
+                                <span>Enabled</span>
+                              </label>
+                              <label className="flex items-center gap-1.5 text-amber-300 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={pkg.popular === true}
+                                  onChange={(e) => updateEarlyAccessPackageById(pkg.id, (cur) => ({ ...cur, popular: e.target.checked }))}
+                                  className="accent-amber-400"
+                                />
+                                <span>Popular</span>
+                              </label>
+                            </div>
+
+                            <select
+                              value={pkg.pricingMode || 'fixed'}
+                              onChange={(e) =>
+                                updateEarlyAccessPackageById(pkg.id, (cur) => ({ ...cur, pricingMode: e.target.value }))
+                              }
+                              className="px-2 py-1 rounded-lg bg-slate-950 border border-slate-700 text-[10px] font-bold text-slate-200"
+                            >
+                              <option value="fixed">Fixed Price Mode</option>
+                              <option value="catalog">Catalog Auto-Sum Mode</option>
+                            </select>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
+                  <span className="text-[11px] text-slate-400">
+                    All Early Access rates, expiry reminders, and packages are saved atomically with your database configuration.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleSave}
+                    disabled={saving || Boolean(loadError)}
+                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                      saving || loadError
+                        ? 'bg-slate-700 text-slate-300 cursor-not-allowed opacity-70'
+                        : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 cursor-pointer shadow-md'
+                    }`}
+                  >
+                    {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                    <span>{saving ? 'Saving...' : 'Save Early Access Settings & Plans'}</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 

@@ -22,8 +22,9 @@ import {
   FileText,
   RefreshCw
 } from 'lucide-react';
-import { Job } from '../types/job';
-import { Advertisement, FeedInlineAdSettings, BannerDimensionSettings, FeedCardAppearanceSettings, isAdCurrentlyRunning } from '../types/ad';
+import { Job, HomepagePrioritySlotConfig } from '../types/job';
+import { Advertisement, FeedInlineAdSettings, BannerDimensionSettings, FeedCardAppearanceSettings, PlacementRotationConfig, isAdCurrentlyRunning } from '../types/ad';
+import { getRotatedItems } from '../utils/adRotation';
 import { sanitizeJobTitle, sanitizeJobCompanyName, sanitizeJobTags } from '../utils/jobSanitizer';
 import { InlineFeedAd } from './ads/InlineFeedAd';
 
@@ -113,6 +114,8 @@ interface JobListingsProps {
   onAdClick?: (ad: Advertisement) => void;
   onNavigateTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
   jobCardDesign?: JobCardDesignConfig;
+  feedRotationSettings?: PlacementRotationConfig;
+  homepagePrioritySlotConfig?: HomepagePrioritySlotConfig;
 }
 
 export const JobListings: React.FC<JobListingsProps> = ({
@@ -133,18 +136,32 @@ export const JobListings: React.FC<JobListingsProps> = ({
   feedCardAppearance,
   onAdClick,
   onNavigateTab,
-  jobCardDesign
+  jobCardDesign,
+  feedRotationSettings,
+  homepagePrioritySlotConfig
 }) => {
   // Local state fallback if not controlled from parent
   const [internalPage, setInternalPage] = useState<number>(1);
   const [internalPostsPerPage, setInternalPostsPerPage] = useState<number>(10);
   const [jumpPageInput, setJumpPageInput] = useState<string>('');
   const [clockNow, setClockNow] = useState<number>(() => Date.now());
+  const [feedRotationTick, setFeedRotationTick] = useState<number>(0);
 
   useEffect(() => {
     const timer = window.setInterval(() => setClockNow(Date.now()), 60000);
     return () => window.clearInterval(timer);
   }, []);
+
+  const feedTimedEnabled = feedRotationSettings?.enabled !== false && feedRotationSettings?.autoRotateTimed === true;
+  const feedIntervalMs = Math.max(2, Math.min(120, Number(feedRotationSettings?.intervalSeconds) || 8)) * 1000;
+
+  useEffect(() => {
+    if (!feedTimedEnabled) return;
+    const timer = window.setInterval(() => {
+      setFeedRotationTick((prev) => prev + 1);
+    }, feedIntervalMs);
+    return () => window.clearInterval(timer);
+  }, [feedTimedEnabled, feedIntervalMs]);
 
   const currentPage = controlledPage !== undefined ? controlledPage : internalPage;
   const postsPerPage = controlledPostsPerPage !== undefined ? controlledPostsPerPage : internalPostsPerPage;
@@ -169,17 +186,46 @@ export const JobListings: React.FC<JobListingsProps> = ({
   const accentColor = getJobCardAccentColor(design.theme.accentColor);
   const accentStyles = JOB_CARD_ACCENT_STYLES[accentColor];
 
-  // STEP66-B.1: Separate Priority Jobs and Standard Jobs
+  // STEP66-B.1: Separate Priority Jobs and Standard Jobs (with within-tier rotation preserving strict tier hierarchy)
   const priorityList = React.useMemo(() => {
-    if (Array.isArray(propPriorityJobs) && propPriorityJobs.length > 0) {
-      return propPriorityJobs;
+    const rawList = (Array.isArray(propPriorityJobs) && propPriorityJobs.length > 0)
+      ? propPriorityJobs
+      : jobs.filter(j =>
+          j.priorityTier === 'vip_bundle' ||
+          (j as any).activePriorityTier ||
+          (j.isPinnedTop && j.featured && j.urgent)
+        ).slice(0, 8);
+
+    const resolveTier = (job: Job): 'vip' | 'pinned' | 'featured' | 'urgent' | 'future' => {
+      const activeTier = (job as any).activePriorityTier;
+      if (activeTier === 'vip' || activeTier === 'pinned' || activeTier === 'featured' || activeTier === 'urgent' || activeTier === 'future') {
+        return activeTier;
+      }
+      if (job.priorityTier === 'vip_bundle') return 'vip';
+      if (job.priorityTier === 'featured_top' || job.isPinnedTop) return 'pinned';
+      if (job.priorityTier === 'featured' || job.featured) return 'featured';
+      if (job.priorityTier === 'urgent' || job.urgent) return 'urgent';
+      return 'future';
+    };
+
+    const grouped: Record<'vip' | 'pinned' | 'featured' | 'urgent' | 'future', Job[]> = {
+      vip: [],
+      pinned: [],
+      featured: [],
+      urgent: [],
+      future: []
+    };
+
+    for (const j of rawList) {
+      grouped[resolveTier(j)].push(j);
     }
-    return jobs.filter(j => 
-      j.priorityTier === 'vip_bundle' || 
-      (j as any).activePriorityTier || 
-      (j.isPinnedTop && j.featured && j.urgent)
-    ).slice(0, 8);
-  }, [propPriorityJobs, jobs]);
+
+    const orderKeys = ['vip', 'pinned', 'featured', 'urgent', 'future'] as const;
+    return orderKeys.flatMap((tierKey) => {
+      const mode = homepagePrioritySlotConfig?.[tierKey]?.rotateOrder || 'sequential';
+      return getRotatedItems(grouped[tierKey], `priority_tier_${tierKey}`, mode);
+    });
+  }, [propPriorityJobs, jobs, homepagePrioritySlotConfig]);
 
   const priorityIdsSet = React.useMemo(() => new Set(priorityList.map(j => j.id)), [priorityList]);
 
@@ -681,7 +727,9 @@ export const JobListings: React.FC<JobListingsProps> = ({
           const eligibleAds = (ads || []).filter(
             (a) => a.placement === 'feed-inline' && isAdCurrentlyRunning(a)
           );
-          const activeAdsList = eligibleAds;
+          const feedRotationEnabled = feedRotationSettings?.enabled !== false && feedInlineSettings?.rotateMultipleAds !== false;
+          const seqMode = feedRotationEnabled ? (feedRotationSettings?.sequenceMode || 'sequential_per_visit') : 'fixed';
+          const activeAdsList = getRotatedItems(eligibleAds, 'ad_feed-inline', seqMode);
 
           const configuredMaxAds = Number(feedInlineSettings?.maxAdsPerPage ?? 3);
           const maxAds = Number.isInteger(configuredMaxAds) ? Math.max(0, Math.min(10, configuredMaxAds)) : 3;
@@ -709,8 +757,8 @@ export const JobListings: React.FC<JobListingsProps> = ({
             }
 
             if (shouldInsert && adInsertedCount < maxAds && activeAdsList.length > 0) {
-              const selectedAd = (feedInlineSettings?.rotateMultipleAds !== false)
-                ? activeAdsList[adInsertedCount % activeAdsList.length]
+              const selectedAd = feedRotationEnabled
+                ? activeAdsList[(adInsertedCount + feedRotationTick) % activeAdsList.length]
                 : activeAdsList[0];
 
               elements.push(

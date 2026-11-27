@@ -213,6 +213,22 @@ export interface PlacementExpiryReminderConfig {
   smsEnabled: boolean;
 }
 
+export type PlacementSequenceMode = 'fixed' | 'sequential_per_visit' | 'shuffle_per_visit';
+
+export interface PlacementRotationConfig {
+  enabled: boolean;
+  autoRotateTimed: boolean;
+  intervalSeconds: number;
+  sequenceMode: PlacementSequenceMode;
+}
+
+export const DEFAULT_PLACEMENT_ROTATION_CONFIG: PlacementRotationConfig = {
+  enabled: true,
+  autoRotateTimed: true,
+  intervalSeconds: 6,
+  sequenceMode: 'sequential_per_visit'
+};
+
 export interface CampaignPlacementOption {
   id: AdPlacement;
   name: string;
@@ -236,6 +252,7 @@ export interface CampaignPlacementOption {
   maxConcurrentSlots?: number; // e.g. 3 simultaneous banners
   allowedPageIds?: string[];
   expiryReminder?: PlacementExpiryReminderConfig;
+  rotationSettings?: PlacementRotationConfig;
 }
 
 export interface CampaignCustomizationConfig {
@@ -460,7 +477,8 @@ export const DEFAULT_PLACEMENT_OPTIONS: CampaignPlacementOption[] = [
     multiplier: 1.25,
     iconName: 'Megaphone',
     badge: 'High CTR',
-    isEnabled: true
+    isEnabled: true,
+    rotationSettings: { enabled: true, autoRotateTimed: true, intervalSeconds: 6, sequenceMode: 'sequential_per_visit' }
   },
   {
     id: 'feed-inline',
@@ -470,7 +488,8 @@ export const DEFAULT_PLACEMENT_OPTIONS: CampaignPlacementOption[] = [
     multiplier: 1.0,
     iconName: 'Layers',
     badge: 'Native Feed',
-    isEnabled: true
+    isEnabled: true,
+    rotationSettings: { enabled: true, autoRotateTimed: false, intervalSeconds: 8, sequenceMode: 'sequential_per_visit' }
   },
   {
     id: 'popup-modal',
@@ -480,7 +499,8 @@ export const DEFAULT_PLACEMENT_OPTIONS: CampaignPlacementOption[] = [
     multiplier: 1.5,
     iconName: 'Sparkles',
     badge: 'Maximum Impact',
-    isEnabled: true
+    isEnabled: true,
+    rotationSettings: { enabled: true, autoRotateTimed: false, intervalSeconds: 8, sequenceMode: 'sequential_per_visit' }
   },
   {
     id: 'toast-float',
@@ -490,7 +510,8 @@ export const DEFAULT_PLACEMENT_OPTIONS: CampaignPlacementOption[] = [
     multiplier: 0.9,
     iconName: 'Bell',
     badge: 'Subtle Alert',
-    isEnabled: true
+    isEnabled: true,
+    rotationSettings: { enabled: true, autoRotateTimed: true, intervalSeconds: 6, sequenceMode: 'sequential_per_visit' }
   },
   {
     id: 'sidebar',
@@ -500,7 +521,8 @@ export const DEFAULT_PLACEMENT_OPTIONS: CampaignPlacementOption[] = [
     multiplier: 0.75,
     iconName: 'Smartphone',
     badge: 'Desktop & Tablet',
-    isEnabled: true
+    isEnabled: true,
+    rotationSettings: { enabled: true, autoRotateTimed: true, intervalSeconds: 6, sequenceMode: 'sequential_per_visit' }
   },
   {
     id: 'sms-broadcast',
@@ -522,7 +544,8 @@ export const DEFAULT_PLACEMENT_OPTIONS: CampaignPlacementOption[] = [
     badge: 'Landing Promotion',
     isEnabled: false,
     maxConcurrentSlots: 1,
-    allowedPageIds: ['jobs']
+    allowedPageIds: ['jobs'],
+    rotationSettings: { enabled: true, autoRotateTimed: true, intervalSeconds: 6, sequenceMode: 'sequential_per_visit' }
   },
   {
     id: 'dynamic-announcement-card',
@@ -534,7 +557,8 @@ export const DEFAULT_PLACEMENT_OPTIONS: CampaignPlacementOption[] = [
     badge: 'Landing Announcement',
     isEnabled: false,
     maxConcurrentSlots: 1,
-    allowedPageIds: ['jobs']
+    allowedPageIds: ['jobs'],
+    rotationSettings: { enabled: true, autoRotateTimed: true, intervalSeconds: 6, sequenceMode: 'sequential_per_visit' }
   }
 ];
 

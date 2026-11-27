@@ -175,9 +175,7 @@ import {
   deleteNotificationDraftFromStorage
 } from '../../src/components/admin/AdminBulkNotificationTool';
 import {
-  AdminPaymentMethodsManager,
-  CAMPAIGN_DURATION_PRESETS_KEY,
-  saveDurationPresetsToStorage
+  AdminPaymentMethodsManager
 } from '../../src/components/admin/AdminPaymentMethodsManager';
 import {
   AdminDataBackupHub,
@@ -296,7 +294,7 @@ async function runSuite() {
       true
     );
     assert.strictEqual(activeTab, 'broadcast-center');
-    assert.strictEqual(activeCategory, 'alerts');
+    assert.strictEqual(activeCategory, 'jobs');
 
     assert.strictEqual(
       navigateWithAdminPermission({
@@ -1033,29 +1031,28 @@ async function runSuite() {
     chatMessagesCount: 6
   };
 
-  await runTest('PHASE 8.1-B: Canonical module registry has exactly 32 unique modules mapped across 7 Classic and 8 Professional categories', () => {
-    assert.strictEqual(ADMIN_NAVIGATION_MODULES.length, 32, 'Expected 32 unique modules (30 existing plus locations-manager and admin-security)');
+  await runTest('PHASE 8.1-B: Canonical module registry has exactly 32 unique modules mapped across 6 Classic and 8 Professional categories', () => {
+    assert.strictEqual(ADMIN_NAVIGATION_MODULES.length, 32, 'Expected 32 unique canonical modules after consolidating duplicate communication tabs into Jobs & Ads Control Center');
     const ids = ADMIN_NAVIGATION_MODULES.map((m) => m.id);
     assert.strictEqual(new Set(ids).size, 32, 'Canonical module IDs must be strictly unique');
-    assert.strictEqual(CLASSIC_ADMIN_CATEGORIES.length, 7);
+    assert.strictEqual(CLASSIC_ADMIN_CATEGORIES.length, 6);
     assert.strictEqual(PROFESSIONAL_ADMIN_CATEGORIES.length, 8);
 
     const expectedProStructure: Record<string, string[]> = {
       'overview-analytics': ['analytics', 'activity-logs'],
-      'jobs-moderation': ['jobs', 'pending', 'add-job', 'ai-enhancer'],
+      'jobs-ads-control-center': ['jobs-ads-control-center'],
       'scraper-ingestion': ['scraper'],
-      'ads-campaigns': ['campaign-center', 'advertisements', 'landing-customizer'],
-      'finance-payments': ['pricing-controller', 'admin-payment-methods', 'payment-proofs', 'fee-management', 'fee-logs', 'currency-forex'],
+      'ads-campaigns': ['landing-customizer'],
+      'finance-payments': ['subscription-studio', 'cv-settings', 'admin-payment-methods', 'payment-proofs', 'currency-forex'],
       'users-kyc-support': ['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'],
-      'communication-alerts': ['whatsapp-manager', 'broadcast-center', 'bulk-notifications'],
-      'platform-settings-data': ['locations-manager', 'apply-settings', 'modal-content-manager', 'job-visibility', 'seo-config', 'settings', 'form-customizer', 'data-backup', 'admin-security']
+      'platform-settings-data': ['locations-manager', 'apply-settings', 'modal-content-manager', 'job-visibility', 'seo-config', 'admin-security', 'settings', 'form-customizer', 'data-backup']
     };
 
     const superAdminCanAccess = (tabId: string) =>
       checkAdminTabPermission('Super Admin', ADMIN_ROLE_DEFAULT_PERMS['Super Admin'], true, tabId);
 
     const proGroups = buildProfessionalMenuCategories(sampleNavCounts, superAdminCanAccess);
-    assert.strictEqual(proGroups.length, 8, 'Super Admin must see all 8 Professional categories');
+    assert.strictEqual(proGroups.length, 7, 'Super Admin sees 7 non-empty Professional categories');
 
     for (const [catId, expectedIds] of Object.entries(expectedProStructure)) {
       const group = proGroups.find((g) => g.id === catId);
@@ -1073,7 +1070,7 @@ async function runSuite() {
     assert.strictEqual(matrixIds.length, 32);
     assert.strictEqual(new Set(matrixIds).size, 32);
     assert.strictEqual(matrixIds.includes('locations-manager'), true, 'Classic All Modules Matrix must include the dedicated Location Manager submenu');
-    assert.strictEqual(matrixIds.filter((id) => id === 'whatsapp-manager').length, 1);
+    assert.strictEqual(matrixIds.filter((id) => id === 'jobs-ads-control-center').length, 1);
 
     // Every module ID and alias exists in ADMIN_TAB_CATEGORIES
     for (const mod of ADMIN_NAVIGATION_MODULES) {
@@ -1193,28 +1190,28 @@ async function runSuite() {
     assert.strictEqual(seoPro[0].id, 'platform-settings-data');
     assert.deepStrictEqual(seoPro[0].items.map((i) => i.id), ['seo-config']);
 
-    // 2. Payment Manager sees ONLY finance-payments -> ['admin-payment-methods', 'payment-proofs', 'fee-logs']
+    // 2. Payment Manager sees ONLY finance-payments -> ['admin-payment-methods', 'payment-proofs']
     const payCan = (t: string) => checkAdminTabPermission('Payment Manager', ADMIN_ROLE_DEFAULT_PERMS['Payment Manager'], true, t);
     const payPro = buildProfessionalMenuCategories(sampleNavCounts, payCan);
     assert.strictEqual(payPro.length, 1);
     assert.strictEqual(payPro[0].id, 'finance-payments');
-    assert.deepStrictEqual(payPro[0].items.map((i) => i.id), ['admin-payment-methods', 'payment-proofs', 'fee-logs']);
+    assert.deepStrictEqual(payPro[0].items.map((i) => i.id), ['admin-payment-methods', 'payment-proofs']);
 
-    // 3. Finance Manager sees all 6 finance modules
+    // 3. Finance Manager sees Control Center + all 5 visible finance modules
     const finCan = (t: string) => checkAdminTabPermission('Finance Manager', ADMIN_ROLE_DEFAULT_PERMS['Finance Manager'], true, t);
     const finPro = buildProfessionalMenuCategories(sampleNavCounts, finCan);
-    assert.strictEqual(finPro.length, 1);
+    assert.strictEqual(finPro.length, 2);
     assert.deepStrictEqual(
-      finPro[0].items.map((i) => i.id),
-      ['pricing-controller', 'admin-payment-methods', 'payment-proofs', 'fee-management', 'fee-logs', 'currency-forex']
+      finPro.find((g) => g.id === 'finance-payments')!.items.map((i) => i.id),
+      ['subscription-studio', 'cv-settings', 'admin-payment-methods', 'payment-proofs', 'currency-forex']
     );
 
-    // 4. Job Moderator sees only jobs-moderation
+    // 4. Job Moderator sees Jobs & Ads Control Center
     const jobModCan = (t: string) => checkAdminTabPermission('Job Moderator', ADMIN_ROLE_DEFAULT_PERMS['Job Moderator'], true, t);
     const jobPro = buildProfessionalMenuCategories(sampleNavCounts, jobModCan);
     assert.strictEqual(jobPro.length, 1);
-    assert.strictEqual(jobPro[0].id, 'jobs-moderation');
-    assert.deepStrictEqual(jobPro[0].items.map((i) => i.id), ['jobs', 'pending', 'add-job', 'ai-enhancer']);
+    assert.strictEqual(jobPro[0].id, 'jobs-ads-control-center');
+    assert.deepStrictEqual(jobPro[0].items.map((i) => i.id), ['jobs-ads-control-center']);
 
     // 5. Custom Audit Viewer sees only overview-analytics -> ['activity-logs']
     const auditCan = (t: string) => checkAdminTabPermission('Custom Audit', ['audit.view'], true, t);
@@ -1230,12 +1227,12 @@ async function runSuite() {
     assert.strictEqual(usersPro[0].id, 'users-kyc-support');
     assert.deepStrictEqual(usersPro[0].items.map((i) => i.id), ['user-audit', 'employer-kyc', 'subscribers', 'chat-hub']);
 
-    // 7. Custom Settings Manager sees analytics, communication-alerts, and settings WITHOUT data-backup
+    // 7. Custom Settings Manager sees analytics, Jobs & Ads Control Center (broadcasts/WhatsApp), and settings WITHOUT data-backup
     const settingsCan = (t: string) => checkAdminTabPermission('Custom Settings', ['settings.manage'], true, t);
     const settingsPro = buildProfessionalMenuCategories(sampleNavCounts, settingsCan);
     const settingsIds = settingsPro.flatMap((g) => g.items.map((i) => i.id));
     assert.ok(settingsIds.includes('locations-manager'));
-    assert.ok(settingsIds.includes('whatsapp-manager'));
+    assert.ok(settingsIds.includes('jobs-ads-control-center'));
     assert.ok(settingsIds.includes('analytics'));
     assert.ok(settingsIds.includes('admin-security'));
     assert.strictEqual(settingsIds.includes('data-backup'), false, 'Non-Admin with settings.manage must NEVER see data-backup');
@@ -1271,14 +1268,14 @@ async function runSuite() {
     assert.ok(searchAdminNavigationModules('cities', sampleNavCounts, superCan).some((m) => m.id === 'locations-manager'));
     assert.ok(searchAdminNavigationModules('stats', sampleNavCounts, superCan).some((m) => m.id === 'analytics'));
     assert.ok(searchAdminNavigationModules('رسید', sampleNavCounts, superCan).some((m) => m.id === 'payment-proofs'));
-    assert.ok(searchAdminNavigationModules('Finance & Payments', sampleNavCounts, superCan).length === 6);
+    assert.ok(searchAdminNavigationModules('Finance & Payments', sampleNavCounts, superCan).length === 5);
 
     // Restricted role search must never reveal unauthorized modules
     assert.strictEqual(searchAdminNavigationModules('jazzcash', sampleNavCounts, jobModCan).length, 0);
     assert.strictEqual(searchAdminNavigationModules('Finance & Payments', sampleNavCounts, jobModCan).length, 0);
     assert.deepStrictEqual(
-      searchAdminNavigationModules('اسپیم', sampleNavCounts, jobModCan).map((m) => m.id),
-      ['ai-enhancer']
+      searchAdminNavigationModules('Jobs & Ads Control Center', sampleNavCounts, jobModCan).map((m) => m.id),
+      ['jobs-ads-control-center']
     );
   });
 
@@ -1360,10 +1357,10 @@ async function runSuite() {
       ['src/components/admin/AutomatedScraperHub.tsx', ["'overview' | 'sources' | 'run' | 'history' | 'review' | 'settings'"]],
       ['src/components/ads/AdminAdHub.tsx', ["'directory' | 'approvals' | 'slots' | 'customizer' | 'pricing' | 'performance'"]],
       ['src/components/admin/AdminCampaignCenter.tsx', ['handleTogglePause', 'handleSaveDateRange', 'handleMakeCampaignFree', 'selectedPlacementFilter', 'selectedStatusFilter']],
-      ['src/components/ads/AdminCampaignCustomizer.tsx', ['handleUpdatePlacement', 'placementOptions.map', 'await onSaveConfig(localConfig)']],
+      ['src/components/ads/AdminCampaignCustomizer.tsx', ['handleUpdatePromo', 'promoBanners', 'Load Sample Promos', 'await onSaveConfig(localConfig)']],
       ['src/components/admin/LandingPageCustomizer.tsx', ["'hero' | 'sections' | 'custom-cards' | 'design' | 'promos' | 'preview'"]],
       ['src/components/admin/AdminFeeManager.tsx', ["'categories' | 'exemptions' | 'job-waivers'"]],
-      ['src/components/admin/AdminPaymentMethodsManager.tsx', ["'methods' | 'durations'"]],
+      ['src/components/admin/AdminPaymentMethodsManager.tsx', ['api.paymentSettings.update(payload)', 'saveError', 'saveSuccess']],
       ['src/components/admin/AdminBroadcastCenter.tsx', ["'compose' | 'history' | 'templates' | 'providers'"]]
     ];
     for (const [relPath, markers] of featureInternalChecks) {
@@ -1447,13 +1444,15 @@ async function runSuite() {
     assert.ok(putBlock.includes("const isFullAdmin = role === 'Admin' || role === 'Super Admin'"));
   });
 
-  await runTest('Classic Parity Restoration: preserves 7 categories and exposes all 32 canonical modules through the existing Classic menu', () => {
+  await runTest('Classic Parity Restoration: preserves 6 categories and exposes all 32 canonical modules through the existing Classic menu', () => {
     const expectedClassicOrder: Record<AdminCategory, string[]> = {
-      jobs: ['jobs', 'pending', 'add-job', 'ai-enhancer'],
+      jobs: ['jobs-ads-control-center', 'jobs', 'pending', 'add-job', 'ai-enhancer'],
       scraper: ['scraper'],
       ads: ['campaign-center', 'advertisements', 'landing-customizer'],
       payments: [
         'pricing-controller',
+        'subscription-studio',
+        'cv-settings',
         'admin-payment-methods',
         'payment-proofs',
         'fee-management',
@@ -1461,7 +1460,6 @@ async function runSuite() {
         'currency-forex'
       ],
       users: ['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'],
-      alerts: ['whatsapp-manager', 'broadcast-center', 'bulk-notifications'],
       settings: [
         'locations-manager',
         'apply-settings',
@@ -1479,13 +1477,13 @@ async function runSuite() {
 
     assert.deepStrictEqual(
       CLASSIC_ADMIN_CATEGORIES.map((c) => c.id),
-      ['jobs', 'scraper', 'ads', 'payments', 'users', 'alerts', 'settings']
+      ['jobs', 'scraper', 'ads', 'payments', 'users', 'settings']
     );
     assert.deepStrictEqual(CLASSIC_CATEGORY_MODULE_ORDER, expectedClassicOrder);
 
     const superCan = (t: string) => checkAdminTabPermission('Super Admin', ['*'], true, t);
 
-    // Verify Classic sub-tabs for all 7 categories
+    // Verify Classic sub-tabs for all 6 categories
     for (const cat of CLASSIC_ADMIN_CATEGORIES) {
       const subTabs = getClassicCategorySubTabs(cat.id, sampleNavCounts, superCan);
       assert.deepStrictEqual(
@@ -1500,11 +1498,11 @@ async function runSuite() {
     assert.strictEqual(classicSettingsIds.includes('locations-manager'), true);
     assert.deepStrictEqual(classicSettingsIds, expectedClassicOrder.settings);
 
-    // Verify All Modules Matrix preserves the 7 groups and exposes all 32 canonical modules
+    // Verify All Modules Matrix preserves the 6 groups and exposes all 32 canonical modules
     const allModules = buildAllModulesMenuGroups(sampleNavCounts);
     assert.deepStrictEqual(
       allModules.map((g) => g.catKey),
-      ['jobs', 'scraper', 'ads', 'payments', 'users', 'alerts', 'settings']
+      ['jobs', 'scraper', 'ads', 'payments', 'users', 'settings']
     );
     for (const group of allModules) {
       assert.deepStrictEqual(
@@ -1521,15 +1519,15 @@ async function runSuite() {
 
     // Verify Classic sub-tab counts, dynamic labels, and NEW badges match original behavior
     const jobsSubTabs = getClassicCategorySubTabs('jobs', sampleNavCounts, superCan);
-    assert.strictEqual(jobsSubTabs[0].label, 'Live Listings (12)');
-    assert.strictEqual(jobsSubTabs[1].label, 'Pending Approvals (4)');
-    assert.strictEqual(jobsSubTabs[1].badge, 4);
+    assert.strictEqual(jobsSubTabs[1].label, 'Live Listings (12)');
+    assert.strictEqual(jobsSubTabs[2].label, 'Pending Approvals (4)');
+    assert.strictEqual(jobsSubTabs[2].badge, 4);
 
     const paySubTabs = getClassicCategorySubTabs('payments', sampleNavCounts, superCan);
     assert.strictEqual(paySubTabs[0].isNew, true);
-    assert.strictEqual(paySubTabs[1].isNew, true);
-    assert.strictEqual(paySubTabs[2].label, 'Receipt Proofs Verification (2)');
-    assert.strictEqual(paySubTabs[4].label, 'Per-Job Fee Logs (9)');
+    assert.strictEqual(paySubTabs[3].isNew, true);
+    assert.strictEqual(paySubTabs[4].label, 'Receipt Proofs Verification (2)');
+    assert.strictEqual(paySubTabs[6].label, 'Per-Job Fee Logs (9)');
 
     const usersSubTabs = getClassicCategorySubTabs('users', sampleNavCounts, superCan);
     assert.strictEqual(usersSubTabs[0].label, 'User Directory (25)');
@@ -1539,16 +1537,16 @@ async function runSuite() {
 
     // Location Manager now has its own Classic Settings submenu and no longer appears as an unrelated panel inside Global Feature Controls.
     const dashSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'), 'utf8');
-    const locationsTabIdx = dashSource.indexOf("adminTab === 'locations-manager' && canAccessAdminTab('locations-manager')");
+    const locationsTabIdx = dashSource.indexOf("effectiveAdminTab === 'locations-manager' && canAccessAdminTab('locations-manager')");
     const locationsComponentIdx = dashSource.indexOf('<AdminLocationManager />', locationsTabIdx);
-    const settingsTabIdx = dashSource.indexOf("{adminTab === 'settings' && (");
+    const settingsTabIdx = dashSource.indexOf("{effectiveAdminTab === 'settings' && canAccessAdminTab('settings') && (");
     const settingsEndIdx = dashSource.indexOf('USER AUDIT DETAILED CONTROL MODAL', settingsTabIdx);
     assert.ok(locationsTabIdx !== -1, 'Expected a dedicated guarded Location Manager page');
     assert.ok(locationsComponentIdx > locationsTabIdx, 'Expected Location Manager to render inside its dedicated page');
     assert.ok(!dashSource.slice(settingsTabIdx, settingsEndIdx).includes('<AdminLocationManager />'), 'Global Feature Controls must not contain unrelated location fields');
   });
 
-  await runTest('AUDIT-01: Professional and Classic All Modules matrices expose all 32 canonical modules without duplicates', () => {
+  await runTest('AUDIT-01: Professional and Classic All Modules matrices expose visible canonical modules without duplicates', () => {
     const sampleNavCounts: AdminNavCounts = {
       activeJobsCount: 10,
       pendingJobsCount: 2,
@@ -1569,8 +1567,8 @@ async function runSuite() {
       PROFESSIONAL_ADMIN_CATEGORIES.map((c) => c.id)
     );
     const proIds = proMatrixGroups.flatMap((g) => g.items.map((i) => i.id));
-    assert.strictEqual(proIds.length, 32, 'Professional All Modules must contain all 32 canonical modules');
-    assert.strictEqual(new Set(proIds).size, 32, 'Professional All Modules must have zero duplicate module IDs');
+    assert.strictEqual(proIds.length, 23, 'Professional All Modules exposes the 23 non-Control-Center-hidden canonical modules');
+    assert.strictEqual(new Set(proIds).size, 23, 'Professional All Modules must have zero duplicate module IDs');
     assert.ok(proIds.includes('locations-manager'), 'Professional All Modules must include locations-manager');
 
     const classicMatrixGroups = buildAllModulesMenuGroups(sampleNavCounts);
@@ -1788,19 +1786,20 @@ async function runSuite() {
     for (const id of canonicalIds) {
       if (id === 'scraper') {
         assert.ok(
-          dashSource.includes("(adminTab === 'scraper' || adminTab === 'url-scraper' || adminTab === 'scraped-history') && canAccessAdminTab(adminTab)"),
+          dashSource.includes("(effectiveAdminTab === 'scraper' || effectiveAdminTab === 'url-scraper' || effectiveAdminTab === 'scraped-history') && canAccessAdminTab(adminTab)"),
           'Expected guarded scraper/alias branch'
         );
       } else if (id === 'analytics') {
         assert.ok(
-          dashSource.includes("(adminTab === 'analytics' || adminTab === 'stats') && canAccessAdminTab('analytics')"),
+          dashSource.includes("(effectiveAdminTab === 'analytics' || effectiveAdminTab === 'stats') && canAccessAdminTab('analytics')"),
           'Expected guarded analytics/stats branch'
         );
       } else if (id === 'settings') {
-        const idx = dashSource.indexOf("{adminTab === 'settings' && (");
-        assert.ok(idx !== -1 && dashSource.slice(idx, idx + 80).includes("canAccessAdminTab('settings')"), 'Expected guarded settings branch');
+        const idx = dashSource.indexOf("{effectiveAdminTab === 'settings' && canAccessAdminTab('settings') && (");
+        assert.ok(idx !== -1, 'Expected guarded settings branch');
       } else {
         assert.ok(
+          dashSource.includes(`effectiveAdminTab === '${id}' && canAccessAdminTab('${id}')`) ||
           dashSource.includes(`adminTab === '${id}' && canAccessAdminTab('${id}')`),
           `Expected permission guard on render branch for canonical tab "${id}"`
         );
@@ -2423,44 +2422,15 @@ async function runSuite() {
     assert.ok(outcome.refreshWarning?.includes('Refresh timed out'));
   });
 
-  await runTest('AUDIT-22 [Duration Preset Storage Failure]: Failing localStorage.setItem surfaces visible error, suppresses success state, preserves edits, and keeps server payment settings untouched', () => {
-    const failingStorage = {
-      setItem: () => {
-        throw new Error('QuotaExceededError');
-      }
-    };
-
-    const customConfig = {
-      ...DEFAULT_ADMIN_RECEIVING_PAYMENT_CONFIG,
-      activeDurationOptions: [
-        ...DEFAULT_ADMIN_RECEIVING_PAYMENT_CONFIG.activeDurationOptions,
-        {
-          id: 'custom-10d',
-          label: '10 Days Sprint',
-          days: 10,
-          enabled: true,
-          pricePkr: 7500,
-          isApprovedForDisplay: true,
-          badge: 'Custom'
-        }
-      ]
-    };
-
-    const writeRes = saveDurationPresetsToStorage(failingStorage, customConfig);
-    assert.strictEqual(writeRes.ok, false);
-    assert.ok(writeRes.error && writeRes.error.includes('QuotaExceededError'));
-    assert.ok(writeRes.error.includes('unsaved edits remain on screen'));
-
-    // Also verify AdminPaymentMethodsManager.tsx wires error handling cleanly without touching server paymentSettings update
+  await runTest('AUDIT-22 [Payment Settings Server Persistence]: AdminPaymentMethodsManager persists authoritatively via api.paymentSettings.update and exposes visible error alerts', () => {
     const paySource = fs.readFileSync(
       path.resolve(process.cwd(), 'src/components/admin/AdminPaymentMethodsManager.tsx'),
       'utf8'
     );
-    assert.ok(paySource.includes(CAMPAIGN_DURATION_PRESETS_KEY));
-    assert.ok(paySource.includes('durationSaveError'));
-    assert.ok(paySource.includes('role="alert"'));
-    assert.ok(paySource.includes('saveDurationPresetsToStorage'));
+    assert.ok(paySource.includes('saveError'));
+    assert.ok(paySource.includes('saveSuccess'));
     assert.ok(paySource.includes('api.paymentSettings.update(payload)'));
+    assert.ok(!paySource.includes('CAMPAIGN_DURATION_PRESETS_KEY'));
   });
 
   // --- PHASE8.1-D (AUDIT-23 TO AUDIT-32): 10 ANALYTICS FINANCIAL INTEGRITY REGRESSION TESTS ---

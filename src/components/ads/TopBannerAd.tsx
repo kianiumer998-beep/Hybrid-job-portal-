@@ -1,27 +1,26 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Advertisement, 
-  AdTargetPage, 
-  BannerDimensionSettings, 
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  Advertisement,
+  AdTargetPage,
+  BannerDimensionSettings,
   DEFAULT_BANNER_DIMENSIONS,
   BannerAppearanceSettings,
   DEFAULT_BANNER_APPEARANCE,
   BannerBehaviorSettings,
   DEFAULT_BANNER_BEHAVIOR,
+  PlacementRotationConfig,
+  DEFAULT_PLACEMENT_ROTATION_CONFIG,
   isAdCurrentlyRunning
 } from '../../types/ad';
-import { 
-  X, 
-  Sparkles, 
-  ExternalLink, 
-  ArrowRight, 
-  Megaphone, 
-  ChevronLeft, 
-  ChevronRight, 
-  Play, 
-  Pause, 
-  Flame, 
-  Crown 
+import { getRotatedItems, getVisibleWindow, getNextStepSize } from '../../utils/adRotation';
+import {
+  X,
+  ExternalLink,
+  ArrowRight,
+  Megaphone,
+  ChevronLeft,
+  ChevronRight,
+  Crown
 } from 'lucide-react';
 
 interface TopBannerAdProps {
@@ -34,6 +33,8 @@ interface TopBannerAdProps {
   bannerDimensions?: BannerDimensionSettings;
   bannerAppearance?: BannerAppearanceSettings;
   bannerBehavior?: BannerBehaviorSettings;
+  rotationSettings?: PlacementRotationConfig;
+  maxConcurrentSlots?: number;
 }
 
 export const TopBannerAd: React.FC<TopBannerAdProps> = ({
@@ -45,7 +46,9 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   showDemoCardIfEmpty = true,
   bannerDimensions = DEFAULT_BANNER_DIMENSIONS,
   bannerAppearance = DEFAULT_BANNER_APPEARANCE,
-  bannerBehavior = DEFAULT_BANNER_BEHAVIOR
+  bannerBehavior = DEFAULT_BANNER_BEHAVIOR,
+  rotationSettings = DEFAULT_PLACEMENT_ROTATION_CONFIG,
+  maxConcurrentSlots = 1
 }) => {
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -59,7 +62,7 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   }, []);
 
   // Demo fallback ad if no active banner is available
-  const demoBannerAd: Advertisement = {
+  const demoBannerAd: Advertisement = useMemo(() => ({
     id: 'demo-your-ad-here',
     title: 'Your Ad Here Commercial Banner',
     type: 'banner',
@@ -81,73 +84,87 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
     createdAt: '2026-08-20',
     durationUnit: 'days',
     durationValue: 30
-  };
+  }), []);
 
   // Find all active banners matching the current page
-  const matchingBanners = ads.filter(
-    (ad) =>
-      isAdCurrentlyRunning(ad) &&
-      ((ad.placement as string) === 'top-header' || (ad.type === 'banner' && (ad.placement as string) === 'top-header')) &&
-      (ad.targetPages.includes('all') || ad.targetPages.includes(currentPage)) &&
-      !dismissedIds.includes(ad.id)
-  );
+  const matchingBanners = useMemo(() => {
+    const filtered = ads.filter(
+      (ad) =>
+        isAdCurrentlyRunning(ad) &&
+        ((ad.placement as string) === 'top-header' || (ad.type === 'banner' && (ad.placement as string) === 'top-header')) &&
+        (ad.targetPages.includes('all') || ad.targetPages.includes(currentPage)) &&
+        !dismissedIds.includes(ad.id)
+    );
+    const rotationEnabled = rotationSettings?.enabled !== false;
+    const seqMode = rotationEnabled ? (rotationSettings?.sequenceMode || 'sequential_per_visit') : 'fixed';
+    return getRotatedItems(filtered, 'ad_top-header', seqMode);
+  }, [ads, currentPage, dismissedIds, rotationSettings?.enabled, rotationSettings?.sequenceMode]);
 
   // If no matching banners and showDemoCard is true, show the demo ad
-  const activeBannerList = matchingBanners.length > 0 
-    ? matchingBanners 
-    : (showDemoCardIfEmpty && !dismissedIds.includes('demo-your-ad-here') ? [demoBannerAd] : []);
+  const activeBannerList = useMemo(() => (
+    matchingBanners.length > 0
+      ? matchingBanners
+      : (showDemoCardIfEmpty && !dismissedIds.includes('demo-your-ad-here') ? [demoBannerAd] : [])
+  ), [matchingBanners, showDemoCardIfEmpty, dismissedIds, demoBannerAd]);
 
-  // Ensure index is within range
   const activeCount = activeBannerList.length;
+  const slotsLimit = Math.max(1, Math.min(4, Math.floor(Number(maxConcurrentSlots) || 1)));
+  const visibleSlotsCount = activeCount > 0 ? Math.min(activeCount, slotsLimit) : 0;
   const safeIndex = activeCount > 0 ? (currentIndex % activeCount) : 0;
-  const activeBanner = activeBannerList[safeIndex];
+  const visibleBanners = useMemo(
+    () => getVisibleWindow(activeBannerList, safeIndex, visibleSlotsCount),
+    [activeBannerList, safeIndex, visibleSlotsCount]
+  );
 
   // Auto-play timer
-  const isAutoRotate = bannerBehavior?.autoRotate !== false;
-  const effectiveInterval = (bannerBehavior?.rotationIntervalSeconds ?? 6) * 1000;
+  const rotationEnabled = rotationSettings?.enabled !== false;
+  const isAutoRotate = rotationEnabled && (rotationSettings?.autoRotateTimed ?? bannerBehavior?.autoRotate) !== false && bannerBehavior?.autoRotate !== false;
+  const configuredIntervalSec = rotationSettings?.intervalSeconds ?? bannerBehavior?.rotationIntervalSeconds ?? (autoPlayIntervalMs / 1000) ?? 6;
+  const effectiveInterval = Math.max(2, Math.min(120, Number(configuredIntervalSec) || 6)) * 1000;
   const isPauseOnHover = bannerBehavior?.pauseOnHover !== false;
+  const stepSize = getNextStepSize(activeCount, visibleSlotsCount);
 
   useEffect(() => {
-    if (activeCount <= 1 || !isAutoRotate || (isPauseOnHover && isPaused)) return;
+    if (activeCount <= visibleSlotsCount || !isAutoRotate || (isPauseOnHover && isPaused)) return;
 
     const timer = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % activeCount);
+      setCurrentIndex((prev) => (prev + stepSize) % activeCount);
     }, effectiveInterval);
 
     return () => clearInterval(timer);
-  }, [activeCount, isPaused, isAutoRotate, isPauseOnHover, effectiveInterval]);
+  }, [activeCount, visibleSlotsCount, stepSize, isPaused, isAutoRotate, isPauseOnHover, effectiveInterval]);
 
-  if (!activeBanner) return null;
+  if (visibleBanners.length === 0) return null;
 
-  const handleDismiss = (e: React.MouseEvent) => {
+  const handleDismiss = (e: React.MouseEvent, bannerId: string) => {
     e.stopPropagation();
-    setDismissedIds((prev) => [...prev, activeBanner.id]);
+    setDismissedIds((prev) => [...prev, bannerId]);
   };
 
   const handleNext = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setCurrentIndex((prev) => (prev + 1) % activeCount);
+    setCurrentIndex((prev) => (prev + stepSize) % activeCount);
   };
 
   const handlePrev = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setCurrentIndex((prev) => (prev - 1 + activeCount) % activeCount);
+    setCurrentIndex((prev) => (prev - stepSize + activeCount) % activeCount);
   };
 
-  const handleAction = () => {
-    onAdClick(activeBanner);
+  const handleAction = (banner: Advertisement) => {
+    onAdClick(banner);
 
-    if (activeBanner.ctaUrl) {
-      if (activeBanner.ctaUrl.startsWith('#') && onNavigateTab) {
-        const tab = activeBanner.ctaUrl.replace('#', '') as 'jobs' | 'cv' | 'alerts' | 'dashboard';
+    if (banner.ctaUrl) {
+      if (banner.ctaUrl.startsWith('#') && onNavigateTab) {
+        const tab = banner.ctaUrl.replace('#', '') as 'jobs' | 'cv' | 'alerts' | 'dashboard';
         if (['jobs', 'cv', 'alerts', 'dashboard'].includes(tab)) {
           onNavigateTab(tab);
           return;
         }
       }
-      
-      if (activeBanner.ctaUrl.startsWith('http')) {
-        window.open(activeBanner.ctaUrl, '_blank', 'noopener,noreferrer');
+
+      if (banner.ctaUrl.startsWith('http')) {
+        window.open(banner.ctaUrl, '_blank', 'noopener,noreferrer');
       }
     }
   };
@@ -205,9 +222,6 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
     }
   };
 
-  const style = themeClasses[activeBanner.theme] || themeClasses.indigo;
-  const isDemo = activeBanner.id === 'demo-your-ad-here';
-
   const targetWidth = isMobile
     ? (bannerDimensions?.mobileWidth && bannerDimensions.mobileWidth !== '100%' ? bannerDimensions.mobileWidth : undefined)
     : (bannerDimensions?.desktopWidth && bannerDimensions.desktopWidth !== '100%' ? bannerDimensions.desktopWidth : undefined);
@@ -218,152 +232,166 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
 
   const containerStyle: React.CSSProperties = {
     maxWidth: targetWidth,
-    minHeight: targetHeight,
+    minHeight: targetHeight
   };
 
   const paddingClass = bannerAppearance?.paddingPreset === 'compact' ? 'px-3 py-1.5 sm:py-2' : bannerAppearance?.paddingPreset === 'spacious' ? 'px-6 py-4 sm:py-5' : 'px-4 py-2.5 sm:py-3';
   const radiusClass = bannerAppearance?.borderRadiusPreset === 'none' ? 'rounded-none' : bannerAppearance?.borderRadiusPreset === 'sm' ? 'rounded-sm' : bannerAppearance?.borderRadiusPreset === 'md' ? 'rounded-md' : bannerAppearance?.borderRadiusPreset === 'lg' ? 'rounded-lg' : bannerAppearance?.borderRadiusPreset === 'xl' ? 'rounded-xl' : bannerAppearance?.borderRadiusPreset === '2xl' ? 'rounded-2xl' : bannerAppearance?.borderRadiusPreset === 'full' ? 'rounded-full' : 'rounded-none';
   const imgPosClass = bannerAppearance?.imagePosition === 'right' ? 'flex-row-reverse space-x-reverse' : bannerAppearance?.imagePosition === 'top' ? 'flex-col space-y-2' : 'flex-row';
   const textAlignClass = bannerAppearance?.textAlignment === 'center' ? 'text-center' : bannerAppearance?.textAlignment === 'right' ? 'text-right' : 'text-left';
-  const ctaAlignClass = bannerAppearance?.ctaAlignment === 'left' ? 'justify-start' : bannerAppearance?.ctaAlignment === 'center' ? 'justify-center' : 'justify-end';
+
+  const hasMorePages = activeCount > visibleSlotsCount;
 
   return (
     <div
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
-      onClick={handleAction}
       style={containerStyle}
-      className={`relative w-full ${style.bg} border-b ${style.border} ${paddingClass} ${radiusClass} transition-all duration-300 cursor-pointer group z-30 shadow-lg mx-auto`}
+      className="relative w-full z-30 mx-auto space-y-0"
     >
-      <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-white">
-        
-        {/* Left Side: Thumbnail / Icon + Headline + Body */}
-        <div className={`flex items-center space-x-3 ${imgPosClass} w-full sm:w-auto overflow-hidden`}>
-          {bannerAppearance?.showBannerImage !== false && (
-            activeBanner.imageUrl ? (
-              <div className={`rounded-xl overflow-hidden flex-shrink-0 border border-white/20 shadow-md ${
-                bannerAppearance?.imageSizePreset === 'small' ? 'w-8 h-8' :
-                bannerAppearance?.imageSizePreset === 'large' ? 'w-14 h-14' : 'w-10 h-10 sm:w-12 sm:h-12'
-              }`}>
-                <img
-                  src={activeBanner.imageUrl}
-                  alt={activeBanner.title}
-                  className={`w-full h-full group-hover:scale-105 transition-transform duration-300 ${
-                    bannerAppearance?.imageFit === 'contain' ? 'object-contain' : 'object-cover'
-                  }`}
-                  referrerPolicy="no-referrer"
-                />
+      {visibleBanners.map((activeBanner, slotIdx) => {
+        const style = themeClasses[activeBanner.theme] || themeClasses.indigo;
+        const isDemo = activeBanner.id === 'demo-your-ad-here';
+
+        return (
+          <div
+            key={`${activeBanner.id}-${slotIdx}`}
+            onClick={() => handleAction(activeBanner)}
+            className={`relative w-full ${style.bg} border-b ${style.border} ${paddingClass} ${radiusClass} transition-all duration-300 cursor-pointer group shadow-lg`}
+          >
+            <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-white">
+              {/* Left Side: Thumbnail / Icon + Headline + Body */}
+              <div className={`flex items-center space-x-3 ${imgPosClass} w-full sm:w-auto overflow-hidden`}>
+                {bannerAppearance?.showBannerImage !== false && (
+                  activeBanner.imageUrl ? (
+                    <div className={`rounded-xl overflow-hidden flex-shrink-0 border border-white/20 shadow-md ${
+                      bannerAppearance?.imageSizePreset === 'small' ? 'w-8 h-8' :
+                      bannerAppearance?.imageSizePreset === 'large' ? 'w-14 h-14' : 'w-10 h-10 sm:w-12 sm:h-12'
+                    }`}>
+                      <img
+                        src={activeBanner.imageUrl}
+                        alt={activeBanner.title}
+                        className={`w-full h-full group-hover:scale-105 transition-transform duration-300 ${
+                          bannerAppearance?.imageFit === 'contain' ? 'object-contain' : 'object-cover'
+                        }`}
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                  ) : (
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 shadow-md ${
+                      isDemo ? 'bg-amber-500/30 border border-amber-400 text-amber-300' : 'bg-white/10 text-emerald-400'
+                    }`}>
+                      {isDemo ? (
+                        <Crown className="w-5 h-5 animate-pulse text-amber-300" />
+                      ) : (
+                        <Megaphone className="w-4 h-4 animate-bounce" />
+                      )}
+                    </div>
+                  )
+                )}
+
+                <div className={`flex-1 min-w-0 ${textAlignClass}`}>
+                  <div className="flex items-center space-x-2 flex-wrap">
+                    {bannerAppearance?.showBadge !== false && activeBanner.badgeText && (
+                      <span className={`text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-full border ${style.badge}`}>
+                        {activeBanner.badgeText}
+                      </span>
+                    )}
+                    {bannerAppearance?.showBadge !== false && isDemo && (
+                      <span className="text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        Demo Card
+                      </span>
+                    )}
+                    <h4 className="text-xs sm:text-sm font-bold text-white group-hover:text-amber-300 transition-colors truncate">
+                      {activeBanner.headline}
+                    </h4>
+                  </div>
+                  {activeBanner.bodyText && (
+                    <p className="text-[11px] text-slate-300 hidden md:block truncate mt-0.5 max-w-2xl">
+                      {activeBanner.bodyText}
+                    </p>
+                  )}
+                </div>
               </div>
-            ) : (
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 shadow-md ${
-                isDemo ? 'bg-amber-500/30 border border-amber-400 text-amber-300' : 'bg-white/10 text-emerald-400'
-              }`}>
-                {isDemo ? (
-                  <Crown className="w-5 h-5 animate-pulse text-amber-300" />
-                ) : (
-                  <Megaphone className="w-4 h-4 animate-bounce" />
+
+              {/* Right Side: Navigation Dots / Arrows (only on primary slot if multi) + CTA Button + Dismiss Button */}
+              <div className="flex items-center space-x-2.5 flex-shrink-0 self-end sm:self-auto">
+                {slotIdx === 0 && hasMorePages && (
+                  <div className="flex items-center space-x-1.5 mr-1" onClick={(e) => e.stopPropagation()}>
+                    {bannerBehavior?.showNavigationArrows !== false && (
+                      <button
+                        type="button"
+                        onClick={handlePrev}
+                        className="p-1 rounded-lg bg-black/30 hover:bg-black/50 text-slate-300 hover:text-white transition-all cursor-pointer"
+                        title="Previous Announcement"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    {/* Dots */}
+                    {bannerBehavior?.showNavigationDots !== false && (
+                      <div className="flex items-center space-x-1">
+                        {activeBannerList.map((_, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => setCurrentIndex(idx)}
+                            className={`h-1.5 rounded-full transition-all cursor-pointer ${
+                              idx === safeIndex ? 'w-4 bg-white' : 'w-1.5 bg-white/40 hover:bg-white/70'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    {bannerBehavior?.showNavigationArrows !== false && (
+                      <button
+                        type="button"
+                        onClick={handleNext}
+                        className="p-1 rounded-lg bg-black/30 hover:bg-black/50 text-slate-300 hover:text-white transition-all cursor-pointer"
+                        title="Next Announcement"
+                      >
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {bannerAppearance?.showCtaButton !== false && activeBanner.ctaText && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleAction(activeBanner);
+                    }}
+                    className={`rounded-xl font-black text-xs shadow-md transition-all flex items-center space-x-1.5 active:scale-95 cursor-pointer ${style.button} ${
+                      bannerAppearance?.ctaSizePreset === 'small' ? 'px-2.5 py-1 text-[11px]' :
+                      bannerAppearance?.ctaSizePreset === 'large' ? 'px-4 py-2 text-xs' : 'px-3.5 py-1.5'
+                    }`}
+                  >
+                    <span>{activeBanner.ctaText}</span>
+                    {activeBanner.ctaUrl?.startsWith('http') ? (
+                      <ExternalLink className="w-3 h-3" />
+                    ) : (
+                      <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                    )}
+                  </button>
+                )}
+
+                {bannerAppearance?.showDismissButton !== false && bannerBehavior?.allowDismiss !== false && activeBanner.dismissable && (
+                  <button
+                    onClick={(e) => handleDismiss(e, activeBanner.id)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-all cursor-pointer"
+                    title="Dismiss announcement banner"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 )}
               </div>
-            )
-          )}
-
-          <div className={`flex-1 min-w-0 ${textAlignClass}`}>
-            <div className="flex items-center space-x-2 flex-wrap">
-              {bannerAppearance?.showBadge !== false && activeBanner.badgeText && (
-                <span className={`text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-full border ${style.badge}`}>
-                  {activeBanner.badgeText}
-                </span>
-              )}
-              {bannerAppearance?.showBadge !== false && isDemo && (
-                <span className="text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  Demo Card
-                </span>
-              )}
-              <h4 className="text-xs sm:text-sm font-bold text-white group-hover:text-amber-300 transition-colors truncate">
-                {activeBanner.headline}
-              </h4>
             </div>
-            {activeBanner.bodyText && (
-              <p className="text-[11px] text-slate-300 hidden md:block truncate mt-0.5 max-w-2xl">
-                {activeBanner.bodyText}
-              </p>
-            )}
           </div>
-        </div>
-
-        {/* Right Side: Navigation Dots / Arrows (if multi) + CTA Button + Dismiss Button */}
-        <div className="flex items-center space-x-2.5 flex-shrink-0 self-end sm:self-auto">
-          {activeCount > 1 && (
-            <div className="flex items-center space-x-1.5 mr-1" onClick={(e) => e.stopPropagation()}>
-              {bannerBehavior?.showNavigationArrows !== false && (
-                <button
-                  type="button"
-                  onClick={handlePrev}
-                  className="p-1 rounded-lg bg-black/30 hover:bg-black/50 text-slate-300 hover:text-white transition-all cursor-pointer"
-                  title="Previous Announcement"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </button>
-              )}
-
-              {/* Dots */}
-              {bannerBehavior?.showNavigationDots !== false && (
-                <div className="flex items-center space-x-1">
-                  {activeBannerList.map((_, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setCurrentIndex(idx)}
-                      className={`h-1.5 rounded-full transition-all cursor-pointer ${
-                        idx === safeIndex ? 'w-4 bg-white' : 'w-1.5 bg-white/40 hover:bg-white/70'
-                      }`}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {bannerBehavior?.showNavigationArrows !== false && (
-                <button
-                  type="button"
-                  onClick={handleNext}
-                  className="p-1 rounded-lg bg-black/30 hover:bg-black/50 text-slate-300 hover:text-white transition-all cursor-pointer"
-                  title="Next Announcement"
-                >
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          )}
-
-          {bannerAppearance?.showCtaButton !== false && activeBanner.ctaText && (
-            <button
-              onClick={handleAction}
-              className={`rounded-xl font-black text-xs shadow-md transition-all flex items-center space-x-1.5 active:scale-95 cursor-pointer ${style.button} ${
-                bannerAppearance?.ctaSizePreset === 'small' ? 'px-2.5 py-1 text-[11px]' :
-                bannerAppearance?.ctaSizePreset === 'large' ? 'px-4 py-2 text-xs' : 'px-3.5 py-1.5'
-              }`}
-            >
-              <span>{activeBanner.ctaText}</span>
-              {activeBanner.ctaUrl?.startsWith('http') ? (
-                <ExternalLink className="w-3 h-3" />
-              ) : (
-                <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
-              )}
-            </button>
-          )}
-
-          {bannerAppearance?.showDismissButton !== false && bannerBehavior?.allowDismiss !== false && activeBanner.dismissable && (
-            <button
-              onClick={handleDismiss}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-all cursor-pointer"
-              title="Dismiss announcement banner"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-
-      </div>
+        );
+      })}
     </div>
   );
 };

@@ -23,6 +23,9 @@ import {
   DEFAULT_BANNER_APPEARANCE,
   DEFAULT_BANNER_BEHAVIOR,
   DEFAULT_BANNER_DIMENSIONS,
+  PlacementRotationConfig,
+  PlacementSequenceMode,
+  DEFAULT_PLACEMENT_ROTATION_CONFIG,
   calculateCampaignCost,
   getPlacementDisplayName,
   getPageDisplayName,
@@ -93,7 +96,7 @@ interface AdminAdHubProps {
   canManageAdConfiguration?: boolean;
   isPricingReady?: boolean;
   initialTab?: 'directory' | 'approvals' | 'slots' | 'customizer' | 'pricing' | 'performance';
-  mode?: 'full' | 'rate-card-only' | 'customizer-only';
+  mode?: 'full' | 'rate-card-only' | 'customizer-only' | 'setup-only';
 }
 
 export const AdminAdHub: React.FC<AdminAdHubProps> = ({
@@ -110,12 +113,18 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
   onRejectAd,
   canManageAdConfiguration = false,
   isPricingReady = false,
-  initialTab = 'performance',
+  initialTab = 'pricing',
   mode = 'full'
 }) => {
-  // Main Sub-Tab: Directory, Pending Approvals, Placement Slots, Campaign Customizer, Pricing Engine, Performance Charts
+  // Main Sub-Tab: Rate Card & Pricing Matrix, Promotional Discount Banners, Ad Performance & Yield Charts
   const [activeTab, setActiveTab] = useState<'directory' | 'approvals' | 'slots' | 'customizer' | 'pricing' | 'performance'>(
-    mode === 'rate-card-only' ? 'pricing' : mode === 'customizer-only' ? 'customizer' : initialTab
+    mode === 'rate-card-only'
+      ? 'pricing'
+      : mode === 'customizer-only'
+      ? 'customizer'
+      : mode === 'setup-only'
+      ? (initialTab === 'customizer' ? 'customizer' : 'performance')
+      : initialTab
   );
 
   // Filters for Directory
@@ -245,6 +254,50 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
     }));
   };
 
+  const handleUpdatePlacementRotation = (placementId: AdPlacement, updates: Partial<PlacementRotationConfig>) => {
+    setEditableCampaignConfig((previous) => {
+      const nextPlacementOptions = previous.placementOptions.map((option) => {
+        if (option.id !== placementId) return option;
+        const currentRot: PlacementRotationConfig = {
+          ...DEFAULT_PLACEMENT_ROTATION_CONFIG,
+          ...(option.rotationSettings || {})
+        };
+        return {
+          ...option,
+          rotationSettings: { ...currentRot, ...updates }
+        };
+      });
+
+      const updatedOpt = nextPlacementOptions.find((o) => o.id === placementId);
+      const nextRot = updatedOpt?.rotationSettings;
+
+      let nextBannerBehavior = previous.bannerBehavior;
+      if (placementId === 'top-header' && nextRot) {
+        nextBannerBehavior = {
+          ...(previous.bannerBehavior || DEFAULT_BANNER_BEHAVIOR),
+          autoRotate: nextRot.enabled && nextRot.autoRotateTimed,
+          rotationIntervalSeconds: nextRot.intervalSeconds
+        };
+      }
+
+      let nextFeedSettings = previous.feedInlineSettings;
+      if (placementId === 'feed-inline' && nextRot) {
+        nextFeedSettings = {
+          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings,
+          ...(previous.feedInlineSettings || {}),
+          rotateMultipleAds: nextRot.enabled
+        };
+      }
+
+      return {
+        ...previous,
+        placementOptions: nextPlacementOptions,
+        bannerBehavior: nextBannerBehavior,
+        feedInlineSettings: nextFeedSettings
+      };
+    });
+  };
+
   const handleUpdateFeedInlineSettings = (updates: Partial<FeedInlineAdSettings>) => {
     setEditableCampaignConfig((previous) => ({
       ...previous,
@@ -252,7 +305,23 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
         ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings,
         ...(previous.feedInlineSettings || {}),
         ...updates
-      }
+      },
+      placementOptions: updates.rotateMultipleAds !== undefined
+        ? previous.placementOptions.map((opt) =>
+            opt.id === 'feed-inline'
+              ? {
+                  ...opt,
+                  rotationSettings: {
+                    ...DEFAULT_PLACEMENT_ROTATION_CONFIG,
+                    autoRotateTimed: false,
+                    intervalSeconds: 8,
+                    ...(opt.rotationSettings || {}),
+                    enabled: updates.rotateMultipleAds !== false
+                  }
+                }
+              : opt
+          )
+        : previous.placementOptions
     }));
   };
 
@@ -300,13 +369,31 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
   };
 
   const handleUpdateBannerBehavior = (updates: Partial<BannerBehaviorSettings>) => {
-    setEditableCampaignConfig((previous) => ({
-      ...previous,
-      bannerBehavior: {
+    setEditableCampaignConfig((previous) => {
+      const mergedBehavior = {
         ...(previous.bannerBehavior || DEFAULT_BANNER_BEHAVIOR),
         ...updates
-      }
-    }));
+      };
+      return {
+        ...previous,
+        bannerBehavior: mergedBehavior,
+        placementOptions: previous.placementOptions.map((opt) =>
+          opt.id === 'top-header'
+            ? {
+                ...opt,
+                rotationSettings: {
+                  ...DEFAULT_PLACEMENT_ROTATION_CONFIG,
+                  ...(opt.rotationSettings || {}),
+                  ...(updates.autoRotate !== undefined ? { autoRotateTimed: updates.autoRotate } : {}),
+                  ...(updates.rotationIntervalSeconds !== undefined
+                    ? { intervalSeconds: Math.min(120, Math.max(2, Math.floor(Number(updates.rotationIntervalSeconds) || 6))) }
+                    : {})
+                }
+              }
+            : opt
+        )
+      };
+    });
   };
 
   const handleRestoreBannerAppearanceDefault = () => {
@@ -653,7 +740,7 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
     <div className="admin-settings-mobile-compact space-y-6 text-white">
       
       {/* Top Metrics Cards */}
-      {mode === 'full' && (
+      {(mode === 'full' || mode === 'setup-only') && (
       <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-4">
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg flex items-center space-x-3.5">
           <div className="w-11 h-11 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
@@ -708,21 +795,9 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
       )}
 
       {/* Main Admin Sub-Tabs Navigation */}
-      {mode === 'full' && (
+      {(mode === 'full' || mode === 'setup-only') && (
       <div className="flex flex-nowrap items-center space-x-2 border-b border-slate-800 pb-3 overflow-x-auto overscroll-x-contain touch-pan-x text-xs font-bold">
-        {canManageAdConfiguration && isPricingReady && <button
-          onClick={() => setActiveTab('customizer')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 whitespace-nowrap ${
-            activeTab === 'customizer'
-              ? 'bg-indigo-500 text-white font-extrabold shadow-lg shadow-indigo-500/20'
-              : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
-          }`}
-        >
-          <Sliders className="w-4 h-4" />
-          <span>Campaign Options & Page Scheduler</span>
-        </button>}
-
-        {canManageAdConfiguration && isPricingReady && <button
+        {mode === 'full' && canManageAdConfiguration && isPricingReady && <button
           onClick={() => setActiveTab('pricing')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 whitespace-nowrap ${
             activeTab === 'pricing'
@@ -745,10 +820,22 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
           <TrendingUp className="w-4 h-4 text-teal-300" />
           <span>Ad Performance & Yield Charts</span>
         </button>
+
+        {canManageAdConfiguration && isPricingReady && <button
+          onClick={() => setActiveTab('customizer')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 whitespace-nowrap ${
+            activeTab === 'customizer'
+              ? 'bg-indigo-500 text-white font-extrabold shadow-lg shadow-indigo-500/20'
+              : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+          }`}
+        >
+          <Sliders className="w-4 h-4" />
+          <span>Promotional Discount Banners</span>
+        </button>}
       </div>
       )}
 
-      {mode !== 'full' && (!canManageAdConfiguration || !isPricingReady) && (
+      {(mode === 'rate-card-only' || mode === 'customizer-only') && (!canManageAdConfiguration || !isPricingReady) && (
         <div className="rounded-2xl border border-amber-500/30 bg-slate-900 p-5 text-xs text-amber-200 space-y-1">
           <div className="font-black text-sm">
             {!canManageAdConfiguration ? 'Finance Permission Required' : 'Waiting for Authoritative Pricing Configuration'}
@@ -2160,6 +2247,114 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
                             </div>
                           )}
                         </div>
+
+                        {/* Row 5: Multi-Ad Rotation, Interval (Sec) & Sequence-Wise Fair Shuffling */}
+                        {typedKey !== 'sms-broadcast' && (() => {
+                          const rot: PlacementRotationConfig = {
+                            ...DEFAULT_PLACEMENT_ROTATION_CONFIG,
+                            ...(typedKey === 'feed-inline' || typedKey === 'popup-modal' ? { autoRotateTimed: false, intervalSeconds: 8 } : {}),
+                            ...(placement.rotationSettings || {}),
+                            ...(typedKey === 'top-header' && editableCampaignConfig.bannerBehavior
+                              ? {
+                                  autoRotateTimed:
+                                    placement.rotationSettings?.autoRotateTimed ??
+                                    (editableCampaignConfig.bannerBehavior.autoRotate !== false),
+                                  intervalSeconds:
+                                    placement.rotationSettings?.intervalSeconds ??
+                                    (editableCampaignConfig.bannerBehavior.rotationIntervalSeconds ?? 6)
+                                }
+                              : {}),
+                            ...(typedKey === 'feed-inline' && editableCampaignConfig.feedInlineSettings
+                              ? {
+                                  enabled:
+                                    placement.rotationSettings?.enabled ??
+                                    (editableCampaignConfig.feedInlineSettings.rotateMultipleAds !== false)
+                                }
+                              : {})
+                          };
+
+                          return (
+                            <div className="pt-2.5 border-t border-slate-800/80 bg-cyan-500/5 border border-cyan-500/20 px-3 py-2.5 rounded-xl space-y-2">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <label className="flex items-center gap-2 text-[11px] font-bold text-cyan-200 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={rot.enabled !== false}
+                                    onChange={(e) => handleUpdatePlacementRotation(typedKey, { enabled: e.target.checked })}
+                                    className="w-3.5 h-3.5 rounded border-slate-700 accent-cyan-400 cursor-pointer"
+                                  />
+                                  <RefreshCw className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                                  <span>Rotate Multiple Active Ads (Sequence &amp; Timer)</span>
+                                </label>
+
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                  rot.enabled !== false
+                                    ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                                    : 'bg-slate-800 text-slate-400 border-slate-700'
+                                }`}>
+                                  {rot.enabled === false
+                                    ? 'Rotation Off'
+                                    : rot.autoRotateTimed
+                                    ? `Auto ${rot.intervalSeconds}s · ${rot.sequenceMode === 'shuffle_per_visit' ? 'Shuffle' : rot.sequenceMode === 'fixed' ? 'Fixed' : 'Sequence-Wise'}`
+                                    : rot.sequenceMode === 'shuffle_per_visit'
+                                    ? 'Shuffle on Refresh'
+                                    : rot.sequenceMode === 'fixed'
+                                    ? 'Fixed Order'
+                                    : 'Sequence-Wise on Refresh'}
+                                </span>
+                              </div>
+
+                              {rot.enabled !== false && (
+                                <div className="flex flex-wrap items-center gap-3 pt-0.5">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[10px] font-bold text-slate-300">Sequence:</span>
+                                    <select
+                                      value={rot.sequenceMode || 'sequential_per_visit'}
+                                      onChange={(e) => handleUpdatePlacementRotation(typedKey, { sequenceMode: e.target.value as PlacementSequenceMode })}
+                                      aria-label={`${placement.name} rotation sequence mode`}
+                                      className="px-2 py-1 rounded-lg bg-slate-950 border border-slate-700 text-[11px] font-bold text-cyan-300 focus:outline-none focus:border-cyan-400 cursor-pointer"
+                                    >
+                                      <option value="sequential_per_visit">Sequence-Wise (Ad 1→2→3, Shifts on Refresh/User)</option>
+                                      <option value="shuffle_per_visit">Fair Shuffle (Randomize on Refresh/User)</option>
+                                      <option value="fixed">Fixed Priority Order (No Shift)</option>
+                                    </select>
+                                  </div>
+
+                                  <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-200 cursor-pointer bg-slate-950/70 px-2.5 py-1 rounded-lg border border-slate-800">
+                                    <input
+                                      type="checkbox"
+                                      checked={rot.autoRotateTimed === true}
+                                      onChange={(e) => handleUpdatePlacementRotation(typedKey, { autoRotateTimed: e.target.checked })}
+                                      className="w-3.5 h-3.5 rounded border-slate-700 accent-emerald-400 cursor-pointer"
+                                    />
+                                    <span>Timed Auto-Rotate</span>
+                                  </label>
+
+                                  {rot.autoRotateTimed && (
+                                    <div className="flex items-center gap-1.5 text-[11px]">
+                                      <span className="text-slate-400 font-semibold">Interval:</span>
+                                      <input
+                                        type="number"
+                                        min={2}
+                                        max={120}
+                                        step={1}
+                                        value={rot.intervalSeconds ?? 6}
+                                        onChange={(e) =>
+                                          handleUpdatePlacementRotation(typedKey, {
+                                            intervalSeconds: Math.min(120, Math.max(2, Math.floor(Number(e.target.value) || 6)))
+                                          })
+                                        }
+                                        aria-label={`${placement.name} rotation interval seconds`}
+                                        className="w-14 px-1.5 py-0.5 rounded-lg bg-slate-950 border border-slate-700 text-center font-mono font-bold text-xs text-emerald-300"
+                                      />
+                                      <span className="text-[10px] text-slate-400">sec</span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         {typedKey === 'top-header' && (
                           <div className="pt-2.5 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-indigo-500/5 border border-indigo-500/20 px-3 py-2.5 rounded-xl">

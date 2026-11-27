@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Advertisement, AdTargetPage, PopupDisplaySettings, PopupAppearanceSettings, DEFAULT_POPUP_APPEARANCE, isAdCurrentlyRunning } from '../../types/ad';
-import { X, Sparkles, ExternalLink, ArrowRight, ShieldCheck, CheckCircle2, Layers, ChevronRight } from 'lucide-react';
+import { Advertisement, AdTargetPage, PopupDisplaySettings, PopupAppearanceSettings, DEFAULT_POPUP_APPEARANCE, PlacementRotationConfig, isAdCurrentlyRunning } from '../../types/ad';
+import { getRotatedItems } from '../../utils/adRotation';
+import { X, ExternalLink, ArrowRight, ShieldCheck, CheckCircle2, Layers, ChevronRight } from 'lucide-react';
 
 interface PopupAdModalProps {
   ads: Advertisement[];
   currentPage: AdTargetPage;
   popupSettings?: PopupDisplaySettings;
   popupAppearance?: PopupAppearanceSettings;
+  rotationSettings?: PlacementRotationConfig;
   onAdClick: (ad: Advertisement) => void;
   onNavigateTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
 }
@@ -24,6 +26,7 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
   currentPage,
   popupSettings = DEFAULT_POPUP_SETTINGS,
   popupAppearance = DEFAULT_POPUP_APPEARANCE,
+  rotationSettings,
   onAdClick,
   onNavigateTab
 }) => {
@@ -31,6 +34,7 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
   const [popupQueue, setPopupQueue] = useState<Advertisement[]>([]);
   const [currentQueueIndex, setCurrentQueueIndex] = useState<number>(0);
   const [dualClosedAdIds, setDualClosedAdIds] = useState<string[]>([]);
+  const [isPaused, setIsPaused] = useState<boolean>(false);
 
   const [dismissedSessionIds, setDismissedSessionIds] = useState<string[]>(() => {
     try {
@@ -43,13 +47,17 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
 
   // Evaluate matching popup advertisements on mount / page change / ads update
   useEffect(() => {
-    const candidates = ads.filter(
+    const rawCandidates = ads.filter(
       (ad) =>
         isAdCurrentlyRunning(ad) &&
         (ad.type === 'popup' || ad.placement === 'popup-modal') &&
         (ad.targetPages.includes('all') || ad.targetPages.includes(currentPage)) &&
         !dismissedSessionIds.includes(ad.id)
     );
+
+    const rotationEnabled = rotationSettings?.enabled !== false;
+    const seqMode = rotationEnabled ? (rotationSettings?.sequenceMode || 'sequential_per_visit') : 'fixed';
+    const candidates = getRotatedItems(rawCandidates, 'ad_popup-modal', seqMode);
 
     if (candidates.length > 0) {
       // Determine how many popups are permitted in the queue
@@ -74,7 +82,21 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
       setPopupQueue([]);
       setCurrentQueueIndex(0);
     }
-  }, [ads, currentPage, dismissedSessionIds, popupSettings]);
+  }, [ads, currentPage, dismissedSessionIds, popupSettings, rotationSettings?.enabled, rotationSettings?.sequenceMode]);
+
+  // Optional timed auto-rotation through open popup queue
+  useEffect(() => {
+    if (!isOpen || isPaused) return;
+    if (rotationSettings?.enabled === false || rotationSettings?.autoRotateTimed !== true) return;
+    if ((popupSettings.displayMode || 'sequential') !== 'sequential' || popupQueue.length <= 1) return;
+
+    const intervalMs = Math.max(2, Math.min(120, Number(rotationSettings?.intervalSeconds) || 8)) * 1000;
+    const timer = window.setInterval(() => {
+      setCurrentQueueIndex((prev) => (prev + 1) % popupQueue.length);
+    }, intervalMs);
+
+    return () => window.clearInterval(timer);
+  }, [isOpen, isPaused, popupQueue.length, popupSettings.displayMode, rotationSettings?.enabled, rotationSettings?.autoRotateTimed, rotationSettings?.intervalSeconds]);
 
   if (!isOpen || popupQueue.length === 0) return null;
 
@@ -318,7 +340,11 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
 
   return (
     <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${overlayClass} backdrop-blur-md overflow-y-auto animate-fadeIn`}>
-      <div className={`relative w-full ${widthClass} bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl transition-all`}>
+      <div
+        onMouseEnter={() => setIsPaused(true)}
+        onMouseLeave={() => setIsPaused(false)}
+        className={`relative w-full ${widthClass} bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl transition-all`}
+      >
         
         {/* Ambient Top Glow */}
         <div className={`absolute -right-20 -top-20 w-60 h-60 ${style.glow} rounded-full blur-3xl pointer-events-none`} />

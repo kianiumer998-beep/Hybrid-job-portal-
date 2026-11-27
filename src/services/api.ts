@@ -790,17 +790,42 @@ export const api = {
         body: JSON.stringify({ state })
       });
     },
-    async prepareRecipients(campaignId: string, recipients: Array<{ subscriberId: string; channel: 'Email' | 'WhatsApp' | 'SMS'; contactMask?: string }>) {
+    async getChannelReadiness() {
+      return safeFetchJson<{
+        success: boolean;
+        flags?: any;
+        channels?: {
+          email: { ready: boolean; provider: string; reason?: string };
+          whatsapp: { ready: boolean; provider: string; reason?: string };
+          sms: { ready: boolean; provider: string; reason?: string };
+        };
+        message?: string;
+      }>(`${API_BASE}/broadcasts/channel-readiness`, { headers: getAuthHeader() });
+    },
+    async prepareRecipients(campaignId: string, recipients: Array<{ subscriberId: string; recipientName?: string; channel: 'Email' | 'WhatsApp' | 'SMS'; contactMask?: string }>) {
       return safeFetchJson<any>(`${API_BASE}/broadcasts/${encodeURIComponent(campaignId)}/prepare-recipients`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify({ recipients })
       });
     },
-    async getRecipientHistory(campaignId: string, page = 1, pageSize = 50) {
-      return safeFetchJson<any>(`${API_BASE}/broadcasts/${encodeURIComponent(campaignId)}/recipients?page=${page}&pageSize=${pageSize}`, {
-        headers: getAuthHeader()
+    async dispatchCampaign(
+      campaignId: string,
+      options?: { retryFailedOnly?: boolean; selectedChannels?: Array<'Email' | 'WhatsApp' | 'SMS'>; limit?: number }
+    ) {
+      return safeFetchJson<any>(`${API_BASE}/broadcasts/${encodeURIComponent(campaignId)}/dispatch`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(options || {})
       });
+    },
+    async getRecipientHistory(campaignId: string, page = 1, pageSize = 50, status = 'ALL') {
+      return safeFetchJson<any>(
+        `${API_BASE}/broadcasts/${encodeURIComponent(campaignId)}/recipients?page=${page}&pageSize=${pageSize}&status=${encodeURIComponent(status)}`,
+        {
+          headers: getAuthHeader()
+        }
+      );
     },
     async getRecipientSummary(campaignId: string) {
       return safeFetchJson<any>(`${API_BASE}/broadcasts/${encodeURIComponent(campaignId)}/recipient-summary`, {

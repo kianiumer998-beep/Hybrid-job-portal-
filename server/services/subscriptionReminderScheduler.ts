@@ -565,6 +565,11 @@ export async function runSubscriptionReminderTick(now = new Date()): Promise<{ s
     const autoRenewed = await processConsentedAutoRenewals(users || [], now);
     const jobDigests = await dispatchPremiumJobAlertDigests(now);
     const settings = pricing?.subscriptionReminderSettings || {};
+    const targetScopes = settings.targetScopes || {};
+    const isSubscriptionsMonitored = targetScopes.employerSubscriptions !== false && targetScopes.subscriptions !== false;
+    const isEarlyAccessMonitored = targetScopes.earlyAccessPass !== false && targetScopes.earlyAccess !== false;
+    const isJobsMonitored = targetScopes.jobPackages !== false && targetScopes.jobSlots !== false && targetScopes.urgentFeaturedJobs !== false;
+    const isAdsMonitored = targetScopes.adCampaignsPlcSic !== false && targetScopes.campaigns !== false;
 
     // Per-channel subscription expiry reminders (In-App + Email + WhatsApp + SMS)
     const inAppEnabled = settings.inAppEnabled !== undefined ? settings.inAppEnabled === true : settings.enabled === true;
@@ -578,7 +583,7 @@ export async function runSubscriptionReminderTick(now = new Date()): Promise<{ s
     const smsDays = clampDays(settings.smsDaysBefore ?? settings.daysBefore, 3);
 
     const anySubscriptionReminderActive = inAppEnabled || emailEnabled || whatsappEnabled || smsEnabled;
-    if (anySubscriptionReminderActive) {
+    if (anySubscriptionReminderActive && isSubscriptionsMonitored) {
       const nowMs = now.getTime();
       for (const user of users || []) {
         if (!user?.id || user.membershipStatus !== 'Active' || !user.subscriptionExpiresAt) continue;
@@ -662,16 +667,16 @@ export async function runSubscriptionReminderTick(now = new Date()): Promise<{ s
 
     // Early Access pre-release automatic reminder
     let earlyAccessNotified = 0;
-    if (pricing?.earlyAccess?.enabled === true && pricing?.earlyAccess?.reminderSettings?.enabled === true && pricing?.earlyAccess?.reminderSettings?.notifyBeforePublicRelease === true) {
+    if (isEarlyAccessMonitored && pricing?.earlyAccess?.enabled === true && pricing?.earlyAccess?.reminderSettings?.enabled === true && pricing?.earlyAccess?.reminderSettings?.notifyBeforePublicRelease === true) {
       const eaRes = await dispatchEarlyAccessReminderNow({ manualTrigger: false });
       earlyAccessNotified = eaRes.inAppSent + eaRes.emailSent + eaRes.whatsappSent + eaRes.smsSent;
     }
 
     // Priority Job Tier expiry reminders (VIP, Pinned, Featured, Urgent, Future — excluding Standard)
-    const jobTierNotified = await processPriorityJobTierReminders(pricing, users || [], channelFlags, now);
+    const jobTierNotified = isJobsMonitored ? await processPriorityJobTierReminders(pricing, users || [], channelFlags, now) : 0;
 
     // Ad Placement pre-expiry reminders
-    const adPlacementNotified = await processAdPlacementReminders(pricing, users || [], channelFlags, now);
+    const adPlacementNotified = isAdsMonitored ? await processAdPlacementReminders(pricing, users || [], channelFlags, now) : 0;
 
     return {
       scanned: (users || []).length,

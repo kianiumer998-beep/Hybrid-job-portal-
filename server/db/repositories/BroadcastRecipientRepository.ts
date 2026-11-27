@@ -14,6 +14,7 @@ export interface BroadcastRecipientRecord {
   id: string;
   campaignId: string;
   subscriberId: string;
+  recipientName?: string;
   channel: 'Email' | 'WhatsApp' | 'SMS';
   status: BroadcastRecipientStatus;
   contactMask?: string;
@@ -46,7 +47,10 @@ export const BroadcastRecipientRepository = {
     return collection;
   },
 
-  async prepare(campaignId: string, recipients: Array<{ subscriberId: string; channel: 'Email' | 'WhatsApp' | 'SMS'; contactMask?: string }>) {
+  async prepare(
+    campaignId: string,
+    recipients: Array<{ subscriberId: string; recipientName?: string; channel: 'Email' | 'WhatsApp' | 'SMS'; contactMask?: string }>
+  ) {
     const id = safeText(campaignId, 160);
     if (!id) throw new Error('Campaign ID is required.');
     if (!Array.isArray(recipients) || recipients.length > 10000) throw new Error('Recipient list must contain no more than 10,000 entries.');
@@ -57,12 +61,18 @@ export const BroadcastRecipientRepository = {
       const subscriberId = safeText(recipient?.subscriberId, 160);
       const channel = recipient?.channel;
       if (!subscriberId || !['Email', 'WhatsApp', 'SMS'].includes(channel)) continue;
-      unique.set(subscriberId + ':' + channel, { subscriberId, channel, contactMask: safeText(recipient.contactMask, 80) });
+      unique.set(subscriberId + ':' + channel, {
+        subscriberId,
+        recipientName: safeText(recipient.recipientName, 120) || undefined,
+        channel,
+        contactMask: safeText(recipient.contactMask, 80)
+      });
     }
     const docs = Array.from(unique.values()).map((r) => ({
       id: 'bcr-' + crypto.createHash('sha256').update(id + '|' + r.subscriberId + '|' + r.channel).digest('hex'),
       campaignId: id,
       subscriberId: r.subscriberId,
+      recipientName: r.recipientName,
       channel: r.channel,
       status: 'WaitingForProvider' as const,
       contactMask: r.contactMask,
@@ -84,16 +94,33 @@ export const BroadcastRecipientRepository = {
     return { campaignId: id, eligible: unique.size, newlyPrepared: inserted, totalRecipients: total, deliveryEnabled: false, status: 'WaitingForProvider' as const };
   },
 
-  async list(campaignId: string, page = 1, pageSize = 50) {
+  async list(campaignId: string, page = 1, pageSize = 50, statusFilter?: BroadcastRecipientStatus | 'ALL') {
     const collection = await this.collection();
     const safePage = Math.max(1, Math.floor(Number(page) || 1));
-    const safeSize = Math.min(100, Math.max(1, Math.floor(Number(pageSize) || 50)));
-    const filter = { campaignId: safeText(campaignId, 160) };
+    const safeSize = Math.min(200, Math.max(1, Math.floor(Number(pageSize) || 50)));
+    const filter: Record<string, any> = { campaignId: safeText(campaignId, 160) };
+    if (statusFilter && statusFilter !== 'ALL') {
+      filter.status = statusFilter;
+    }
     const [items, total] = await Promise.all([
       collection.find(filter).sort({ updatedAt: -1, _id: -1 }).skip((safePage - 1) * safeSize).limit(safeSize).toArray(),
       collection.countDocuments(filter)
     ]);
     return { items: items.map(({ _id, ...item }: any) => item), total, page: safePage, pageSize: safeSize };
+  },
+
+  async listForDispatch(campaignId: string, retryFailedOnly = false, limit = 500): Promise<BroadcastRecipientRecord[]> {
+    const collection = await this.collection();
+    const safeLimit = Math.min(1000, Math.max(1, Math.floor(Number(limit) || 500)));
+    const statuses: BroadcastRecipientStatus[] = retryFailedOnly
+      ? ['Failed', 'WaitingForProvider']
+      : ['WaitingForProvider', 'Queued', 'Failed'];
+    const items = await collection
+      .find({ campaignId: safeText(campaignId, 160), status: { $in: statuses } })
+      .sort({ createdAt: 1, _id: 1 })
+      .limit(safeLimit)
+      .toArray();
+    return items.map(({ _id, ...item }: any) => item as BroadcastRecipientRecord);
   },
 
   async summary(campaignId: string) {
@@ -104,7 +131,7 @@ export const BroadcastRecipientRepository = {
     ]).toArray();
     const counts: Record<string, number> = { WaitingForProvider: 0, Queued: 0, Sent: 0, Delivered: 0, Failed: 0, Skipped: 0 };
     for (const row of rows) if (typeof row._id === 'string' && row._id in counts) counts[row._id] = Number(row.count) || 0;
-    return { campaignId: safeText(campaignId, 160), counts, total: Object.values(counts).reduce((a, b) => a + b, 0), deliveryEnabled: false };
+    return { campaignId: safeText(campaignId, 160), counts, total: Object.values(counts).reduce((a, b) => a + b, 0), deliveryEnabled: true };
   },
 
   // Internal provider-adapter hook. Call only after receiving a genuine provider response.
@@ -127,18 +154,23 @@ export const BroadcastRecipientRepository = {
     }
     const id = 'bcr-' + crypto.createHash('sha256').update(campaignId + '|' + subscriberId + '|' + input.channel).digest('hex');
     const now = new Date().toISOString();
+    const updateOp: Record<string, any> = {
+      $set: {
+        status: input.outcome,
+        providerMessageId: safeText(input.providerMessageId, 250) || undefined,
+        updatedAt: now,
+        lastAttemptAt: now
+      },
+      $inc: { attempts: 1 }
+    };
+    if (input.outcome === 'Failed') {
+      updateOp.$set.failureReason = safeText(input.failureReason, 500) || 'Provider reported delivery failure.';
+    } else {
+      updateOp.$unset = { failureReason: '' };
+    }
     const result = await collection.updateOne(
-      { id, status: { $in: ['WaitingForProvider', 'Queued', 'Sent'] } },
-      {
-        $set: {
-          status: input.outcome,
-          providerMessageId: safeText(input.providerMessageId, 250) || undefined,
-          failureReason: input.outcome === 'Failed' ? safeText(input.failureReason, 500) || 'Provider reported delivery failure.' : undefined,
-          updatedAt: now,
-          lastAttemptAt: now
-        },
-        $inc: { attempts: 1 }
-      }
+      { id, status: { $in: ['WaitingForProvider', 'Queued', 'Sent', 'Failed'] } },
+      updateOp
     );
     if (result.matchedCount === 0) {
       throw new Error('Recipient record not found or is not in a provider-eligible state.');
@@ -151,8 +183,8 @@ export const BroadcastRecipientRepository = {
     const now = new Date().toISOString();
     const result = await collection.updateMany(
       { campaignId: safeText(campaignId, 160), status: 'Failed' },
-      { $set: { status: 'WaitingForProvider', updatedAt: now, failureReason: 'Retry requested; waiting for provider integration.' } }
+      { $set: { status: 'WaitingForProvider', updatedAt: now, failureReason: 'Retry requested; waiting for provider dispatch.' } }
     );
-    return { retried: result.modifiedCount, deliveryEnabled: false };
+    return { retried: result.modifiedCount, deliveryEnabled: true };
   }
 };

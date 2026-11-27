@@ -61,7 +61,8 @@ import {
   ChevronUp,
   Send,
   Lock,
-  Monitor
+  Monitor,
+  Tag
 } from 'lucide-react';
 
 interface UserCampaignHubProps {
@@ -114,6 +115,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   showInternalNavigation = true
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>(initialSubTab);
+  const [bannerNotice, setBannerNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     if (initialSubTab) {
@@ -470,13 +472,14 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       setUseSubscriptionCredit(false);
       setCampaignDraftSeed(`${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 8)}`);
       changeActiveSubTab('my-campaigns');
-      alert(
-        `Campaign "${newAd.title}" submitted successfully! ${chargedAmount > 0
-          ? `PKR ${chargedAmount.toLocaleString()} has been moved from your available wallet balance into campaign escrow.`
+      setBannerNotice({
+        type: 'success',
+        text: `Campaign "${newAd.title}" submitted! ${chargedAmount > 0
+          ? `PKR ${chargedAmount.toLocaleString()} held in escrow.`
           : useSubscriptionCredit && hasMatchingCampaignCredit
-          ? 'One subscription campaign credit was redeemed; no wallet funds were held.'
-          : 'No wallet funds were held because this campaign is free.'} The campaign is awaiting administrator review. If rejected, any held wallet funds or subscription credit will be restored.`
-      );
+          ? 'Subscription credit redeemed.'
+          : 'No wallet charge required.'} Awaiting admin approval.`
+      });
     } finally {
       setIsSubmittingCampaign(false);
     }
@@ -808,6 +811,68 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       </div>
       )}
 
+      {/* Inline Feedback Notice */}
+      {bannerNotice && (
+        <div className={`px-3.5 py-2.5 rounded-xl border text-xs flex items-center justify-between gap-2 ${
+          bannerNotice.type === 'success'
+            ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
+            : 'bg-amber-950/40 border-amber-500/40 text-amber-200'
+        }`}>
+          <span>{bannerNotice.text}</span>
+          <button
+            type="button"
+            onClick={() => setBannerNotice(null)}
+            className="text-slate-300 hover:text-white font-bold px-1.5 cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Active Promotional Discount Offers from Admin */}
+      {(campaignConfig.promoBanners || []).filter((p) => p.isEnabled).length > 0 && (activeSubTab === 'create' || activeSubTab === 'wallet') && (
+        <div className="rounded-2xl border border-amber-500/30 bg-slate-900/90 p-3 sm:p-4 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-xs font-black text-amber-300">
+              <Tag className="w-3.5 h-3.5 shrink-0" />
+              <span>Active Promotional Offers</span>
+            </div>
+            <span className="text-[10px] text-slate-400">Apply promo code or check discounted placements</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {(campaignConfig.promoBanners || []).filter((p) => p.isEnabled).map((promo) => (
+              <div
+                key={promo.id}
+                className={`rounded-xl p-3 bg-gradient-to-r ${promo.bgGradient || 'from-amber-600 via-rose-600 to-indigo-700'} text-white flex items-center justify-between gap-3`}
+              >
+                <div className="min-w-0">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-white/90">
+                    {promo.discountPercent}% OFF · {promo.badgeText || 'Promo Offer'}
+                  </div>
+                  <div className="text-xs font-black truncate">{promo.title}</div>
+                  {promo.validUntil && (
+                    <div className="text-[10px] text-white/80 font-mono tabular-nums">Valid until {promo.validUntil}</div>
+                  )}
+                </div>
+                {promo.promoCode && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormPromoCode(promo.promoCode || '');
+                      setFormDiscountPercent(promo.discountPercent || 10);
+                      setBannerNotice({ type: 'success', text: `Promo code ${promo.promoCode} copied into campaign draft.` });
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 hover:bg-slate-950 text-amber-300 font-mono font-black text-[11px] shrink-0 cursor-pointer whitespace-nowrap"
+                  >
+                    Code: {promo.promoCode}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ========================================================================= */}
       {/* SUB-TAB 1: MY CAMPAIGNS & STATUS TRACKER */}
       {/* ========================================================================= */}
@@ -909,9 +974,8 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                           <div className="flex flex-wrap items-center gap-2">
                             {/* Status Badge */}
                             {isRunning ? (
-                              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[11px] font-black uppercase flex items-center space-x-1">
-                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-1"></span>
-                                <span>🟢 Live & Running</span>
+                              <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/35 text-[11px] font-bold uppercase">
+                                Live &amp; Running
                               </span>
                             ) : isPending ? (
                               <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[11px] font-black uppercase flex items-center space-x-1">
@@ -1201,15 +1265,14 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                       </span>
                     )}
                     {isAtCapacity ? (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">All slots reserved</span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">All slots reserved</span>
                     ) : isRunningNow ? (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center space-x-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping mr-1"></span>
-                        <span>Currently Active Campaign</span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        Active Campaign Running
                       </span>
                     ) : (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                        🟢 Slot Open for Immediate Booking
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        Open for Booking
                       </span>
                     )}
                   </div>
@@ -1269,7 +1332,10 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                         type="button"
                         onClick={() => {
                           if (!isAvailable) {
-                            alert(`"${page.name}" is currently unavailable for campaign distribution: ${scheduleStatus.reason}`);
+                            setBannerNotice({
+                              type: 'error',
+                              text: `"${page.name}" is currently unavailable: ${scheduleStatus.reason}`
+                            });
                             return;
                           }
 

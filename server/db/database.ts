@@ -592,7 +592,7 @@ export class Database {
             ...(stored?.jobPosting?.homepagePrioritySlotConfig?.urgent || {})
           },
           future: {
-            ...(DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG.future || { enabled: true, maxSlots: 4 }),
+            ...(DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG.future || { enabled: true, maxSlots: 4, rotateOrder: 'sequential' }),
             ...(stored?.jobPosting?.homepagePrioritySlotConfig?.future || {})
           }
         },

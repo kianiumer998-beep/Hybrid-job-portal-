@@ -22,7 +22,8 @@ import {
   Trash2,
   RefreshCw
 } from 'lucide-react';
-import { Subscriber, UserAccount, AdminFeatureFlags } from '../../types/job';
+import { Subscriber, UserAccount, AdminFeatureFlags, Job } from '../../types/job';
+import { Advertisement } from '../../types/ad';
 import {
   BroadcastCampaign,
   CommunicationProviderConfig,
@@ -38,12 +39,15 @@ interface AdminBroadcastCenterProps {
   campaigns?: BroadcastCampaign[];
   users?: UserAccount[];
   subscribers?: Subscriber[];
+  jobs?: Job[];
+  ads?: Advertisement[];
   commConfig?: CommunicationProviderConfig;
   featureFlags?: AdminFeatureFlags;
   isLoading?: boolean;
   loadError?: string | null;
   migrationError?: string | null;
   onSendCampaign?: (newCampaign: Partial<BroadcastCampaign>) => Promise<{ success: boolean; campaign?: BroadcastCampaign; error?: string } | boolean | void> | void;
+  onCampaignUpdated?: (campaign: BroadcastCampaign) => void;
   onUpdateCommConfig?: (updated: CommunicationProviderConfig) => void;
   onRefreshCampaigns?: () => void;
   initialTab?: 'compose' | 'history' | 'templates' | 'providers';
@@ -56,12 +60,15 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   campaigns = [],
   users = [],
   subscribers = [],
+  jobs = [],
+  ads = [],
   commConfig,
   featureFlags,
   isLoading = false,
   loadError = null,
   migrationError = null,
   onSendCampaign,
+  onCampaignUpdated,
   onUpdateCommConfig,
   onRefreshCampaigns,
   initialTab,
@@ -72,11 +79,14 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const safeCampaigns = Array.isArray(campaigns) ? campaigns : [];
   const safeUsers = Array.isArray(users) ? users : [];
   const safeSubscribers = Array.isArray(subscribers) ? subscribers : [];
+  const safeJobs = Array.isArray(jobs) ? jobs : [];
+  const safeAds = Array.isArray(ads) ? ads : [];
 
   const [campaignList, setCampaignList] = useState<BroadcastCampaign[]>(safeCampaigns);
   const resolvedInitialTab = hideProvidersTab && initialTab === 'providers' ? 'compose' : (initialTab || 'compose');
   const [activeTab, setActiveTab] = useState<'compose' | 'history' | 'templates' | 'providers' | 'bulk' | 'recipients' | 'subscribers' | 'schedule'>(resolvedInitialTab);
   const [recipientCampaignId, setRecipientCampaignId] = useState<string>('');
+  const [recipientStatusFilter, setRecipientStatusFilter] = useState<'ALL' | 'Sent' | 'Delivered' | 'Failed' | 'WaitingForProvider'>('ALL');
   const [recipientHistory, setRecipientHistory] = useState<any[]>([]);
   const [recipientPage, setRecipientPage] = useState(1);
   const [recipientTotal, setRecipientTotal] = useState(0);
@@ -86,6 +96,12 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const [recipientHistoryNotice, setRecipientHistoryNotice] = useState('');
   const [recipientRetryBusy, setRecipientRetryBusy] = useState(false);
   const [recipientPrepareBusy, setRecipientPrepareBusy] = useState(false);
+  const [dispatchBusyId, setDispatchBusyId] = useState<string | null>(null);
+  const [channelReadiness, setChannelReadiness] = useState<{
+    email?: { ready: boolean; provider: string; reason?: string };
+    whatsapp?: { ready: boolean; provider: string; reason?: string };
+    sms?: { ready: boolean; provider: string; reason?: string };
+  } | null>(null);
   const [scheduleDateTime, setScheduleDateTime] = useState('');
   const [scheduleCampaignId, setScheduleCampaignId] = useState('');
   const [scheduleItems, setScheduleItems] = useState<any[]>([]);
@@ -102,6 +118,16 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   useEffect(() => {
     if (!recipientCampaignId && campaignList.length > 0) setRecipientCampaignId(campaignList[0].id);
   }, [campaignList, recipientCampaignId]);
+
+  useEffect(() => {
+    api.broadcasts.getChannelReadiness()
+      .then((res) => {
+        if (res?.success && res.channels) {
+          setChannelReadiness(res.channels);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!scheduleCampaignId) {
@@ -128,7 +154,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
     setRecipientHistoryLoading(true);
     setRecipientHistoryError('');
     Promise.all([
-      api.broadcasts.getRecipientHistory(recipientCampaignId, recipientPage, 100),
+      api.broadcasts.getRecipientHistory(recipientCampaignId, recipientPage, 100, recipientStatusFilter),
       api.broadcasts.getRecipientSummary(recipientCampaignId)
     ]).then(([history, summary]) => {
       if (cancelled) return;
@@ -142,15 +168,36 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
       if (!cancelled) setRecipientHistoryLoading(false);
     });
     return () => { cancelled = true; };
-  }, [activeTab, recipientCampaignId, recipientPage]);
+  }, [activeTab, recipientCampaignId, recipientPage, recipientStatusFilter]);
 
   // Channel Gating Statuses (Fail-closed: explicit true required)
   const emailEnabled = featureFlags?.enableEmailAlerts === true;
   const whatsappEnabled = featureFlags?.enableWhatsAppAlerts === true;
   const smsEnabled = featureFlags?.enableSmsAlerts === true;
-  const multiChannelEnabled = emailEnabled && whatsappEnabled;
+  const multiChannelEnabled = emailEnabled || whatsappEnabled || smsEnabled;
 
-  const [channel, setChannel] = useState<'Email' | 'WhatsApp' | 'SMS' | 'Push Notification' | 'Multi-Channel'>(lockedChannel || 'SMS');
+  const [channel, setChannel] = useState<'Email' | 'WhatsApp' | 'SMS' | 'Push Notification' | 'Multi-Channel'>(
+    lockedChannel || (multiChannelEnabled ? 'Multi-Channel' : 'SMS')
+  );
+  const [selectedMultiChannels, setSelectedMultiChannels] = useState<Array<'Email' | 'WhatsApp' | 'SMS'>>(() => {
+    const defaults: Array<'Email' | 'WhatsApp' | 'SMS'> = [];
+    if (featureFlags?.enableEmailAlerts) defaults.push('Email');
+    if (featureFlags?.enableWhatsAppAlerts) defaults.push('WhatsApp');
+    if (featureFlags?.enableSmsAlerts) defaults.push('SMS');
+    return defaults;
+  });
+
+  useEffect(() => {
+    setSelectedMultiChannels((prev) => {
+      const enabledPool: Array<'Email' | 'WhatsApp' | 'SMS'> = [
+        ...(emailEnabled ? (['Email'] as const) : []),
+        ...(whatsappEnabled ? (['WhatsApp'] as const) : []),
+        ...(smsEnabled ? (['SMS'] as const) : [])
+      ];
+      const filtered = prev.filter((c) => enabledPool.includes(c));
+      return filtered.length > 0 ? filtered : enabledPool;
+    });
+  }, [emailEnabled, whatsappEnabled, smsEnabled]);
 
   useEffect(() => {
     if (lockedChannel) {
@@ -170,10 +217,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
       else if (whatsappEnabled) setChannel('WhatsApp');
       else setChannel('Push Notification');
     } else if (channel === 'Multi-Channel' && !multiChannelEnabled) {
-      if (emailEnabled) setChannel('Email');
-      else if (whatsappEnabled) setChannel('WhatsApp');
-      else if (smsEnabled) setChannel('SMS');
-      else setChannel('Push Notification');
+      setChannel('Push Notification');
     }
   }, [emailEnabled, whatsappEnabled, smsEnabled, multiChannelEnabled, channel, lockedChannel]);
 
@@ -189,6 +233,9 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   // Composer state
   const [title, setTitle] = useState('');
   const [linkedAdId, setLinkedAdId] = useState('');
+  const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
+  const [pickerTab, setPickerTab] = useState<'jobs' | 'ads'>('jobs');
+  const [selectedSingleAdId, setSelectedSingleAdId] = useState('');
   const [targetAudience, setTargetAudience] = useState<
     'All Users' | 'Job Seekers Only' | 'Employers / Posters' | 'Subscribed Members' | 'Unpaid / Expired Users' | 'Government Job Seekers' | 'Overseas / Gulf Candidates'
   >('Job Seekers Only');
@@ -395,19 +442,71 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
       const prepared = await api.broadcasts.prepareRecipients(camp.id, recipients);
       if (!prepared?.success) throw new Error(prepared?.message || 'Recipient preparation failed.');
       const [history, summary] = await Promise.all([
-        api.broadcasts.getRecipientHistory(camp.id, recipientPage, 100),
+        api.broadcasts.getRecipientHistory(camp.id, recipientPage, 100, recipientStatusFilter),
         api.broadcasts.getRecipientSummary(camp.id)
       ]);
       setRecipientHistory(Array.isArray(history?.items) ? history.items : []);
       setRecipientTotal(Number(history?.total) || 0);
       setRecipientSummary(summary?.summary || null);
-      setRecipientHistoryNotice(prepared.message || `Prepared ${prepared.newlyPrepared || 0} new recipient/channel records. No messages were sent.`);
+      setRecipientHistoryNotice(prepared.message || `Prepared ${prepared.newlyPrepared || 0} new recipient/channel records. Ready for dispatch.`);
     } catch (err: any) {
       setRecipientHistoryNotice('');
       setRecipientHistoryError(err?.message || 'Recipient preparation failed.');
     } finally {
       setRecipientPrepareBusy(false);
     }
+  };
+
+  const handleToggleJobForDigest = (jobId: string) => {
+    setSelectedJobIds((prev) =>
+      prev.includes(jobId) ? prev.filter((id) => id !== jobId) : [...prev, jobId]
+    );
+  };
+
+  const handleInsertSelectedJobs = () => {
+    const picked = safeJobs.filter((j) => selectedJobIds.includes(j.id));
+    if (picked.length === 0) return;
+
+    const first = picked[0];
+    setLinkedAdId(picked.map((j) => j.id).join(','));
+    if (picked.length === 1) {
+      const locationLabel = first.city || first.region || first.country || 'Pakistan';
+      setTitle(`Job Alert: ${first.title} (${first.company})`);
+      setSubject(`New Job Opening: ${first.title} at ${first.company} — ${locationLabel}`);
+      setMessageBody(
+        `Hi {{candidate_name}},\n\n*${first.title}* at *${first.company}*\n📍 Location: ${locationLabel}\n💼 Type: ${first.jobType || 'Full-time'} | Category: ${first.jobCategory || 'Jobs'}\n💰 Salary: ${first.salary || 'Competitive'}\n🗓️ Apply Before: ${first.deadlineDate || first.expiryDate || 'Open Now'}\n\nApply now on CareerPak Portal.`
+      );
+    } else {
+      setTitle(`Multi-Job Digest (${picked.length} Openings)`);
+      setSubject(`🔥 ${picked.length} New Job Openings Matched for You on CareerPak`);
+      const lines = picked.map(
+        (j, i) =>
+          `${i + 1}. *${j.title}* — ${j.company} (${j.city || j.region || j.country || 'Pakistan'}${j.salary ? ` • ${j.salary}` : ''})`
+      );
+      setMessageBody(
+        `Hi {{candidate_name}},\n\nCheck out these ${picked.length} top opportunities live right now:\n\n${lines.join('\n')}\n\nLog in to CareerPak to view full details & apply!`
+      );
+    }
+    setFormError(null);
+  };
+
+  const handleSelectAdCampaign = (adId: string) => {
+    setSelectedSingleAdId(adId);
+    const ad = safeAds.find((a) => a.id === adId);
+    if (!ad) return;
+    setLinkedAdId(ad.id);
+    setTitle(`Ad Promotion: ${ad.title || ad.headline || ad.id}`);
+    setSubject(ad.headline || ad.title || 'Featured Campaign Alert');
+    setMessageBody(
+      `Hi {{candidate_name}},\n\n*${ad.headline || ad.title}*\n${ad.bodyText || ''}\n\n${ad.ctaText || 'Learn More'}: ${ad.ctaUrl || 'Visit CareerPak'}`
+    );
+    setFormError(null);
+  };
+
+  const toggleMultiChannelChoice = (ch: 'Email' | 'WhatsApp' | 'SMS') => {
+    setSelectedMultiChannels((prev) =>
+      prev.includes(ch) ? prev.filter((item) => item !== ch) : [...prev, ch]
+    );
   };
 
   const handleApplyTemplate = (tpl: { subject: string; body: string; channel: any; audience: any }) => {
@@ -417,6 +516,10 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
     }
     if (tpl.channel === 'WhatsApp' && !whatsappEnabled) {
       setFormError('WhatsApp templates cannot be selected because WhatsApp alerts are globally disabled.');
+      return;
+    }
+    if (tpl.channel === 'SMS' && !smsEnabled) {
+      setFormError('SMS templates cannot be selected because SMS alerts are globally disabled.');
       return;
     }
 
@@ -430,22 +533,67 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
     setActiveTab('compose');
   };
 
-  const handleDispatchCampaign = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const runLiveDispatch = async (
+    campId: string,
+    options: { selectedChannels?: Array<'Email' | 'WhatsApp' | 'SMS'>; retryFailedOnly?: boolean } = {}
+  ) => {
+    setDispatchBusyId(campId);
+    setRecipientHistoryError('');
+    setRecipientHistoryNotice('');
+    try {
+      const res = await api.broadcasts.dispatchCampaign(campId, options);
+      if (!res?.success) {
+        throw new Error(res?.message || 'Broadcast dispatch failed.');
+      }
+      if (res.readiness) setChannelReadiness(res.readiness);
+      if (res.campaign) {
+        setCampaignList((prev) => prev.map((c) => (c.id === res.campaign!.id ? res.campaign! : c)));
+        onCampaignUpdated?.(res.campaign);
+      }
+      setRecipientCampaignId(campId);
+      setRecipientPage(1);
+      setRecipientHistory(Array.isArray(res.items) ? res.items : []);
+      setRecipientTotal(Number(res.total) || 0);
+      setRecipientSummary(res.summary || null);
+      setRecipientHistoryNotice(
+        res.message || `Dispatched: ${res.sentCount} Sent, ${res.failedCount} Failed.`
+      );
+      setActiveTab('recipients');
+      onRefreshCampaigns?.();
+      return res;
+    } catch (err: any) {
+      setRecipientHistoryError(err?.message || 'Live provider dispatch failed.');
+      throw err;
+    } finally {
+      setDispatchBusyId(null);
+    }
+  };
+
+  const submitCampaign = async (dispatchImmediately: boolean) => {
     setFormError(null);
     setFormSuccess(null);
 
     if (channel === 'Email' && !emailEnabled) {
-      setFormError('Cannot save Email draft: Email channel is globally disabled by administrator.');
+      setFormError('Cannot proceed: Email channel is globally disabled by administrator.');
       return;
     }
     if (channel === 'WhatsApp' && !whatsappEnabled) {
-      setFormError('Cannot save WhatsApp draft: WhatsApp channel is globally disabled by administrator.');
+      setFormError('Cannot proceed: WhatsApp channel is globally disabled by administrator.');
       return;
     }
-    if (channel === 'Multi-Channel' && !multiChannelEnabled) {
-      setFormError('Cannot save Multi-Channel draft: Requires both Email and WhatsApp channels to be enabled.');
+    if (channel === 'SMS' && !smsEnabled) {
+      setFormError('Cannot proceed: SMS channel is globally disabled by administrator.');
       return;
+    }
+    if (channel === 'Multi-Channel') {
+      if (!multiChannelEnabled) {
+        setFormError('Cannot proceed: Enable at least one channel (Email, WhatsApp, or SMS) first.');
+        return;
+      }
+      if (selectedMultiChannels.length === 0) {
+        setFormError('Select at least one active channel (Email, WhatsApp, or SMS) for Multi-Channel broadcast.');
+        return;
+      }
     }
 
     if (!title.trim() || !messageBody.trim()) {
@@ -467,43 +615,62 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
     };
 
     try {
+      let createdCampaign: BroadcastCampaign | undefined;
       if (onSendCampaign) {
         const res = await onSendCampaign(payload);
         if (res && typeof res === 'object' && 'success' in res) {
           if (res.success && res.campaign) {
-            setCampaignList(prev => [res.campaign!, ...prev.filter(c => c.id !== res.campaign!.id)]);
-            setFormSuccess(`Broadcast Campaign "${res.campaign.title}" has been saved as Draft.`);
-            setTitle('');
-            setSubject('');
-            setMessageBody('');
-            setActiveTab('history');
+            createdCampaign = res.campaign;
           } else {
             setFormError(res.error || 'Failed to persist broadcast draft to backend.');
+            return;
           }
-        } else {
-          setTitle('');
-          setSubject('');
-          setMessageBody('');
-          setActiveTab('history');
         }
       } else {
         const res = await api.broadcasts.create(payload as any);
         if (res && res.success && res.campaign) {
-          setCampaignList(prev => [res.campaign!, ...prev.filter(c => c.id !== res.campaign!.id)]);
-          setFormSuccess(`Broadcast Campaign "${res.campaign.title}" has been saved as Draft.`);
-          setTitle('');
-          setSubject('');
-          setMessageBody('');
-          setActiveTab('history');
+          createdCampaign = res.campaign;
         } else {
           setFormError(res?.message || 'Failed to save broadcast draft to database.');
+          return;
         }
       }
+
+      if (createdCampaign) {
+        setCampaignList((prev) => [createdCampaign!, ...prev.filter((c) => c.id !== createdCampaign!.id)]);
+        if (dispatchImmediately) {
+          const dispatchRes = await runLiveDispatch(createdCampaign.id, {
+            selectedChannels: channel === 'Multi-Channel' ? selectedMultiChannels : undefined
+          });
+          setFormSuccess(
+            dispatchRes?.message ||
+              `Broadcast "${createdCampaign.title}" processed: ${dispatchRes?.sentCount || 0} sent, ${dispatchRes?.failedCount || 0} failed.`
+          );
+        } else {
+          setFormSuccess(`Broadcast Campaign "${createdCampaign.title}" saved as Draft.`);
+          setActiveTab('history');
+        }
+        setTitle('');
+        setSubject('');
+        setMessageBody('');
+        setSelectedJobIds([]);
+      } else {
+        setTitle('');
+        setSubject('');
+        setMessageBody('');
+        setSelectedJobIds([]);
+        setActiveTab('history');
+      }
     } catch (err: any) {
-      setFormError(err?.message || 'Unexpected network error while saving broadcast draft.');
+      setFormError(err?.message || 'Unexpected error while saving or dispatching broadcast.');
     } finally {
       setIsSending(false);
     }
+  };
+
+  const handleDispatchCampaign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await submitCampaign(false);
   };
 
   type SecretKeyName = 'smtpPassword' | 'sendgridApiKey' | 'resendApiKey' | 'whatsappCloudApiToken' | 'twilioAuthToken';
@@ -603,33 +770,54 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   };
 
   return (
-    <div className={`admin-settings-mobile-compact ${embedded ? 'space-y-4' : 'space-y-6'} text-white`}>
-      {/* Top Banner */}
-      <div className={`bg-slate-900 border border-slate-800 rounded-2xl ${embedded ? 'p-4' : 'p-6'} shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4`}>
-        <div>
-          <div className="flex items-center space-x-2 text-indigo-400 text-xs font-bold uppercase tracking-wider mb-1">
-            <Megaphone className="w-4 h-4" />
-            <span>{lockedChannel ? `${lockedChannel} Broadcast Workspace` : 'Multi-Channel Communication & Broadcast Center'}</span>
+    <div className={`admin-settings-mobile-compact ${embedded ? 'space-y-2.5 sm:space-y-3' : 'space-y-3 sm:space-y-4'} text-white`}>
+      {/* Compact Top Banner & Sub-Tabs */}
+      <div className={`bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl ${embedded ? 'p-2.5 sm:p-3.5' : 'p-3 sm:p-4'} shadow-lg space-y-2.5`}>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 text-indigo-400 text-[10px] font-bold uppercase tracking-wider">
+              <Megaphone className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">{lockedChannel ? `${lockedChannel} Broadcast` : 'Unified Multi-Channel Broadcast'}</span>
+            </div>
+            <h2 className="text-sm sm:text-base font-black text-white truncate">
+              {lockedChannel ? `${lockedChannel} Campaigns & Delivery Tracking` : 'Job / Ad Multi-Channel Broadcast & Dispatch'}
+            </h2>
           </div>
-          <h2 className={`${embedded ? 'text-base sm:text-lg' : 'text-xl'} font-black text-white`}>
-            {lockedChannel ? `${lockedChannel} Campaigns, Templates & History` : 'Targeted Email, WhatsApp & Push Campaigns'}
-          </h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Draft and manage templates for job digests, urgent FPSC/WAPDA gazette alerts, employer discount notifications, and system announcements.
-          </p>
+
+          {channelReadiness && (
+            <div className="flex flex-wrap items-center gap-1.5 text-[10px] shrink-0">
+              {(['email', 'whatsapp', 'sms'] as const).map((ch) => {
+                const r = channelReadiness[ch];
+                const label = ch === 'email' ? 'Email' : ch === 'whatsapp' ? 'WA' : 'SMS';
+                return (
+                  <span
+                    key={ch}
+                    title={r?.reason || `${label}: ${r?.ready ? 'Gateway Ready' : 'Not Configured'}`}
+                    className={`px-2 py-0.5 rounded-md font-bold border whitespace-nowrap ${
+                      r?.ready
+                        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                        : 'bg-slate-950 text-slate-400 border-slate-800'
+                    }`}
+                  >
+                    {label}: {r?.ready ? 'Ready' : 'No Key'}
+                  </span>
+                );
+              })}
+            </div>
+          )}
         </div>
 
-        {/* Sub-tabs */}
-        <div className="bg-slate-950 border border-slate-800 rounded-xl p-1 flex flex-wrap items-center gap-1 text-xs">
+        {/* Compact Scrollable Sub-tabs (Single clean bar on mobile) */}
+        <div className="bg-slate-950 border border-slate-800 rounded-lg p-1 flex items-center gap-1 overflow-x-auto scrollbar-none text-[11px]">
           {[
-            { id: 'compose', label: 'Compose Broadcast', icon: Send },
-            { id: 'history', label: `Campaign History (${visibleCampaigns.length})`, icon: Clock },
-            { id: 'recipients', label: 'Recipient Tracking', icon: Users },
-            { id: 'schedule', label: 'Schedule & Queue', icon: Clock },
-            { id: 'subscribers', label: `Subscriber Plans (${safeSubscribers.length})`, icon: Users },
-            { id: 'templates', label: 'Campaign Templates', icon: FileText },
-            { id: 'bulk', label: 'Bulk Notifications', icon: Bell },
-            ...(!hideProvidersTab ? [{ id: 'providers', label: 'Provider Gateways', icon: Layers }] : [])
+            { id: 'compose', label: 'Compose', icon: Send },
+            { id: 'history', label: `History (${visibleCampaigns.length})`, icon: Clock },
+            { id: 'recipients', label: 'Sent / Failed', icon: Users },
+            { id: 'schedule', label: 'Schedule', icon: Clock },
+            { id: 'subscribers', label: `Plans (${safeSubscribers.length})`, icon: Users },
+            { id: 'templates', label: 'Templates', icon: FileText },
+            { id: 'bulk', label: 'Bulk Notify', icon: Bell },
+            ...(!hideProvidersTab ? [{ id: 'providers', label: 'Gateways', icon: Layers }] : [])
           ].map((t) => {
             const Icon = t.icon;
             return (
@@ -637,13 +825,13 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                 key={t.id}
                 type="button"
                 onClick={() => setActiveTab(t.id as any)}
-                className={`px-3 py-2 rounded-lg font-bold flex items-center space-x-1.5 transition-all cursor-pointer ${
+                className={`px-2.5 py-1.5 rounded-md font-bold flex items-center gap-1 whitespace-nowrap shrink-0 transition-all cursor-pointer ${
                   activeTab === t.id
-                    ? 'bg-amber-500 text-slate-950 shadow-md font-extrabold'
+                    ? 'bg-amber-500 text-slate-950 shadow-sm font-black'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                <Icon className="w-3.5 h-3.5" />
+                <Icon className="w-3 h-3 shrink-0" />
                 <span>{t.label}</span>
               </button>
             );
@@ -651,243 +839,365 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
         </div>
       </div>
 
-      {/* Global Channel Master-Switch Banners (Hidden if lockedChannel already shows master status in Channel Hub) */}
+      {/* Global Channel Master-Switch Compact Strip */}
       {!embedded && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-          <div className={`p-3 rounded-xl border flex items-center justify-between ${
+        <div className="grid grid-cols-3 gap-1.5 sm:gap-2 text-[10px] sm:text-xs">
+          <div className={`px-2.5 py-1.5 rounded-lg border flex items-center justify-between gap-1 ${
             emailEnabled ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
           }`}>
-            <div className="flex items-center space-x-2">
-              <Mail className="w-4 h-4 shrink-0" />
-              <span>Email Alerts Master Switch: <strong>{emailEnabled ? 'ON (Enabled)' : 'OFF (Disabled)'}</strong></span>
-            </div>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${emailEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
-              {emailEnabled ? 'ACTIVE' : 'DISABLED'}
-            </span>
+            <span className="truncate font-bold">Email: {emailEnabled ? 'ON' : 'OFF'}</span>
+            <Mail className="w-3.5 h-3.5 shrink-0" />
           </div>
-
-          <div className={`p-3 rounded-xl border flex items-center justify-between ${
+          <div className={`px-2.5 py-1.5 rounded-lg border flex items-center justify-between gap-1 ${
             whatsappEnabled ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
           }`}>
-            <div className="flex items-center space-x-2">
-              <MessageCircle className="w-4 h-4 shrink-0" />
-              <span>WhatsApp Alerts Master Switch: <strong>{whatsappEnabled ? 'ON (Enabled)' : 'OFF (Disabled)'}</strong></span>
-            </div>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${whatsappEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
-              {whatsappEnabled ? 'ACTIVE' : 'DISABLED'}
-            </span>
+            <span className="truncate font-bold">WhatsApp: {whatsappEnabled ? 'ON' : 'OFF'}</span>
+            <MessageCircle className="w-3.5 h-3.5 shrink-0" />
+          </div>
+          <div className={`px-2.5 py-1.5 rounded-lg border flex items-center justify-between gap-1 ${
+            smsEnabled ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+          }`}>
+            <span className="truncate font-bold">SMS: {smsEnabled ? 'ON' : 'OFF'}</span>
+            <Smartphone className="w-3.5 h-3.5 shrink-0" />
           </div>
         </div>
       )}
 
       {/* TAB 1: COMPOSE CAMPAIGN */}
       {activeTab === 'compose' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
           {/* Main Compose Form */}
-          <form onSubmit={handleDispatchCampaign} className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <h3 className="text-sm font-bold flex items-center space-x-2">
-                <Send className="w-4 h-4 text-amber-400" />
-                <span>Draft New Broadcast Campaign</span>
+          <form onSubmit={handleDispatchCampaign} className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3 sm:p-4 space-y-3 shadow-lg">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+              <h3 className="text-xs sm:text-sm font-black flex items-center gap-1.5">
+                <Send className="w-3.5 h-3.5 text-amber-400" />
+                <span>Compose &amp; Dispatch Broadcast</span>
               </h3>
-              <span className="text-[11px] font-mono text-emerald-400 font-bold" title="Estimated Audience Reach">
-                🎯 Target Reach: ~{audienceCount} (Estimated Audience Reach)
+              <span className="text-[11px] font-mono tabular-nums text-emerald-400 font-bold">
+                Reach: ~{audienceCount}
               </span>
             </div>
 
             {formError && (
-              <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-300 text-xs flex items-center space-x-2">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <div className="p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-300 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{formError}</span>
               </div>
             )}
 
             {formSuccess && (
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-300 text-xs flex items-center space-x-2">
-                <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+              <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-300 text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
                 <span>{formSuccess}</span>
               </div>
             )}
 
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block font-bold text-slate-300 mb-1">Internal Campaign Name</label>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. FPSC Gazette 08/2026 Urgent WhatsApp Alert"
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-medium"
-                />
-              </div>
+            {/* Quick Posted Job(s) / Ad Picker */}
+            {(safeJobs.length > 0 || safeAds.length > 0) && (
+              <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-2.5 space-y-2 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="text-[11px] font-black text-white">Attach Posted Job(s) or Ad</span>
+                  </div>
+                  <div className="inline-flex bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setPickerTab('jobs')}
+                      className={`px-2 py-1 rounded font-bold cursor-pointer ${pickerTab === 'jobs' ? 'bg-amber-500 text-slate-950' : 'text-slate-400'}`}
+                    >
+                      Jobs ({safeJobs.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPickerTab('ads')}
+                      className={`px-2 py-1 rounded font-bold cursor-pointer ${pickerTab === 'ads' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400'}`}
+                    >
+                      Ads ({safeAds.length})
+                    </button>
+                  </div>
+                </div>
 
-              <div>
-                <label className="block font-bold text-slate-300 mb-1">Related Posted Job / Ad ID (optional)</label>
-                <input
-                  type="text"
-                  value={linkedAdId}
-                  onChange={(e) => setLinkedAdId(e.target.value)}
-                  maxLength={160}
-                  placeholder="Paste existing posted job or ad campaign ID"
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-medium"
-                />
-                <p className="text-[10px] text-slate-500 mt-1">This records the relationship for campaign reporting; it does not publish or approve the job/ad.</p>
+                {pickerTab === 'jobs' ? (
+                  safeJobs.length === 0 ? (
+                    <p className="text-[10px] text-slate-500">No posted jobs loaded.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <div className="max-h-28 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 pr-1">
+                        {safeJobs.slice(0, 20).map((job) => {
+                          const checked = selectedJobIds.includes(job.id);
+                          return (
+                            <label
+                              key={job.id}
+                              className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] cursor-pointer truncate ${
+                                checked
+                                  ? 'bg-amber-500/15 border-amber-500/40 text-amber-200'
+                                  : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => handleToggleJobForDigest(job.id)}
+                                className="accent-amber-500 shrink-0"
+                              />
+                              <span className="truncate font-semibold">{job.title}</span>
+                              <span className="text-[9px] text-slate-500 shrink-0">({job.city || 'PK'})</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] text-slate-400">
+                          {selectedJobIds.length} job(s) selected
+                        </span>
+                        <button
+                          type="button"
+                          disabled={selectedJobIds.length === 0}
+                          onClick={handleInsertSelectedJobs}
+                          className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[10px] font-black cursor-pointer disabled:opacity-40 whitespace-nowrap"
+                        >
+                          Fill Broadcast from Job(s)
+                        </button>
+                      </div>
+                    </div>
+                  )
+                ) : (
+                  <div className="flex flex-col sm:flex-row gap-1.5">
+                    <select
+                      value={selectedSingleAdId}
+                      onChange={(e) => handleSelectAdCampaign(e.target.value)}
+                      className="flex-1 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-white text-[11px] font-semibold"
+                    >
+                      <option value="">Select an Ad Campaign to populate...</option>
+                      {safeAds.map((ad) => (
+                        <option key={ad.id} value={ad.id}>
+                          {ad.title || ad.headline} ({ad.status})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
+            )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-2.5 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div>
-                  <label className="block font-bold text-slate-300 mb-1">Communication Channel</label>
+                  <label className="block font-bold text-slate-300 mb-1 text-[11px]">Campaign Name</label>
+                  <input
+                    type="text"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="e.g. FPSC Gazette Urgent Alert"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-medium text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-300 mb-1 text-[11px]">Linked Job / Ad ID (optional)</label>
+                  <input
+                    type="text"
+                    value={linkedAdId}
+                    onChange={(e) => setLinkedAdId(e.target.value)}
+                    maxLength={160}
+                    placeholder="Job or Ad ID"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block font-bold text-slate-300 mb-1 text-[11px]">Channel</label>
                   {lockedChannel ? (
-                    <div className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold flex items-center justify-between">
+                    <div className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold flex items-center justify-between text-xs">
                       <span>
                         {lockedChannel === 'Email'
                           ? '📧 Email Campaign'
                           : lockedChannel === 'WhatsApp'
-                          ? '💬 Official WhatsApp Alerts'
-                          : '📱 Direct SMS Blast'}
+                          ? '💬 Official WhatsApp'
+                          : '📱 Direct SMS'}
                       </span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded ${
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${
                         (lockedChannel === 'Email' ? emailEnabled : lockedChannel === 'WhatsApp' ? whatsappEnabled : smsEnabled)
                           ? 'bg-emerald-500/20 text-emerald-300'
                           : 'bg-rose-500/20 text-rose-300'
                       }`}>
-                        {(lockedChannel === 'Email' ? emailEnabled : lockedChannel === 'WhatsApp' ? whatsappEnabled : smsEnabled) ? 'ACTIVE' : 'DISABLED'}
+                        {(lockedChannel === 'Email' ? emailEnabled : lockedChannel === 'WhatsApp' ? whatsappEnabled : smsEnabled) ? 'ON' : 'OFF'}
                       </span>
                     </div>
                   ) : (
                     <select
                       value={channel}
                       onChange={(e) => setChannel(e.target.value as any)}
-                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold text-xs"
                     >
-                      <option value="Email" disabled={!emailEnabled}>📧 Email Campaign {!emailEnabled ? '(Disabled)' : ''}</option>
-                      <option value="WhatsApp" disabled={!whatsappEnabled}>💬 Official WhatsApp Alerts {!whatsappEnabled ? '(Disabled)' : ''}</option>
-                      <option value="SMS" disabled={!smsEnabled}>📱 Direct SMS Blast {!smsEnabled ? '(Disabled)' : ''}</option>
-                      <option value="Push Notification">🔔 Browser Web Push Notification</option>
-                      <option value="Multi-Channel" disabled={!multiChannelEnabled}>⚡ Multi-Channel {!multiChannelEnabled ? '(Disabled - Requires Email & WhatsApp)' : ''}</option>
+                      <option value="Multi-Channel" disabled={!multiChannelEnabled}>⚡ Multi-Channel (Combined){!multiChannelEnabled ? ' (Off)' : ''}</option>
+                      <option value="Email" disabled={!emailEnabled}>📧 Email {!emailEnabled ? '(Disabled)' : ''}</option>
+                      <option value="WhatsApp" disabled={!whatsappEnabled}>💬 WhatsApp {!whatsappEnabled ? '(Disabled)' : ''}</option>
+                      <option value="SMS" disabled={!smsEnabled}>📱 SMS {!smsEnabled ? '(Disabled)' : ''}</option>
+                      <option value="Push Notification">🔔 Browser Push</option>
                     </select>
                   )}
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-300 mb-1">Audience Segmentation</label>
+                  <label className="block font-bold text-slate-300 mb-1 text-[11px]">Target Audience</label>
                   <select
                     value={targetAudience}
                     onChange={(e) => setTargetAudience(e.target.value as any)}
-                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold text-xs"
                   >
-                    <option value="All Users">All Users (~{audienceCount} estimated reach)</option>
+                    <option value="All Users">All Users (~{audienceCount})</option>
                     <option value="Job Seekers Only">Job Seekers Only</option>
-                    <option value="Employers / Posters">Employers & Job Posters</option>
-                    <option value="Subscribed Members">Active WhatsApp Pro Subscribers ({subscribers.length})</option>
+                    <option value="Employers / Posters">Employers &amp; Posters</option>
+                    <option value="Subscribed Members">Subscribed Members ({subscribers.length})</option>
                     <option value="Unpaid / Expired Users">Unpaid / Expired Members</option>
-                    <option value="Government Job Seekers">Govt Sector & BPS Candidates</option>
-                    <option value="Overseas / Gulf Candidates">Overseas & Gulf Candidates</option>
+                    <option value="Government Job Seekers">Govt &amp; BPS Seekers</option>
+                    <option value="Overseas / Gulf Candidates">Overseas &amp; Gulf</option>
                   </select>
                 </div>
               </div>
 
-              {channel.includes('Email') && (
+              {/* Multi-Channel Checkbox Selector */}
+              {channel === 'Multi-Channel' && !lockedChannel && (
+                <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-slate-300">Select Active Dispatch Channels:</span>
+                    <span className="text-[10px] text-slate-400">Uses configured APIs</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      { id: 'Email', enabled: emailEnabled, ready: channelReadiness?.email?.ready },
+                      { id: 'WhatsApp', enabled: whatsappEnabled, ready: channelReadiness?.whatsapp?.ready },
+                      { id: 'SMS', enabled: smsEnabled, ready: channelReadiness?.sms?.ready }
+                    ] as const).map((item) => {
+                      const active = selectedMultiChannels.includes(item.id);
+                      return (
+                        <label
+                          key={item.id}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold cursor-pointer ${
+                            !item.enabled
+                              ? 'bg-slate-900 border-slate-800 text-slate-600 opacity-50 cursor-not-allowed'
+                              : active
+                              ? 'bg-indigo-500/20 border-indigo-400/50 text-indigo-200'
+                              : 'bg-slate-900 border-slate-700 text-slate-300'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            disabled={!item.enabled}
+                            checked={active && item.enabled}
+                            onChange={() => toggleMultiChannelChoice(item.id)}
+                            className="accent-indigo-400"
+                          />
+                          <span>{item.id}</span>
+                          {item.enabled && (
+                            <span className={`text-[9px] px-1 rounded ${item.ready ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}`}>
+                              {item.ready ? 'Ready' : 'No Key'}
+                            </span>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {(channel === 'Email' || (channel === 'Multi-Channel' && selectedMultiChannels.includes('Email'))) && (
                 <div>
-                  <label className="block font-bold text-slate-300 mb-1">Email Subject Line</label>
+                  <label className="block font-bold text-slate-300 mb-1 text-[11px]">Email Subject Line</label>
                   <input
                     type="text"
                     value={subject}
                     onChange={(e) => setSubject(e.target.value)}
-                    placeholder="🔥 Top New Jobs in Islamabad, Lahore & Dubai this week"
-                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-medium"
+                    placeholder="🔥 Top New Jobs in Islamabad, Lahore & Dubai"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-medium text-xs"
                   />
                 </div>
               )}
 
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="font-bold text-slate-300">Message Content (Supports Markdown & Dynamic Tags)</label>
-                  <span className="text-[10px] text-slate-500 font-mono">Tags: {'{{candidate_name}}'}, {'{{job_count}}'}</span>
+                  <label className="font-bold text-slate-300 text-[11px]">Message Content</label>
+                  <span className="text-[10px] text-slate-500 font-mono">{'{{candidate_name}}'}</span>
                 </div>
                 <textarea
-                  rows={7}
+                  rows={5}
                   value={messageBody}
                   onChange={(e) => setMessageBody(e.target.value)}
-                  placeholder="Type your message here. For WhatsApp, use *bold* and _italic_ formatting..."
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono text-xs leading-relaxed"
+                  placeholder="Type your broadcast message or select Job(s) above..."
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono text-xs leading-relaxed"
                 />
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800">
               <button
                 type="button"
                 onClick={() => setPreviewMode(!previewMode)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl flex items-center space-x-1.5 cursor-pointer text-xs"
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl flex items-center gap-1.5 cursor-pointer text-[11px]"
               >
                 <Eye className="w-3.5 h-3.5 text-indigo-400" />
-                <span>{previewMode ? 'Hide Preview' : 'Show Live Preview'}</span>
+                <span>{previewMode ? 'Hide Preview' : 'Preview'}</span>
               </button>
 
-              <button
-                type="submit"
-                disabled={isSending || (channel === 'Email' && !emailEnabled) || (channel === 'WhatsApp' && !whatsappEnabled) || (channel === 'SMS' && !smsEnabled) || (channel === 'Multi-Channel' && !multiChannelEnabled)}
-                className={`px-6 py-3 font-black rounded-xl shadow-lg flex items-center space-x-2 cursor-pointer transition-all active:scale-95 text-xs ${
-                  isSending || (channel === 'Email' && !emailEnabled) || (channel === 'WhatsApp' && !whatsappEnabled) || (channel === 'SMS' && !smsEnabled) || (channel === 'Multi-Channel' && !multiChannelEnabled)
-                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-50'
-                    : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20'
-                }`}
-              >
-                <Send className={`w-4 h-4 ${isSending ? 'animate-spin' : ''}`} />
-                <span>
-                  {isSending ? 'Processing...' : 'Save Broadcast Draft'}
-                </span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={isSending || (channel === 'Email' && !emailEnabled) || (channel === 'WhatsApp' && !whatsappEnabled) || (channel === 'SMS' && !smsEnabled) || (channel === 'Multi-Channel' && (!multiChannelEnabled || selectedMultiChannels.length === 0))}
+                  className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 font-bold rounded-xl text-xs cursor-pointer disabled:opacity-40 whitespace-nowrap"
+                >
+                  Save Draft
+                </button>
+                <button
+                  type="button"
+                  onClick={() => submitCampaign(true)}
+                  disabled={isSending || Boolean(dispatchBusyId) || (channel === 'Email' && !emailEnabled) || (channel === 'WhatsApp' && !whatsappEnabled) || (channel === 'SMS' && !smsEnabled) || (channel === 'Multi-Channel' && (!multiChannelEnabled || selectedMultiChannels.length === 0))}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer text-xs disabled:opacity-40 whitespace-nowrap"
+                >
+                  <Send className={`w-3.5 h-3.5 ${isSending ? 'animate-spin' : ''}`} />
+                  <span>{isSending ? 'Dispatching...' : 'Save & Dispatch Now'}</span>
+                </button>
+              </div>
             </div>
           </form>
 
-          {/* Right Column: Dynamic Preview Device */}
-          <div className="space-y-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                <span className="text-xs font-bold text-slate-300">📱 Recipient Device Preview</span>
-                <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-amber-400 font-bold">
-                  {channel}
-                </span>
-              </div>
+          {/* Compact Preview Device */}
+          <div className={`${previewMode ? 'block' : 'hidden lg:block'} bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3 sm:p-4 space-y-2.5 shadow-lg h-fit`}>
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <span className="text-xs font-bold text-slate-300">Device Preview</span>
+              <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-amber-400 font-bold">
+                {channel === 'Multi-Channel' ? selectedMultiChannels.join('+') || 'Multi' : channel}
+              </span>
+            </div>
 
-              {/* Mock Screen Display */}
-              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3 text-xs">
-                <div className="flex items-center space-x-2 border-b border-slate-900 pb-2">
-                  <div className="w-7 h-7 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs">
-                    CP
-                  </div>
-                  <div>
-                    <div className="font-bold text-white text-[11px]">CareerPak Alerts</div>
-                    <div className="text-[9px] text-slate-500 font-mono">{channel === 'WhatsApp' ? '+92 300 CAREERPAK' : 'alerts@careerpak.com'}</div>
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2 text-xs">
+              <div className="flex items-center gap-2 border-b border-slate-900 pb-1.5">
+                <div className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-[10px]">
+                  CP
+                </div>
+                <div>
+                  <div className="font-bold text-white text-[11px]">CareerPak Alerts</div>
+                  <div className="text-[9px] text-slate-500 font-mono">
+                    {channel === 'WhatsApp' ? 'WhatsApp Business' : channel === 'SMS' ? 'SMS Gateway' : 'alerts@careerpak.com'}
                   </div>
                 </div>
+              </div>
 
-                {subject && (
-                  <div className="font-bold text-amber-400 text-[11px] border-b border-slate-900/80 pb-1">
-                    Subject: {subject}
-                  </div>
+              {subject && (
+                <div className="font-bold text-amber-400 text-[11px] border-b border-slate-900/80 pb-1">
+                  {subject}
+                </div>
+              )}
+
+              <div className="text-slate-300 whitespace-pre-wrap text-[11px] leading-relaxed max-h-52 overflow-y-auto">
+                {messageBody ? messageBody.replace('{{candidate_name}}', 'Ahmad Khan') : (
+                  <span className="text-slate-600 italic">Message preview will appear here...</span>
                 )}
-
-                <div className="text-slate-300 whitespace-pre-wrap text-[11px] leading-relaxed max-h-64 overflow-y-auto">
-                  {messageBody ? messageBody.replace('{{candidate_name}}', 'Ahmad Khan') : (
-                    <span className="text-slate-600 italic">Message preview will appear here as you type...</span>
-                  )}
-                </div>
-
-                <div className="text-[9px] text-slate-500 text-right font-mono">
-                  Preview Only
-                </div>
-              </div>
-
-              <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-[11px] text-slate-400">
-                ℹ️ <strong>Campaign Preview:</strong> Visual representation of message formatting for selected communication channels.
               </div>
             </div>
           </div>
-
         </div>
       )}
 
@@ -996,73 +1306,155 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
       )}
 
       {activeTab === 'recipients' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3 sm:p-4 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div>
-              <h3 className="text-sm font-bold text-white">Recipient-wise Campaign Tracking</h3>
-              <p className="text-xs text-slate-400 mt-1">Provider responses are required before a recipient can be marked Sent or Delivered.</p>
+              <h3 className="text-xs sm:text-sm font-black text-white">Sent vs Failed Delivery Report</h3>
+              <p className="text-[11px] text-slate-400">Live gateway outcomes per recipient &amp; channel with exact failure details.</p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <select value={recipientCampaignId} onChange={e => setRecipientCampaignId(e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white max-w-full">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <select
+                value={recipientCampaignId}
+                onChange={e => {
+                  setRecipientCampaignId(e.target.value);
+                  setRecipientPage(1);
+                }}
+                className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white max-w-[220px]"
+              >
                 <option value="">Select campaign</option>
                 {campaignList.map(camp => <option key={camp.id} value={camp.id}>{camp.title} ({camp.channel})</option>)}
               </select>
-              <button type="button" disabled={!recipientCampaignId || recipientPrepareBusy} onClick={handlePrepareRecipients} className="px-3 py-2 rounded-lg bg-indigo-500/15 text-indigo-300 border border-indigo-500/20 text-xs font-bold disabled:opacity-40">
-                {recipientPrepareBusy ? 'Preparing…' : 'Prepare Recipient List'}
+              <button
+                type="button"
+                disabled={!recipientCampaignId || recipientPrepareBusy}
+                onClick={handlePrepareRecipients}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800 text-slate-200 border border-slate-700 text-[11px] font-bold disabled:opacity-40 cursor-pointer whitespace-nowrap"
+              >
+                {recipientPrepareBusy ? 'Preparing…' : 'Prepare List'}
               </button>
-              <button type="button" disabled={!recipientCampaignId || recipientRetryBusy} onClick={async () => {
-                setRecipientRetryBusy(true);
-                try {
-                  const res = await api.broadcasts.retryFailedRecipients(recipientCampaignId);
-                  if (!res?.success) throw new Error(res?.message || 'Retry request failed.');
-                  const [history, summary] = await Promise.all([
-                    api.broadcasts.getRecipientHistory(recipientCampaignId, recipientPage, 100),
-                    api.broadcasts.getRecipientSummary(recipientCampaignId)
-                  ]);
-                  setRecipientHistory(Array.isArray(history?.items) ? history.items : []);
-                  setRecipientTotal(Number(history?.total) || 0);
-                  setRecipientSummary(summary?.summary || null);
-                } catch (err: any) {
-                  setRecipientHistoryError(err?.message || 'Retry request failed.');
-                } finally {
-                  setRecipientRetryBusy(false);
-                }
-              }} className="px-3 py-2 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/20 text-xs font-bold disabled:opacity-40">
-                {recipientRetryBusy ? 'Retrying…' : 'Reset Failed for Retry'}
+              <button
+                type="button"
+                disabled={!recipientCampaignId || dispatchBusyId === recipientCampaignId}
+                onClick={() => runLiveDispatch(recipientCampaignId, { retryFailedOnly: false })}
+                className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-black disabled:opacity-40 cursor-pointer whitespace-nowrap"
+              >
+                {dispatchBusyId === recipientCampaignId ? 'Dispatching…' : 'Dispatch Pending'}
+              </button>
+              <button
+                type="button"
+                disabled={!recipientCampaignId || recipientRetryBusy || dispatchBusyId === recipientCampaignId}
+                onClick={async () => {
+                  setRecipientRetryBusy(true);
+                  try {
+                    await runLiveDispatch(recipientCampaignId, { retryFailedOnly: true });
+                  } finally {
+                    setRecipientRetryBusy(false);
+                  }
+                }}
+                className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-[11px] font-bold disabled:opacity-40 cursor-pointer whitespace-nowrap"
+              >
+                {recipientRetryBusy ? 'Retrying…' : 'Retry Failed Now'}
               </button>
             </div>
           </div>
-          {recipientHistoryError && <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-lg p-3">{recipientHistoryError}</div>}
-          {recipientHistoryNotice && <div className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">{recipientHistoryNotice}</div>}
-          {recipientSummary?.counts && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-              {Object.entries(recipientSummary.counts).map(([status, count]) => (
-                <div key={status} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
-                  <div className="text-[10px] text-slate-500">{status}</div>
-                  <div className="text-lg font-black text-white">{String(count)}</div>
-                </div>
+
+          {recipientHistoryError && <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-lg p-2.5">{recipientHistoryError}</div>}
+          {recipientHistoryNotice && <div className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-2.5">{recipientHistoryNotice}</div>}
+
+          {/* Summary Cards + Status Filter Chips */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            {recipientSummary?.counts && (
+              <div className="flex flex-wrap gap-1.5">
+                {(['Sent', 'Failed', 'WaitingForProvider', 'Delivered'] as const).map((status) => (
+                  <div key={status} className="rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-1 flex items-center gap-1.5">
+                    <span className="text-[10px] text-slate-400">{status === 'WaitingForProvider' ? 'Pending' : status}:</span>
+                    <span className={`text-xs font-black tabular-nums ${
+                      status === 'Sent' || status === 'Delivered' ? 'text-emerald-400' : status === 'Failed' ? 'text-rose-400' : 'text-amber-300'
+                    }`}>
+                      {String(recipientSummary.counts[status] ?? 0)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-[10px]">
+              {(['ALL', 'Sent', 'Failed', 'WaitingForProvider', 'Delivered'] as const).map((st) => (
+                <button
+                  key={st}
+                  type="button"
+                  onClick={() => {
+                    setRecipientStatusFilter(st);
+                    setRecipientPage(1);
+                  }}
+                  className={`px-2 py-1 rounded font-bold cursor-pointer ${
+                    recipientStatusFilter === st
+                      ? 'bg-amber-500 text-slate-950'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {st === 'WaitingForProvider' ? 'Pending' : st}
+                </button>
               ))}
             </div>
-          )}
-          {recipientHistoryLoading ? <div className="text-xs text-slate-400 py-6 text-center">Loading recipient history…</div> : (
+          </div>
+
+          {recipientHistoryLoading ? <div className="text-xs text-slate-400 py-5 text-center">Loading recipient report…</div> : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-xs">
-                <thead className="text-slate-500 border-b border-slate-800"><tr><th className="py-2 pr-3">Recipient ID</th><th className="py-2 pr-3">Channel</th><th className="py-2 pr-3">Contact</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3">Attempts</th><th className="py-2">Updated</th></tr></thead>
-                <tbody>{recipientHistory.map(item => <tr key={item.id} className="border-b border-slate-800/70">
-                  <td className="py-2 pr-3 font-mono text-slate-300">{item.subscriberId}</td>
-                  <td className="py-2 pr-3 text-slate-300">{item.channel}</td>
-                  <td className="py-2 pr-3 text-slate-400">{item.contactMask || '—'}</td>
-                  <td className="py-2 pr-3 text-amber-300">{item.status}</td>
-                  <td className="py-2 pr-3 text-slate-300">{item.attempts ?? 0}</td>
-                  <td className="py-2 text-slate-500">{item.updatedAt ? new Date(item.updatedAt).toLocaleString() : '—'}</td>
-                </tr>)}</tbody>
+              <table className="w-full min-w-[680px] text-left text-[11px]">
+                <thead className="text-slate-500 border-b border-slate-800">
+                  <tr>
+                    <th className="py-1.5 pr-2">Recipient</th>
+                    <th className="py-1.5 pr-2">Channel</th>
+                    <th className="py-1.5 pr-2">Contact</th>
+                    <th className="py-1.5 pr-2">Status</th>
+                    <th className="py-1.5 pr-2">Result / Failure Reason</th>
+                    <th className="py-1.5 pr-2">Try</th>
+                    <th className="py-1.5">Updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recipientHistory.map(item => (
+                    <tr key={item.id} className="border-b border-slate-800/70">
+                      <td className="py-1.5 pr-2 text-slate-200 font-semibold">{item.recipientName || item.subscriberId}</td>
+                      <td className="py-1.5 pr-2 text-slate-300">{item.channel}</td>
+                      <td className="py-1.5 pr-2 font-mono text-slate-400">{item.contactMask || '—'}</td>
+                      <td className="py-1.5 pr-2">
+                        <span className={`px-1.5 py-0.5 rounded font-bold text-[10px] ${
+                          item.status === 'Sent' || item.status === 'Delivered'
+                            ? 'bg-emerald-500/20 text-emerald-300'
+                            : item.status === 'Failed'
+                            ? 'bg-rose-500/20 text-rose-300'
+                            : 'bg-amber-500/20 text-amber-300'
+                        }`}>
+                          {item.status}
+                        </span>
+                      </td>
+                      <td className="py-1.5 pr-2 max-w-[240px] truncate text-[10px]" title={item.failureReason || item.providerMessageId || ''}>
+                        {item.failureReason ? (
+                          <span className="text-rose-300">{item.failureReason}</span>
+                        ) : item.providerMessageId ? (
+                          <span className="text-emerald-300 font-mono">ID: {item.providerMessageId}</span>
+                        ) : (
+                          <span className="text-slate-500">—</span>
+                        )}
+                      </td>
+                      <td className="py-1.5 pr-2 font-mono tabular-nums text-slate-300">{item.attempts ?? 0}</td>
+                      <td className="py-1.5 text-slate-500 whitespace-nowrap">{item.updatedAt ? new Date(item.updatedAt).toLocaleString() : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
               </table>
-              {!recipientHistory.length && <div className="text-xs text-slate-500 text-center py-6">No recipient records prepared yet. Provider delivery is not active until API integration is configured.</div>}
-              <div className="flex items-center justify-between gap-3 pt-3 text-xs text-slate-400">
+              {!recipientHistory.length && (
+                <div className="text-xs text-slate-500 text-center py-5">
+                  No matching recipient records. Click &quot;Dispatch Pending&quot; to send through active gateways.
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-2 pt-2 text-[11px] text-slate-400">
                 <span>Showing {recipientTotal ? ((recipientPage - 1) * 100 + 1) : 0}–{Math.min(recipientPage * 100, recipientTotal)} of {recipientTotal}</span>
-                <div className="flex gap-2">
-                  <button type="button" disabled={recipientPage <= 1 || recipientHistoryLoading} onClick={() => setRecipientPage(p => Math.max(1, p - 1))} className="px-3 py-2 rounded-lg border border-slate-700 disabled:opacity-40">Previous</button>
-                  <button type="button" disabled={recipientPage * 100 >= recipientTotal || recipientHistoryLoading} onClick={() => setRecipientPage(p => p + 1)} className="px-3 py-2 rounded-lg border border-slate-700 disabled:opacity-40">Next</button>
+                <div className="flex gap-1.5">
+                  <button type="button" disabled={recipientPage <= 1 || recipientHistoryLoading} onClick={() => setRecipientPage(p => Math.max(1, p - 1))} className="px-2.5 py-1 rounded-lg border border-slate-700 disabled:opacity-40 cursor-pointer">Prev</button>
+                  <button type="button" disabled={recipientPage * 100 >= recipientTotal || recipientHistoryLoading} onClick={() => setRecipientPage(p => p + 1)} className="px-2.5 py-1 rounded-lg border border-slate-700 disabled:opacity-40 cursor-pointer">Next</button>
                 </div>
               </div>
             </div>
@@ -1072,9 +1464,9 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
 
       {/* TAB: CENTRALIZED LEGACY BULK NOTIFICATION TOOL */}
       {activeTab === 'bulk' && (
-        <div className="space-y-3">
-          <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/10 p-3 text-xs text-indigo-200">
-            Legacy bulk notification options are available here so admins can manage broadcast drafts and audience targeting from the channel workspace. Existing local draft storage is preserved.
+        <div className="space-y-2.5">
+          <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/10 p-2.5 text-xs text-indigo-200">
+            Bulk portal notifications &amp; draft targeting from the unified channel workspace.
           </div>
           <AdminBulkNotificationTool users={safeUsers} subscribers={safeSubscribers} featureFlags={featureFlags} />
         </div>
@@ -1082,112 +1474,111 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
 
       {/* TAB 2: CAMPAIGN HISTORY */}
       {activeTab === 'history' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3 sm:p-4 space-y-3 shadow-lg">
           <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-            <h3 className="text-sm font-bold flex items-center space-x-2">
+            <h3 className="text-xs sm:text-sm font-black flex items-center gap-1.5">
               <Clock className="w-4 h-4 text-amber-400" />
-              <span>Campaign History & Saved Drafts</span>
+              <span>Campaign History ({visibleCampaigns.length})</span>
             </h3>
-            <div className="flex items-center space-x-3">
-              <span className="text-xs font-mono text-slate-400">
-                {visibleCampaigns.length} {lockedChannel ? `${lockedChannel} ` : 'Total '}Campaigns
-              </span>
-              {onRefreshCampaigns && (
-                <button
-                  type="button"
-                  onClick={onRefreshCampaigns}
-                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[11px] font-bold cursor-pointer transition-all"
-                  title="Refresh campaigns from database"
-                >
-                  Refresh
-                </button>
-              )}
-            </div>
+            {onRefreshCampaigns && (
+              <button
+                type="button"
+                onClick={onRefreshCampaigns}
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[11px] font-bold cursor-pointer"
+              >
+                Refresh
+              </button>
+            )}
           </div>
 
           {loadError && (
-            <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-300 text-xs flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                <span>{loadError}</span>
-              </div>
+            <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-300 text-xs flex items-center justify-between">
+              <span>{loadError}</span>
               {onRefreshCampaigns && (
-                <button
-                  type="button"
-                  onClick={onRefreshCampaigns}
-                  className="px-3 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 rounded font-bold cursor-pointer ml-3"
-                >
-                  Retry
-                </button>
+                <button type="button" onClick={onRefreshCampaigns} className="px-2.5 py-1 bg-rose-500/20 rounded font-bold cursor-pointer">Retry</button>
               )}
             </div>
           )}
 
           {migrationError && (
-            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-300 text-xs flex items-center space-x-2">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              <span>⚠️ Legacy Campaign Import: {migrationError}</span>
+            <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-300 text-xs">
+              Legacy Campaign Import: {migrationError}
             </div>
           )}
 
           {isLoading ? (
-            <div className="py-12 text-center text-slate-400 space-y-3">
-              <Clock className="w-6 h-6 animate-spin mx-auto text-amber-400" />
-              <p className="text-xs">Loading broadcast campaigns from database...</p>
+            <div className="py-8 text-center text-slate-400 space-y-2">
+              <Clock className="w-5 h-5 animate-spin mx-auto text-amber-400" />
+              <p className="text-xs">Loading broadcast campaigns...</p>
             </div>
           ) : visibleCampaigns.length === 0 ? (
-            <div className="py-12 text-center text-slate-500 space-y-2">
-              <Megaphone className="w-8 h-8 mx-auto text-slate-600 opacity-50" />
-              <p className="font-bold text-slate-400 text-sm">
-                No {lockedChannel ? `${lockedChannel} ` : ''}broadcast campaigns saved yet
-              </p>
-              <p className="text-xs text-slate-500">Draft your first {lockedChannel || 'multi-channel'} broadcast campaign in the Compose tab above.</p>
+            <div className="py-8 text-center text-slate-500 space-y-1.5">
+              <Megaphone className="w-7 h-7 mx-auto text-slate-600 opacity-50" />
+              <p className="font-bold text-slate-400 text-xs">No {lockedChannel || ''} campaigns saved yet</p>
             </div>
           ) : (
             <div className="divide-y divide-slate-800 text-xs">
               {visibleCampaigns.map((camp) => (
-              <div key={camp.id} className="py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center space-x-2">
-                    <span className="font-bold text-white text-sm">{camp.title}</span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+              <div key={camp.id} className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div className="space-y-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-bold text-white text-xs sm:text-sm truncate">{camp.title}</span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                       {camp.channel}
                     </span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
                       camp.status === 'Draft'
                         ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
                         : camp.status === 'Sent'
                         ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                        : camp.status === 'Failed'
+                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/30'
                         : 'bg-slate-700/30 text-slate-300 border-slate-600/30'
                     }`}>
                       {camp.status}
                     </span>
-                  </div>
-                  <div className="text-slate-400 text-xs font-mono">
-                    {camp.status === 'Draft' ? (
-                      <>Status: <span className="text-amber-400">Draft</span> • Audience: <span className="text-amber-400">{camp.targetAudience}</span> (~{camp.recipientsCount} Estimated Reach){camp.scheduledAt ? <> • Scheduled: <span className="text-sky-300">{new Date(camp.scheduledAt).toLocaleString()}</span></> : null}{camp.linkedAdId ? <> • Related Job/Ad: <span className="text-indigo-300">{camp.linkedAdId}</span></> : null}</>
-                    ) : (
-                      <>{camp.sentAt ? `Sent at: ${camp.sentAt} • ` : ''}Audience: <span className="text-amber-400">{camp.targetAudience}</span> (~{camp.recipientsCount} Estimated Reach){camp.linkedAdId ? <> • Related Job/Ad: <span className="text-indigo-300">{camp.linkedAdId}</span></> : null}</>
+                    {(camp.sentCount !== undefined || camp.failedCount !== undefined) && (
+                      <>
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-300 tabular-nums">
+                          Sent: {camp.sentCount ?? 0}
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-300 tabular-nums">
+                          Failed: {camp.failedCount ?? 0}
+                        </span>
+                      </>
                     )}
                   </div>
+                  <div className="text-slate-400 text-[11px] font-mono">
+                    {camp.sentAt ? `Sent: ${camp.sentAt} • ` : ''}Audience: <span className="text-amber-400">{camp.targetAudience}</span> (~{camp.recipientsCount})
+                    {camp.linkedAdId ? <> • Linked: <span className="text-indigo-300">{camp.linkedAdId}</span></> : null}
+                  </div>
                   <div className="text-slate-500 text-[11px] line-clamp-1">
-                    "{camp.messageBody}"
+                    &quot;{camp.messageBody}&quot;
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-4 font-mono text-right">
-                  {camp.status !== 'Draft' && camp.openRate !== undefined && camp.openRate > 0 && (
-                    <div>
-                      <span className="text-[10px] text-slate-500 block uppercase">Open Rate</span>
-                      <span className="font-bold text-emerald-400">{camp.openRate}%</span>
-                    </div>
+                <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                  {(['Email', 'WhatsApp', 'SMS', 'Multi-Channel'].includes(camp.channel)) && (
+                    <button
+                      type="button"
+                      disabled={dispatchBusyId === camp.id}
+                      onClick={() => runLiveDispatch(camp.id, { retryFailedOnly: false })}
+                      className="px-2.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] cursor-pointer disabled:opacity-40 whitespace-nowrap"
+                    >
+                      {dispatchBusyId === camp.id ? 'Sending…' : 'Dispatch'}
+                    </button>
                   )}
-                  {camp.status !== 'Draft' && camp.clickRate !== undefined && camp.clickRate > 0 && (
-                    <div>
-                      <span className="text-[10px] text-slate-500 block uppercase">Click CTR</span>
-                      <span className="font-bold text-amber-400">{camp.clickRate}%</span>
-                    </div>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRecipientCampaignId(camp.id);
+                      setRecipientPage(1);
+                      setActiveTab('recipients');
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-700 text-slate-200 font-bold text-[11px] cursor-pointer whitespace-nowrap"
+                  >
+                    Report
+                  </button>
                 </div>
               </div>
             ))}

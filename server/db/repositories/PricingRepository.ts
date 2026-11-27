@@ -74,16 +74,22 @@ function validateNonNegativeNumber(val: any, fieldName: string, max?: number): n
   return num;
 }
 
-function sanitizeSlotLimit(tierCfg: any, defaultMax: number): { enabled: boolean; maxSlots: number } {
+function sanitizeSlotLimit(tierCfg: any, defaultMax: number): { enabled: boolean; maxSlots: number; rotateOrder: 'latest' | 'sequential' | 'shuffle' } {
   let max = tierCfg?.maxSlots;
   if (typeof max !== 'number' || !Number.isFinite(max) || max < 0) {
     max = Math.max(0, Math.min(100, Math.floor(Number(max) || defaultMax)));
   } else {
     max = Math.min(100, Math.max(0, Math.floor(max)));
   }
+  const rawOrder = String(tierCfg?.rotateOrder || 'sequential');
+  const rotateOrder: 'latest' | 'sequential' | 'shuffle' =
+    rawOrder === 'latest' || rawOrder === 'shuffle' || rawOrder === 'sequential'
+      ? rawOrder
+      : 'sequential';
   return {
     enabled: tierCfg?.enabled !== false,
-    maxSlots: max
+    maxSlots: max,
+    rotateOrder
   };
 }
 
@@ -387,11 +393,11 @@ function deepMergePricing(base: any, incoming: any): any {
         ...baseSlot,
         ...srcSlot,
         enabled: srcSlot.enabled !== undefined ? srcSlot.enabled !== false : baseSlot.enabled !== false,
-        vip: { ...(baseSlot.vip || { enabled: true, maxSlots: 2 }), ...(srcSlot.vip || {}) },
-        pinned: { ...(baseSlot.pinned || { enabled: true, maxSlots: 2 }), ...(srcSlot.pinned || {}) },
-        featured: { ...(baseSlot.featured || { enabled: true, maxSlots: 4 }), ...(srcSlot.featured || {}) },
-        urgent: { ...(baseSlot.urgent || { enabled: true, maxSlots: 4 }), ...(srcSlot.urgent || {}) },
-        future: { ...(baseSlot.future || { enabled: true, maxSlots: 4 }), ...(srcSlot.future || {}) }
+        vip: sanitizeSlotLimit({ ...(baseSlot.vip || { enabled: true, maxSlots: 2, rotateOrder: 'sequential' }), ...(srcSlot.vip || {}) }, 2),
+        pinned: sanitizeSlotLimit({ ...(baseSlot.pinned || { enabled: true, maxSlots: 2, rotateOrder: 'sequential' }), ...(srcSlot.pinned || {}) }, 2),
+        featured: sanitizeSlotLimit({ ...(baseSlot.featured || { enabled: true, maxSlots: 4, rotateOrder: 'sequential' }), ...(srcSlot.featured || {}) }, 4),
+        urgent: sanitizeSlotLimit({ ...(baseSlot.urgent || { enabled: true, maxSlots: 4, rotateOrder: 'sequential' }), ...(srcSlot.urgent || {}) }, 4),
+        future: sanitizeSlotLimit({ ...(baseSlot.future || { enabled: true, maxSlots: 4, rotateOrder: 'sequential' }), ...(srcSlot.future || {}) }, 4)
       },
       tierReminderSettings: (['vip', 'pinned', 'featured', 'urgent', 'future'] as const).reduce((acc: any, tierKey) => {
         const baseTier = base.jobPosting?.tierReminderSettings?.[tierKey] || DEFAULT_JOB_TIER_REMINDER_SETTINGS[tierKey] || DEFAULT_TIER_EXPIRY_REMINDER;
@@ -630,7 +636,19 @@ function deepMergePricing(base: any, incoming: any): any {
                       smsEnabled: false,
                       ...(defaultOption.expiryReminder || {}),
                       ...(savedOption.expiryReminder || {})
-                    }
+                    },
+                    ...(defaultOption.rotationSettings || savedOption.rotationSettings
+                      ? {
+                          rotationSettings: {
+                            enabled: true,
+                            autoRotateTimed: true,
+                            intervalSeconds: 6,
+                            sequenceMode: 'sequential_per_visit',
+                            ...(defaultOption.rotationSettings || {}),
+                            ...(savedOption.rotationSettings || {})
+                          }
+                        }
+                      : {})
                   }
                 : defaultOption;
             }),
@@ -869,6 +887,28 @@ export class PricingRepository {
             if (!Number.isInteger(hrs) || hrs < 1 || hrs > 720) {
               throw new Error(`Placement ${option.id} expiryReminder.hoursBefore must be an integer between 1 and 720.`);
             }
+          }
+        }
+        if (option.rotationSettings !== undefined) {
+          if (!option.rotationSettings || typeof option.rotationSettings !== 'object' || Array.isArray(option.rotationSettings)) {
+            throw new Error(`Placement ${option.id} rotationSettings must be an object.`);
+          }
+          for (const boolField of ['enabled', 'autoRotateTimed'] as const) {
+            if (option.rotationSettings[boolField] !== undefined && typeof option.rotationSettings[boolField] !== 'boolean') {
+              throw new Error(`Placement ${option.id} rotationSettings.${boolField} must be a boolean.`);
+            }
+          }
+          if (option.rotationSettings.intervalSeconds !== undefined) {
+            const secs = Number(option.rotationSettings.intervalSeconds);
+            if (!Number.isInteger(secs) || secs < 2 || secs > 120) {
+              throw new Error(`Placement ${option.id} rotationSettings.intervalSeconds must be an integer between 2 and 120.`);
+            }
+          }
+          if (
+            option.rotationSettings.sequenceMode !== undefined &&
+            !['fixed', 'sequential_per_visit', 'shuffle_per_visit'].includes(String(option.rotationSettings.sequenceMode))
+          ) {
+            throw new Error(`Placement ${option.id} rotationSettings.sequenceMode must be fixed, sequential_per_visit, or shuffle_per_visit.`);
           }
         }
       }

@@ -388,3 +388,77 @@ systemSettingsRouter.post('/custom-form-fields/import-legacy', requireAdminPermi
     });
   }
 });
+
+
+const USER_DASHBOARD_MENU_MODES = new Set(['classic', 'professional', 'new', 'classic-new']);
+const USER_DASHBOARD_QUICK_ACTION_ICONS = new Set(['LayoutDashboard','Search','Building2','Megaphone','User','FileText','Sparkles','History','Bookmark','Plus','Wallet','Crown','ShieldCheck','Bell','Lock','MessageSquare','Zap']);
+const USER_DASHBOARD_DESTINATIONS = new Set([
+  'dash-overview', 'jobs-recommended', 'jobs-explore', 'jobs-applications', 'jobs-saved',
+  'jobs-alerts', 'career-cv', 'career-docs', 'emp-post', 'emp-listings', 'emp-verification',
+  'ads-list', 'ads-create', 'mem-wallet', 'membership-plan', 'wallet-deposit', 'mem-history',
+  'mem-whatsapp', 'notifications-center', 'acc-chat', 'acc-profile', 'acc-security'
+]);
+
+function validateUserDashboardNavigationConfig(raw: any): { valid: boolean; message?: string; config?: any } {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { valid: false, message: 'Navigation configuration must be an object.' };
+  const enabledModes = Array.isArray(raw.enabledModes) ? [...new Set(raw.enabledModes)] : [];
+  if (!enabledModes.length || enabledModes.some((mode: any) => typeof mode !== 'string' || !USER_DASHBOARD_MENU_MODES.has(mode))) {
+    return { valid: false, message: 'Select at least one valid dashboard menu style.' };
+  }
+  const defaultMode = String(raw.defaultMode || '');
+  if (!enabledModes.includes(defaultMode)) return { valid: false, message: 'Default menu must be one of the enabled menu styles.' };
+  if (typeof raw.allowModeSwitching !== 'boolean') return { valid: false, message: 'Menu switching must be a boolean value.' };
+  if (!Array.isArray(raw.quickActions) || raw.quickActions.length > 5) return { valid: false, message: 'Quick Actions must contain no more than five entries.' };
+  const seen = new Set<string>();
+  const quickActions = [];
+  for (const item of raw.quickActions) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return { valid: false, message: 'Invalid Quick Action entry.' };
+    const id = String(item.id || '').trim();
+    if (!USER_DASHBOARD_DESTINATIONS.has(id) || seen.has(id)) return { valid: false, message: 'Quick Actions must use unique existing menu destinations.' };
+    seen.add(id);
+    const label = String(item.label || '').trim();
+    const icon = String(item.icon || '').trim();
+    const destination = String(item.destination || '').trim();
+    if (!label || label.length > 24 || !USER_DASHBOARD_QUICK_ACTION_ICONS.has(icon)) return { valid: false, message: 'Quick Action label or icon is invalid.' };
+    if (!destination.startsWith('/') || destination.startsWith('//') || destination.length > 160 || /[\\\\\\r\\n]/.test(destination)) {
+      return { valid: false, message: 'Destination must be a valid internal path beginning with one slash.' };
+    }
+    if (typeof item.enabled !== 'boolean' || typeof item.mobile !== 'boolean' || typeof item.desktop !== 'boolean') {
+      return { valid: false, message: 'Quick Action visibility and enabled values must be boolean.' };
+    }
+    quickActions.push({ id, label, icon, destination, enabled: item.enabled, mobile: item.mobile, desktop: item.desktop });
+  }
+  return { valid: true, config: { enabledModes, defaultMode, allowModeSwitching: raw.allowModeSwitching, quickActions } };
+}
+
+// Public read: contains navigation presentation only; no account or provider secrets.
+systemSettingsRouter.get('/user-dashboard-navigation', async (_req, res) => {
+  try {
+    const config = await SystemSettingsRepository.getUserDashboardNavigationConfig();
+    return res.json({ success: true, config });
+  } catch (err: any) {
+    console.error('[SystemSettingsRoutes] Error fetching user dashboard navigation:', err);
+    return res.status(500).json({ success: false, message: err.message || 'Unable to load dashboard navigation settings.' });
+  }
+});
+
+// Admin-only update. The repository performs a MongoDB-backed write; no JSON/localStorage fallback.
+systemSettingsRouter.put('/user-dashboard-navigation', requireAdminPermission('settings.manage'), async (req, res) => {
+  try {
+    const validation = validateUserDashboardNavigationConfig(req.body?.config ?? req.body);
+    if (!validation.valid || !validation.config) return res.status(400).json({ success: false, message: validation.message });
+    const saved = await SystemSettingsRepository.saveUserDashboardNavigationConfig(validation.config);
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
+      user: (req as any).user?.name || (req as any).user?.email || 'Administrator',
+      role: (req as any).user?.role || 'System Manager',
+      action: 'User Dashboard Navigation Settings Updated',
+      target: 'User Dashboard Navigation',
+      status: 'Success',
+      metadata: { enabledModes: saved.enabledModes, quickActionCount: saved.quickActions.length }
+    }, 'PUT /api/settings/user-dashboard-navigation');
+    return res.json({ success: true, config: saved, message: 'User dashboard navigation settings saved.', ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning }) });
+  } catch (err: any) {
+    console.error('[SystemSettingsRoutes] Error saving user dashboard navigation:', err);
+    return res.status(500).json({ success: false, message: err.message || 'Unable to save dashboard navigation settings.' });
+  }
+});

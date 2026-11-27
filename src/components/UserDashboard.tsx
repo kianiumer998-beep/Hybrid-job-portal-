@@ -1719,8 +1719,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 aria-label="Toggle Classic Navigation Menu"
                 className="md:hidden flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 text-emerald-400 border border-emerald-500/30 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
               >
-                {isMobileMenuOpen ? <X className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
-                <span>Menu</span>
+                {isMobileMenuOpen ? <X className="w-3.5 h-3.5" /> : <Menu className="w-3.5 h-3.5" />}
+                <span>MENU</span>
               </button>
             )}
           <button

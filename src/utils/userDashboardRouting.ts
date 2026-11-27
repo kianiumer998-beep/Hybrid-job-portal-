@@ -85,7 +85,7 @@ export function getUserDashboardRouteIdForState(state: {
     : '';
   const activeRoute = USER_DASHBOARD_ROUTES[activeId];
   if (activeRoute) {
-    if (activeRoute.action || activeRoute.globalTab) return activeId;
+    if (activeRoute.globalTab) return activeId;
     if (activeRoute.tab === state.activeTab &&
         (!activeRoute.subView || activeRoute.subView === state.overviewSubView) &&
         (!activeRoute.subTab || activeRoute.subTab === (state.activeTab === 'applications' ? state.appSubTab : state.campaignSubTab)) &&

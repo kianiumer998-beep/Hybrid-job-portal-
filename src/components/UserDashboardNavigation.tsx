@@ -94,6 +94,7 @@ interface UserDashboardNavigationProps {
   variant?: 'professional' | 'new' | 'classic-new';
   quickActions?: Array<{ id: string; label: string; icon: string; destination: string; enabled: boolean; mobile: boolean; desktop: boolean }>;
   userIdentity?: string;
+  quickActionsOnly?: boolean;
 }
 
 export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = ({
@@ -114,7 +115,8 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   onClose,
   variant = 'professional',
   quickActions = [],
-  userIdentity = ''
+  userIdentity = '',
+  quickActionsOnly = false
 }) => {
   const [expandedCategory, setExpandedCategory] = useState<string | null>('dashboard');
   const drawerContentRef = useRef<HTMLDivElement | null>(null);
@@ -553,24 +555,20 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
 
   return (
     <>
-      {/* Desktop Sidebar */}
-      <aside className="hidden lg:block fixed left-0 top-0 bottom-0 z-20">
-        {NavContent}
-      </aside>
-
-      {/* Mobile Drawer */}
-      <div role="dialog" aria-modal="true" aria-label="Dashboard navigation" aria-hidden={!isOpen} className={`lg:hidden fixed inset-0 z-50 transition-all duration-300 ${isOpen ? 'visible' : 'invisible pointer-events-none'}`}>
-        <button
-          type="button"
-          aria-label="Close dashboard navigation"
-          tabIndex={isOpen ? 0 : -1}
-          className={`absolute inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}
-          onClick={onClose}
-        />
-        <div ref={drawerContentRef} tabIndex={-1} className={`absolute left-0 top-0 bottom-0 transition-transform duration-300 transform ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      {!quickActionsOnly && <>
+        {/* Desktop Sidebar */}
+        <aside className="hidden lg:block fixed left-0 top-0 bottom-0 z-20">
           {NavContent}
+        </aside>
+        {/* Mobile Drawer */}
+        <div role="dialog" aria-modal="true" aria-label="Dashboard navigation" aria-hidden={!isOpen} className={`lg:hidden fixed inset-0 z-50 transition-all duration-300 ${isOpen ? 'visible' : 'invisible pointer-events-none'}`}>
+          <button type="button" aria-label="Close dashboard navigation" tabIndex={isOpen ? 0 : -1}
+            className={`absolute inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`} onClick={onClose} />
+          <div ref={drawerContentRef} tabIndex={-1} className={`absolute left-0 top-0 bottom-0 transition-transform duration-300 transform ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+            {NavContent}
+          </div>
         </div>
-      </div>
+      </>}
 
       {/* Mobile quick navigation: frequent destinations only; full menu remains in the drawer. */}
       <nav aria-label="Mobile quick navigation" className="lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-slate-800 bg-slate-950/95 backdrop-blur supports-[backdrop-filter]:bg-slate-950/85 pb-[env(safe-area-inset-bottom)]">

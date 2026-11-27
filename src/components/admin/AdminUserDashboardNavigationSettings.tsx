@@ -11,26 +11,26 @@ const DEFAULT_CONFIG: Config = {
   defaultMode: 'professional',
   allowModeSwitching: true,
   quickActions: [
-    { id: 'dash-overview', label: 'Home', icon: 'LayoutDashboard', destination: '/dashboard', enabled: true, mobile: true, desktop: false },
+    { id: 'dash-overview', label: 'Home', icon: 'LayoutDashboard', destination: '/user/dashboard/dash-overview', enabled: true, mobile: true, desktop: false },
     { id: 'jobs-explore', label: 'Jobs', icon: 'Search', destination: '/jobs', enabled: true, mobile: true, desktop: false },
     { id: 'career-cv', label: 'CV', icon: 'FileText', destination: '/cv', enabled: true, mobile: true, desktop: false },
     { id: 'mem-whatsapp', label: 'Alerts', icon: 'Bell', destination: '/alerts', enabled: true, mobile: true, desktop: false },
-    { id: 'acc-profile', label: 'Account', icon: 'User', destination: '/dashboard/profile', enabled: true, mobile: true, desktop: false }
+    { id: 'acc-profile', label: 'Account', icon: 'User', destination: '/user/dashboard/acc-profile', enabled: true, mobile: true, desktop: false }
   ]
 };
 
 const DESTINATIONS = [
-  ['dash-overview','Dashboard Overview','/dashboard'],['jobs-recommended','Recommended Jobs','/dashboard/recommendations'],
-  ['jobs-explore','Explore All Jobs','/jobs'],['jobs-applications','My Applications','/dashboard/applications'],
-  ['jobs-saved','Saved Jobs','/dashboard/saved-jobs'],['jobs-alerts','Job Alerts','/dashboard/job-alerts'],
-  ['career-cv','CV Builder','/cv'],['career-docs','My Documents','/dashboard/documents'],
-  ['emp-post','Post a Job','/dashboard/post-job'],['emp-listings','My Job Listings','/dashboard/my-jobs'],
-  ['emp-verification','Business Verification','/dashboard/verification'],['ads-list','My Campaigns','/dashboard/campaigns'],
-  ['ads-create','Create Campaign','/dashboard/campaigns/create'],['mem-wallet','Wallet & Balance','/dashboard/wallet'],
-  ['membership-plan','Membership & Plans','/dashboard/membership'],['wallet-deposit','Add Funds / Deposit','/dashboard/deposit'],
-  ['mem-history','Payment History','/dashboard/payment-history'],['mem-whatsapp','WhatsApp & Job Alerts','/alerts'],
-  ['notifications-center','Notifications Center','/dashboard/notifications'],['acc-chat','Support Inbox','/dashboard/support'],
-  ['acc-profile','Profile & Preferences','/dashboard/profile'],['acc-security','Security & Password','/dashboard/security']
+  ['dash-overview','Dashboard Overview','/user/dashboard/dash-overview'],['jobs-recommended','Recommended Jobs','/user/dashboard/jobs-recommended'],
+  ['jobs-explore','Explore All Jobs','/jobs'],['jobs-applications','My Applications','/user/dashboard/jobs-applications'],
+  ['jobs-saved','Saved Jobs','/user/dashboard/jobs-saved'],['jobs-alerts','Job Alerts','/user/dashboard/jobs-alerts'],
+  ['career-cv','CV Builder','/cv'],['career-docs','My Documents','/user/dashboard/career-docs'],
+  ['emp-post','Post a Job','/user/dashboard/emp-post'],['emp-listings','My Job Listings','/user/dashboard/emp-listings'],
+  ['emp-verification','Business Verification','/user/dashboard/emp-verification'],['ads-list','My Campaigns','/user/dashboard/ads-list'],
+  ['ads-create','Create Campaign','/user/dashboard/ads-create'],['mem-wallet','Wallet & Balance','/user/dashboard/mem-wallet'],
+  ['membership-plan','Membership & Plans','/user/dashboard/membership-plan'],['wallet-deposit','Add Funds / Deposit','/user/dashboard/wallet-deposit'],
+  ['mem-history','Payment History','/user/dashboard/mem-history'],['mem-whatsapp','WhatsApp & Job Alerts','/alerts'],
+  ['notifications-center','Notifications Center','/user/dashboard/notifications-center'],['acc-chat','Support Inbox','/user/dashboard/acc-chat'],
+  ['acc-profile','Profile & Preferences','/user/dashboard/acc-profile'],['acc-security','Security & Password','/user/dashboard/acc-security']
 ] as const;
 
 export const AdminUserDashboardNavigationSettings: React.FC = () => {
@@ -103,7 +103,7 @@ export const AdminUserDashboardNavigationSettings: React.FC = () => {
       <div className="flex flex-col sm:flex-row gap-2"><select value={newDestination} onChange={e => setNewDestination(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 p-2 text-xs text-white">{DESTINATIONS.filter(item => !selectedIds.has(item[0])).map(item => <option key={item[0]} value={item[0]}>{item[1]}</option>)}</select><button type="button" onClick={addAction} disabled={config.quickActions.length>=5 || selectedIds.has(newDestination)} className="inline-flex items-center justify-center gap-1 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-40"><Plus className="h-3.5 w-3.5"/> Add Destination</button></div>
       {config.quickActions.map((item,index) => <div key={item.id} className="rounded-lg border border-slate-800 bg-slate-900 p-2.5 space-y-2">
         <div className="flex items-center justify-between gap-2"><span className="text-[11px] font-bold text-white">{index+1}. {item.id}</span><div className="flex gap-1"><button type="button" title="Move up" onClick={()=>moveAction(index,-1)} disabled={index===0} className="rounded p-1 text-slate-300 disabled:opacity-30"><ArrowUp className="h-3.5 w-3.5"/></button><button type="button" title="Move down" onClick={()=>moveAction(index,1)} disabled={index===config.quickActions.length-1} className="rounded p-1 text-slate-300 disabled:opacity-30"><ArrowDown className="h-3.5 w-3.5"/></button><button type="button" title="Remove" onClick={()=>setConfig(p=>({...p,quickActions:p.quickActions.filter((_,i)=>i!==index)}))} className="rounded p-1 text-rose-400"><Trash2 className="h-3.5 w-3.5"/></button></div></div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2"><label className="text-[10px] text-slate-400">Display label<input maxLength={24} value={item.label} onChange={e=>updateAction(index,{label:e.target.value})} className="mt-1 w-full rounded border border-slate-700 bg-slate-950 p-2 text-xs text-white"/></label><label className="text-[10px] text-slate-400">Icon<select value={item.icon} onChange={e=>updateAction(index,{icon:e.target.value})} className="mt-1 w-full rounded border border-slate-700 bg-slate-950 p-2 text-xs text-white">{['LayoutDashboard','Search','Building2','Megaphone','User','FileText','Sparkles','History','Bookmark','Plus','Wallet','Crown','ShieldCheck','Bell','Lock','MessageSquare','Zap'].map(icon=><option key={icon}>{icon}</option>)}</select></label><label className="text-[10px] text-slate-400">Landing address / route (preview only)<input maxLength={160} value={item.destination} onChange={e=>updateAction(index,{destination:e.target.value})} className="mt-1 w-full rounded border border-slate-700 bg-slate-950 p-2 text-xs text-white"/></label></div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2"><label className="text-[10px] text-slate-400">Display label<input maxLength={24} value={item.label} onChange={e=>updateAction(index,{label:e.target.value})} className="mt-1 w-full rounded border border-slate-700 bg-slate-950 p-2 text-xs text-white"/></label><label className="text-[10px] text-slate-400">Icon<select value={item.icon} onChange={e=>updateAction(index,{icon:e.target.value})} className="mt-1 w-full rounded border border-slate-700 bg-slate-950 p-2 text-xs text-white">{['LayoutDashboard','Search','Building2','Megaphone','User','FileText','Sparkles','History','Bookmark','Plus','Wallet','Crown','ShieldCheck','Bell','Lock','MessageSquare','Zap'].map(icon=><option key={icon}>{icon}</option>)}</select></label><label className="text-[10px] text-slate-400">Internal route reference (destination ID controls the page)<input maxLength={160} value={item.destination} onChange={e=>updateAction(index,{destination:e.target.value})} className="mt-1 w-full rounded border border-slate-700 bg-slate-950 p-2 text-xs text-white"/></label></div>
         <div className="text-[10px]">{item.destination.startsWith('/') && !item.destination.startsWith('//') ? <a href={item.destination} target="_blank" rel="noopener noreferrer" className="text-sky-300 underline">Preview address in new tab</a> : <span className="text-amber-300">Enter a valid internal address to preview</span>}</div>
         <div className="text-[10px]">{item.destination.startsWith("/") && !item.destination.startsWith("//") ? <a href={item.destination} target="_blank" rel="noopener noreferrer" className="text-sky-300 underline">Preview address in new tab</a> : <span className="text-amber-300">Enter a valid internal address to preview</span>}</div>
         <div className="flex flex-wrap gap-3 text-[10px] text-slate-300"><label className="flex items-center gap-1"><input type="checkbox" checked={item.enabled} onChange={e=>updateAction(index,{enabled:e.target.checked})}/> Enabled</label><label className="flex items-center gap-1"><Smartphone className="h-3 w-3"/><input type="checkbox" checked={item.mobile} onChange={e=>updateAction(index,{mobile:e.target.checked})}/> Mobile</label><label className="flex items-center gap-1"><Monitor className="h-3 w-3"/><input type="checkbox" checked={item.desktop} onChange={e=>updateAction(index,{desktop:e.target.checked})}/> Desktop</label><span className="flex items-center gap-1 text-slate-500"><Eye className="h-3 w-3"/> ID maps to existing authorized dashboard action</span></div>

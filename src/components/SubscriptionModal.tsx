@@ -426,7 +426,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md overflow-y-auto">
-      <div role="dialog" aria-modal="true" aria-labelledby="subscription-modal-title" className="relative w-full max-w-xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden my-8 animate-in fade-in zoom-in duration-200">
+      <div role="dialog" aria-modal="true" aria-labelledby="subscription-modal-title" className="relative w-full max-w-xl max-h-[90vh] overflow-y-auto overscroll-contain bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl my-8 animate-in fade-in zoom-in duration-200">
         
         {/* Top Header */}
         <div className="sticky top-0 z-20 p-6 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border-b border-slate-800 relative">

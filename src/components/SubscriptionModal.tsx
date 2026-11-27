@@ -431,8 +431,11 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
         {/* Top Header */}
         <div className="sticky top-0 z-20 p-6 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border-b border-slate-800 relative">
           <button
+            type="button"
             onClick={onClose}
-            className="absolute top-5 right-5 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            aria-label="Close membership plans and subscription"
+            title="Close"
+            className="absolute top-5 right-5 z-30 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
           >
             <X className="w-5 h-5" />
           </button>

@@ -429,7 +429,7 @@ function validateUserDashboardNavigationConfig(raw: any, section?: 'menuStyles' 
         const parsed = new URL(destination, 'https://internal.invalid');
         isInternalPath = destination.startsWith('/') && !destination.startsWith('//') &&
           parsed.origin === 'https://internal.invalid' && !destination.includes('\\') &&
-          !/[\\u0000-\\u001F\\u007F]/.test(destination);
+          !/[\u0000-\u001F\u007F]/.test(destination);
       } catch {}
       if (!label || label.length > 24 || !USER_DASHBOARD_QUICK_ACTION_ICONS.has(icon)) return { valid: false, message: 'Quick Action label or icon is invalid.' };
       if (!isInternalPath || destination.length > 160) return { valid: false, message: 'Destination must be a valid internal path beginning with one slash. Enter a path only, not a domain URL.' };

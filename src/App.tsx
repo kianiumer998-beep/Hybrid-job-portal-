@@ -15,6 +15,7 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { CompleteFeeConfigSavePayload } from './components/admin/AdminFeeManager';
 import { AuthModal } from './components/AuthModal';
 import { UserDashboard } from './components/UserDashboard';
+import { UserGlobalQuickActions } from './components/UserGlobalQuickActions';
 import { Footer } from './components/Footer';
 import { CountrySelectionModal } from './components/CountrySelectionModal';
 import { LegalDisclaimerModal } from './components/LegalDisclaimerModal';
@@ -432,7 +433,42 @@ export async function executeBulkMembershipEnforcement(params: {
 
 export default function App() {
   // Navigation & View State
-  const [activeTab, setActiveTab] = useState<'jobs' | 'cv' | 'alerts' | 'dashboard'>('jobs');
+  const [activeTab, setActiveTab] = useState<'jobs' | 'cv' | 'alerts' | 'dashboard'>(() => {
+    if (typeof window === 'undefined') return 'jobs';
+    const path = window.location.pathname;
+    if (path.startsWith('/user/dashboard')) return 'dashboard';
+    if (path === '/cv') return 'cv';
+    if (path === '/alerts') return 'alerts';
+    return 'jobs';
+  });
+  const [dashboardMenuOpen, setDashboardMenuOpen] = useState(false);
+  useEffect(() => {
+    const restoreTopLevelRoute = () => {
+      const path = window.location.pathname;
+      if (path.startsWith('/user/dashboard')) setActiveTab('dashboard');
+      else if (path === '/cv') setActiveTab('cv');
+      else if (path === '/alerts') setActiveTab('alerts');
+      else if (path === '/' || path === '/jobs') setActiveTab('jobs');
+    };
+    window.addEventListener('popstate', restoreTopLevelRoute);
+    return () => window.removeEventListener('popstate', restoreTopLevelRoute);
+  }, []);
+  const navigateGlobalTab = (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => {
+    const nextPath = tab === 'dashboard' ? '/user/dashboard/dash-overview' : tab === 'jobs' ? '/jobs' : `/${tab}`;
+    if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath);
+    setActiveTab(tab);
+    setDashboardMenuOpen(false);
+  };
+  const previousTopLevelTabRef = useRef(activeTab);
+  useEffect(() => {
+    const previousTab = previousTopLevelTabRef.current;
+    previousTopLevelTabRef.current = activeTab;
+    if (previousTab === activeTab || showAdminView) return;
+    const nextPath = activeTab === 'dashboard'
+      ? (window.location.pathname.startsWith('/user/dashboard') ? window.location.pathname : '/user/dashboard/dash-overview')
+      : activeTab === 'jobs' ? '/jobs' : `/${activeTab}`;
+    if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath);
+  }, [activeTab, showAdminView]);
   const [showAdminView, setShowAdminView] = useState<boolean>(() => {
     const payload = decodeStoredAuthTokenPayload();
     const isAuthorizedAdminToken = Boolean(
@@ -4267,6 +4303,8 @@ export default function App() {
         selectedCountryName={userSelectedCountry?.name || 'All Countries'}
         selectedCountryFlag={userSelectedCountry?.flag || '🌐'}
         onOpenCountryModal={() => setShowCountryModal(true)}
+        dashboardMenuOpen={dashboardMenuOpen}
+        onToggleDashboardMenu={() => setDashboardMenuOpen(value => !value)}
       />
 
       {/* Main View Area */}
@@ -4675,7 +4713,7 @@ export default function App() {
                   setSelectedJobTitleForSub('');
                   setSubscriptionModalOpen(true);
                 }}
-                onNavigateGlobalTab={setActiveTab}
+                onNavigateGlobalTab={navigateGlobalTab}
               />
             )}
 
@@ -4791,6 +4829,7 @@ export default function App() {
       </main>
 
       {/* Footer with Secret 5-Click Admin Panel Trigger and Legal Links */}
+      <UserGlobalQuickActions currentUser={currentUser} activeTab={activeTab} onNavigateTab={navigateGlobalTab} />
       <Footer
         onTriggerAdminClickTrick={() => setAdminLoginOpen(true)}
         onOpenSubscriptionModal={() => {

@@ -440,8 +440,8 @@ export default function App() {
   });
   const [dashboardMenuOpen, setDashboardMenuOpen] = useState(false);
   useEffect(() => {
-    if (activeTab !== 'dashboard') setDashboardMenuOpen(false);
-  }, [activeTab]);
+    if (activeTab !== 'dashboard' || showAdminView) setDashboardMenuOpen(false);
+  }, [activeTab, showAdminView]);
   const [showAdminView, setShowAdminView] = useState<boolean>(() => {
     const payload = decodeStoredAuthTokenPayload();
     const isAuthorizedAdminToken = Boolean(

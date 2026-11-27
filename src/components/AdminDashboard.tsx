@@ -123,7 +123,6 @@ import { AdminCvSettingsController } from './admin/AdminCvSettingsController';
 import { AdminApplySettingsManager } from './admin/AdminApplySettingsManager';
 import { AdminModalContentManager } from './admin/AdminModalContentManager';
 import { AdminLocationManager } from './admin/AdminLocationManager';
-import { AdminUserDashboardNavigationSettings } from './admin/AdminUserDashboardNavigationSettings';
 import {
   AdminCategory,
   AdminNavMode,
@@ -221,8 +220,6 @@ interface AdminDashboardProps {
   monthlyFeePkr?: number;
   onChangeMonthlyFee?: (newFee: number) => void;
   onExitAdmin: () => void;
-  initialTab?: string;
-  onNavigateTab?: (tabId: string) => void;
   ads?: Advertisement[];
   onAddAd?: (ad: Advertisement) => void;
   onUpdateAd?: (ad: Advertisement) => void;
@@ -926,8 +923,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onSuspendJob,
   onBulkEndUnpaidMemberships,
   onExitAdmin,
-  initialTab,
-  onNavigateTab,
   ads = [],
   onAddAd,
   onUpdateAd,
@@ -1000,7 +995,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'settings'
     | 'admin-security'
     | 'stats'
-  >((initialTab || 'analytics') as any);
+  >('analytics');
 
   type JobsWorkspaceSectionId = 'pending' | 'jobs' | 'add-job' | 'ai-enhancer' | 'pricing-controller' | 'fee-logs' | 'new';
   type NewWorkspaceSectionId =
@@ -1013,10 +1008,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'landing-design';
 
   const [jobsAdsWorkspaceArea, setJobsAdsWorkspaceArea] = useState<'jobs' | 'campaigns' | 'broadcast' | 'whatsapp' | 'email' | 'sms'>('jobs');
-  const [broadcastWorkspaceChannel, setBroadcastWorkspaceChannel] = useState<'whatsapp' | 'email' | 'sms'>('whatsapp');
+  const [broadcastWorkspaceChannel, setBroadcastWorkspaceChannel] = useState<'combined' | 'whatsapp' | 'email' | 'sms'>('combined');
   const [jobsWorkspaceSection, setJobsWorkspaceSection] = useState<JobsWorkspaceSectionId>('pending');
   const [newWorkspaceSection, setNewWorkspaceSection] = useState<NewWorkspaceSectionId>('job-tiers-pricing');
-  const [campaignWorkspaceSection, setCampaignWorkspaceSection] = useState<'advertisements' | 'campaign-center'>('advertisements');
+  const [campaignWorkspaceSection, setCampaignWorkspaceSection] = useState<'ad-rate-card' | 'advertisements' | 'campaign-center'>('advertisements');
   const [broadcastInitialTab, setBroadcastInitialTab] = useState<'compose' | 'history' | undefined>(undefined);
 
   const [activeCategory, setActiveCategory] = useState<AdminCategory>('jobs');
@@ -1106,8 +1101,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       group: 'campaigns',
       groupLabel: 'Ads & Campaigns',
       shortNumber: '5',
-      label: 'Campaign Display & Placement Rules',
-      description: 'Popups, feed ad insertion cadence, banner sizes, slot caps & approval rules'
+      label: 'Promotional Discount Banners',
+      description: 'Create flash promo banners, discount codes, and load built-in promotional samples'
     },
     {
       id: 'ad-campaign-ops',
@@ -1195,6 +1190,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     jobsWorkspaceSection === 'new' &&
     Boolean(effectiveNewSection);
 
+  const canAccessAdRateCardSection =
+    canAccessAdminTab('advertisements') && hasAdminUiPermission('finance.manage');
+  const isInCampaignRateCardWorkspace =
+    adminTab === 'jobs-ads-control-center' &&
+    jobsAdsWorkspaceArea === 'campaigns' &&
+    campaignWorkspaceSection === 'ad-rate-card' &&
+    canAccessAdRateCardSection;
+  const isInCampaignSetupWorkspace =
+    adminTab === 'jobs-ads-control-center' &&
+    jobsAdsWorkspaceArea === 'campaigns' &&
+    campaignWorkspaceSection === 'advertisements' &&
+    canAccessAdminTab('advertisements');
+
   const newSectionTargetTabMap: Record<NewWorkspaceSectionId, string> = {
     'job-tiers-pricing': 'pricing-controller',
     'job-category-fees': 'fee-management',
@@ -1219,7 +1227,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             ? newSectionTargetTabMap[effectiveNewSection]
             : (canAccessAdminTab(jobsWorkspaceSection) ? jobsWorkspaceSection : jobsWorkspaceTabIds.find(canAccessAdminTab) || 'jobs'))
         : (canAccessCampaignWorkspace
-            ? (canAccessAdminTab(campaignWorkspaceSection) ? campaignWorkspaceSection : campaignWorkspaceTabIds.find(canAccessAdminTab) || 'campaign-center')
+            ? (campaignWorkspaceSection === 'ad-rate-card'
+                ? (canAccessAdRateCardSection ? 'advertisements' : campaignWorkspaceTabIds.find(canAccessAdminTab) || 'campaign-center')
+                : (canAccessAdminTab(campaignWorkspaceSection) ? campaignWorkspaceSection : campaignWorkspaceTabIds.find(canAccessAdminTab) || 'campaign-center'))
             : canAccessJobsWorkspace
             ? jobsWorkspaceTabIds.find(canAccessAdminTab) || 'jobs'
             : canAccessChannelWorkspace
@@ -1255,30 +1265,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const handlePermissionAwareNavigateTab = (targetTab: string): boolean => {
-    const success = navigateWithAdminPermission({
+    if (targetTab === 'whatsapp-manager' || targetTab === 'broadcast-center' || targetTab === 'bulk-notifications') {
+      const ok = navigateWithAdminPermission({
+        targetTab: 'jobs-ads-control-center' as any,
+        canAccessTab: canAccessAdminTab,
+        tabCategories: TAB_CATEGORIES,
+        onSetTab: setAdminTab,
+        onSetCategory: setActiveCategory
+      });
+      if (ok) {
+        setJobsAdsWorkspaceArea('broadcast');
+        setBroadcastWorkspaceChannel(targetTab === 'whatsapp-manager' ? 'whatsapp' : 'combined');
+        if (targetTab === 'broadcast-center') {
+          setBroadcastInitialTab('compose');
+        }
+      }
+      return ok;
+    }
+
+    return navigateWithAdminPermission({
       targetTab: targetTab as any,
       canAccessTab: canAccessAdminTab,
       tabCategories: TAB_CATEGORIES,
       onSetTab: setAdminTab,
       onSetCategory: setActiveCategory
     });
-    return success;
   };
-
-  useEffect(() => {
-    if (!initialTab) return;
-    const canonicalTab = resolveCanonicalAdminTab(initialTab);
-    if (!canAccessAdminTab(canonicalTab)) return;
-    setAdminTab(canonicalTab as any);
-    const definition = getAdminModuleDefinition(canonicalTab);
-    if (definition) setActiveCategory(definition.classicCategory);
-  }, [initialTab]);
-
-  // Keep the address bar in sync with every admin module change, including legacy
-  // shortcut buttons that set the selected module directly.
-  useEffect(() => {
-    onNavigateTab?.(resolveCanonicalAdminTab(String(adminTab)));
-  }, [adminTab]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3498,7 +3510,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             count: kycLoading ? '⏳ Loading' : kycError ? '⚠️ Error' : (navCounts.kycPendingCount && navCounts.kycPendingCount > 0 ? `${navCounts.kycPendingCount} KYC` : undefined),
             countColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30'
           },
-          alerts: {},
           settings: {}
         };
 
@@ -3508,7 +3519,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           ads: 'bg-amber-500 text-slate-950 font-black shadow-md',
           payments: 'bg-gradient-to-r from-teal-500 to-emerald-500 text-slate-950 font-black shadow-md',
           users: 'bg-purple-500 text-white font-black shadow-md',
-          alerts: 'bg-amber-500 text-slate-950 font-black shadow-md',
           settings: 'bg-indigo-500 text-white font-black shadow-md'
         };
 
@@ -3538,7 +3548,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               else if (cat.id === 'ads') setAdminTab('campaign-center');
                               else if (cat.id === 'payments') setAdminTab(hasAdminUiPermission('payments.manage') ? 'admin-payment-methods' : hasAdminUiPermission('finance.manage') ? 'pricing-controller' : 'payment-proofs');
                               else if (cat.id === 'users') setAdminTab('user-audit');
-                              else if (cat.id === 'alerts') setAdminTab('whatsapp-manager');
                               else if (cat.id === 'settings') setAdminTab(hasAdminUiPermission('seo.manage') ? 'seo-config' : hasAdminUiPermission('audit.view') ? 'activity-logs' : 'settings');
                             }
                             setIsMobileMenuOpen(false);
@@ -3941,22 +3950,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {adminTab === 'jobs-ads-control-center' && canAccessAdminTab('jobs-ads-control-center') && (
-        <section className="bg-slate-900 border-2 border-amber-500/40 rounded-3xl p-4 sm:p-6 space-y-4 shadow-2xl">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
-            <div>
-              <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/30">
-                ⭐ Job &amp; Ad Control Center
-              </span>
-              <h3 className="text-lg font-black text-white mt-1">Management &amp; Campaign Workspaces</h3>
+        <section className="bg-slate-900 border border-amber-500/35 rounded-2xl p-3 sm:p-4 space-y-3 shadow-xl">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+            <div className="min-w-0">
+              <h3 className="text-sm sm:text-base font-black text-white flex items-center gap-2">
+                <span className="text-amber-400">★</span>
+                <span>Job &amp; Ad Control Center</span>
+              </h3>
+              <p className="text-[11px] text-slate-400 truncate">Unified workspace for jobs, ad campaigns, promos &amp; multi-channel broadcasts</p>
             </div>
-            <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+            <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-0.5 scrollbar-none">
               {canAccessJobsWorkspace && (
                 <button
                   type="button"
                   onClick={() => setJobsAdsWorkspaceArea('jobs')}
-                  className={`px-4 py-2.5 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer whitespace-nowrap ${
+                  className={`px-3 py-2 rounded-xl text-[11px] sm:text-xs font-black tracking-wide transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                     jobsAdsWorkspaceArea === 'jobs'
-                      ? 'bg-amber-500 text-slate-950 border border-amber-300 shadow-lg shadow-amber-500/20'
+                      ? 'bg-amber-500 text-slate-950 border border-amber-300 shadow-sm'
                       : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
                   }`}
                 >
@@ -3967,9 +3977,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <button
                   type="button"
                   onClick={() => setJobsAdsWorkspaceArea('campaigns')}
-                  className={`px-4 py-2.5 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer whitespace-nowrap ${
-                    jobsAdsWorkspaceArea === 'campaigns' || (!canAccessJobsWorkspace && !isChannelWorkspaceArea)
-                      ? 'bg-emerald-500 text-slate-950 border border-emerald-300 shadow-lg shadow-emerald-500/20'
+                  className={`px-3 py-2 rounded-xl text-[11px] sm:text-xs font-black tracking-wide transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                    jobsAdsWorkspaceArea === 'campaigns'
+                      ? 'bg-emerald-500 text-slate-950 border border-emerald-300 shadow-sm'
                       : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
                   }`}
                 >
@@ -3977,50 +3987,69 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
               )}
               {canAccessChannelWorkspace && (
-                <button
-                  type="button"
-                  onClick={() => setJobsAdsWorkspaceArea('broadcast')}
-                  className={`px-4 py-2.5 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer whitespace-nowrap ${
-                    jobsAdsWorkspaceArea === 'broadcast' || isChannelWorkspaceArea
-                      ? 'bg-indigo-400 text-slate-950 border border-indigo-300 shadow-lg shadow-indigo-500/20'
-                      : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
-                  }`}
-                >
-                  📣 Broadcast &amp; Notifications
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setJobsAdsWorkspaceArea('whatsapp');
+                      setBroadcastWorkspaceChannel('whatsapp');
+                    }}
+                    className={`px-3 py-2 rounded-xl text-[11px] sm:text-xs font-black tracking-wide transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                      jobsAdsWorkspaceArea === 'whatsapp'
+                        ? 'bg-emerald-400 text-slate-950 border border-emerald-300 shadow-sm'
+                        : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    💬 WhatsApp
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setJobsAdsWorkspaceArea('email');
+                      setBroadcastWorkspaceChannel('email');
+                    }}
+                    className={`px-3 py-2 rounded-xl text-[11px] sm:text-xs font-black tracking-wide transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                      jobsAdsWorkspaceArea === 'email'
+                        ? 'bg-sky-400 text-slate-950 border border-sky-300 shadow-sm'
+                        : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    ✉️ Email
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setJobsAdsWorkspaceArea('sms');
+                      setBroadcastWorkspaceChannel('sms');
+                    }}
+                    className={`px-3 py-2 rounded-xl text-[11px] sm:text-xs font-black tracking-wide transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                      jobsAdsWorkspaceArea === 'sms'
+                        ? 'bg-purple-400 text-slate-950 border border-purple-300 shadow-sm'
+                        : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    📱 SMS
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setJobsAdsWorkspaceArea('broadcast');
+                      setBroadcastWorkspaceChannel('combined');
+                    }}
+                    className={`px-3 py-2 rounded-xl text-[11px] sm:text-xs font-black tracking-wide transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                      jobsAdsWorkspaceArea === 'broadcast'
+                        ? 'bg-indigo-400 text-slate-950 border border-indigo-300 shadow-sm'
+                        : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    📣 Broadcast &amp; Notifications
+                  </button>
+                </>
               )}
             </div>
           </div>
           {isChannelWorkspaceArea && canAccessChannelWorkspace ? (
-            <div className="space-y-3">
-              <div className="rounded-2xl border border-indigo-500/20 bg-slate-900 p-3.5 sm:p-4 space-y-3">
-                <div>
-                  <h4 className="text-sm font-black text-white">Broadcast Channels</h4>
-                  <p className="text-[11px] text-slate-400">Manage broadcast, notifications, templates, provider APIs, tests, logs and channel-specific settings from one workspace. Existing options remain available below.</p>
-                </div>
-                <div className="flex flex-wrap gap-2" role="tablist" aria-label="Broadcast channels">
-                  {([
-                    ['whatsapp', '💬 WhatsApp'],
-                    ['email', '✉️ Email'],
-                    ['sms', '📱 SMS']
-                  ] as const).map(([channel, label]) => (
-                    <button
-                      key={channel}
-                      type="button"
-                      role="tab"
-                      aria-selected={broadcastWorkspaceChannel === channel}
-                      onClick={() => setBroadcastWorkspaceChannel(channel)}
-                      className={`min-h-[38px] px-4 py-2 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer ${
-                        broadcastWorkspaceChannel === channel
-                          ? 'bg-indigo-400 text-slate-950 border border-indigo-300 shadow-lg shadow-indigo-500/20'
-                          : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            <div className="space-y-2.5">
             <AdminChannelControlHub
               activeChannel={broadcastWorkspaceChannel}
               featureFlags={featureFlags}
@@ -4040,11 +4069,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               broadcastCampaigns={broadcastCampaigns}
               users={users}
               subscribers={subscribers}
+              jobs={jobs}
+              ads={ads}
               commConfig={commConfig}
               isBroadcastLoading={isBroadcastLoading}
               broadcastLoadError={broadcastLoadError}
               broadcastMigrationError={broadcastMigrationError}
               onSendBroadcastCampaign={handleSaveBroadcastCampaign}
+              onCampaignUpdated={(updated) =>
+                setBroadcastCampaigns((prev) =>
+                  prev.some((c) => c.id === updated.id)
+                    ? prev.map((c) => (c.id === updated.id ? updated : c))
+                    : [updated, ...prev]
+                )
+              }
               onRefreshBroadcastCampaigns={fetchBroadcastCampaigns}
             />
             </div>
@@ -4075,9 +4113,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           ) : (
             <div className="flex flex-wrap gap-2 pt-1">
               {([
+                ['ad-rate-card', 'Rate Card & Pricing Matrix'],
                 ['advertisements', 'Campaign Setup, Slots & Rates'],
                 ['campaign-center', 'Campaign Operations']
-              ] as const).filter(([id]) => canAccessAdminTab(id)).map(([id, label]) => (
+              ] as const)
+                .filter(([id]) => (id === 'ad-rate-card' ? canAccessAdRateCardSection : canAccessAdminTab(id)))
+                .map(([id, label]) => (
                 <button
                   key={id}
                   type="button"
@@ -4212,10 +4253,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                 {effectiveNewSection === 'ad-display-rules' && (
                   <div className="rounded-xl border border-indigo-500/30 bg-indigo-950/30 px-3.5 py-2.5 text-[11px] text-indigo-200 space-y-1">
-                    <div className="font-bold text-indigo-100">Single Source of Truth Guide</div>
+                    <div className="font-bold text-indigo-100">Promotional Discount Banners Guide</div>
                     <p className="text-slate-300">
-                      Manage <strong>Popup Modes</strong>, <strong>Feed Inline Insertion</strong>, <strong>Banner Dimensions &amp; Appearance</strong>, <strong>Placement Caps</strong>, and <strong>Approval Rules</strong> below.
-                      For <strong>Job Posting Fees</strong>, use Section 1 &amp; 2 under Jobs Management; for <strong>Top Promo Discount Banners</strong>, use Section 7 (Homepage Layout &amp; Promo Banners); for <strong>Active Rate Card Multipliers &amp; Overrides</strong>, use Section 4 (Ad Rate Card &amp; Slot Pricing).
+                      Create and publish <strong>Promotional Discount Banners</strong> with promo codes, discount percentages, gradients, and built-in sample promos below.
+                      For <strong>Job Posting Fees</strong>, use Section 1 &amp; 2 under Jobs Management; for <strong>Active Rate Card Multipliers &amp; Overrides</strong>, use Section 4 (Ad Rate Card &amp; Slot Pricing).
                     </p>
                   </div>
                 )}
@@ -4490,12 +4531,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           campaigns={broadcastCampaigns}
           users={users}
           subscribers={subscribers}
+          jobs={jobs}
+          ads={ads}
           commConfig={commConfig}
           featureFlags={featureFlags}
           isLoading={isBroadcastLoading}
           loadError={broadcastLoadError}
           migrationError={broadcastMigrationError}
           onSendCampaign={handleSaveBroadcastCampaign}
+          onCampaignUpdated={(updated) =>
+            setBroadcastCampaigns((prev) =>
+              prev.some((c) => c.id === updated.id)
+                ? prev.map((c) => (c.id === updated.id ? updated : c))
+                : [updated, ...prev]
+            )
+          }
           onRefreshCampaigns={fetchBroadcastCampaigns}
           onUpdateCommConfig={handleUpdateCommConfig}
           initialTab={broadcastInitialTab}
@@ -4562,19 +4612,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* TAB: ADVERTISEMENT & CAMPAIGN ENGINE */}
       {effectiveAdminTab === 'advertisements' && canAccessAdminTab('advertisements') && (
         <AdminAdHub
-          key={isInNewSettingsWorkspace ? `new-ad-${effectiveNewSection}` : 'legacy-ad-hub'}
+          key={
+            isInNewSettingsWorkspace
+              ? `new-ad-${effectiveNewSection}`
+              : isInCampaignRateCardWorkspace
+              ? 'campaign-rate-card'
+              : isInCampaignSetupWorkspace
+              ? 'campaign-setup'
+              : 'legacy-ad-hub'
+          }
           initialTab={
-            isInNewSettingsWorkspace && effectiveNewSection === 'ad-rate-card'
+            isInCampaignRateCardWorkspace || (isInNewSettingsWorkspace && effectiveNewSection === 'ad-rate-card')
               ? 'pricing'
               : isInNewSettingsWorkspace && effectiveNewSection === 'ad-display-rules'
               ? 'customizer'
               : 'performance'
           }
           mode={
-            isInNewSettingsWorkspace && effectiveNewSection === 'ad-rate-card'
+            isInCampaignRateCardWorkspace || (isInNewSettingsWorkspace && effectiveNewSection === 'ad-rate-card')
               ? 'rate-card-only'
               : isInNewSettingsWorkspace && effectiveNewSection === 'ad-display-rules'
               ? 'customizer-only'
+              : isInCampaignSetupWorkspace
+              ? 'setup-only'
               : 'full'
           }
           ads={ads}
@@ -7779,7 +7839,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* TAB: GLOBAL FEATURE CONTROLS */}
       {effectiveAdminTab === 'settings' && canAccessAdminTab('settings') && (
         <div className="admin-settings-mobile-compact space-y-6 text-white">
-          <AdminUserDashboardNavigationSettings />
           
           {/* MASTER FEATURE SWITCHES PANEL */}
           <div className="md:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white space-y-5 shadow-xl">

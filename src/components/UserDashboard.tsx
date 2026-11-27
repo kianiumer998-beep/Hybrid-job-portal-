@@ -5,13 +5,12 @@ import { EmployerKycRequest } from '../types/adminSuite';
 import { UserCampaignHub } from './ads/UserCampaignHub';
 import { PAKISTAN_LOCATIONS } from '../data/pakistanLocations';
 import { api } from '../services/api';
-import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone, Pin, Flame, Zap, Crown, Star, ArrowRight, Bookmark, ThumbsUp, Globe, Wallet, Check, Upload, Info, Bell, LayoutDashboard, Menu } from 'lucide-react';
+import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone, Pin, Flame, Zap, Crown, Star, ArrowRight, Bookmark, ThumbsUp, Globe, Wallet, Check, Upload, Info, Bell, LayoutDashboard, Menu, Search } from 'lucide-react';
 import { PublicPaymentSettings, PublicPaymentMethodConfig } from '../types/adminPayment';
 import { JobSeoPreviewModal } from './common/JobSeoPreviewModal';
 
 import { UserDashboardNavigation } from './UserDashboardNavigation';
 import { safeLocalStorageGet, safeLocalStorageSet } from '../utils/safeStorage';
-import { getUserDashboardPath, getUserDashboardRouteId, getUserDashboardRouteIdForState, USER_DASHBOARD_ROUTES } from '../utils/userDashboardRouting';
 
 const EMPLOYER_ALLOWED_APP_STATUSES = [
   'Pending',
@@ -75,8 +74,6 @@ interface UserDashboardProps {
   onLogout: () => void;
   onOpenSubscriptionModal: () => void;
   onNavigateGlobalTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
-  dashboardMenuOpen: boolean;
-  onCloseDashboardMenu: () => void;
 }
 
 type PaymentStatusPresentation = { label: string; className: string };
@@ -159,26 +156,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   onUpdateApplicationStatus,
   onLogout,
   onOpenSubscriptionModal,
-  onNavigateGlobalTab,
-  dashboardMenuOpen,
-  onCloseDashboardMenu
+  onNavigateGlobalTab
 }) => {
-  const initialRouteId = typeof window !== 'undefined' ? getUserDashboardRouteId(window.location.pathname) : null;
-  const initialRoute = initialRouteId ? USER_DASHBOARD_ROUTES[initialRouteId] : null;
-  const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns'>(initialRoute?.tab || initialTab);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  useEffect(() => {
-    setIsMobileMenuOpen(dashboardMenuOpen);
-  }, [dashboardMenuOpen]);
-  const [overviewSubView, setOverviewSubView] = useState<'metrics' | 'recommendations' | 'history'>(initialRoute?.subView || 'metrics');
-  const [appSubTab, setAppSubTab] = useState<'submitted' | 'saved' | 'alerts' | 'documents'>(
-    initialRoute?.tab === 'applications' && initialRoute.subTab ? initialRoute.subTab as 'submitted' | 'saved' | 'alerts' | 'documents' : 'submitted'
-  );
-  const [campaignSubTab, setCampaignSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>(
-    initialRoute?.tab === 'campaigns' && initialRoute.subTab ? initialRoute.subTab as 'my-campaigns' | 'create' | 'wallet' : 'my-campaigns'
-  );
-  const [accountSubTab, setAccountSubTab] = useState<'profile' | 'security'>(
-    initialRoute?.accountSubTab || (safeLocalStorageGet<string | null>(`dashboard_active_nav_id_${currentUser.id}`, null) === 'acc-security' ? 'security' : 'profile')
+  const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns'>(initialTab);
+  const [overviewSubView, setOverviewSubView] = useState<'metrics' | 'recommendations' | 'history'>('metrics');
+  const [appSubTab, setAppSubTab] = useState<'submitted' | 'saved' | 'alerts' | 'documents'>('submitted');
+  const [campaignSubTab, setCampaignSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>('my-campaigns');
+  const [accountSubTab, setAccountSubTab] = useState<'profile' | 'security'>(() =>
+    safeLocalStorageGet<string | null>(`dashboard_active_nav_id_${currentUser.id}`, null) === 'acc-security' ? 'security' : 'profile'
   );
   const [selectedPaymentTransaction, setSelectedPaymentTransaction] = useState<PaymentTransaction | null>(null);
   const [openDepositModalTrigger, setOpenDepositModalTrigger] = useState<boolean>(false);
@@ -186,6 +171,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [renewalPackageId, setRenewalPackageId] = useState<string>(String((currentUser as any).autoRenewPackageId || ''));
   const [renewalPreferenceBusy, setRenewalPreferenceBusy] = useState(false);
   const [renewalPreferenceMessage, setRenewalPreferenceMessage] = useState('');
+  const [alertChannelNotice, setAlertChannelNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [postingSlotBusyJobId, setPostingSlotBusyJobId] = useState<string | null>(null);
   const [ownSubmissionHistory, setOwnSubmissionHistory] = useState<Job[]>([]);
   const [resubmissionLimit, setResubmissionLimit] = useState(3);
@@ -226,44 +212,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const parseResubmissionLines = (value: string) =>
     value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).slice(0, 100);
 
-  const [navigationMode, setNavigationMode] = useState<'classic' | 'professional' | 'new' | 'classic-new'>(() => 
-    safeLocalStorageGet<'classic' | 'professional' | 'new' | 'classic-new'>(
-      `dashboard_nav_mode_v2_${currentUser.id}`,
-      safeLocalStorageGet<'classic' | 'professional' | 'new' | 'classic-new'>(`dashboard_nav_mode_${currentUser.id}`, 'professional')
-    )
+  const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => 
+    safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_${currentUser.id}`, 'classic')
   );
-
-  const [dashboardNavConfig, setDashboardNavConfig] = useState<any>({
-    enabledModes: ['classic', 'professional', 'new', 'classic-new'],
-    defaultMode: 'professional',
-    allowModeSwitching: true,
-    quickActions: [
-      { id: 'dash-overview', label: 'Home', icon: 'LayoutDashboard', destination: '/dashboard', enabled: true, mobile: true, desktop: false },
-      { id: 'jobs-explore', label: 'Jobs', icon: 'Search', destination: '/jobs', enabled: true, mobile: true, desktop: false },
-      { id: 'career-cv', label: 'CV', icon: 'FileText', destination: '/cv', enabled: true, mobile: true, desktop: false },
-      { id: 'mem-whatsapp', label: 'Alerts', icon: 'Bell', destination: '/alerts', enabled: true, mobile: true, desktop: false },
-      { id: 'acc-profile', label: 'Account', icon: 'User', destination: '/dashboard/profile', enabled: true, mobile: true, desktop: false }
-    ]
-  });
-  useEffect(() => {
-    let mounted = true;
-    api.settings.getUserDashboardNavigation().then((result: any) => {
-      if (!mounted || !result?.success || !result.config) return;
-      const next = result.config;
-      setDashboardNavConfig(next);
-      setNavigationMode((current) => {
-        const modes = Array.isArray(next.enabledModes) ? next.enabledModes : [];
-        if (!modes.length) return current;
-        if (next.allowModeSwitching !== true || modes.length === 1) return modes.includes(next.defaultMode) ? next.defaultMode : modes[0];
-        return modes.includes(current) ? current : (modes.includes(next.defaultMode) ? next.defaultMode : modes[0]);
-      });
-    }).catch(() => {});
-    return () => { mounted = false; };
-  }, [currentUser.id]);
-
-  const enabledMenuModes = (['classic', 'professional', 'new', 'classic-new'] as const)
-    .filter((mode) => Array.isArray(dashboardNavConfig.enabledModes) && dashboardNavConfig.enabledModes.includes(mode));
-  const showMenuModeSwitcher = dashboardNavConfig.allowModeSwitching === true && enabledMenuModes.length > 1;
 
   const safeProfileAvatarUrl = useMemo(() => {
     try {
@@ -273,12 +224,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       return null;
     }
   }, [currentUser.avatarUrl]);
-  const [activeNavId, setActiveNavId] = useState<string | null>(() =>
-    initialRouteId || safeLocalStorageGet<string | null>(`dashboard_active_nav_id_${currentUser.id}`, null)
+  const [isProMenuOpen, setIsProMenuOpen] = useState<boolean>(false);
+  const [activeNavId, setActiveNavId] = useState<string | null>(() => 
+    safeLocalStorageGet<string | null>(`dashboard_active_nav_id_${currentUser.id}`, null)
   );
 
   useEffect(() => {
-    safeLocalStorageSet(`dashboard_nav_mode_v2_${currentUser.id}`, navigationMode);
+    safeLocalStorageSet(`dashboard_nav_mode_${currentUser.id}`, navigationMode);
   }, [navigationMode, currentUser.id]);
 
   useEffect(() => {
@@ -507,7 +459,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [docUploading, setDocUploading] = useState(false);
 
   useEffect(() => {
-    if (initialTab && !getUserDashboardRouteId(window.location.pathname)) {
+    if (initialTab) {
       setActiveTab(initialTab);
       // Clear a previously saved Professional-menu selection when the parent opens
       // the dashboard on a different destination. The menu then derives the active
@@ -515,52 +467,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       setActiveNavId(null);
     }
   }, [initialTab]);
-
-  // Restore dashboard sections from deep links and browser Back/Forward events.
-  useEffect(() => {
-    const restoreDashboardRoute = () => {
-      const routeId = getUserDashboardRouteId(window.location.pathname);
-      if (!routeId) return;
-      const route = USER_DASHBOARD_ROUTES[routeId];
-      if (route.globalTab) {
-        onNavigateGlobalTab?.(route.globalTab);
-        return;
-      }
-      setActiveNavId(routeId);
-      setActiveTab(route.tab);
-      if (route.subView) setOverviewSubView(route.subView);
-      if (route.tab === 'applications' && route.subTab) {
-        setAppSubTab(route.subTab as 'submitted' | 'saved' | 'alerts' | 'documents');
-      }
-      if (route.tab === 'campaigns' && route.subTab) {
-        setCampaignSubTab(route.subTab as 'my-campaigns' | 'create' | 'wallet');
-      }
-      if (route.accountSubTab) setAccountSubTab(route.accountSubTab);
-      if (route.action === 'deposit') setOpenDepositModalTrigger(true);
-      if (route.action === 'subscription') onOpenSubscriptionModal();
-    };
-    restoreDashboardRoute();
-    window.addEventListener('popstate', restoreDashboardRoute);
-    return () => window.removeEventListener('popstate', restoreDashboardRoute);
-  }, []);
-
-  // Every dashboard destination has a shareable, refresh-safe URL. pushState is
-  // used rather than assigning location so the app remains a fast SPA.
-  useEffect(() => {
-    if (!window.location.pathname.startsWith('/user/dashboard')) return;
-    const routeId = getUserDashboardRouteIdForState({
-      activeNavId,
-      activeTab,
-      overviewSubView,
-      appSubTab,
-      campaignSubTab,
-      accountSubTab
-    });
-    const nextPath = getUserDashboardPath(routeId);
-    if (window.location.pathname !== nextPath) {
-      window.history.pushState({}, '', nextPath);
-    }
-  }, [activeNavId, activeTab, overviewSubView, appSubTab, campaignSubTab, accountSubTab]);
 
   // User Profile Form State
   const [profileName, setProfileName] = useState(currentUser.name);
@@ -1682,50 +1588,40 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           : 'bg-slate-800 text-slate-300 border-slate-700';
 
   return (
-    <div className={`min-h-screen bg-slate-950 transition-all duration-300 ${navigationMode === 'professional' || navigationMode === 'new' ? 'lg:pl-64 pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0' : navigationMode === 'classic-new' ? 'pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0' : ''}`}>
+    <div className={`min-h-screen bg-slate-950 transition-all duration-300 ${navigationMode === 'professional' ? 'lg:pl-64' : ''}`}>
       
-      {(
+      {navigationMode === 'professional' && (
         <UserDashboardNavigation
-          quickActionsOnly={navigationMode === 'classic'}
-          variant={navigationMode === 'new' ? 'new' : navigationMode === 'classic-new' ? 'classic-new' : 'professional'}
-          quickActions={dashboardNavConfig.quickActions || []}
-          userIdentity={currentUser.username || currentUser.email || currentUser.id || ''}
           activeTab={activeTab}
           overviewSubView={overviewSubView}
           appSubTab={appSubTab}
           campaignSubTab={campaignSubTab}
           accountSubTab={accountSubTab}
           activeNavId={activeNavId}
-          userRole={currentUser.role}
-          counts={{
-            applications: userApplications.length,
-            recommendedJobs: recommendedJobs.length,
-            savedJobs: savedJobsList.length || savedJobIds.length,
-            jobAlerts: jobAlerts.length,
-            documents: userDocuments.length,
-            jobListings: displayUserJobs.length,
-            campaigns: userAds.length,
-            paymentTransactions: userTransactions.length,
-            unreadNotifications: unreadNotifCount
-          }}
-          onOpenNotifications={() => setShowNotificationDrawer(true)}
-          onOpenDeposit={() => setOpenDepositModalTrigger(true)}
-          onOpenSubscription={onOpenSubscriptionModal}
-          onNavigate={(params) => { onCloseDashboardMenu(); handleProNavigate(params); }}
+          onNavigate={handleProNavigate}
           onLogout={handleLogout}
-          isOpen={dashboardMenuOpen}
-          onClose={onCloseDashboardMenu}
+          isOpen={isProMenuOpen}
+          onClose={() => setIsProMenuOpen(false)}
         />
       )}
 
-      <div className="max-w-7xl mx-auto w-full min-w-0 px-3 sm:px-6 lg:px-8 py-3 sm:py-8 space-y-3 sm:space-y-6">
+      <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-2.5 sm:py-5 space-y-2.5 sm:space-y-4">
         
-        {/* Header Profile Card - UNIFIED ACCOUNT */}
-        <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-xl sm:rounded-3xl p-2.5 sm:p-6 text-white shadow-xl flex flex-col gap-2 sm:gap-4">
-          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2 sm:gap-6">
-          <div className="flex items-center space-x-2 sm:space-x-4 w-full md:w-auto min-w-0">
-            <div className="w-9 h-9 sm:w-16 sm:h-16 rounded-lg sm:rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-600 p-0.5 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
-              <div className="relative w-full h-full bg-slate-950 rounded-[10px] sm:rounded-[14px] flex items-center justify-center overflow-hidden font-black text-base sm:text-2xl text-emerald-400">
+        {/* Compact Profile Header */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl px-3 py-2 sm:px-5 sm:py-3 text-white shadow-lg flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center space-x-2.5 sm:space-x-3 min-w-0 flex-1">
+            {navigationMode === 'professional' && (
+              <button 
+                type="button"
+                onClick={() => setIsProMenuOpen(true)}
+                aria-label="Open Navigation Menu"
+                className="lg:hidden p-2 bg-slate-800 border border-slate-700 rounded-lg text-emerald-400 hover:text-white shrink-0"
+              >
+                <Menu className="w-4 h-4" />
+              </button>
+            )}
+            <div className="w-8 h-8 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-600 p-0.5 flex items-center justify-center shrink-0">
+              <div className="relative w-full h-full bg-slate-950 rounded-[9px] flex items-center justify-center overflow-hidden font-black text-sm sm:text-lg text-emerald-400">
                 <span>{(currentUser.name || '?').charAt(0).toUpperCase()}</span>
                 {safeProfileAvatarUrl && (
                   <img
@@ -1740,244 +1636,220 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </div>
 
             <div className="min-w-0 flex-1">
-              <div className="flex items-center space-x-1.5 sm:space-x-2">
-                <h2 className="text-sm sm:text-2xl font-black truncate">{currentUser.name}</h2>
-                <span className="hidden sm:inline-block bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full">
-                  Unified Portal Member
+              <div className="flex items-center gap-2 text-xs sm:text-base font-black text-white truncate">
+                <span className="truncate">{currentUser.name}</span>
+                <span className="hidden md:inline text-[11px] font-medium text-slate-400 truncate">
+                  · {planDisplayName}
                 </span>
               </div>
-              <p className="text-[9px] leading-tight sm:text-xs text-slate-400 mt-0 sm:mt-0.5 truncate whitespace-nowrap">
-                <strong className="text-white font-mono">{currentUser.username || currentUser.email.split('@')[0]}</strong> • {currentUser.email}
+              <p className="text-[10px] sm:text-xs text-slate-400 truncate font-mono">
+                {currentUser.username || currentUser.email.split('@')[0]} · {currentUser.email}
               </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 w-full md:w-auto">
-            {/* Dashboard menu trigger moved to the global Header for mobile/tablet. */}
-            {showMenuModeSwitcher && (
-              <div className="w-full sm:w-auto bg-slate-800/80 border border-slate-700 p-1 rounded-xl flex flex-wrap items-center justify-center shadow-lg mr-0 sm:mr-2" role="group" aria-label="Choose dashboard menu">
-                {enabledMenuModes.map((mode) => <button key={mode} type="button" aria-pressed={navigationMode === mode} onClick={() => { setNavigationMode(mode); if (mode === "classic") setActiveNavId(null); }}
-                  className={"px-2.5 py-2 rounded-lg text-[9px] font-black transition-all " + (navigationMode === mode ? "bg-emerald-500 text-slate-950 shadow-md" : "text-slate-500 hover:text-slate-300")}>
-                  {mode === "classic" ? "CLASSIC" : mode === "professional" ? "PRO MENU" : mode === "new" ? "NEW MENU" : "CLASSIC NEW"}
-                </button>)}
-              </div>
-            )}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* MODE SWITCHER */}
+            <div className="bg-slate-950 border border-slate-800 p-0.5 rounded-lg flex items-center shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setNavigationMode('classic');
+                  setActiveNavId(null);
+                }}
+                className={`px-2 py-1 rounded-md text-[10px] font-black transition-all whitespace-nowrap cursor-pointer ${
+                  navigationMode === 'classic' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Classic
+              </button>
+              <button
+                type="button"
+                onClick={() => setNavigationMode('professional')}
+                className={`px-2 py-1 rounded-md text-[10px] font-black transition-all whitespace-nowrap cursor-pointer ${
+                  navigationMode === 'professional' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Pro Menu
+              </button>
+            </div>
 
-          {navigationMode === 'classic' && (
             <button
-              onClick={handleLogout}
-              className="px-2.5 sm:px-4 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-colors cursor-pointer"
+              type="button"
+              onClick={() => setShowNotificationDrawer(!showNotificationDrawer)}
+              aria-label="Notifications"
+              className="relative px-2 sm:px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition-colors cursor-pointer flex items-center gap-1 shrink-0"
+              title="In-App Notifications"
             >
-              Log Out
+              <Bell className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">Alerts</span>
+              {unreadNotifCount > 0 && (
+                <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded tabular-nums">
+                  {unreadNotifCount}
+                </span>
+              )}
             </button>
-          )}
-        </div>
-        </div>
 
-      {/* Persistent dashboard breadcrumb: keep users oriented and provide a safe return path. */}
-      {navigationMode !== 'classic' && (() => {
-        const sectionNames: Record<string, string> = {
-          overview: 'Overview',
-          profile: 'My Account',
-          applications: 'Find Jobs / Career',
-          'post-job': 'Employer Center',
-          'my-jobs': 'Employer Center',
-          chat: 'Help & Support',
-          campaigns: campaignSubTab === 'wallet' ? 'Wallet & Payments' : 'Ads & Campaigns'
-        };
-        const pageNames: Record<string, string> = {
-          'dash-overview': 'Dashboard Overview',
-          'jobs-recommended': 'Recommended Jobs',
-          'jobs-applications': 'My Applications',
-          'jobs-saved': 'Saved Jobs',
-          'jobs-alerts': 'Job Alerts',
-          'career-docs': 'My Documents',
-          'career-cv': 'CV Builder',
-          'emp-post': 'Post a Job',
-          'emp-listings': 'My Job Listings & Applicants',
-          'emp-verification': 'Business Verification',
-          'ads-list': 'My Campaigns',
-          'ads-create': 'Create Campaign',
-          'mem-wallet': 'Wallet & Balance',
-          'membership-plan': 'Membership & Plans',
-          'wallet-deposit': 'Add Funds / Deposit',
-          'mem-history': 'Payment History',
-          'mem-whatsapp': 'WhatsApp & Job Alerts',
-          'notifications-center': 'Notifications Center',
-          'acc-chat': 'Support Inbox',
-          'acc-profile': 'Profile & Preferences',
-          'acc-security': 'Security & Password'
-        };
-        const currentPage = pageNames[activeNavId || ''] || (
-          activeTab === 'overview' ? (overviewSubView === 'history' ? 'Payment History' : overviewSubView === 'recommendations' ? 'Recommended Jobs' : 'Dashboard Overview') :
-          activeTab === 'profile' ? (accountSubTab === 'security' ? 'Security & Password' : 'Profile & Preferences') :
-          activeTab === 'applications' ? ({ submitted: 'My Applications', saved: 'Saved Jobs', alerts: 'Job Alerts', documents: 'My Documents' } as Record<string, string>)[appSubTab] :
-          activeTab === 'post-job' ? 'Post a Job' :
-          activeTab === 'my-jobs' ? 'My Job Listings & Applicants' :
-          activeTab === 'chat' ? 'Support Inbox' :
-          ({ 'my-campaigns': 'My Campaigns', create: 'Create Campaign', wallet: 'Wallet & Balance' } as Record<string, string>)[campaignSubTab]
-        );
-        return (
-          <nav aria-label="Dashboard breadcrumb" className="flex flex-wrap items-center gap-x-1 gap-y-0 border-t border-slate-800/90 pt-2 text-[10px] leading-4 sm:gap-x-2 sm:gap-y-1 sm:pt-3 sm:text-xs">
-            <button type="button" onClick={() => onNavigateGlobalTab?.('jobs')} className="shrink-0 rounded font-bold text-emerald-300 hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400" title="Go to HybridJobs.pk homepage">HybridJobs.pk</button>
-            <span aria-hidden="true" className="shrink-0 text-slate-600">/</span>
-            <button type="button" onClick={() => { setActiveTab('overview'); setOverviewSubView('metrics'); setActiveNavId('dash-overview'); }} className="shrink-0 rounded text-slate-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">Dashboard</button>
-            <span aria-hidden="true" className="shrink-0 text-slate-600">/</span>
-            <span className="max-w-[24vw] truncate text-slate-400 sm:max-w-none">{sectionNames[activeTab] || 'Dashboard'}</span>
-            <span aria-hidden="true" className="shrink-0 text-slate-600">/</span>
-            <span aria-current="page" className="min-w-0 max-w-[30vw] truncate font-semibold text-white sm:max-w-none">{currentPage}</span>
-            <button type="button" onClick={() => { setActiveTab('overview'); setOverviewSubView('metrics'); setActiveNavId('dash-overview'); }} className="ml-auto shrink-0 rounded-md border border-slate-700 px-2 py-0.5 text-[9px] font-bold leading-4 text-slate-300 hover:border-emerald-500/40 hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 sm:rounded-lg sm:px-2.5 sm:py-1 sm:text-[10px]">Back to Dashboard</button>
-          </nav>
-        );
-      })()}
-      </div>
-
-      {/* PERSISTENT GLOBAL QUICK ACTION BAR (VISIBLE ACROSS ALL DASHBOARD TABS) */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-2xl sm:rounded-2xl p-3 sm:p-4 shadow-lg flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-          <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-            <Wallet className="w-3.5 h-3.5 shrink-0" />
-            <span className="text-[10px] sm:text-xs font-semibold text-slate-300">Wallet:</span>
-            <span className="text-xs sm:text-sm font-black font-mono">
-              PKR {(currentUser.walletBalance ?? 0).toLocaleString()}
-            </span>
-            <span className="text-[10px] sm:text-xs font-bold text-amber-300 ml-1">
-              Held: PKR {(currentUser.walletEscrowBalance ?? 0).toLocaleString()}
-            </span>
-          </div>
-
-          <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px]">
-            <span className="text-slate-400">Membership:</span>
-            <span className={`font-bold flex items-center space-x-1 ${membershipStatusLabel === 'Active & Verified' ? 'text-emerald-400' : membershipStatusLabel === 'Expired' || membershipStatusLabel === 'Revoked' ? 'text-rose-400' : 'text-amber-300'}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${membershipStatusLabel === 'Active & Verified' ? 'bg-emerald-400' : membershipStatusLabel === 'Expired' || membershipStatusLabel === 'Revoked' ? 'bg-rose-500' : 'bg-amber-400'}`} />
-              <span>{membershipStatusLabel === 'Active & Verified' && daysRemaining !== null ? `${daysRemaining}d Left` : membershipStatusLabel}</span>
-            </span>
+            {navigationMode === 'classic' && (
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              >
+                Log Out
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="grid grid-cols-1 min-[360px]:grid-cols-3 sm:flex sm:flex-wrap items-stretch sm:items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveNavId('emp-post');
-              setActiveTab('post-job');
-            }}
-            className="w-full sm:w-auto justify-center px-3 sm:px-3.5 py-2 sm:py-1.5 rounded-xl sm:rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-[11px] sm:text-xs flex items-center space-x-1 cursor-pointer active:scale-95 transition-all"
-            title="Open the existing job posting form"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Post a Job</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setActiveNavId('mem-wallet');
-              setActiveTab('campaigns');
-              setCampaignSubTab('wallet');
-              setOpenDepositModalTrigger(true);
-            }}
-            className="w-full sm:w-auto justify-center px-3 sm:px-3.5 py-2 sm:py-1.5 rounded-xl sm:rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-[11px] sm:text-xs shadow-md shadow-emerald-500/20 flex items-center space-x-1 cursor-pointer active:scale-95 transition-all"
-            title="Deposit funds into your wallet"
-          >
-            <Plus className="w-3.5 h-3.5 stroke-[3]" />
-            <span>Deposit Funds</span>
-          </button>
+        {/* STICKY TOP WALLET, QUICK ACTIONS & CLASSIC NAVIGATION BAR */}
+        <div className="sticky top-0 z-30 bg-slate-950/95 backdrop-blur-md border-b border-slate-800/90 -mx-2.5 sm:mx-0 px-2.5 sm:px-0 py-1.5 sm:py-2 space-y-1.5">
+          {/* Compact Wallet + Primary Quick Actions Strip */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-xl px-2.5 py-1.5 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-1.5 text-emerald-400 tabular-nums shrink-0">
+                <Wallet className="w-3.5 h-3.5 shrink-0" />
+                <span className="text-[11px] sm:text-xs font-black font-mono">
+                  PKR {(currentUser.walletBalance ?? 0).toLocaleString()}
+                </span>
+                <span className="text-[10px] font-semibold text-amber-300 font-mono hidden xs:inline sm:inline">
+                  · Held {(currentUser.walletEscrowBalance ?? 0).toLocaleString()}
+                </span>
+              </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              setActiveNavId('ads-create');
-              setActiveTab('campaigns');
-              setCampaignSubTab('create');
-            }}
-            className="w-full sm:w-auto justify-center px-3 sm:px-3.5 py-2 sm:py-1.5 rounded-xl sm:rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold text-[11px] sm:text-xs shadow-md shadow-indigo-600/20 flex items-center space-x-1 cursor-pointer active:scale-95 transition-all"
-            title="Create and launch a new ad campaign"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-indigo-200" />
-            <span>Create Campaign</span>
-          </button>
-        </div>
-      </div>
+              <span className="hidden md:inline-block text-[11px] font-semibold text-slate-400 truncate">
+                · {membershipStatusLabel === 'Active & Verified' && daysRemaining !== null ? `${daysRemaining}d Left` : membershipStatusLabel}
+              </span>
+            </div>
 
-      {/* Navigation Tabs - 4-column compact grid on mobile (Classic Mode Only) */}
-      {navigationMode === 'classic' && (isMobileMenuOpen || window.innerWidth >= 768) && (
-        <div className={`border-b border-slate-800 pb-2 sm:pb-3 transition-all duration-300 ${isMobileMenuOpen ? 'block' : 'hidden md:block'}`}>
-          <div className="mb-1.5 flex items-center justify-between px-1"><span className="text-[10px] font-black tracking-wider text-white">MENU</span><span className="truncate text-[9px] text-slate-500">{currentUser.username || currentUser.email}</span></div>
-          <div className="flex flex-col md:flex-row gap-1.5 sm:gap-2">
-            <div className="grid grid-cols-4 md:flex md:flex-wrap gap-1 sm:gap-2">
+            <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto scrollbar-none shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveNavId('emp-post');
+                  setActiveTab('post-job');
+                }}
+                className="px-2 sm:px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-[10px] sm:text-xs flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Post Job</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveNavId('mem-wallet');
+                  setActiveTab('campaigns');
+                  setCampaignSubTab('wallet');
+                  setOpenDepositModalTrigger(true);
+                }}
+                className="px-2 sm:px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] sm:text-xs flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Plus className="w-3 h-3 stroke-[2.5]" />
+                <span>Deposit</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveNavId('ads-create');
+                  setActiveTab('campaigns');
+                  setCampaignSubTab('create');
+                }}
+                className="px-2 sm:px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10px] sm:text-xs flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Sparkles className="w-3 h-3" />
+                <span>Ad Campaign</span>
+              </button>
+              <button
+                type="button"
+                onClick={onOpenSubscriptionModal}
+                className="hidden sm:flex px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 font-bold text-xs items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Crown className="w-3 h-3" />
+                <span>Packages</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Permanently Visible Classic Grid (4 Columns on Mobile, Single Compact Row on Desktop) */}
+          {navigationMode === 'classic' && (
+            <nav aria-label="User Classic Navigation" className="grid grid-cols-4 md:flex md:flex-wrap gap-1 sm:gap-1.5">
               {[
-                { id: 'overview', label: 'Dashboard', icon: Receipt },
-                { id: 'applications', label: 'Job Center', icon: FileText },
-                { id: 'post-job', label: 'Post Job', icon: Plus },
-                { id: 'my-jobs', label: 'My Listings', icon: Briefcase },
-                { id: 'campaigns', label: 'Ads & Wallet', icon: Megaphone },
-                { id: 'profile', label: 'Profile', icon: User },
-                { id: 'chat', label: 'Inbox', icon: MessageSquare }
+                { id: 'overview', label: 'Dashboard', icon: LayoutDashboard, isAction: false },
+                { id: 'applications', label: 'Job Center', icon: FileText, isAction: false },
+                { id: 'post-job', label: 'Post Job', icon: Plus, isAction: false },
+                { id: 'my-jobs', label: 'My Listings', icon: Briefcase, isAction: false },
+                { id: 'campaigns', label: 'Ads & Wallet', icon: Megaphone, isAction: false },
+                { id: 'profile', label: 'Profile', icon: User, isAction: false },
+                { id: 'chat', label: 'Inbox', icon: MessageSquare, isAction: false },
+                { id: 'explore-jobs', label: 'Explore', icon: Search, isAction: true }
               ].map((t) => {
                 const Icon = t.icon;
+                const isSelected = !t.isAction && activeTab === t.id;
                 return (
                   <button
                     key={t.id}
-                    aria-label={`Switch to ${t.label} tab`}
+                    type="button"
+                    aria-label={t.isAction ? 'Explore Live Jobs' : `Switch to ${t.label} tab`}
                     onClick={() => {
+                      if (t.isAction) {
+                        if (onNavigateGlobalTab) {
+                          onNavigateGlobalTab('jobs');
+                        } else {
+                          onOpenSubscriptionModal();
+                        }
+                        return;
+                      }
                       setActiveTab(t.id as any);
-                      setIsMobileMenuOpen(false);
-                      onCloseDashboardMenu();
                     }}
-                    className={`flex flex-col sm:flex-row items-center justify-center space-y-0.5 sm:space-y-0 sm:space-x-1.5 px-1 sm:px-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-sm font-bold transition-all text-center cursor-pointer ${
-                      activeTab === t.id
-                        ? 'bg-emerald-500 text-slate-950 shadow-md sm:shadow-lg shadow-emerald-500/20 scale-[1.02]'
+                    className={`flex flex-col md:flex-row items-center justify-center gap-0.5 md:gap-1.5 px-1.5 sm:px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold transition-colors text-center cursor-pointer whitespace-nowrap ${
+                      isSelected
+                        ? 'bg-emerald-500 text-slate-950 font-black shadow-sm'
                         : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
                     }`}
                   >
-                    <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    <Icon className="w-3.5 h-3.5 shrink-0" />
                     <span className="truncate max-w-full">{t.label}</span>
                   </button>
                 );
               })}
-            </div>
-          </div>
+            </nav>
+          )}
         </div>
-      )}
 
       {/* TAB 1: ADVANCED SUBSCRIPTION METRICS & PAYMENT HISTORY TABLE */}
       {activeTab === 'overview' && (
-        <div className="space-y-3 sm:space-y-6">
+        <div className="space-y-3 sm:space-y-5">
 
-          {/* CINEMATIC SUBSCRIPTION & PLAN HERO CARD */}
-          <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-xl sm:rounded-3xl p-3.5 sm:p-6 shadow-2xl text-white">
-            <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
-            <div className="absolute bottom-0 left-1/4 w-60 h-60 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-
-            <div className="relative z-10 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3 sm:pb-4">
+          {/* COMPACT SUBSCRIPTION & PLAN HERO CARD */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-5 shadow-xl text-white">
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
                 <div className="space-y-1">
-                  <div className="flex items-center space-x-2">
-                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] sm:text-xs font-black tracking-wider uppercase flex items-center space-x-1">
-                      <Sparkles className="w-3 h-3" />
-                      <span>{planDisplayName}</span>
-                    </span>
-                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold border ${membershipStatusClass}`}>
-                      {membershipStatusLabel === 'Active & Verified' ? '✓ Active & Verified' : membershipStatusLabel}
+                  <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <span className="font-bold text-emerald-400">{planDisplayName}</span>
+                    <span aria-hidden="true">·</span>
+                    <span className={`font-bold ${membershipStatusLabel === 'Active & Verified' ? 'text-emerald-300' : 'text-amber-300'}`}>
+                      {membershipStatusLabel}
                     </span>
                   </div>
 
-                  <h3 className="text-base sm:text-2xl font-black text-white tracking-tight flex items-center space-x-2">
+                  <h3 className="text-base sm:text-xl font-black text-white tracking-tight flex items-center space-x-2">
                     <span>{planDisplayName} Membership</span>
-                    <Crown className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 fill-amber-400/20 shrink-0" />
+                    <Crown className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 shrink-0" />
                   </h3>
                   <p className="text-[11px] sm:text-xs text-slate-400">
-                    Plan features and access depend on your recorded subscription status.
+                    Manage active subscription packages, alert channels, CV builder access, and wallet billing in one place.
                   </p>
                 </div>
 
-                <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
+                <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
                   <button
+                    type="button"
                     onClick={onRenewSubscription}
-                    className={`px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-black text-xs transition-all active:scale-95 cursor-pointer shadow-lg flex items-center space-x-1.5 ${
+                    className={`px-3.5 sm:px-4 py-2 rounded-lg font-black text-xs transition-all cursor-pointer flex items-center space-x-1.5 whitespace-nowrap ${
                       isPlanExpired
-                        ? 'bg-gradient-to-r from-rose-500 via-amber-500 to-rose-600 text-slate-950 shadow-rose-500/30 animate-pulse'
-                        : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/20'
+                        ? 'bg-rose-500 hover:bg-rose-400 text-slate-950'
+                        : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
                     }`}
                   >
                     <RefreshCw className="w-3.5 h-3.5 shrink-0" />
@@ -1985,10 +1857,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   </button>
 
                   <button
+                    type="button"
                     onClick={onOpenSubscriptionModal}
-                    className="px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-bold text-xs transition-all cursor-pointer"
+                    className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 font-bold text-xs transition-all cursor-pointer whitespace-nowrap"
                   >
-                    Upgrade Plan
+                    View Packages &amp; Upgrade
                   </button>
                 </div>
               </div>
@@ -2102,10 +1975,66 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 </div>
                 {renewalPreferenceMessage && <p className="text-[10px] text-emerald-300">{renewalPreferenceMessage}</p>}
               </div>
-              <div className="p-3 sm:p-4 bg-slate-950/80 rounded-xl sm:rounded-2xl border border-slate-800/90 space-y-3">
+              {/* Available Subscription Packages & Quick Tools */}
+              <div className="pt-2 border-t border-slate-800/80 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-bold text-white text-xs sm:text-sm">Available Subscription Packages</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {onNavigateGlobalTab && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => onNavigateGlobalTab('cv')}
+                          className="px-2.5 py-1 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-[11px] font-bold text-emerald-300 cursor-pointer whitespace-nowrap"
+                        >
+                          CV Builder
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onNavigateGlobalTab('alerts')}
+                          className="px-2.5 py-1 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-[11px] font-bold text-amber-300 cursor-pointer whitespace-nowrap"
+                        >
+                          WhatsApp &amp; Alert Channels
+                        </button>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      onClick={onOpenSubscriptionModal}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-black cursor-pointer whitespace-nowrap"
+                    >
+                      Compare All Packages
+                    </button>
+                  </div>
+                </div>
+                {renewalPackages.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {renewalPackages.slice(0, 6).map((pkg: any) => (
+                      <button
+                        key={pkg.id}
+                        type="button"
+                        onClick={onOpenSubscriptionModal}
+                        className="p-2.5 rounded-xl bg-slate-950/70 hover:bg-slate-950 border border-slate-800 hover:border-emerald-500/40 text-left transition-colors cursor-pointer flex items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-white truncate">{pkg.name}</div>
+                          <div className="text-[10px] text-slate-400 tabular-nums">
+                            {pkg.durationDays || 30} days · {Array.isArray(pkg.featureIds) ? pkg.featureIds.length : 0} features
+                          </div>
+                        </div>
+                        <span className="text-xs font-black font-mono text-emerald-400 tabular-nums shrink-0">
+                          PKR {Number(pkg.pricePkr || 0).toLocaleString()}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-3 sm:p-4 bg-slate-950/80 rounded-xl border border-slate-800/90 space-y-2.5">
                 <div>
                   <span className="font-bold text-white text-xs sm:text-sm">Premium Alert Channels</span>
-                  <p className="text-[10px] sm:text-xs text-slate-400 mt-1">Turn on channels you want to receive. Actual email, WhatsApp or SMS delivery requires the matching active subscription feature and configured portal provider.</p>
+                  <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5">Choose how you receive job alerts. Delivery depends on your active subscription package and configured portal provider.</p>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {[
@@ -2113,21 +2042,30 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     { field: 'whatsappAlertsEnabled', label: 'WhatsApp alerts' },
                     { field: 'smsAlertsEnabled', label: 'SMS alerts' }
                   ].map((channel: any) => (
-                    <label key={channel.field} className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-300">
+                    <label key={channel.field} className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-200 cursor-pointer">
                       <span>{channel.label}</span>
                       <input type="checkbox" checked={(currentUser as any)[channel.field] === true} onChange={async (e) => {
                         const enabled = e.target.checked;
+                        setAlertChannelNotice(null);
                         try {
                           const result: any = await api.users.updateProfile(currentUser.id, { [channel.field]: enabled });
                           if (!result?.success) throw new Error(result?.message || 'Could not save alert preference.');
-                          window.location.reload();
+                          if (onUpdateProfile) {
+                            await onUpdateProfile({ ...currentUser, [channel.field]: enabled });
+                          }
+                          setAlertChannelNotice({ type: 'success', text: `${channel.label} ${enabled ? 'enabled' : 'disabled'}.` });
                         } catch (error: any) {
-                          window.alert(error?.message || 'Could not save alert preference.');
+                          setAlertChannelNotice({ type: 'error', text: error?.message || 'Could not save alert preference.' });
                         }
                       }} />
                     </label>
                   ))}
                 </div>
+                {alertChannelNotice && (
+                  <p className={`text-[11px] font-semibold ${alertChannelNotice.type === 'success' ? 'text-emerald-300' : 'text-rose-300'}`}>
+                    {alertChannelNotice.text}
+                  </p>
+                )}
               </div>
             </div>
           </div>

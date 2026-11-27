@@ -382,28 +382,4 @@ export class SystemSettingsRepository {
       fields: currentFields
     };
   }
-  static async getUserDashboardNavigationConfig(): Promise<any> {
-    return this.getSetting('user_dashboard_navigation_config', {
-      enabledModes: ['classic', 'professional', 'new', 'classic-new'],
-      defaultMode: 'professional',
-      allowModeSwitching: true,
-      quickActions: [
-        { id: 'dash-overview', label: 'Home', icon: 'LayoutDashboard', destination: '/user/dashboard/dash-overview', enabled: true, mobile: true, desktop: false },
-        { id: 'jobs-explore', label: 'Jobs', icon: 'Search', destination: '/jobs', enabled: true, mobile: true, desktop: false },
-        { id: 'career-cv', label: 'CV', icon: 'FileText', destination: '/cv', enabled: true, mobile: true, desktop: false },
-        { id: 'mem-whatsapp', label: 'Alerts', icon: 'Bell', destination: '/alerts', enabled: true, mobile: true, desktop: false },
-        { id: 'acc-profile', label: 'Account', icon: 'User', destination: '/user/dashboard/acc-profile', enabled: true, mobile: true, desktop: false }
-      ]
-    });
-  }
-
-  static async saveUserDashboardNavigationConfig(config: any): Promise<any> {
-    await this.saveSetting('user_dashboard_navigation_config', config);
-    const verified = await this.getSetting<any>('user_dashboard_navigation_config', null);
-    if (!verified || JSON.stringify(verified) !== JSON.stringify(config)) {
-      throw new Error('Database readback verification failed for user dashboard navigation settings.');
-    }
-    return verified;
-  }
-
 }

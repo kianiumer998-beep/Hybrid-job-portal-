@@ -18,8 +18,6 @@ interface HeaderProps {
   selectedCountryName?: string;
   selectedCountryFlag?: string;
   onOpenCountryModal?: () => void;
-  dashboardMenuOpen: boolean;
-  onToggleDashboardMenu: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -37,9 +35,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAdDrawer,
   selectedCountryName,
   selectedCountryFlag,
-  onOpenCountryModal,
-  dashboardMenuOpen,
-  onToggleDashboardMenu
+  onOpenCountryModal
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
@@ -281,22 +277,8 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* Logged-in dashboard menu control: kept at the far right of the mobile header. */}
-            {currentUser && activeTab === 'dashboard' && !showAdminView && (
-              <button
-                type="button"
-                onClick={onToggleDashboardMenu}
-                className="p-1.5 sm:p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 transition-all cursor-pointer shrink-0"
-                aria-label={dashboardMenuOpen ? "Close dashboard menu" : "Open dashboard menu"}
-                aria-expanded={dashboardMenuOpen}
-                title="Dashboard Menu"
-              >
-                {dashboardMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-              </button>
-            )}
-
-            {/* Public/guest navigation menu. Logged-in users use their dashboard menu instead. */}
-            {!currentUser && <button
+            {/* Hamburger / Menu Toggle Button with clear visible label on >= 360px */}
+            <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="p-1.5 sm:p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 flex items-center space-x-1 transition-colors cursor-pointer"
               aria-label="Toggle Navigation Menu"
@@ -304,7 +286,7 @@ export const Header: React.FC<HeaderProps> = ({
             >
               {mobileMenuOpen ? <X className="w-5 h-5 sm:w-6 sm:h-6" /> : <Menu className="w-5 h-5 sm:w-6 sm:h-6" />}
               <span className="hidden min-[360px]:inline text-xs font-bold text-slate-300">Menu</span>
-            </button>}
+            </button>
           </div>
 
         </div>
@@ -406,20 +388,6 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
         </div>
-      )}
-
-      {/* Global-page breadcrumb remains visible on Jobs, CV Builder, and Alerts pages. */}
-      {activeTab !== 'dashboard' && (
-        <nav aria-label="Website breadcrumb" className="border-t border-slate-800/80 bg-slate-950/70 px-4 py-1.5 text-[11px] sm:text-xs">
-          <div className="mx-auto flex max-w-7xl items-center gap-2">
-            <button type="button" onClick={() => setActiveTab('jobs')} className="rounded font-bold text-emerald-300 hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">HybridJobs.pk</button>
-            <span aria-hidden="true" className="text-slate-600">/</span>
-            <span aria-current="page" className="font-medium text-slate-300">{activeTab === 'jobs' ? 'Explore Jobs' : activeTab === 'cv' ? 'CV Builder' : 'Job Alerts'}</span>
-            {currentUser && (
-              <button type="button" onClick={() => setActiveTab('dashboard')} className="ml-auto rounded-lg border border-slate-700 px-2.5 py-1 font-bold text-slate-300 hover:border-emerald-500/40 hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">User Dashboard</button>
-            )}
-          </div>
-        </nav>
       )}
     </header>
   );

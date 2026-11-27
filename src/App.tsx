@@ -15,7 +15,6 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { CompleteFeeConfigSavePayload } from './components/admin/AdminFeeManager';
 import { AuthModal } from './components/AuthModal';
 import { UserDashboard } from './components/UserDashboard';
-import { UserGlobalQuickActions } from './components/UserGlobalQuickActions';
 import { Footer } from './components/Footer';
 import { CountrySelectionModal } from './components/CountrySelectionModal';
 import { LegalDisclaimerModal } from './components/LegalDisclaimerModal';
@@ -433,18 +432,7 @@ export async function executeBulkMembershipEnforcement(params: {
 
 export default function App() {
   // Navigation & View State
-  const [activeTab, setActiveTab] = useState<'jobs' | 'cv' | 'alerts' | 'dashboard'>(() => {
-    if (typeof window === 'undefined') return 'jobs';
-    const path = window.location.pathname;
-    const payload = decodeStoredAuthTokenPayload();
-    const isRegisteredUserRoute = path.startsWith('/user/dashboard') &&
-      payload && !(ADMIN_ROLES as readonly string[]).includes(String(payload.role || ''));
-    if (isRegisteredUserRoute) return 'dashboard';
-    if (path === '/cv') return 'cv';
-    if (path === '/alerts') return 'alerts';
-    return 'jobs';
-  });
-  const [dashboardMenuOpen, setDashboardMenuOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'jobs' | 'cv' | 'alerts' | 'dashboard'>('jobs');
   const [showAdminView, setShowAdminView] = useState<boolean>(() => {
     const payload = decodeStoredAuthTokenPayload();
     const isAuthorizedAdminToken = Boolean(
@@ -462,65 +450,7 @@ export default function App() {
     } catch {}
     return true;
   });
-  useEffect(() => {
-    if (activeTab !== 'dashboard' || showAdminView) setDashboardMenuOpen(false);
-  }, [activeTab, showAdminView]);
   const [dismissAnnouncement, setDismissAnnouncement] = useState<boolean>(false);
-
-  // Keep public, registered-user and administrator SPA routes synchronized with browser history.
-  useEffect(() => {
-    const syncTopLevelRoute = () => {
-      const path = window.location.pathname;
-      const payload = decodeStoredAuthTokenPayload();
-      const role = String(payload?.role || '');
-      const isAdmin = Boolean(payload && (ADMIN_ROLES as readonly string[]).includes(role));
-
-      if (path === '/admin' || path.startsWith('/admin/')) {
-        if (isAdmin) {
-          const routeTab = path.match(/^\/admin\/([^/]+)/)?.[1];
-          setAdminInitialTab(routeTab || 'analytics');
-          setShowAdminView(true);
-          return;
-        }
-        window.history.replaceState({}, '', '/');
-        setShowAdminView(false);
-        setActiveTab('jobs');
-        return;
-      }
-
-      if (path.startsWith('/user/dashboard')) {
-        if (payload && !isAdmin) {
-          setActiveTab('dashboard');
-          return;
-        }
-        window.history.replaceState({}, '', '/');
-        setActiveTab('jobs');
-        return;
-      }
-
-      if (path === '/cv') setActiveTab('cv');
-      else if (path === '/alerts') setActiveTab('alerts');
-      else setActiveTab('jobs');
-    };
-    syncTopLevelRoute();
-    window.addEventListener('popstate', syncTopLevelRoute);
-    return () => window.removeEventListener('popstate', syncTopLevelRoute);
-  }, []);
-
-  // If a top-level SPA tab is changed by any existing UI control, keep its URL in sync.
-  // Initial load is left untouched so the public home page can remain at '/'.
-  const previousTopLevelTabRef = useRef(activeTab);
-  useEffect(() => {
-    const previousTab = previousTopLevelTabRef.current;
-    previousTopLevelTabRef.current = activeTab;
-    if (previousTab === activeTab || showAdminView) return;
-    const nextPath = activeTab === 'dashboard'
-      ? (window.location.pathname.startsWith('/user/dashboard') ? window.location.pathname : '/user/dashboard/dash-overview')
-      : activeTab === 'jobs' ? '/jobs' : `/${activeTab}`;
-    if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath);
-  }, [activeTab, showAdminView]);
-
-
 
   // User Country Selection State (Pop-up on entry if not set)
   const [userSelectedCountry, setUserSelectedCountry] = useState<CountryOption | null>(() => {
@@ -1692,25 +1622,14 @@ export default function App() {
   const [legalModalOpen, setLegalModalOpen] = useState<boolean>(false);
   const [legalModalTab, setLegalModalTab] = useState<'disclaimer' | 'privacy' | 'terms' | 'contact'>('disclaimer');
   const [userDashboardInitialTab, setUserDashboardInitialTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat'>('overview');
-  const [adminInitialTab, setAdminInitialTab] = useState<string>(() => {
-    if (typeof window === 'undefined') return 'analytics';
-    return window.location.pathname.match(/^\/admin\/([^/]+)/)?.[1] || 'analytics';
-  });
 
   const handlePostJobClick = () => {
     setUserDashboardInitialTab('post-job');
     if (currentUser) {
-      window.history.pushState({}, '', '/user/dashboard/emp-post');
       setActiveTab('dashboard');
     } else {
       setAuthModalOpen(true);
     }
-  };
-
-  const navigateGlobalTab = (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => {
-    const nextPath = tab === 'dashboard' ? '/user/dashboard/dash-overview' : `/${tab}`;
-    if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath);
-    setActiveTab(tab);
   };
 
 
@@ -3068,7 +2987,6 @@ export default function App() {
   const handleLoginSuccess = (account: UserAccount) => {
     const sanitized = sanitizeBackendUser(account);
     setCurrentUser(sanitized);
-    window.history.pushState({}, '', '/user/dashboard/dash-overview');
     setActiveTab('dashboard');
     setUsers(prev => {
       const idx = prev.findIndex(u => u.id === sanitized.id || u.email === sanitized.email);
@@ -4247,7 +4165,7 @@ export default function App() {
   );
 
   return (
-    <div className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-emerald-500 selection:text-slate-950 ${currentUser && !showAdminView && activeTab !== 'dashboard' ? 'pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0' : activeTab === 'jobs' && (landingDesignSystem.activeDesignId === 'design-4' || landingDesignSystem.activeDesignId === 'design-5') ? 'pb-20 md:pb-0' : ''}`}>
+    <div className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-emerald-500 selection:text-slate-950 ${activeTab === 'jobs' && (landingDesignSystem.activeDesignId === 'design-4' || landingDesignSystem.activeDesignId === 'design-5') ? 'pb-20 md:pb-0' : ''}`}>
       
       {/* Dynamic Global Admin Announcement Banner */}
       {siteSeoConfig.announcementBanner?.enabled && !dismissAnnouncement && (
@@ -4315,43 +4233,41 @@ export default function App() {
         );
       })()}
 
-      {/* Keep public header controls visible; logged-in dashboard users use their configured dashboard menu instead of the guest hamburger. */}
+      {/* Navigation Header */}
       <Header
-          activeTab={activeTab}
-          setActiveTab={(tab) => {
-            setActiveTab(tab);
-            if (showAdminView) {
-              try {
-                localStorage.setItem('hybrid_admin_view_preference', 'false');
-              } catch {}
-            }
-            setShowAdminView(false);
-          }}
-          isSubscribed={isSubscribed}
-          onOpenSubscriptionModal={() => {
-            setSelectedJobTitleForSub('');
-            setSubscriptionModalOpen(true);
-          }}
-          savedJobsCount={savedJobIds.length}
-          currentUser={currentUser}
-          onOpenAuthModal={() => setAuthModalOpen(true)}
-          isAdminLoggedIn={isAdminLoggedIn}
-          onToggleAdminView={() => {
-            const nextView = !showAdminView;
+        activeTab={activeTab}
+        setActiveTab={(tab) => {
+          setActiveTab(tab);
+          if (showAdminView) {
             try {
-              localStorage.setItem('hybrid_admin_view_preference', nextView ? 'true' : 'false');
+              localStorage.setItem('hybrid_admin_view_preference', 'false');
             } catch {}
-            setShowAdminView(nextView);
-          }}
-          showAdminView={showAdminView}
-          activeAdsCount={advertisements.filter((a) => a.status === 'active').length}
-          onOpenAdDrawer={() => setIsAdDrawerOpen(true)}
-          selectedCountryName={userSelectedCountry?.name || 'All Countries'}
-          selectedCountryFlag={userSelectedCountry?.flag || '🌐'}
-          onOpenCountryModal={() => setShowCountryModal(true)}
-          dashboardMenuOpen={dashboardMenuOpen}
-          onToggleDashboardMenu={() => setDashboardMenuOpen((open) => !open)}
-        />
+          }
+          setShowAdminView(false);
+        }}
+        isSubscribed={isSubscribed}
+        onOpenSubscriptionModal={() => {
+          setSelectedJobTitleForSub('');
+          setSubscriptionModalOpen(true);
+        }}
+        savedJobsCount={savedJobIds.length}
+        currentUser={currentUser}
+        onOpenAuthModal={() => setAuthModalOpen(true)}
+        isAdminLoggedIn={isAdminLoggedIn}
+        onToggleAdminView={() => {
+          const nextView = !showAdminView;
+          try {
+            localStorage.setItem('hybrid_admin_view_preference', nextView ? 'true' : 'false');
+          } catch {}
+          setShowAdminView(nextView);
+        }}
+        showAdminView={showAdminView}
+        activeAdsCount={advertisements.filter((a) => a.status === 'active').length}
+        onOpenAdDrawer={() => setIsAdDrawerOpen(true)}
+        selectedCountryName={userSelectedCountry?.name || 'All Countries'}
+        selectedCountryFlag={userSelectedCountry?.flag || '🌐'}
+        onOpenCountryModal={() => setShowCountryModal(true)}
+      />
 
       {/* Main View Area */}
       <main className="flex-1">
@@ -4412,15 +4328,7 @@ export default function App() {
               try {
                 localStorage.setItem('hybrid_admin_view_preference', 'false');
               } catch {}
-              window.history.pushState({}, '', '/');
               setShowAdminView(false);
-            }}
-            initialTab={adminInitialTab}
-            onNavigateTab={(tabId) => {
-              if (!/^[a-z0-9-]+$/.test(tabId)) return;
-              const nextPath = `/admin/${tabId}`;
-              if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath);
-              setAdminInitialTab(tabId);
             }}
             ads={advertisements}
             onAddAd={handleAddAd}
@@ -4711,8 +4619,6 @@ export default function App() {
               <UserDashboard
                 key={currentUser.id}
                 currentUser={currentUser}
-                dashboardMenuOpen={dashboardMenuOpen}
-                onCloseDashboardMenu={() => setDashboardMenuOpen(false)}
                 userJobs={userJobs}
                 chatMessages={chatMessages}
                 jobPostingFeePkr={jobPostingFeePkr}
@@ -4748,13 +4654,11 @@ export default function App() {
                 onUpdateApplicationStatus={handleUpdateEmployerApplicationStatus}
                 onLogout={async () => {
                   await api.auth.logout();
-                  window.history.replaceState({}, '', '/');
                   try {
                     localStorage.removeItem('hybrid_admin_view_preference');
                     localStorage.removeItem('hybrid_user_is_subscribed');
                   } catch {}
                   setCurrentUser(null);
-                  setDashboardMenuOpen(false);
                   setIsSubscribed(false);
                   setUsers([]);
                   setAllApplications([]);
@@ -4771,7 +4675,7 @@ export default function App() {
                   setSelectedJobTitleForSub('');
                   setSubscriptionModalOpen(true);
                 }}
-                onNavigateGlobalTab={navigateGlobalTab}
+                onNavigateGlobalTab={setActiveTab}
               />
             )}
 
@@ -5058,14 +4962,9 @@ export default function App() {
         />
       )}
 
-      {/* Keep authenticated users' configured quick actions mounted across public and dashboard routes. */}
-      {currentUser && !showAdminView && activeTab !== 'dashboard' && (
-        <UserGlobalQuickActions currentUser={currentUser} activeTab={activeTab} onNavigateTab={setActiveTab} />
-      )}
-
       {/* Five-tab mobile navigation for the photographic landing designs.
           Each destination reuses the existing app tabs and authentication flow. */}
-      {!currentUser && activeTab === 'jobs' &&
+      {activeTab === 'jobs' &&
         (landingDesignSystem.activeDesignId === 'design-4' || landingDesignSystem.activeDesignId === 'design-5') && (
         <nav aria-label="Mobile quick navigation" className="fixed inset-x-0 bottom-0 z-[60] grid grid-cols-5 border-t border-slate-700/80 bg-slate-950/95 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgba(0,0,0,0.35)] backdrop-blur-lg md:hidden">
           <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="flex min-h-12 flex-col items-center justify-center gap-1 text-[10px] font-bold text-slate-200"><span aria-hidden>⌂</span><span>Home</span></button>

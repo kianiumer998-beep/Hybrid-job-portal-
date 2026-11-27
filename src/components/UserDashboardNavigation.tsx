@@ -368,29 +368,28 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
             </div>
           </div>
         )}
-      {/* Preserve New Menu's compact mobile quick-navigation shortcuts. */}
+      {/* Admin-configured fixed quick actions. */}
       <nav aria-label="Classic New mobile quick navigation" className="lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-slate-800 bg-slate-950/95 backdrop-blur supports-[backdrop-filter]:bg-slate-950/85 pb-[env(safe-area-inset-bottom)]">
-        <div className="mx-auto grid max-w-xl grid-cols-5 px-1">
-          {[
-            { id: 'dash-overview', label: 'Home', icon: LayoutDashboard, tab: 'overview' as DashboardTab, subView: 'metrics' as OverviewSubView },
-            { id: 'jobs-explore', label: 'Jobs', icon: Search, isGlobal: true, globalTab: 'jobs' as GlobalTab },
-            { id: 'career-cv', label: 'CV', icon: FileText, isGlobal: true, globalTab: 'cv' as GlobalTab },
-            { id: 'mem-whatsapp', label: 'Alerts', icon: Bell, isGlobal: true, globalTab: 'alerts' as GlobalTab },
-            { id: 'acc-profile', label: 'Account', icon: User, tab: 'profile' as DashboardTab, accountSubTab: 'profile' as const },
-          ].map((item) => {
-            const active = isActive(item);
-            return (
-              <button key={item.id} type="button" aria-current={active ? 'page' : undefined}
-                onClick={() => onNavigate({ id: item.id, tab: item.tab, subView: item.subView, accountSubTab: item.accountSubTab, isGlobal: item.isGlobal, globalTab: item.globalTab })}
-                className={'relative flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 ' + (active ? 'text-emerald-300 bg-emerald-500/10' : 'text-slate-400 hover:text-slate-200')}>
-                {active && <span className="absolute top-1.5 h-0.5 w-5 rounded-full bg-emerald-400" aria-hidden="true" />}
-                <item.icon className="h-5 w-5" aria-hidden="true" />
-                <span>{item.label}</span>
-              </button>
-            );
+        <div className={"mx-auto grid max-w-xl px-1 " + (quickActions.filter(item => item.enabled && item.mobile).length >= 4 ? "grid-cols-5" : "grid-cols-3")}>
+          {quickActions.filter(item => item.enabled && item.mobile).slice(0,5).map((item) => {
+            const target = menuStructure.flatMap(category => category.subItems).find(subItem => subItem.id === item.id);
+            if (!target || (target.employerOnly && userRole !== 'Employer/Job Poster')) return null;
+            const active = isActive(target);
+            return <button key={item.id} type="button" aria-current={active ? "page" : undefined}
+              onClick={() => {
+                if (target.action === 'notifications') onOpenNotifications();
+                else if (target.action === 'deposit') onOpenDeposit();
+                else if (target.action === 'subscription') onOpenSubscription();
+                else onNavigate({ id: target.id, tab: target.tab, subView: target.subView, subTab: target.subTab, accountSubTab: target.accountSubTab, isGlobal: target.isGlobal, globalTab: target.globalTab });
+                onClose();
+              }}
+              className={"relative flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[9px] font-semibold " + (active ? "text-emerald-300 bg-emerald-500/10" : "text-slate-400 hover:text-slate-200")}>
+              {active && <span className="absolute top-1 h-0.5 w-4 rounded-full bg-emerald-400" aria-hidden="true" />}
+              {target.icon && <target.icon className="h-4 w-4" aria-hidden="true" />}<span className="max-w-full truncate">{item.label}</span>
+            </button>;
           })}
         </div>
-      </nav>
+      </nav>av>
       </div>
     );
   }
@@ -594,7 +593,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
             );
           })}
         </div>
-      </nav>>
+      </nav>
     </>
   );
 };

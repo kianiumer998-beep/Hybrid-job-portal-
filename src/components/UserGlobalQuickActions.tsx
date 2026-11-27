@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { LayoutDashboard, Search, FileText, Bell, User, Briefcase, MessageSquare, Wallet, Crown, ClipboardList, ShieldCheck, Megaphone, Star, Zap, Bookmark, Settings, History } from 'lucide-react';
 import { api } from '../services/api';
-import { USER_DASHBOARD_ROUTES, getUserDashboardPath, getUserDashboardRouteId } from '../utils/userDashboardRouting';
+import { USER_DASHBOARD_ROUTES, getUserDashboardPath } from '../utils/userDashboardRouting';
 
 type GlobalTab = 'jobs' | 'cv' | 'alerts' | 'dashboard';
 
@@ -73,7 +73,6 @@ export const UserGlobalQuickActions: React.FC<UserGlobalQuickActionsProps> = ({
     onNavigateTab('dashboard');
   };
 
-  const currentRouteId = typeof window !== 'undefined' ? getUserDashboardRouteId(window.location.pathname) || '' : '';
 
   return (
     <nav aria-label="Persistent mobile quick actions" className="md:hidden fixed inset-x-0 bottom-0 z-[70] border-t border-slate-800 bg-slate-950/96 backdrop-blur-lg supports-[backdrop-filter]:bg-slate-950/90 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(0,0,0,0.3)]">
@@ -81,9 +80,7 @@ export const UserGlobalQuickActions: React.FC<UserGlobalQuickActionsProps> = ({
         {visibleActions.map((item) => {
           const route = USER_DASHBOARD_ROUTES[item.id];
           const Icon = ACTION_ICONS[item.icon] || LayoutDashboard;
-          const isActive = route.globalTab
-            ? activeTab === route.globalTab
-            : activeTab === 'dashboard' && currentRouteId === item.id;
+          const isActive = route.globalTab ? activeTab === route.globalTab : false;
           return (
             <button
               key={item.id}

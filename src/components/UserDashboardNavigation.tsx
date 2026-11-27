@@ -28,6 +28,7 @@ type OverviewSubView = 'metrics' | 'recommendations' | 'history';
 type AppSubTab = 'submitted' | 'saved' | 'alerts' | 'documents';
 type CampaignSubTab = 'my-campaigns' | 'create' | 'wallet';
 type GlobalTab = 'jobs' | 'cv' | 'alerts' | 'dashboard';
+const QUICK_ACTION_ICONS: Record<string, LucideIcon> = { LayoutDashboard, Search, Building2, Megaphone, User, FileText, Sparkles, History, Bookmark, Plus, Wallet, Crown, ShieldCheck, Bell, Lock, MessageSquare, Zap };
 
 interface NavSubItem {
   id: string;
@@ -91,6 +92,9 @@ interface UserDashboardNavigationProps {
   isOpen: boolean;
   onClose: () => void;
   variant?: 'professional' | 'new' | 'classic-new';
+  quickActions?: Array<{ id: string; label: string; icon: string; destination: string; enabled: boolean; mobile: boolean; desktop: boolean }>;
+  userIdentity?: string;
+  quickActionsOnly?: boolean;
 }
 
 export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = ({
@@ -109,7 +113,10 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   onOpenSubscription,
   isOpen,
   onClose,
-  variant = 'professional'
+  variant = 'professional',
+  quickActions = [],
+  userIdentity = '',
+  quickActionsOnly = false
 }) => {
   const [expandedCategory, setExpandedCategory] = useState<string | null>('dashboard');
   const drawerContentRef = useRef<HTMLDivElement | null>(null);
@@ -259,7 +266,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   }, [activeNavId, activeTab, overviewSubView, appSubTab, campaignSubTab]);
 
   const handleCategoryClick = (id: string) => {
-    setExpandedCategory(expandedCategory === id ? null : id);
+    setExpandedCategory(expandedCategory === '__all__' ? id : expandedCategory === id ? null : id);
   };
 
   const isActive = (item: NavSubItem) => {
@@ -306,9 +313,10 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
     const expandedMenu = menuStructure.find((category) => category.id === expandedCategory);
     return (
       <div className="relative z-30 w-full border-b border-slate-800 bg-slate-950/95 shadow-lg shadow-slate-950/30 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-1.5"><span className="text-[11px] font-black tracking-wider text-white">MENU</span><span className="max-w-[65%] truncate text-[9px] text-slate-500">{userIdentity}</span></div>
         <nav aria-label="Classic New top icon menu" className="mx-auto grid max-w-7xl grid-cols-4 gap-1 px-2 py-2 min-[380px]:grid-cols-5 sm:grid-cols-6 sm:gap-2 sm:px-4">
           {menuStructure.map((category) => {
-            const isExpanded = expandedCategory === category.id;
+            const isExpanded = expandedCategory === '__all__' || expandedCategory === category.id;
             const categoryHasActiveItem = category.subItems.some(isActive);
             const CategoryIcon = category.icon;
             return (
@@ -364,29 +372,45 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
             </div>
           </div>
         )}
-      {/* Preserve New Menu's compact mobile quick-navigation shortcuts. */}
+      {/* Admin-configured fixed quick actions. */}
       <nav aria-label="Classic New mobile quick navigation" className="lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-slate-800 bg-slate-950/95 backdrop-blur supports-[backdrop-filter]:bg-slate-950/85 pb-[env(safe-area-inset-bottom)]">
-        <div className="mx-auto grid max-w-xl grid-cols-5 px-1">
-          {[
-            { id: 'dash-overview', label: 'Home', icon: LayoutDashboard, tab: 'overview' as DashboardTab, subView: 'metrics' as OverviewSubView },
-            { id: 'jobs-explore', label: 'Jobs', icon: Search, isGlobal: true, globalTab: 'jobs' as GlobalTab },
-            { id: 'career-cv', label: 'CV', icon: FileText, isGlobal: true, globalTab: 'cv' as GlobalTab },
-            { id: 'mem-whatsapp', label: 'Alerts', icon: Bell, isGlobal: true, globalTab: 'alerts' as GlobalTab },
-            { id: 'acc-profile', label: 'Account', icon: User, tab: 'profile' as DashboardTab, accountSubTab: 'profile' as const },
-          ].map((item) => {
-            const active = isActive(item);
-            return (
-              <button key={item.id} type="button" aria-current={active ? 'page' : undefined}
-                onClick={() => onNavigate({ id: item.id, tab: item.tab, subView: item.subView, accountSubTab: item.accountSubTab, isGlobal: item.isGlobal, globalTab: item.globalTab })}
-                className={'relative flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 ' + (active ? 'text-emerald-300 bg-emerald-500/10' : 'text-slate-400 hover:text-slate-200')}>
-                {active && <span className="absolute top-1.5 h-0.5 w-5 rounded-full bg-emerald-400" aria-hidden="true" />}
-                <item.icon className="h-5 w-5" aria-hidden="true" />
-                <span>{item.label}</span>
-              </button>
-            );
+        <div className={"mx-auto grid max-w-xl px-1 " + (quickActions.filter(item => item.enabled && item.mobile).length >= 4 ? "grid-cols-5" : "grid-cols-3")}>
+          {quickActions.filter(item => item.enabled && item.mobile).slice(0,5).map((item) => {
+            const target = menuStructure.flatMap(category => category.subItems).find(subItem => subItem.id === item.id);
+            if (!target || (target.employerOnly && userRole !== 'Employer/Job Poster')) return null;
+            const active = isActive(target);
+            const ActionIcon = QUICK_ACTION_ICONS[item.icon] || target.icon;
+            return <button key={item.id} type="button" aria-current={active ? "page" : undefined}
+              onClick={() => {
+                if (target.action === 'notifications') onOpenNotifications();
+                else if (target.action === 'deposit') onOpenDeposit();
+                else if (target.action === 'subscription') onOpenSubscription();
+                else onNavigate({ id: target.id, tab: target.tab, subView: target.subView, subTab: target.subTab, accountSubTab: target.accountSubTab, isGlobal: target.isGlobal, globalTab: target.globalTab });
+                onClose();
+              }}
+              className={"relative flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[9px] font-semibold " + (active ? "text-emerald-300 bg-emerald-500/10" : "text-slate-400 hover:text-slate-200")}>
+              {active && <span className="absolute top-1 h-0.5 w-4 rounded-full bg-emerald-400" aria-hidden="true" />}
+              {ActionIcon && <ActionIcon className="h-4 w-4" aria-hidden="true" />}<span className="max-w-full truncate">{item.label}</span>
+            </button>;
           })}
         </div>
       </nav>
+      {quickActions.some(item => item.enabled && item.desktop) && <nav aria-label="Desktop quick actions" className="hidden lg:flex fixed bottom-4 left-1/2 z-40 -translate-x-1/2 items-center gap-1 rounded-xl border border-slate-700 bg-slate-950/95 p-1.5 shadow-2xl backdrop-blur">
+        {quickActions.filter(item => item.enabled && item.desktop).slice(0,5).map(item => {
+          const target = menuStructure.flatMap(category => category.subItems).find(subItem => subItem.id === item.id);
+          if (!target || (target.employerOnly && userRole !== 'Employer/Job Poster')) return null;
+          const ActionIcon = QUICK_ACTION_ICONS[item.icon] || target.icon;
+          const active = isActive(target);
+          return <button key={item.id} type="button" onClick={() => {
+            if (target.action === 'notifications') onOpenNotifications();
+            else if (target.action === 'deposit') onOpenDeposit();
+            else if (target.action === 'subscription') onOpenSubscription();
+            else onNavigate({ id: target.id, tab: target.tab, subView: target.subView, subTab: target.subTab, accountSubTab: target.accountSubTab, isGlobal: target.isGlobal, globalTab: target.globalTab });
+          }} className={"flex items-center gap-1.5 rounded-lg px-3 py-2 text-[10px] font-bold " + (active ? "bg-emerald-500/15 text-emerald-300" : "text-slate-300 hover:bg-slate-800")}>
+            {ActionIcon && <ActionIcon className="h-4 w-4"/>}<span>{item.label}</span>
+          </button>;
+        })}
+      </nav>}
       </div>
     );
   }
@@ -398,15 +422,18 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
             <LayoutDashboard className="w-5 h-5 text-slate-950" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
-          <span className="block font-extrabold text-white tracking-tight text-sm">{variant === 'new' ? 'New Menu' : 'My Dashboard'}</span>
-          <span className="block text-[10px] font-medium tracking-wide text-slate-500">{variant === 'new' ? 'COMPARISON MODE' : userRole === 'Employer/Job Poster' ? 'EMPLOYER WORKSPACE' : 'JOB SEEKER WORKSPACE'}</span>
+          <span className="block font-extrabold text-white tracking-tight text-sm">MENU</span>
+          <span className="block truncate text-[9px] font-medium tracking-wide text-slate-500">{userIdentity || (userRole === 'Employer/Job Poster' ? 'EMPLOYER WORKSPACE' : 'JOB SEEKER WORKSPACE')}</span>
         </div>
         <button type="button" aria-label="Close navigation" onClick={onClose} className="lg:hidden rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">
             <X className="w-5 h-5" aria-hidden="true" />
         </button>
       </div>
 
-      <nav aria-label={variant === 'new' ? 'New dashboard menu' : 'Dashboard sections'} className="flex-1 px-2 py-4 space-y-3">
+      {variant !== 'new' && <div className="flex items-center justify-end gap-2 px-3 pt-2">
+        <button type="button" onClick={() => setExpandedCategory(expandedCategory === '__all__' ? null : '__all__')} className="rounded-md border border-slate-800 px-2 py-1 text-[9px] font-bold text-emerald-300 hover:bg-slate-900">{expandedCategory === '__all__' ? 'Collapse All' : 'Expand All'}</button>
+      </div>}
+      <nav aria-label={variant === 'new' ? 'New dashboard menu' : 'Dashboard sections'} className="flex-1 px-2 py-3 space-y-2">
         {variant === 'new' ? (
           <div className="space-y-3">
             <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 px-3 py-2">
@@ -461,7 +488,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                 type="button"
                 onClick={() => handleCategoryClick(category.id)}
                 aria-expanded={isExpanded}
-                className={`w-full flex items-center justify-between px-3 py-3 min-h-11 rounded-xl text-xs font-bold transition-all group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 ${
+                className={`w-full flex items-center justify-between px-2.5 py-2 min-h-9 rounded-lg text-[11px] font-bold transition-all group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 ${
                   isExpanded ? 'bg-slate-900 text-emerald-400' : categoryHasActiveItem ? 'text-slate-200 bg-slate-900/40' : 'text-slate-400 hover:bg-slate-900/50 hover:text-slate-200'
                 }`}
               >
@@ -506,7 +533,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                         }}
                         aria-current={active ? "page" : undefined}
                         title={subItem.label}
-                        className={`w-full flex items-center space-x-2 px-3 py-2.5 min-h-10 rounded-lg text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 ${
+                        className={`w-full flex items-center space-x-2 px-2.5 py-2 min-h-9 rounded-lg text-[11px] font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 ${
                           active 
                             ? 'text-emerald-400 bg-emerald-500/10' 
                             : subItem.isLogout
@@ -547,63 +574,63 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
 
   return (
     <>
-      {/* Desktop Sidebar */}
-      <aside className="hidden lg:block fixed left-0 top-0 bottom-0 z-20">
-        {NavContent}
-      </aside>
-
-      {/* Mobile Drawer */}
-      <div role="dialog" aria-modal="true" aria-label="Dashboard navigation" aria-hidden={!isOpen} className={`lg:hidden fixed inset-0 z-50 transition-all duration-300 ${isOpen ? 'visible' : 'invisible pointer-events-none'}`}>
-        <button
-          type="button"
-          aria-label="Close dashboard navigation"
-          tabIndex={isOpen ? 0 : -1}
-          className={`absolute inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}
-          onClick={onClose}
-        />
-        <div ref={drawerContentRef} tabIndex={-1} className={`absolute left-0 top-0 bottom-0 transition-transform duration-300 transform ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      {!quickActionsOnly && <>
+        {/* Desktop Sidebar */}
+        <aside className="hidden lg:block fixed left-0 top-0 bottom-0 z-20">
           {NavContent}
+        </aside>
+        {/* Mobile Drawer */}
+        <div role="dialog" aria-modal="true" aria-label="Dashboard navigation" aria-hidden={!isOpen} className={`lg:hidden fixed inset-0 z-50 transition-all duration-300 ${isOpen ? 'visible' : 'invisible pointer-events-none'}`}>
+          <button type="button" aria-label="Close dashboard navigation" tabIndex={isOpen ? 0 : -1}
+            className={`absolute inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`} onClick={onClose} />
+          <div ref={drawerContentRef} tabIndex={-1} className={`absolute left-0 top-0 bottom-0 transition-transform duration-300 transform ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+            {NavContent}
+          </div>
         </div>
-      </div>
+      </>}
 
       {/* Mobile quick navigation: frequent destinations only; full menu remains in the drawer. */}
       <nav aria-label="Mobile quick navigation" className="lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-slate-800 bg-slate-950/95 backdrop-blur supports-[backdrop-filter]:bg-slate-950/85 pb-[env(safe-area-inset-bottom)]">
-        <div className="mx-auto grid max-w-xl grid-cols-5 px-1">
-          {[
-            { id: 'dash-overview', label: 'Home', icon: LayoutDashboard, tab: 'overview' as DashboardTab, subView: 'metrics' as OverviewSubView },
-            { id: 'jobs-explore', label: 'Jobs', icon: Search, isGlobal: true, globalTab: 'jobs' as GlobalTab },
-            { id: 'career-cv', label: 'CV', icon: FileText, isGlobal: true, globalTab: 'cv' as GlobalTab },
-            { id: 'mem-whatsapp', label: 'Alerts', icon: Bell, isGlobal: true, globalTab: 'alerts' as GlobalTab },
-            { id: 'acc-profile', label: 'Account', icon: User, tab: 'profile' as DashboardTab, accountSubTab: 'profile' as const },
-          ].map((item) => {
-            // Dashboard-local selection reflects the actual current view, not a stale global-route ID.
-            const active = isActive(item);
+        <div className={"mx-auto grid max-w-xl px-1 " + (quickActions.filter(item => item.enabled && item.mobile).length >= 4 ? "grid-cols-5" : "grid-cols-3")}>
+          {quickActions.filter(item => item.enabled && item.mobile).slice(0,5).map((item) => {
+            const target = menuStructure.flatMap(category => category.subItems).find(subItem => subItem.id === item.id);
+            if (!target || (target.employerOnly && userRole !== 'Employer/Job Poster')) return null;
+            const active = isActive(target);
+            const ActionIcon = QUICK_ACTION_ICONS[item.icon] || target.icon;
             return (
-              <button
-                key={item.id}
-                type="button"
-                aria-current={active ? "page" : undefined}
+              <button key={item.id} type="button" aria-current={active ? "page" : undefined}
                 onClick={() => {
-                  onNavigate({
-                    id: item.id,
-                    tab: item.tab,
-                    subView: item.subView,
-                    accountSubTab: item.accountSubTab,
-                    isGlobal: item.isGlobal,
-                    globalTab: item.globalTab
-                  });
+                  if (target.action === 'notifications') onOpenNotifications();
+                  else if (target.action === 'deposit') onOpenDeposit();
+                  else if (target.action === 'subscription') onOpenSubscription();
+                  else onNavigate({ id: target.id, tab: target.tab, subView: target.subView, subTab: target.subTab, accountSubTab: target.accountSubTab, isGlobal: target.isGlobal, globalTab: target.globalTab });
                   onClose();
                 }}
-                className={`relative flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 ${active ? 'text-emerald-300 bg-emerald-500/10' : 'text-slate-400 hover:text-slate-200'}`}
-              >
-                {active && <span className="absolute top-1.5 h-0.5 w-5 rounded-full bg-emerald-400" aria-hidden="true" />}
-                <item.icon className="h-5 w-5" aria-hidden="true" />
-                <span>{item.label}</span>
+                className={"relative flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[9px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 " + (active ? "text-emerald-300 bg-emerald-500/10" : "text-slate-400 hover:text-slate-200")}>
+                {active && <span className="absolute top-1 h-0.5 w-4 rounded-full bg-emerald-400" aria-hidden="true" />}
+                {ActionIcon && <ActionIcon className="h-4 w-4" aria-hidden="true" />}
+                <span className="max-w-full truncate">{item.label}</span>
               </button>
             );
           })}
         </div>
       </nav>
+      {quickActions.some(item => item.enabled && item.desktop) && <nav aria-label="Desktop quick actions" className="hidden lg:flex fixed bottom-4 left-1/2 z-40 -translate-x-1/2 items-center gap-1 rounded-xl border border-slate-700 bg-slate-950/95 p-1.5 shadow-2xl backdrop-blur">
+        {quickActions.filter(item => item.enabled && item.desktop).slice(0,5).map(item => {
+          const target = menuStructure.flatMap(category => category.subItems).find(subItem => subItem.id === item.id);
+          if (!target || (target.employerOnly && userRole !== 'Employer/Job Poster')) return null;
+          const ActionIcon = QUICK_ACTION_ICONS[item.icon] || target.icon;
+          const active = isActive(target);
+          return <button key={item.id} type="button" onClick={() => {
+            if (target.action === 'notifications') onOpenNotifications();
+            else if (target.action === 'deposit') onOpenDeposit();
+            else if (target.action === 'subscription') onOpenSubscription();
+            else onNavigate({ id: target.id, tab: target.tab, subView: target.subView, subTab: target.subTab, accountSubTab: target.accountSubTab, isGlobal: target.isGlobal, globalTab: target.globalTab });
+          }} className={"flex items-center gap-1.5 rounded-lg px-3 py-2 text-[10px] font-bold " + (active ? "bg-emerald-500/15 text-emerald-300" : "text-slate-300 hover:bg-slate-800")}>
+            {ActionIcon && <ActionIcon className="h-4 w-4"/>}<span>{item.label}</span>
+          </button>;
+        })}
+      </nav>}
     </>
   );
 };

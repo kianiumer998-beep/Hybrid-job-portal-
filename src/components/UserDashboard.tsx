@@ -219,6 +219,38 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     )
   );
 
+  const [dashboardNavConfig, setDashboardNavConfig] = useState<any>({
+    enabledModes: ['classic', 'professional', 'new', 'classic-new'],
+    defaultMode: 'professional',
+    allowModeSwitching: true,
+    quickActions: [
+      { id: 'dash-overview', label: 'Home', icon: 'LayoutDashboard', destination: '/dashboard', enabled: true, mobile: true, desktop: false },
+      { id: 'jobs-explore', label: 'Jobs', icon: 'Search', destination: '/jobs', enabled: true, mobile: true, desktop: false },
+      { id: 'career-cv', label: 'CV', icon: 'FileText', destination: '/cv', enabled: true, mobile: true, desktop: false },
+      { id: 'mem-whatsapp', label: 'Alerts', icon: 'Bell', destination: '/alerts', enabled: true, mobile: true, desktop: false },
+      { id: 'acc-profile', label: 'Account', icon: 'User', destination: '/dashboard/profile', enabled: true, mobile: true, desktop: false }
+    ]
+  });
+  useEffect(() => {
+    let mounted = true;
+    api.settings.getUserDashboardNavigation().then((result: any) => {
+      if (!mounted || !result?.success || !result.config) return;
+      const next = result.config;
+      setDashboardNavConfig(next);
+      setNavigationMode((current) => {
+        const modes = Array.isArray(next.enabledModes) ? next.enabledModes : [];
+        if (!modes.length) return current;
+        if (next.allowModeSwitching !== true || modes.length === 1) return modes.includes(next.defaultMode) ? next.defaultMode : modes[0];
+        return modes.includes(current) ? current : (modes.includes(next.defaultMode) ? next.defaultMode : modes[0]);
+      });
+    }).catch(() => {});
+    return () => { mounted = false; };
+  }, [currentUser.id]);
+
+  const enabledMenuModes = (['classic', 'professional', 'new', 'classic-new'] as const)
+    .filter((mode) => Array.isArray(dashboardNavConfig.enabledModes) && dashboardNavConfig.enabledModes.includes(mode));
+  const showMenuModeSwitcher = dashboardNavConfig.allowModeSwitching === true && enabledMenuModes.length > 1;
+
   const safeProfileAvatarUrl = useMemo(() => {
     try {
       const parsed = new URL(String(currentUser.avatarUrl || ''));
@@ -1593,9 +1625,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   return (
     <div className={`min-h-screen bg-slate-950 transition-all duration-300 ${navigationMode === 'professional' || navigationMode === 'new' ? 'lg:pl-64 pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0' : navigationMode === 'classic-new' ? 'pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0' : ''}`}>
       
-      {navigationMode !== 'classic' && (
+      {(
         <UserDashboardNavigation
+          quickActionsOnly={navigationMode === 'classic'}
           variant={navigationMode === 'new' ? 'new' : navigationMode === 'classic-new' ? 'classic-new' : 'professional'}
+          quickActions={dashboardNavConfig.quickActions || []}
+          userIdentity={currentUser.username || currentUser.email || currentUser.id || ''}
           activeTab={activeTab}
           overviewSubView={overviewSubView}
           appSubTab={appSubTab}
@@ -1629,14 +1664,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         {/* Header Profile Card - UNIFIED ACCOUNT */}
         <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-3 sm:p-6 text-white shadow-xl flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 sm:gap-6">
           <div className="flex items-center space-x-2.5 sm:space-x-4 w-full md:w-auto min-w-0">
-            {(navigationMode === 'professional' || navigationMode === 'new') && (
+            {(navigationMode === 'professional' || navigationMode === 'new' || navigationMode === 'classic-new') && (
               <button 
                 onClick={() => setIsProMenuOpen(true)}
                 aria-label="Open dashboard navigation"
                 aria-expanded={isProMenuOpen}
                 className="lg:hidden p-2.5 min-h-11 min-w-11 bg-slate-800 border border-slate-700 rounded-xl text-emerald-400 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
               >
-                <Menu className="w-5 h-5" />
+                <Menu className="w-4 h-4" /><span className="ml-1 text-[10px] font-black tracking-wide">MENU</span>
               </button>
             )}
             <div className="w-10 h-10 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-600 p-0.5 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
@@ -1668,17 +1703,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 w-full md:w-auto">
-            {/* THREE-MENU COMPARISON SWITCHER — Classic and Professional remain available. */}
-            <div className="w-full sm:w-auto bg-slate-800/80 border border-slate-700 p-1 rounded-xl flex flex-wrap items-center justify-center shadow-lg mr-0 sm:mr-2" role="group" aria-label="Choose dashboard menu">
-              <button type="button" aria-pressed={navigationMode === 'classic'} onClick={() => { setNavigationMode('classic'); setActiveNavId(null); }}
-                className={'px-2.5 py-2 rounded-lg text-[9px] font-black transition-all ' + (navigationMode === 'classic' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300')}>CLASSIC</button>
-              <button type="button" aria-pressed={navigationMode === 'professional'} onClick={() => setNavigationMode('professional')}
-                className={'px-2.5 py-2 rounded-lg text-[9px] font-black transition-all ' + (navigationMode === 'professional' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300')}>PRO MENU</button>
-              <button type="button" aria-pressed={navigationMode === 'new'} onClick={() => setNavigationMode('new')}
-                className={'px-2.5 py-2 rounded-lg text-[9px] font-black transition-all ' + (navigationMode === 'new' ? 'bg-indigo-400 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300')}>NEW MENU</button>
-              <button type="button" aria-pressed={navigationMode === 'classic-new'} onClick={() => setNavigationMode('classic-new')}
-                className={'px-2 py-2 rounded-lg text-[9px] font-black transition-all whitespace-nowrap ' + (navigationMode === 'classic-new' ? 'bg-emerald-300 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300')}>CLASSIC NEW</button>
-            </div>
+            {showMenuModeSwitcher && (
+              <div className="w-full sm:w-auto bg-slate-800/80 border border-slate-700 p-1 rounded-xl flex flex-wrap items-center justify-center shadow-lg mr-0 sm:mr-2" role="group" aria-label="Choose dashboard menu">
+                {enabledMenuModes.map((mode) => <button key={mode} type="button" aria-pressed={navigationMode === mode} onClick={() => { setNavigationMode(mode); if (mode === "classic") setActiveNavId(null); }}
+                  className={"px-2.5 py-2 rounded-lg text-[9px] font-black transition-all " + (navigationMode === mode ? "bg-emerald-500 text-slate-950 shadow-md" : "text-slate-500 hover:text-slate-300")}>
+                  {mode === "classic" ? "CLASSIC" : mode === "professional" ? "PRO MENU" : mode === "new" ? "NEW MENU" : "CLASSIC NEW"}
+                </button>)}
+              </div>
+            )}
 
             {navigationMode === 'classic' && (
               <button
@@ -1687,8 +1719,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 aria-label="Toggle Classic Navigation Menu"
                 className="md:hidden flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 text-emerald-400 border border-emerald-500/30 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
               >
-                {isMobileMenuOpen ? <X className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
-                <span>Menu</span>
+                {isMobileMenuOpen ? <X className="w-3.5 h-3.5" /> : <Menu className="w-3.5 h-3.5" />}
+                <span>MENU</span>
               </button>
             )}
           <button
@@ -1843,6 +1875,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       {/* Navigation Tabs - 4-column compact grid on mobile (Classic Mode Only) */}
       {navigationMode === 'classic' && (isMobileMenuOpen || window.innerWidth >= 768) && (
         <div className={`border-b border-slate-800 pb-2 sm:pb-3 transition-all duration-300 ${isMobileMenuOpen ? 'block' : 'hidden md:block'}`}>
+          <div className="mb-1.5 flex items-center justify-between px-1"><span className="text-[10px] font-black tracking-wider text-white">MENU</span><span className="truncate text-[9px] text-slate-500">{currentUser.username || currentUser.email}</span></div>
           <div className="flex flex-col md:flex-row gap-1.5 sm:gap-2">
             <div className="grid grid-cols-4 md:flex md:flex-wrap gap-1 sm:gap-2">
               {[

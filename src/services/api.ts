@@ -1316,6 +1316,16 @@ export const api = {
 
   // --- SETTINGS ---
   settings: {
+    async getUserDashboardNavigation() {
+      return safeFetchJson<{ success: boolean; config?: any; message?: string }>(`${API_BASE}/settings/user-dashboard-navigation`);
+    },
+    async updateUserDashboardNavigation(config: any) {
+      return safeFetchJson<{ success: boolean; config?: any; message?: string }>(`${API_BASE}/settings/user-dashboard-navigation`, {
+        method: 'PUT',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ config })
+      });
+    },
     async getCommunication() {
       return safeFetchJson<{
         success: boolean;

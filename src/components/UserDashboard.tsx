@@ -1817,15 +1817,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           ({ 'my-campaigns': 'My Campaigns', create: 'Create Campaign', wallet: 'Wallet & Balance' } as Record<string, string>)[campaignSubTab]
         );
         return (
-          <nav aria-label="Dashboard breadcrumb" className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2 text-xs">
-            <button type="button" onClick={() => onNavigateGlobalTab?.('jobs')} className="font-bold text-emerald-300 hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 rounded" title="Go to HybridJobs.pk homepage">HybridJobs.pk</button>
-            <span aria-hidden="true" className="text-slate-600">/</span>
-            <button type="button" onClick={() => { setActiveTab('overview'); setOverviewSubView('metrics'); setActiveNavId('dash-overview'); }} className="text-slate-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 rounded">Dashboard</button>
-            <span aria-hidden="true" className="text-slate-600">/</span>
-            <span className="text-slate-400">{sectionNames[activeTab] || 'Dashboard'}</span>
-            <span aria-hidden="true" className="text-slate-600">/</span>
-            <span aria-current="page" className="font-semibold text-white">{currentPage}</span>
-            <button type="button" onClick={() => { setActiveTab('overview'); setOverviewSubView('metrics'); setActiveNavId('dash-overview'); }} className="ml-auto rounded-lg border border-slate-700 px-2.5 py-1 text-[10px] font-bold text-slate-300 hover:border-emerald-500/40 hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">Back to Dashboard</button>
+          <nav aria-label="Dashboard breadcrumb" className="flex flex-wrap items-center gap-x-1 gap-y-0 rounded-lg border border-slate-800 bg-slate-900/70 px-2 py-1 text-[10px] leading-4 sm:gap-x-2 sm:gap-y-1 sm:rounded-xl sm:px-3 sm:py-2 sm:text-xs">
+            <button type="button" onClick={() => onNavigateGlobalTab?.('jobs')} className="shrink-0 rounded font-bold text-emerald-300 hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400" title="Go to HybridJobs.pk homepage">HybridJobs.pk</button>
+            <span aria-hidden="true" className="shrink-0 text-slate-600">/</span>
+            <button type="button" onClick={() => { setActiveTab('overview'); setOverviewSubView('metrics'); setActiveNavId('dash-overview'); }} className="shrink-0 rounded text-slate-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">Dashboard</button>
+            <span aria-hidden="true" className="shrink-0 text-slate-600">/</span>
+            <span className="max-w-[24vw] truncate text-slate-400 sm:max-w-none">{sectionNames[activeTab] || 'Dashboard'}</span>
+            <span aria-hidden="true" className="shrink-0 text-slate-600">/</span>
+            <span aria-current="page" className="min-w-0 max-w-[30vw] truncate font-semibold text-white sm:max-w-none">{currentPage}</span>
+            <button type="button" onClick={() => { setActiveTab('overview'); setOverviewSubView('metrics'); setActiveNavId('dash-overview'); }} className="ml-auto shrink-0 rounded-md border border-slate-700 px-2 py-0.5 text-[9px] font-bold leading-4 text-slate-300 hover:border-emerald-500/40 hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 sm:rounded-lg sm:px-2.5 sm:py-1 sm:text-[10px]">Back to Dashboard</button>
           </nav>
         );
       })()}

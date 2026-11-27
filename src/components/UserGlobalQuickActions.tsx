@@ -52,7 +52,7 @@ export const UserGlobalQuickActions: React.FC<UserGlobalQuickActionsProps> = ({
   if (!currentUser) return null;
 
   const visibleActions = quickActions
-    .filter((item) => item?.enabled === true && item?.mobile === true && USER_DASHBOARD_ROUTES[item.id])
+    .filter((item) => item?.enabled === true && item?.mobile === true && USER_DASHBOARD_ROUTES[item.id] && !USER_DASHBOARD_ROUTES[item.id].action)
     .filter((item) => {
       const route = USER_DASHBOARD_ROUTES[item.id];
       return !(route.tab === 'post-job' || route.tab === 'my-jobs' || route.tab === 'campaigns') ||

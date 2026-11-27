@@ -277,8 +277,8 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* Hamburger / Menu Toggle Button with clear visible label on >= 360px */}
-            <button
+            {/* Public/guest navigation menu. Logged-in users use their dashboard menu instead. */}
+            {!currentUser && <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="p-1.5 sm:p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 flex items-center space-x-1 transition-colors cursor-pointer"
               aria-label="Toggle Navigation Menu"
@@ -286,7 +286,7 @@ export const Header: React.FC<HeaderProps> = ({
             >
               {mobileMenuOpen ? <X className="w-5 h-5 sm:w-6 sm:h-6" /> : <Menu className="w-5 h-5 sm:w-6 sm:h-6" />}
               <span className="hidden min-[360px]:inline text-xs font-bold text-slate-300">Menu</span>
-            </button>
+            </button>}
           </div>
 
         </div>

@@ -1767,20 +1767,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </div>
             )}
 
-          <button
-            onClick={() => setShowNotificationDrawer(!showNotificationDrawer)}
-            aria-label="Notifications"
-            className="relative p-2.5 sm:px-3 sm:py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-colors cursor-pointer flex items-center space-x-1.5"
-            title="In-App Notifications"
-          >
-            <Bell className="w-4 h-4 text-emerald-400" />
-            <span className="hidden sm:inline">Notifications</span>
-            {unreadNotifCount > 0 && (
-              <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full animate-pulse">
-                {unreadNotifCount}
-              </span>
-            )}
-          </button>
           {navigationMode === 'classic' && (
             <button
               onClick={handleLogout}

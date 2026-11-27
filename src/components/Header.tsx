@@ -166,7 +166,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
             {/* User Login/Account Button */}
-            {currentUser ? (
+            {currentUser && activeTab !== 'dashboard' ? (
               <button
                 onClick={() => setActiveTab('dashboard')}
                 className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white text-xs font-bold transition-all"
@@ -267,7 +267,7 @@ export const Header: React.FC<HeaderProps> = ({
             )}
 
             {/* User Account or Login Button */}
-            {currentUser ? (
+            {currentUser && activeTab !== 'dashboard' ? (
               <button
                 onClick={() => setActiveTab('dashboard')}
                 className="flex items-center space-x-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white text-xs font-bold transition-all shrink-0"

@@ -90,7 +90,7 @@ interface UserDashboardNavigationProps {
   onOpenSubscription: () => void;
   isOpen: boolean;
   onClose: () => void;
-  variant?: 'professional' | 'new';
+  variant?: 'professional' | 'new' | 'classic-new';
 }
 
 export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = ({
@@ -298,6 +298,98 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
     
     return true;
   };
+
+  // Classic New keeps the complete New Menu structure and navigation actions.
+  // Responsive category grid guarantees 4, 5, or 6 visible icon tabs per row.
+  // but presents its main categories as Classic-style icon tabs across the top.
+  if (variant === 'classic-new') {
+    const expandedMenu = menuStructure.find((category) => category.id === expandedCategory);
+    return (
+      <div className="relative z-30 w-full border-b border-slate-800 bg-slate-950/95 shadow-lg shadow-slate-950/30 backdrop-blur">
+        <nav aria-label="Classic New top icon menu" className="mx-auto grid max-w-7xl grid-cols-4 gap-1 px-2 py-2 min-[380px]:grid-cols-5 sm:grid-cols-6 sm:gap-2 sm:px-4">
+          {menuStructure.map((category) => {
+            const isExpanded = expandedCategory === category.id;
+            const categoryHasActiveItem = category.subItems.some(isActive);
+            const CategoryIcon = category.icon;
+            return (
+              <button key={category.id} type="button" onClick={() => handleCategoryClick(category.id)}
+                aria-expanded={isExpanded} aria-controls={isExpanded ? 'classic-new-submenu' : undefined}
+                className={'relative flex min-w-0 w-full min-h-[58px] flex-col items-center justify-center gap-1 rounded-lg sm:rounded-xl px-1 py-2 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 ' +
+                  (isExpanded || categoryHasActiveItem ? 'bg-emerald-500/10 text-emerald-300' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-100')}>
+                <CategoryIcon aria-hidden="true" className="h-4 w-4 sm:h-5 sm:w-5" />
+                <span className="w-full break-words text-[9px] font-bold leading-tight min-[380px]:text-[10px] sm:text-[11px]">{category.label}</span>
+                {categoryHasActiveItem && <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />}
+              </button>
+            );
+          })}
+        </nav>
+        {expandedMenu && (
+          <div id="classic-new-submenu" className="mx-auto max-w-7xl px-2 pb-3 sm:px-4">
+            <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-2 sm:p-3">
+              <div className="mb-2 flex items-center gap-2 border-b border-slate-800 px-2 pb-2">
+                <expandedMenu.icon aria-hidden="true" className="h-4 w-4 text-emerald-300" />
+                <h3 className="text-xs font-extrabold text-white">{expandedMenu.label}</h3>
+                <button type="button" onClick={() => setExpandedCategory(null)} className="ml-auto rounded-lg px-2 py-1 text-[10px] font-bold text-slate-400 hover:bg-slate-800 hover:text-white">Close</button>
+              </div>
+              <div className="grid grid-cols-1 gap-1 min-[380px]:grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {expandedMenu.subItems.map((subItem) => {
+                  const active = isActive(subItem);
+                  return (
+                    <button key={subItem.id} type="button" onClick={() => {
+                      if (subItem.isLogout) onLogout();
+                      else if (subItem.action) {
+                        onNavigate({ id: subItem.id });
+                        if (subItem.action === 'notifications') onOpenNotifications();
+                        if (subItem.action === 'deposit') onOpenDeposit();
+                        if (subItem.action === 'subscription') onOpenSubscription();
+                      } else {
+                        onNavigate({ id: subItem.id, tab: subItem.tab, subView: subItem.subView, subTab: subItem.subTab, accountSubTab: subItem.accountSubTab, isGlobal: subItem.isGlobal, globalTab: subItem.globalTab });
+                      }
+                      setExpandedCategory(null);
+                      onClose();
+                    }} aria-current={active ? 'page' : undefined} title={subItem.label}
+                    className={'flex min-h-11 items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ' +
+                      (active ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-transparent text-slate-300 hover:border-slate-700 hover:bg-slate-800')}>
+                      {subItem.icon && <subItem.icon aria-hidden="true" className="h-4 w-4 shrink-0 text-emerald-300" />}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-bold">{subItem.label}</span>
+                        {subItem.description && <span className="mt-0.5 block truncate text-[10px] text-slate-500">{subItem.description}</span>}
+                      </span>
+                      {subItem.countKey && counts[subItem.countKey] > 0 && <span className="shrink-0 rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-300">{counts[subItem.countKey] > 99 ? '99+' : counts[subItem.countKey]}</span>}
+                      {active && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-300" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+      {/* Preserve New Menu's compact mobile quick-navigation shortcuts. */}
+      <nav aria-label="Classic New mobile quick navigation" className="lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-slate-800 bg-slate-950/95 backdrop-blur supports-[backdrop-filter]:bg-slate-950/85 pb-[env(safe-area-inset-bottom)]">
+        <div className="mx-auto grid max-w-xl grid-cols-5 px-1">
+          {[
+            { id: 'dash-overview', label: 'Home', icon: LayoutDashboard, tab: 'overview' as DashboardTab, subView: 'metrics' as OverviewSubView },
+            { id: 'jobs-explore', label: 'Jobs', icon: Search, isGlobal: true, globalTab: 'jobs' as GlobalTab },
+            { id: 'career-cv', label: 'CV', icon: FileText, isGlobal: true, globalTab: 'cv' as GlobalTab },
+            { id: 'mem-whatsapp', label: 'Alerts', icon: Bell, isGlobal: true, globalTab: 'alerts' as GlobalTab },
+            { id: 'acc-profile', label: 'Account', icon: User, tab: 'profile' as DashboardTab, accountSubTab: 'profile' as const },
+          ].map((item) => {
+            const active = isActive(item);
+            return (
+              <button key={item.id} type="button" aria-current={active ? 'page' : undefined}
+                onClick={() => onNavigate({ id: item.id, tab: item.tab, subView: item.subView, accountSubTab: item.accountSubTab, isGlobal: item.isGlobal, globalTab: item.globalTab })}
+                className={'relative flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 ' + (active ? 'text-emerald-300 bg-emerald-500/10' : 'text-slate-400 hover:text-slate-200')}>
+                {active && <span className="absolute top-1.5 h-0.5 w-5 rounded-full bg-emerald-400" aria-hidden="true" />}
+                <item.icon className="h-5 w-5" aria-hidden="true" />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+      </div>
+    );
+  }
 
   const NavContent = (
     <div className={`flex flex-col h-full border-r overflow-y-auto w-[min(88vw,21rem)] lg:w-64 ${variant === 'new' ? 'bg-slate-900 border-indigo-500/30' : 'bg-slate-950 border-slate-800'}`}>

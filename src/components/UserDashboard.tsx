@@ -1625,8 +1625,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   return (
     <div className={`min-h-screen bg-slate-950 transition-all duration-300 ${navigationMode === 'professional' || navigationMode === 'new' ? 'lg:pl-64 pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0' : navigationMode === 'classic-new' ? 'pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0' : ''}`}>
       
-      {navigationMode !== 'classic' && (
+      {(
         <UserDashboardNavigation
+          quickActionsOnly={navigationMode === 'classic'}
           variant={navigationMode === 'new' ? 'new' : navigationMode === 'classic-new' ? 'classic-new' : 'professional'}
           quickActions={dashboardNavConfig.quickActions || []}
           userIdentity={currentUser.username || currentUser.email || currentUser.id || ''}

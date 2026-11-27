@@ -33,9 +33,25 @@ const DESTINATIONS = [
   ['acc-profile','Profile & Preferences','/user/dashboard/acc-profile'],['acc-security','Security & Password','/user/dashboard/acc-security']
 ] as const;
 
+const getCanonicalDestination = (id: string): string =>
+  DESTINATIONS.find(item => item[0] === id)?.[2] || '/user/dashboard/dash-overview';
+
+const normalizeQuickAction = (item: QuickAction): QuickAction => {
+  let destination = String(item.destination || '').trim();
+  // Correct previously saved legacy dashboard paths to the current registered route.
+  if (destination.startsWith('/dashboard/')) destination = getCanonicalDestination(item.id);
+  let valid = false;
+  try {
+    const parsed = new URL(destination, 'https://internal.invalid');
+    valid = destination.startsWith('/') && !destination.startsWith('//') &&
+      parsed.origin === 'https://internal.invalid' && !destination.includes('\\') &&
+      !/[\\u0000-\\u001F\\u007F]/.test(destination) && destination.length <= 160;
+  } catch {}
+  return { ...item, destination: valid ? destination : getCanonicalDestination(item.id) };
+};
+
 export const AdminUserDashboardNavigationSettings: React.FC = () => {
   const [config, setConfig] = useState<Config>(DEFAULT_CONFIG);
-  const [savedConfig, setSavedConfig] = useState<Config>(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
   const [savingMenu, setSavingMenu] = useState(false);
   const [savingQuickActions, setSavingQuickActions] = useState(false);
@@ -46,9 +62,8 @@ export const AdminUserDashboardNavigationSettings: React.FC = () => {
     let mounted = true;
     api.settings.getUserDashboardNavigation().then((result: any) => {
       if (mounted && result?.success && result.config) {
-        const normalized = { ...DEFAULT_CONFIG, ...result.config } as Config;
+        const normalized = { ...DEFAULT_CONFIG, ...result.config, quickActions: (Array.isArray(result.config.quickActions) ? result.config.quickActions : DEFAULT_CONFIG.quickActions).map((item: QuickAction) => normalizeQuickAction(item)) } as Config;
         setConfig(normalized);
-        setSavedConfig(normalized);
       }
     }).catch(() => {}).finally(() => { if (mounted) setLoading(false); });
     return () => { mounted = false; };
@@ -82,7 +97,6 @@ export const AdminUserDashboardNavigationSettings: React.FC = () => {
       const result: any = await api.settings.updateUserDashboardNavigation(payload, 'menuStyles');
       if (result?.success && result.config) {
         const normalized = { ...DEFAULT_CONFIG, ...result.config } as Config;
-        setSavedConfig(normalized);
         setConfig(prev => ({ ...prev, enabledModes: normalized.enabledModes, defaultMode: normalized.defaultMode, allowModeSwitching: normalized.allowModeSwitching }));
         setMessage('Menu styles saved successfully.');
       } else setMessage(result?.message || 'Menu styles save failed. Saved server settings were kept.');
@@ -92,12 +106,12 @@ export const AdminUserDashboardNavigationSettings: React.FC = () => {
 
   const saveQuickActions = async () => {
     setSavingQuickActions(true); setMessage('');
-    const payload = { quickActions: config.quickActions };
+    const quickActions = config.quickActions.map(normalizeQuickAction);
+    const payload = { quickActions };
     try {
       const result: any = await api.settings.updateUserDashboardNavigation(payload, 'quickActions');
       if (result?.success && result.config) {
         const normalized = { ...DEFAULT_CONFIG, ...result.config } as Config;
-        setSavedConfig(normalized);
         setConfig(prev => ({ ...prev, quickActions: normalized.quickActions }));
         setMessage('Quick Actions saved successfully.');
       } else setMessage(result?.message || 'Quick Actions save failed. Saved server settings were kept.');

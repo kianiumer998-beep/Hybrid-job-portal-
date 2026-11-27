@@ -11,6 +11,7 @@ import { JobSeoPreviewModal } from './common/JobSeoPreviewModal';
 
 import { UserDashboardNavigation } from './UserDashboardNavigation';
 import { safeLocalStorageGet, safeLocalStorageSet } from '../utils/safeStorage';
+import { getUserDashboardPath, getUserDashboardRouteId, getUserDashboardRouteIdForState, USER_DASHBOARD_ROUTES } from '../utils/userDashboardRouting';
 
 const EMPLOYER_ALLOWED_APP_STATUSES = [
   'Pending',
@@ -74,6 +75,9 @@ interface UserDashboardProps {
   onLogout: () => void;
   onOpenSubscriptionModal: () => void;
   onNavigateGlobalTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
+  dashboardMenuOpen?: boolean;
+  onDashboardMenuClose?: () => void;
+  onDashboardMenuOpen?: () => void;
 }
 
 type PaymentStatusPresentation = { label: string; className: string };
@@ -156,9 +160,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   onUpdateApplicationStatus,
   onLogout,
   onOpenSubscriptionModal,
-  onNavigateGlobalTab
+  onNavigateGlobalTab,
+  dashboardMenuOpen,
+  onDashboardMenuClose,
+  onDashboardMenuOpen
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns'>(initialTab);
+  const initialRouteId = typeof window !== 'undefined' ? getUserDashboardRouteId(window.location.pathname) : null;
+  const initialRoute = initialRouteId ? USER_DASHBOARD_ROUTES[initialRouteId] : null;
+  const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns'>(initialRoute?.tab || initialTab);
   const [overviewSubView, setOverviewSubView] = useState<'metrics' | 'recommendations' | 'history'>('metrics');
   const [appSubTab, setAppSubTab] = useState<'submitted' | 'saved' | 'alerts' | 'documents'>('submitted');
   const [campaignSubTab, setCampaignSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>('my-campaigns');
@@ -212,9 +221,42 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const parseResubmissionLines = (value: string) =>
     value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).slice(0, 100);
 
-  const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => 
-    safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_${currentUser.id}`, 'classic')
+  const [navigationMode, setNavigationMode] = useState<'classic' | 'professional' | 'new' | 'classic-new'>(() =>
+    safeLocalStorageGet<'classic' | 'professional' | 'new' | 'classic-new'>(
+      `dashboard_nav_mode_v2_${currentUser.id}`,
+      safeLocalStorageGet<'classic' | 'professional' | 'new' | 'classic-new'>(`dashboard_nav_mode_${currentUser.id}`, 'professional')
+    )
   );
+  const [dashboardNavConfig, setDashboardNavConfig] = useState<any>({
+    enabledModes: ['classic', 'professional', 'new', 'classic-new'],
+    defaultMode: 'professional',
+    allowModeSwitching: true,
+    quickActions: [
+      { id: 'dash-overview', label: 'Home', icon: 'LayoutDashboard', destination: '/user/dashboard/dash-overview', enabled: true, mobile: true, desktop: false },
+      { id: 'jobs-explore', label: 'Jobs', icon: 'Search', destination: '/jobs', enabled: true, mobile: true, desktop: false },
+      { id: 'career-cv', label: 'CV', icon: 'FileText', destination: '/cv', enabled: true, mobile: true, desktop: false },
+      { id: 'mem-whatsapp', label: 'Alerts', icon: 'Bell', destination: '/alerts', enabled: true, mobile: true, desktop: false },
+      { id: 'acc-profile', label: 'Account', icon: 'User', destination: '/user/dashboard/acc-profile', enabled: true, mobile: true, desktop: false }
+    ]
+  });
+  useEffect(() => {
+    let mounted = true;
+    api.settings.getUserDashboardNavigation().then((result: any) => {
+      if (!mounted || !result?.success || !result.config) return;
+      const next = result.config;
+      setDashboardNavConfig(next);
+      setNavigationMode((current) => {
+        const modes = Array.isArray(next.enabledModes) ? next.enabledModes : [];
+        if (!modes.length) return current;
+        if (next.allowModeSwitching !== true || modes.length === 1) return modes.includes(next.defaultMode) ? next.defaultMode : modes[0];
+        return modes.includes(current) ? current : (modes.includes(next.defaultMode) ? next.defaultMode : modes[0]);
+      });
+    }).catch(() => {});
+    return () => { mounted = false; };
+  }, [currentUser.id]);
+  const enabledMenuModes = (['classic', 'professional', 'new', 'classic-new'] as const)
+    .filter((mode) => Array.isArray(dashboardNavConfig.enabledModes) && dashboardNavConfig.enabledModes.includes(mode));
+  const showMenuModeSwitcher = dashboardNavConfig.allowModeSwitching === true && enabledMenuModes.length > 1;
 
   const safeProfileAvatarUrl = useMemo(() => {
     try {
@@ -225,12 +267,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     }
   }, [currentUser.avatarUrl]);
   const [isProMenuOpen, setIsProMenuOpen] = useState<boolean>(false);
+  useEffect(() => { if (dashboardMenuOpen === true) setIsProMenuOpen(true); }, [dashboardMenuOpen]);
   const [activeNavId, setActiveNavId] = useState<string | null>(() => 
     safeLocalStorageGet<string | null>(`dashboard_active_nav_id_${currentUser.id}`, null)
   );
 
   useEffect(() => {
-    safeLocalStorageSet(`dashboard_nav_mode_${currentUser.id}`, navigationMode);
+    safeLocalStorageSet(`dashboard_nav_mode_v2_${currentUser.id}`, navigationMode);
   }, [navigationMode, currentUser.id]);
 
   useEffect(() => {
@@ -459,14 +502,39 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [docUploading, setDocUploading] = useState(false);
 
   useEffect(() => {
-    if (initialTab) {
+    if (initialTab && !getUserDashboardRouteId(window.location.pathname)) {
       setActiveTab(initialTab);
-      // Clear a previously saved Professional-menu selection when the parent opens
-      // the dashboard on a different destination. The menu then derives the active
-      // item from the actual tab/subtab state instead of highlighting a stale item.
       setActiveNavId(null);
     }
   }, [initialTab]);
+
+  useEffect(() => {
+    const restoreRoute = () => {
+      const routeId = getUserDashboardRouteId(window.location.pathname);
+      if (!routeId) return;
+      const route = USER_DASHBOARD_ROUTES[routeId];
+      setActiveNavId(routeId);
+      if (route.globalTab) { onNavigateGlobalTab?.(route.globalTab); return; }
+      setActiveTab(route.tab);
+      if (route.subView) setOverviewSubView(route.subView);
+      if (route.tab === 'applications' && route.subTab) setAppSubTab(route.subTab as any);
+      if (route.tab === 'campaigns' && route.subTab) setCampaignSubTab(route.subTab as any);
+      if (route.accountSubTab) setAccountSubTab(route.accountSubTab);
+      if (route.action === 'deposit') setOpenDepositModalTrigger(true);
+      if (route.action === 'subscription') onOpenSubscriptionModal();
+      if (route.action === 'notifications') setShowNotificationDrawer(true);
+    };
+    restoreRoute();
+    window.addEventListener('popstate', restoreRoute);
+    return () => window.removeEventListener('popstate', restoreRoute);
+  }, []);
+
+  useEffect(() => {
+    if (!window.location.pathname.startsWith('/user/dashboard')) return;
+    const routeId = getUserDashboardRouteIdForState({ activeNavId, activeTab, overviewSubView, appSubTab, campaignSubTab, accountSubTab });
+    const nextPath = getUserDashboardPath(routeId);
+    if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath);
+  }, [activeNavId, activeTab, overviewSubView, appSubTab, campaignSubTab, accountSubTab]);
 
   // User Profile Form State
   const [profileName, setProfileName] = useState(currentUser.name);
@@ -1425,6 +1493,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     globalTab?: any;
   }) => {
     setActiveNavId(params.id);
+    const selectedRoute = USER_DASHBOARD_ROUTES[params.id];
+    if (selectedRoute && !selectedRoute.globalTab && !selectedRoute.action) {
+      const nextPath = getUserDashboardPath(params.id);
+      if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath);
+    }
 
     if (params.isGlobal && params.globalTab && onNavigateGlobalTab) {
       onNavigateGlobalTab(params.globalTab);
@@ -1588,22 +1661,38 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           : 'bg-slate-800 text-slate-300 border-slate-700';
 
   return (
-    <div className={`min-h-screen bg-slate-950 transition-all duration-300 ${navigationMode === 'professional' ? 'lg:pl-64' : ''}`}>
-      
-      {navigationMode === 'professional' && (
-        <UserDashboardNavigation
-          activeTab={activeTab}
-          overviewSubView={overviewSubView}
-          appSubTab={appSubTab}
-          campaignSubTab={campaignSubTab}
-          accountSubTab={accountSubTab}
-          activeNavId={activeNavId}
-          onNavigate={handleProNavigate}
-          onLogout={handleLogout}
-          isOpen={isProMenuOpen}
-          onClose={() => setIsProMenuOpen(false)}
-        />
-      )}
+    <div className={`min-h-screen bg-slate-950 transition-all duration-300 ${navigationMode !== 'classic' ? 'lg:pl-64 pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0' : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0'}`}>
+      <UserDashboardNavigation
+        quickActionsOnly={navigationMode === 'classic'}
+        variant={navigationMode === 'new' ? 'new' : navigationMode === 'classic-new' ? 'classic-new' : 'professional'}
+        quickActions={dashboardNavConfig.quickActions || []}
+        userIdentity={currentUser.username || currentUser.email || currentUser.id || ''}
+        activeTab={activeTab}
+        overviewSubView={overviewSubView}
+        appSubTab={appSubTab}
+        campaignSubTab={campaignSubTab}
+        accountSubTab={accountSubTab}
+        activeNavId={activeNavId}
+        userRole={currentUser.role}
+        counts={{
+          applications: userApplications.length,
+          recommendedJobs: recommendedJobs.length,
+          savedJobs: savedJobsList.length || savedJobIds.length,
+          jobAlerts: jobAlerts.length,
+          documents: userDocuments.length,
+          jobListings: displayUserJobs.length,
+          campaigns: userAds.length,
+          paymentTransactions: userTransactions.length,
+          unreadNotifications: unreadNotifCount
+        }}
+        onOpenNotifications={() => setShowNotificationDrawer(true)}
+        onOpenDeposit={() => setOpenDepositModalTrigger(true)}
+        onOpenSubscription={onOpenSubscriptionModal}
+        onNavigate={handleProNavigate}
+        onLogout={handleLogout}
+        isOpen={isProMenuOpen}
+        onClose={() => setIsProMenuOpen(false)}
+      />
 
       <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-2.5 sm:py-5 space-y-2.5 sm:space-y-4">
         
@@ -1613,7 +1702,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             {navigationMode === 'professional' && (
               <button 
                 type="button"
-                onClick={() => setIsProMenuOpen(true)}
+                onClick={() => { if (onDashboardMenuOpen) onDashboardMenuOpen(); else setIsProMenuOpen(true); }}
                 aria-label="Open Navigation Menu"
                 className="lg:hidden p-2 bg-slate-800 border border-slate-700 rounded-lg text-emerald-400 hover:text-white shrink-0"
               >
@@ -1649,30 +1738,18 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            {/* MODE SWITCHER */}
-            <div className="bg-slate-950 border border-slate-800 p-0.5 rounded-lg flex items-center shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  setNavigationMode('classic');
-                  setActiveNavId(null);
-                }}
-                className={`px-2 py-1 rounded-md text-[10px] font-black transition-all whitespace-nowrap cursor-pointer ${
-                  navigationMode === 'classic' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Classic
-              </button>
-              <button
-                type="button"
-                onClick={() => setNavigationMode('professional')}
-                className={`px-2 py-1 rounded-md text-[10px] font-black transition-all whitespace-nowrap cursor-pointer ${
-                  navigationMode === 'professional' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Pro Menu
-              </button>
-            </div>
+            {/* ADMIN-CONTROLLED MENU MODE SWITCHER */}
+            {showMenuModeSwitcher && (
+              <div className="bg-slate-950 border border-slate-800 p-0.5 rounded-lg flex flex-wrap items-center shrink-0" role="group" aria-label="Choose dashboard menu">
+                {enabledMenuModes.map((mode) => (
+                  <button key={mode} type="button" aria-pressed={navigationMode === mode}
+                    onClick={() => { setNavigationMode(mode); if (mode === 'classic') setActiveNavId(null); }}
+                    className={`px-2 py-1 rounded-md text-[9px] font-black transition-all whitespace-nowrap cursor-pointer ${navigationMode === mode ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}>
+                    {mode === 'classic' ? 'Classic' : mode === 'professional' ? 'Professional' : mode === 'new' ? 'New Menu' : 'Classic New'}
+                  </button>
+                ))}
+              </div>
+            )}
 
             <button
               type="button"

@@ -123,6 +123,7 @@ import { AdminCvSettingsController } from './admin/AdminCvSettingsController';
 import { AdminApplySettingsManager } from './admin/AdminApplySettingsManager';
 import { AdminModalContentManager } from './admin/AdminModalContentManager';
 import { AdminLocationManager } from './admin/AdminLocationManager';
+import { AdminUserDashboardNavigationSettings } from './admin/AdminUserDashboardNavigationSettings';
 import {
   AdminCategory,
   AdminNavMode,
@@ -7839,7 +7840,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* TAB: GLOBAL FEATURE CONTROLS */}
       {effectiveAdminTab === 'settings' && canAccessAdminTab('settings') && (
         <div className="admin-settings-mobile-compact space-y-6 text-white">
-          
+          <AdminUserDashboardNavigationSettings />
+
           {/* MASTER FEATURE SWITCHES PANEL */}
           <div className="md:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white space-y-5 shadow-xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">

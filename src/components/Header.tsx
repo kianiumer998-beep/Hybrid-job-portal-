@@ -18,6 +18,8 @@ interface HeaderProps {
   selectedCountryName?: string;
   selectedCountryFlag?: string;
   onOpenCountryModal?: () => void;
+  dashboardMenuOpen?: boolean;
+  onToggleDashboardMenu?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -35,7 +37,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAdDrawer,
   selectedCountryName,
   selectedCountryFlag,
-  onOpenCountryModal
+  onOpenCountryModal,
+  dashboardMenuOpen = false,
+  onToggleDashboardMenu
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
@@ -155,6 +159,12 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </button>
 
+            {currentUser && activeTab === 'dashboard' && onToggleDashboardMenu && (
+              <button type="button" onClick={onToggleDashboardMenu} aria-label="Toggle dashboard navigation" aria-expanded={dashboardMenuOpen}
+                className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition-colors ${dashboardMenuOpen ? 'border-emerald-400 bg-emerald-500/15 text-emerald-300' : 'border-slate-700 bg-slate-800 text-slate-200 hover:border-emerald-500/50'}`}>
+                <LayoutDashboard className="h-4 w-4" /><span>Dashboard Menu</span>
+              </button>
+            )}
             {/* User Login/Account Button */}
             {currentUser ? (
               <button
@@ -277,6 +287,12 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
+            {currentUser && activeTab === 'dashboard' && onToggleDashboardMenu && (
+              <button type="button" onClick={onToggleDashboardMenu} aria-label="Toggle dashboard navigation" aria-expanded={dashboardMenuOpen}
+                className={`relative p-2 rounded-xl border transition-colors shrink-0 ${dashboardMenuOpen ? 'border-emerald-400 bg-emerald-500/15 text-emerald-300' : 'border-slate-700 bg-slate-800 text-emerald-400'}`}>
+                <LayoutDashboard className="w-4 h-4" />
+              </button>
+            )}
             {/* Hamburger / Menu Toggle Button with clear visible label on >= 360px */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}

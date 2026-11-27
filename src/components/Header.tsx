@@ -282,7 +282,7 @@ export const Header: React.FC<HeaderProps> = ({
             )}
 
             {/* Logged-in dashboard menu control: kept at the far right of the mobile header. */}
-            {currentUser && activeTab === 'dashboard' && (
+            {currentUser && activeTab === 'dashboard' && !showAdminView && (
               <button
                 type="button"
                 onClick={onToggleDashboardMenu}

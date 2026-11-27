@@ -237,9 +237,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       if (!mounted || !result?.success || !result.config) return;
       const next = result.config;
       setDashboardNavConfig(next);
-      setNavigationMode((current) => Array.isArray(next.enabledModes) && next.enabledModes.includes(current)
-        ? current
-        : (next.enabledModes?.includes(next.defaultMode) ? next.defaultMode : 'professional'));
+      setNavigationMode((current) => {
+        const modes = Array.isArray(next.enabledModes) ? next.enabledModes : [];
+        if (!modes.length) return current;
+        if (next.allowModeSwitching !== true || modes.length === 1) return modes.includes(next.defaultMode) ? next.defaultMode : modes[0];
+        return modes.includes(current) ? current : (modes.includes(next.defaultMode) ? next.defaultMode : modes[0]);
+      });
     }).catch(() => {});
     return () => { mounted = false; };
   }, [currentUser.id]);
@@ -1660,7 +1663,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         {/* Header Profile Card - UNIFIED ACCOUNT */}
         <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-3 sm:p-6 text-white shadow-xl flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 sm:gap-6">
           <div className="flex items-center space-x-2.5 sm:space-x-4 w-full md:w-auto min-w-0">
-            {(navigationMode === 'professional' || navigationMode === 'new') && (
+            {(navigationMode === 'professional' || navigationMode === 'new' || navigationMode === 'classic-new') && (
               <button 
                 onClick={() => setIsProMenuOpen(true)}
                 aria-label="Open dashboard navigation"

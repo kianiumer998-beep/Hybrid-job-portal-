@@ -221,6 +221,8 @@ interface AdminDashboardProps {
   monthlyFeePkr?: number;
   onChangeMonthlyFee?: (newFee: number) => void;
   onExitAdmin: () => void;
+  initialTab?: string;
+  onNavigateTab?: (tabId: string) => void;
   ads?: Advertisement[];
   onAddAd?: (ad: Advertisement) => void;
   onUpdateAd?: (ad: Advertisement) => void;
@@ -924,6 +926,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onSuspendJob,
   onBulkEndUnpaidMemberships,
   onExitAdmin,
+  initialTab,
+  onNavigateTab,
   ads = [],
   onAddAd,
   onUpdateAd,
@@ -996,7 +1000,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'settings'
     | 'admin-security'
     | 'stats'
-  >('analytics');
+  >((initialTab || 'analytics') as any);
 
   type JobsWorkspaceSectionId = 'pending' | 'jobs' | 'add-job' | 'ai-enhancer' | 'pricing-controller' | 'fee-logs' | 'new';
   type NewWorkspaceSectionId =
@@ -1251,14 +1255,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const handlePermissionAwareNavigateTab = (targetTab: string): boolean => {
-    return navigateWithAdminPermission({
+    const success = navigateWithAdminPermission({
       targetTab: targetTab as any,
       canAccessTab: canAccessAdminTab,
       tabCategories: TAB_CATEGORIES,
       onSetTab: setAdminTab,
       onSetCategory: setActiveCategory
     });
+    if (success) onNavigateTab?.(resolveCanonicalAdminTab(targetTab));
+    return success;
   };
+
+  useEffect(() => {
+    if (!initialTab) return;
+    const canonicalTab = resolveCanonicalAdminTab(initialTab);
+    if (!canAccessAdminTab(canonicalTab)) return;
+    setAdminTab(canonicalTab as any);
+    const definition = getAdminModuleDefinition(canonicalTab);
+    if (definition) setActiveCategory(definition.classicCategory);
+  }, [initialTab]);
 
   useEffect(() => {
     let isMounted = true;

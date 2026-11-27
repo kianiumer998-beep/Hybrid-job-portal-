@@ -4300,9 +4300,8 @@ export default function App() {
         />
       )}
 
-      {/* The dashboard has its own admin-configured navigation. Hide the public/guest header there to prevent duplicate menus after login. */}
-      {true && (
-        <Header
+      {/* Keep public header controls visible; logged-in dashboard users use their configured dashboard menu instead of the guest hamburger. */}
+      <Header
           activeTab={activeTab}
           setActiveTab={(tab) => {
             setActiveTab(tab);
@@ -4336,7 +4335,6 @@ export default function App() {
           selectedCountryFlag={userSelectedCountry?.flag || '🌐'}
           onOpenCountryModal={() => setShowCountryModal(true)}
         />
-      )}
 
       {/* Main View Area */}
       <main className="flex-1">

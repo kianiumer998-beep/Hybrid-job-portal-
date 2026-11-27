@@ -15,6 +15,7 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { CompleteFeeConfigSavePayload } from './components/admin/AdminFeeManager';
 import { AuthModal } from './components/AuthModal';
 import { UserDashboard } from './components/UserDashboard';
+import { UserGlobalQuickActions } from './components/UserGlobalQuickActions';
 import { Footer } from './components/Footer';
 import { CountrySelectionModal } from './components/CountrySelectionModal';
 import { LegalDisclaimerModal } from './components/LegalDisclaimerModal';
@@ -4241,7 +4242,7 @@ export default function App() {
   );
 
   return (
-    <div className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-emerald-500 selection:text-slate-950 ${activeTab === 'jobs' && (landingDesignSystem.activeDesignId === 'design-4' || landingDesignSystem.activeDesignId === 'design-5') ? 'pb-20 md:pb-0' : ''}`}>
+    <div className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-emerald-500 selection:text-slate-950 ${currentUser && !showAdminView && activeTab !== 'dashboard' ? 'pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0' : activeTab === 'jobs' && (landingDesignSystem.activeDesignId === 'design-4' || landingDesignSystem.activeDesignId === 'design-5') ? 'pb-20 md:pb-0' : ''}`}>
       
       {/* Dynamic Global Admin Announcement Banner */}
       {siteSeoConfig.announcementBanner?.enabled && !dismissAnnouncement && (
@@ -5070,9 +5071,14 @@ export default function App() {
         />
       )}
 
+      {/* Keep authenticated users' configured quick actions mounted across public and dashboard routes. */}
+      {currentUser && !showAdminView && activeTab !== 'dashboard' && (
+        <UserGlobalQuickActions currentUser={currentUser} activeTab={activeTab} onNavigateTab={setActiveTab} />
+      )}
+
       {/* Five-tab mobile navigation for the photographic landing designs.
           Each destination reuses the existing app tabs and authentication flow. */}
-      {activeTab === 'jobs' &&
+      {!currentUser && activeTab === 'jobs' &&
         (landingDesignSystem.activeDesignId === 'design-4' || landingDesignSystem.activeDesignId === 'design-5') && (
         <nav aria-label="Mobile quick navigation" className="fixed inset-x-0 bottom-0 z-[60] grid grid-cols-5 border-t border-slate-700/80 bg-slate-950/95 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgba(0,0,0,0.35)] backdrop-blur-lg md:hidden">
           <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="flex min-h-12 flex-col items-center justify-center gap-1 text-[10px] font-bold text-slate-200"><span aria-hidden>⌂</span><span>Home</span></button>

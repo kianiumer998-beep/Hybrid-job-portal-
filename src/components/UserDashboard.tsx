@@ -1669,7 +1669,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
           <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 w-full md:w-auto">
             {/* THREE-MENU COMPARISON SWITCHER — Classic and Professional remain available. */}
-            <div className="bg-slate-800/80 border border-slate-700 p-1 rounded-xl flex items-center shadow-lg mr-0 sm:mr-2" role="group" aria-label="Choose dashboard menu">
+            <div className="w-full sm:w-auto bg-slate-800/80 border border-slate-700 p-1 rounded-xl flex flex-wrap items-center justify-center shadow-lg mr-0 sm:mr-2" role="group" aria-label="Choose dashboard menu">
               <button type="button" aria-pressed={navigationMode === 'classic'} onClick={() => { setNavigationMode('classic'); setActiveNavId(null); }}
                 className={'px-2.5 py-2 rounded-lg text-[9px] font-black transition-all ' + (navigationMode === 'classic' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300')}>CLASSIC</button>
               <button type="button" aria-pressed={navigationMode === 'professional'} onClick={() => setNavigationMode('professional')}

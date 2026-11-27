@@ -293,16 +293,19 @@ export const Header: React.FC<HeaderProps> = ({
                 <LayoutDashboard className="w-4 h-4" />
               </button>
             )}
-            {/* Hamburger / Menu Toggle Button with clear visible label on >= 360px */}
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-1.5 sm:p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 flex items-center space-x-1 transition-colors cursor-pointer"
-              aria-label="Toggle Navigation Menu"
-              aria-expanded={mobileMenuOpen}
-            >
-              {mobileMenuOpen ? <X className="w-5 h-5 sm:w-6 sm:h-6" /> : <Menu className="w-5 h-5 sm:w-6 sm:h-6" />}
-              <span className="hidden min-[360px]:inline text-xs font-bold text-slate-300">Menu</span>
-            </button>
+            {/* Public site menu is hidden inside the authenticated dashboard; that view has its own single navigation toggle. */}
+            {activeTab !== 'dashboard' && (
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="p-1.5 sm:p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 flex items-center space-x-1 transition-colors cursor-pointer"
+                aria-label="Toggle site navigation"
+                aria-expanded={mobileMenuOpen}
+              >
+                {mobileMenuOpen ? <X className="w-5 h-5 sm:w-6 sm:h-6" /> : <Menu className="w-5 h-5 sm:w-6 sm:h-6" />}
+                <span className="hidden min-[360px]:inline text-xs font-bold text-slate-300">Menu</span>
+              </button>
+            )}
           </div>
 
         </div>

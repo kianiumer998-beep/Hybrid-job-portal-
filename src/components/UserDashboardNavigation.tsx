@@ -119,7 +119,6 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   quickActionsOnly = false
 }) => {
   const [expandedCategory, setExpandedCategory] = useState<string | null>('dashboard');
-  const [newMenuCollapsed, setNewMenuCollapsed] = useState(false);
   const drawerContentRef = useRef<HTMLDivElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
@@ -326,7 +325,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                 className={'relative flex min-w-0 w-full min-h-[58px] flex-col items-center justify-center gap-1 rounded-lg sm:rounded-xl px-1 py-2 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 ' +
                   (isExpanded || categoryHasActiveItem ? 'bg-emerald-500/10 text-emerald-300' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-100')}>
                 <CategoryIcon aria-hidden="true" className="h-4 w-4 sm:h-5 sm:w-5" />
-                <span className="w-full break-words text-[9px] font-bold leading-tight min-[380px]:text-[10px] sm:text-[11px]">{category.label}</span>
+                <span className="flex w-full items-center justify-center gap-1 break-words text-[9px] font-bold leading-tight min-[380px]:text-[10px] sm:text-[11px]">{category.label}{isExpanded ? <ChevronDown aria-hidden="true" className="h-3 w-3 shrink-0" /> : <ChevronRight aria-hidden="true" className="h-3 w-3 shrink-0" />}</span>
                 {categoryHasActiveItem && <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />}
               </button>
             );
@@ -432,56 +431,63 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
       </div>
 
       <div className="flex items-center justify-end gap-2 px-3 pt-2">
-        {variant === 'new' ? (
-          <button type="button" onClick={() => setNewMenuCollapsed(value => !value)} aria-expanded={!newMenuCollapsed} className="rounded-md border border-slate-800 px-2 py-1 text-[9px] font-bold text-indigo-300 hover:bg-slate-900">{newMenuCollapsed ? 'Expand All' : 'Collapse All'}</button>
-        ) : (
-          <button type="button" onClick={() => setExpandedCategory(expandedCategory === '__all__' ? null : '__all__')} aria-expanded={expandedCategory === '__all__'} className="rounded-md border border-slate-800 px-2 py-1 text-[9px] font-bold text-emerald-300 hover:bg-slate-900">{expandedCategory === '__all__' ? 'Collapse All' : 'Expand All'}</button>
-        )}
+        <button type="button" onClick={() => setExpandedCategory(expandedCategory === '__all__' ? null : '__all__')} aria-expanded={expandedCategory === '__all__'} className={`rounded-md border border-slate-800 px-2 py-1 text-[9px] font-bold hover:bg-slate-900 ${variant === 'new' ? 'text-indigo-300' : 'text-emerald-300'}`}>{expandedCategory === '__all__' ? 'Collapse All' : 'Expand All'}</button>
       </div>
       <nav aria-label={variant === 'new' ? 'New dashboard menu' : 'Dashboard sections'} className="flex-1 px-2 py-3 space-y-2">
         {variant === 'new' ? (
-          <div className="space-y-3">
-            <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 px-3 py-2">
-              <p className="text-[10px] font-black uppercase tracking-wider text-indigo-300">New Menu Preview</p>
-              <p className="mt-1 text-[10px] leading-relaxed text-slate-400">Card-based navigation for comparison. Existing pages and actions are reused.</p>
-            </div>
-            {menuStructure.map((category) => (
-              <section key={category.id} className="rounded-xl border border-slate-800 bg-slate-950/70 p-2.5">
-                <div className="mb-2 flex items-center gap-2 px-1">
-                  <category.icon aria-hidden="true" className="h-4 w-4 text-indigo-300" />
-                  <h3 className="text-[11px] font-black text-slate-200">{category.label}</h3>
-                </div>
-                {!newMenuCollapsed && <div className="space-y-1">
-                  {category.subItems.map((subItem) => {
-                    const active = isActive(subItem);
-                    return (
-                      <button key={subItem.id} type="button" onClick={() => {
-                        if (subItem.isLogout) onLogout();
-                        else if (subItem.action) {
-                          onNavigate({ id: subItem.id });
-                          if (subItem.action === 'notifications') onOpenNotifications();
-                          if (subItem.action === 'deposit') onOpenDeposit();
-                          if (subItem.action === 'subscription') onOpenSubscription();
-                          onClose();
-                        } else {
-                          onNavigate({ id: subItem.id, tab: subItem.tab, subView: subItem.subView, subTab: subItem.subTab, accountSubTab: subItem.accountSubTab, isGlobal: subItem.isGlobal, globalTab: subItem.globalTab });
-                          if (window.innerWidth < 1024) onClose();
-                        }
-                      }} aria-current={active ? 'page' : undefined} title={subItem.label}
-                      className={'flex min-h-10 w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ' + (active ? 'border-indigo-400/30 bg-indigo-500/10 text-indigo-200' : 'border-transparent text-slate-400 hover:border-slate-700 hover:bg-slate-900 hover:text-white')}>
-                        {subItem.icon && <subItem.icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />}
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[11px] font-bold">{subItem.label}</span>
-                          {subItem.description && <span className="mt-0.5 block truncate text-[9px] text-slate-500">{subItem.description}</span>}
-                        </span>
-                        {subItem.countKey && counts[subItem.countKey] > 0 && <span className="rounded-full bg-slate-800 px-1.5 py-0.5 text-[9px] font-black text-slate-300">{counts[subItem.countKey] > 99 ? '99+' : counts[subItem.countKey]}</span>}
-                        {active && <span className="h-1.5 w-1.5 rounded-full bg-indigo-300" />}
-                      </button>
-                    );
-                  })}
-                </div>}
-              </section>
-            ))}
+          <div className="space-y-2">
+            {menuStructure.map((category) => {
+              const isExpanded = expandedCategory === '__all__' || expandedCategory === category.id;
+              const categoryHasActiveItem = category.subItems.some(isActive);
+              const CategoryIcon = category.icon;
+              return (
+                <section key={category.id} className="rounded-xl border border-slate-800 bg-slate-950/70 p-2.5">
+                  <button
+                    type="button"
+                    onClick={() => handleCategoryClick(category.id)}
+                    aria-expanded={isExpanded}
+                    className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${isExpanded || categoryHasActiveItem ? 'bg-indigo-500/10 text-indigo-200' : 'text-slate-300 hover:bg-slate-900'}`}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <CategoryIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-indigo-300" />
+                      <span className="truncate text-[11px] font-black">{category.label}</span>
+                    </span>
+                    {isExpanded ? <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-indigo-300" /> : <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-slate-400" />}
+                  </button>
+                  {isExpanded && (
+                    <div className="mt-2 space-y-1 border-l border-indigo-500/20 pl-3">
+                      {category.subItems.map((subItem) => {
+                        const active = isActive(subItem);
+                        return (
+                          <button key={subItem.id} type="button" onClick={() => {
+                            if (subItem.isLogout) onLogout();
+                            else if (subItem.action) {
+                              onNavigate({ id: subItem.id });
+                              if (subItem.action === 'notifications') onOpenNotifications();
+                              if (subItem.action === 'deposit') onOpenDeposit();
+                              if (subItem.action === 'subscription') onOpenSubscription();
+                              onClose();
+                            } else {
+                              onNavigate({ id: subItem.id, tab: subItem.tab, subView: subItem.subView, subTab: subItem.subTab, accountSubTab: subItem.accountSubTab, isGlobal: subItem.isGlobal, globalTab: subItem.globalTab });
+                              if (window.innerWidth < 1024) onClose();
+                            }
+                          }} aria-current={active ? 'page' : undefined} title={subItem.label}
+                          className={'flex min-h-10 w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ' + (active ? 'border-indigo-400/30 bg-indigo-500/10 text-indigo-200' : 'border-transparent text-slate-400 hover:border-slate-700 hover:bg-slate-900 hover:text-white')}>
+                            {subItem.icon && <subItem.icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />}
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[11px] font-bold">{subItem.label}</span>
+                              {subItem.description && <span className="mt-0.5 block truncate text-[9px] text-slate-500">{subItem.description}</span>}
+                            </span>
+                            {subItem.countKey && counts[subItem.countKey] > 0 && <span className="rounded-full bg-slate-800 px-1.5 py-0.5 text-[9px] font-black text-slate-300">{counts[subItem.countKey] > 99 ? '99+' : counts[subItem.countKey]}</span>}
+                            {active && <span className="h-1.5 w-1.5 rounded-full bg-indigo-300" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
           </div>
         ) : (
           menuStructure.map((category) => {

@@ -427,7 +427,17 @@ export async function executeBulkMembershipEnforcement(params: {
 
 export default function App() {
   // Navigation & View State
-  const [activeTab, setActiveTab] = useState<'jobs' | 'cv' | 'alerts' | 'dashboard'>('jobs');
+  const [activeTab, setActiveTab] = useState<'jobs' | 'cv' | 'alerts' | 'dashboard'>(() => {
+    if (typeof window === 'undefined') return 'jobs';
+    const path = window.location.pathname;
+    const payload = decodeStoredAuthTokenPayload();
+    const isRegisteredUserRoute = path.startsWith('/user/dashboard') &&
+      payload && !(ADMIN_ROLES as readonly string[]).includes(String(payload.role || ''));
+    if (isRegisteredUserRoute) return 'dashboard';
+    if (path === '/cv') return 'cv';
+    if (path === '/alerts') return 'alerts';
+    return 'jobs';
+  });
   const [showAdminView, setShowAdminView] = useState<boolean>(() => {
     const payload = decodeStoredAuthTokenPayload();
     const isAuthorizedAdminToken = Boolean(
@@ -446,6 +456,28 @@ export default function App() {
     return true;
   });
   const [dismissAnnouncement, setDismissAnnouncement] = useState<boolean>(false);
+
+  // Keep top-level SPA pages in sync with real browser history so dashboard
+  // deep links, refresh, and Back/Forward navigation all restore the right view.
+  useEffect(() => {
+    const syncTopLevelRoute = () => {
+      const path = window.location.pathname;
+      if (path.startsWith('/user/dashboard')) {
+        const payload = decodeStoredAuthTokenPayload();
+        if (payload && !(ADMIN_ROLES as readonly string[]).includes(String(payload.role || ''))) {
+          setActiveTab('dashboard');
+          return;
+        }
+      }
+      if (path === '/cv') setActiveTab('cv');
+      else if (path === '/alerts') setActiveTab('alerts');
+      else setActiveTab('jobs');
+    };
+    window.addEventListener('popstate', syncTopLevelRoute);
+    return () => window.removeEventListener('popstate', syncTopLevelRoute);
+  }, []);
+
+
 
   // User Country Selection State (Pop-up on entry if not set)
   const [userSelectedCountry, setUserSelectedCountry] = useState<CountryOption | null>(() => {
@@ -1621,10 +1653,17 @@ export default function App() {
   const handlePostJobClick = () => {
     setUserDashboardInitialTab('post-job');
     if (currentUser) {
+      window.history.pushState({}, '', '/user/dashboard/emp-post');
       setActiveTab('dashboard');
     } else {
       setAuthModalOpen(true);
     }
+  };
+
+  const navigateGlobalTab = (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => {
+    const nextPath = tab === 'dashboard' ? '/user/dashboard/dash-overview' : `/${tab}`;
+    if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath);
+    setActiveTab(tab);
   };
 
 
@@ -2982,6 +3021,7 @@ export default function App() {
   const handleLoginSuccess = (account: UserAccount) => {
     const sanitized = sanitizeBackendUser(account);
     setCurrentUser(sanitized);
+    window.history.pushState({}, '', '/user/dashboard/dash-overview');
     setActiveTab('dashboard');
     setUsers(prev => {
       const idx = prev.findIndex(u => u.id === sanitized.id || u.email === sanitized.email);
@@ -4690,7 +4730,7 @@ export default function App() {
                   setSelectedJobTitleForSub('');
                   setSubscriptionModalOpen(true);
                 }}
-                onNavigateGlobalTab={setActiveTab}
+                onNavigateGlobalTab={navigateGlobalTab}
               />
             )}
 

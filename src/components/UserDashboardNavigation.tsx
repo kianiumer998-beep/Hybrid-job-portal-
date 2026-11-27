@@ -266,7 +266,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   }, [activeNavId, activeTab, overviewSubView, appSubTab, campaignSubTab]);
 
   const handleCategoryClick = (id: string) => {
-    setExpandedCategory(expandedCategory === id ? null : id);
+    setExpandedCategory(expandedCategory === '__all__' ? id : expandedCategory === id ? null : id);
   };
 
   const isActive = (item: NavSubItem) => {
@@ -316,7 +316,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
         <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-1.5"><span className="text-[11px] font-black tracking-wider text-white">MENU</span><span className="max-w-[65%] truncate text-[9px] text-slate-500">{userIdentity}</span></div>
         <nav aria-label="Classic New top icon menu" className="mx-auto grid max-w-7xl grid-cols-4 gap-1 px-2 py-2 min-[380px]:grid-cols-5 sm:grid-cols-6 sm:gap-2 sm:px-4">
           {menuStructure.map((category) => {
-            const isExpanded = expandedCategory === category.id;
+            const isExpanded = expandedCategory === '__all__' || expandedCategory === category.id;
             const categoryHasActiveItem = category.subItems.some(isActive);
             const CategoryIcon = category.icon;
             return (
@@ -414,7 +414,10 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
         </button>
       </div>
 
-      <nav aria-label={variant === 'new' ? 'New dashboard menu' : 'Dashboard sections'} className="flex-1 px-2 py-4 space-y-3">
+      {variant !== 'new' && <div className="flex items-center justify-end gap-2 px-3 pt-2">
+        <button type="button" onClick={() => setExpandedCategory(expandedCategory === '__all__' ? null : '__all__')} className="rounded-md border border-slate-800 px-2 py-1 text-[9px] font-bold text-emerald-300 hover:bg-slate-900">{expandedCategory === '__all__' ? 'Collapse All' : 'Expand All'}</button>
+      </div>}
+      <nav aria-label={variant === 'new' ? 'New dashboard menu' : 'Dashboard sections'} className="flex-1 px-2 py-3 space-y-2">
         {variant === 'new' ? (
           <div className="space-y-3">
             <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 px-3 py-2">
@@ -596,6 +599,22 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
           })}
         </div>
       </nav>
+      {quickActions.some(item => item.enabled && item.desktop) && <nav aria-label="Desktop quick actions" className="hidden lg:flex fixed bottom-4 left-1/2 z-40 -translate-x-1/2 items-center gap-1 rounded-xl border border-slate-700 bg-slate-950/95 p-1.5 shadow-2xl backdrop-blur">
+        {quickActions.filter(item => item.enabled && item.desktop).slice(0,5).map(item => {
+          const target = menuStructure.flatMap(category => category.subItems).find(subItem => subItem.id === item.id);
+          if (!target || (target.employerOnly && userRole !== 'Employer/Job Poster')) return null;
+          const ActionIcon = QUICK_ACTION_ICONS[item.icon] || target.icon;
+          const active = isActive(target);
+          return <button key={item.id} type="button" onClick={() => {
+            if (target.action === 'notifications') onOpenNotifications();
+            else if (target.action === 'deposit') onOpenDeposit();
+            else if (target.action === 'subscription') onOpenSubscription();
+            else onNavigate({ id: target.id, tab: target.tab, subView: target.subView, subTab: target.subTab, accountSubTab: target.accountSubTab, isGlobal: target.isGlobal, globalTab: target.globalTab });
+          }} className={"flex items-center gap-1.5 rounded-lg px-3 py-2 text-[10px] font-bold " + (active ? "bg-emerald-500/15 text-emerald-300" : "text-slate-300 hover:bg-slate-800")}>
+            {ActionIcon && <ActionIcon className="h-4 w-4"/>}<span>{item.label}</span>
+          </button>;
+        })}
+      </nav>}
     </>
   );
 };

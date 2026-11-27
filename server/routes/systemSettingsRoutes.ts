@@ -391,6 +391,7 @@ systemSettingsRouter.post('/custom-form-fields/import-legacy', requireAdminPermi
 
 
 const USER_DASHBOARD_MENU_MODES = new Set(['classic', 'professional', 'new', 'classic-new']);
+const USER_DASHBOARD_QUICK_ACTION_ICONS = new Set(['LayoutDashboard','Search','Building2','Megaphone','User','FileText','Sparkles','History','Bookmark','Plus','Wallet','Crown','ShieldCheck','Bell','Lock','MessageSquare','Zap']);
 const USER_DASHBOARD_DESTINATIONS = new Set([
   'dash-overview', 'jobs-recommended', 'jobs-explore', 'jobs-applications', 'jobs-saved',
   'jobs-alerts', 'career-cv', 'career-docs', 'emp-post', 'emp-listings', 'emp-verification',
@@ -418,7 +419,7 @@ function validateUserDashboardNavigationConfig(raw: any): { valid: boolean; mess
     const label = String(item.label || '').trim();
     const icon = String(item.icon || '').trim();
     const destination = String(item.destination || '').trim();
-    if (!label || label.length > 24 || !icon || icon.length > 40) return { valid: false, message: 'Quick Action label or icon is invalid.' };
+    if (!label || label.length > 24 || !USER_DASHBOARD_QUICK_ACTION_ICONS.has(icon)) return { valid: false, message: 'Quick Action label or icon is invalid.' };
     if (!destination.startsWith('/') || destination.startsWith('//') || destination.length > 160 || /[\\\\\\r\\n]/.test(destination)) {
       return { valid: false, message: 'Destination must be a valid internal path beginning with one slash.' };
     }

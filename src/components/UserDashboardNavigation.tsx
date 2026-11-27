@@ -363,7 +363,6 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
             </div>
           </div>
         )}
-      </div>
       {/* Preserve New Menu's compact mobile quick-navigation shortcuts. */}
       <nav aria-label="Classic New mobile quick navigation" className="lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-slate-800 bg-slate-950/95 backdrop-blur supports-[backdrop-filter]:bg-slate-950/85 pb-[env(safe-area-inset-bottom)]">
         <div className="mx-auto grid max-w-xl grid-cols-5 px-1">
@@ -387,6 +386,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
           })}
         </div>
       </nav>
+      </div>
     );
   }
 

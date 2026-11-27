@@ -90,6 +90,7 @@ interface UserDashboardNavigationProps {
   onOpenSubscription: () => void;
   isOpen: boolean;
   onClose: () => void;
+  variant?: 'professional' | 'new';
 }
 
 export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = ({
@@ -107,7 +108,8 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   onOpenDeposit,
   onOpenSubscription,
   isOpen,
-  onClose
+  onClose,
+  variant = 'professional'
 }) => {
   const [expandedCategory, setExpandedCategory] = useState<string | null>('dashboard');
   const drawerContentRef = useRef<HTMLDivElement | null>(null);
@@ -298,21 +300,67 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   };
 
   const NavContent = (
-    <div className="flex flex-col h-full bg-slate-950 border-r border-slate-800 w-[min(88vw,21rem)] lg:w-64 overflow-y-auto">
+    <div className={`flex flex-col h-full border-r overflow-y-auto w-[min(88vw,21rem)] lg:w-64 ${variant === 'new' ? 'bg-slate-900 border-indigo-500/30' : 'bg-slate-950 border-slate-800'}`}>
       <div className="p-4 border-b border-slate-800 flex items-center justify-between lg:justify-start space-x-2">
         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-950/40">
             <LayoutDashboard className="w-5 h-5 text-slate-950" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
-          <span className="block font-extrabold text-white tracking-tight text-sm">My Dashboard</span>
-          <span className="block text-[10px] font-medium tracking-wide text-slate-500">{userRole === 'Employer/Job Poster' ? 'EMPLOYER WORKSPACE' : 'JOB SEEKER WORKSPACE'}</span>
+          <span className="block font-extrabold text-white tracking-tight text-sm">{variant === 'new' ? 'New Menu' : 'My Dashboard'}</span>
+          <span className="block text-[10px] font-medium tracking-wide text-slate-500">{variant === 'new' ? 'COMPARISON MODE' : userRole === 'Employer/Job Poster' ? 'EMPLOYER WORKSPACE' : 'JOB SEEKER WORKSPACE'}</span>
         </div>
         <button type="button" aria-label="Close navigation" onClick={onClose} className="lg:hidden rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">
             <X className="w-5 h-5" aria-hidden="true" />
         </button>
       </div>
 
-      <nav aria-label="Dashboard sections" className="flex-1 px-2 py-4 space-y-1">
+      <nav aria-label={variant === 'new' ? 'New dashboard menu' : 'Dashboard sections'} className="flex-1 px-2 py-4 space-y-3">
+        {variant === 'new' ? (
+          <div className="space-y-3">
+            <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 px-3 py-2">
+              <p className="text-[10px] font-black uppercase tracking-wider text-indigo-300">New Menu Preview</p>
+              <p className="mt-1 text-[10px] leading-relaxed text-slate-400">Card-based navigation for comparison. Existing pages and actions are reused.</p>
+            </div>
+            {menuStructure.map((category) => (
+              <section key={category.id} className="rounded-xl border border-slate-800 bg-slate-950/70 p-2.5">
+                <div className="mb-2 flex items-center gap-2 px-1">
+                  <category.icon aria-hidden="true" className="h-4 w-4 text-indigo-300" />
+                  <h3 className="text-[11px] font-black text-slate-200">{category.label}</h3>
+                </div>
+                <div className="space-y-1">
+                  {category.subItems.map((subItem) => {
+                    const active = isActive(subItem);
+                    return (
+                      <button key={subItem.id} type="button" onClick={() => {
+                        if (subItem.isLogout) onLogout();
+                        else if (subItem.action) {
+                          onNavigate({ id: subItem.id });
+                          if (subItem.action === 'notifications') onOpenNotifications();
+                          if (subItem.action === 'deposit') onOpenDeposit();
+                          if (subItem.action === 'subscription') onOpenSubscription();
+                          onClose();
+                        } else {
+                          onNavigate({ id: subItem.id, tab: subItem.tab, subView: subItem.subView, subTab: subItem.subTab, accountSubTab: subItem.accountSubTab, isGlobal: subItem.isGlobal, globalTab: subItem.globalTab });
+                          if (window.innerWidth < 1024) onClose();
+                        }
+                      }} aria-current={active ? 'page' : undefined} title={subItem.label}
+                      className={'flex min-h-10 w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ' + (active ? 'border-indigo-400/30 bg-indigo-500/10 text-indigo-200' : 'border-transparent text-slate-400 hover:border-slate-700 hover:bg-slate-900 hover:text-white')}>
+                        {subItem.icon && <subItem.icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[11px] font-bold">{subItem.label}</span>
+                          {subItem.description && <span className="mt-0.5 block truncate text-[9px] text-slate-500">{subItem.description}</span>}
+                        </span>
+                        {subItem.countKey && counts[subItem.countKey] > 0 && <span className="rounded-full bg-slate-800 px-1.5 py-0.5 text-[9px] font-black text-slate-300">{counts[subItem.countKey] > 99 ? '99+' : counts[subItem.countKey]}</span>}
+                        {active && <span className="h-1.5 w-1.5 rounded-full bg-indigo-300" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+        ) : (
+
         {menuStructure.map((category) => {
           const isExpanded = expandedCategory === category.id;
           const categoryHasActiveItem = category.subItems.some(isActive);
@@ -394,6 +442,8 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
             </div>
           );
         })}
+
+        )}
       </nav>
 
       <div className="p-3 border-t border-slate-800">

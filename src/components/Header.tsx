@@ -18,6 +18,8 @@ interface HeaderProps {
   selectedCountryName?: string;
   selectedCountryFlag?: string;
   onOpenCountryModal?: () => void;
+  dashboardMenuOpen: boolean;
+  onToggleDashboardMenu: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -35,7 +37,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAdDrawer,
   selectedCountryName,
   selectedCountryFlag,
-  onOpenCountryModal
+  onOpenCountryModal,
+  dashboardMenuOpen,
+  onToggleDashboardMenu
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
@@ -274,6 +278,20 @@ export const Header: React.FC<HeaderProps> = ({
                 className="px-2 sm:px-2.5 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold shrink-0"
               >
                 Login
+              </button>
+            )}
+
+            {/* Logged-in dashboard menu control: kept at the far right of the mobile header. */}
+            {currentUser && activeTab === 'dashboard' && !showAdminView && (
+              <button
+                type="button"
+                onClick={onToggleDashboardMenu}
+                className="p-1.5 sm:p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 transition-all cursor-pointer shrink-0"
+                aria-label={dashboardMenuOpen ? "Close dashboard menu" : "Open dashboard menu"}
+                aria-expanded={dashboardMenuOpen}
+                title="Dashboard Menu"
+              >
+                {dashboardMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
               </button>
             )}
 

@@ -438,6 +438,7 @@ export default function App() {
     if (path === '/alerts') return 'alerts';
     return 'jobs';
   });
+  const [dashboardMenuOpen, setDashboardMenuOpen] = useState(false);
   const [showAdminView, setShowAdminView] = useState<boolean>(() => {
     const payload = decodeStoredAuthTokenPayload();
     const isAuthorizedAdminToken = Boolean(
@@ -455,6 +456,9 @@ export default function App() {
     } catch {}
     return true;
   });
+  useEffect(() => {
+    if (activeTab !== 'dashboard' || showAdminView) setDashboardMenuOpen(false);
+  }, [activeTab, showAdminView]);
   const [dismissAnnouncement, setDismissAnnouncement] = useState<boolean>(false);
 
   // Keep public, registered-user and administrator SPA routes synchronized with browser history.
@@ -4334,6 +4338,8 @@ export default function App() {
           selectedCountryName={userSelectedCountry?.name || 'All Countries'}
           selectedCountryFlag={userSelectedCountry?.flag || '🌐'}
           onOpenCountryModal={() => setShowCountryModal(true)}
+          dashboardMenuOpen={dashboardMenuOpen}
+          onToggleDashboardMenu={() => setDashboardMenuOpen((open) => !open)}
         />
 
       {/* Main View Area */}
@@ -4719,6 +4725,8 @@ export default function App() {
               <UserDashboard
                 key={currentUser.id}
                 currentUser={currentUser}
+                dashboardMenuOpen={dashboardMenuOpen}
+                onCloseDashboardMenu={() => setDashboardMenuOpen(false)}
                 userJobs={userJobs}
                 chatMessages={chatMessages}
                 jobPostingFeePkr={jobPostingFeePkr}
@@ -4760,6 +4768,7 @@ export default function App() {
                     localStorage.removeItem('hybrid_user_is_subscribed');
                   } catch {}
                   setCurrentUser(null);
+                  setDashboardMenuOpen(false);
                   setIsSubscribed(false);
                   setUsers([]);
                   setAllApplications([]);

@@ -1721,9 +1721,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       <div className="max-w-7xl mx-auto w-full min-w-0 px-3 sm:px-6 lg:px-8 py-3 sm:py-8 space-y-3 sm:space-y-6">
         
         {/* Header Profile Card - UNIFIED ACCOUNT */}
-        <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-3 sm:p-6 text-white shadow-xl flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 sm:gap-6">
-          <div className="flex items-center space-x-2.5 sm:space-x-4 w-full md:w-auto min-w-0">
-            <div className="w-10 h-10 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-600 p-0.5 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
+        <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-xl sm:rounded-3xl p-2.5 sm:p-6 text-white shadow-xl flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2 sm:gap-6">
+          <div className="flex items-center space-x-2 sm:space-x-4 w-full md:w-auto min-w-0">
+            <div className="w-9 h-9 sm:w-16 sm:h-16 rounded-lg sm:rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-600 p-0.5 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
               <div className="relative w-full h-full bg-slate-950 rounded-[10px] sm:rounded-[14px] flex items-center justify-center overflow-hidden font-black text-base sm:text-2xl text-emerald-400">
                 <span>{(currentUser.name || '?').charAt(0).toUpperCase()}</span>
                 {safeProfileAvatarUrl && (
@@ -1740,12 +1740,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center space-x-1.5 sm:space-x-2">
-                <h2 className="text-base sm:text-2xl font-black truncate">{currentUser.name}</h2>
+                <h2 className="text-sm sm:text-2xl font-black truncate">{currentUser.name}</h2>
                 <span className="hidden sm:inline-block bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full">
                   Unified Portal Member
                 </span>
               </div>
-              <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5 truncate">
+              <p className="text-[9px] leading-tight sm:text-xs text-slate-400 mt-0 sm:mt-0.5 truncate whitespace-nowrap">
                 <strong className="text-white font-mono">{currentUser.username || currentUser.email.split('@')[0]}</strong> • {currentUser.email}
               </p>
             </div>
@@ -1817,15 +1817,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           ({ 'my-campaigns': 'My Campaigns', create: 'Create Campaign', wallet: 'Wallet & Balance' } as Record<string, string>)[campaignSubTab]
         );
         return (
-          <nav aria-label="Dashboard breadcrumb" className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2 text-xs">
-            <button type="button" onClick={() => onNavigateGlobalTab?.('jobs')} className="font-bold text-emerald-300 hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 rounded" title="Go to HybridJobs.pk homepage">HybridJobs.pk</button>
-            <span aria-hidden="true" className="text-slate-600">/</span>
-            <button type="button" onClick={() => { setActiveTab('overview'); setOverviewSubView('metrics'); setActiveNavId('dash-overview'); }} className="text-slate-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 rounded">Dashboard</button>
-            <span aria-hidden="true" className="text-slate-600">/</span>
-            <span className="text-slate-400">{sectionNames[activeTab] || 'Dashboard'}</span>
-            <span aria-hidden="true" className="text-slate-600">/</span>
-            <span aria-current="page" className="font-semibold text-white">{currentPage}</span>
-            <button type="button" onClick={() => { setActiveTab('overview'); setOverviewSubView('metrics'); setActiveNavId('dash-overview'); }} className="ml-auto rounded-lg border border-slate-700 px-2.5 py-1 text-[10px] font-bold text-slate-300 hover:border-emerald-500/40 hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">Back to Dashboard</button>
+          <nav aria-label="Dashboard breadcrumb" className="flex flex-wrap items-center gap-x-1 gap-y-0 rounded-lg border border-slate-800 bg-slate-900/70 px-2 py-1 text-[10px] leading-4 sm:gap-x-2 sm:gap-y-1 sm:rounded-xl sm:px-3 sm:py-2 sm:text-xs">
+            <button type="button" onClick={() => onNavigateGlobalTab?.('jobs')} className="shrink-0 rounded font-bold text-emerald-300 hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400" title="Go to HybridJobs.pk homepage">HybridJobs.pk</button>
+            <span aria-hidden="true" className="shrink-0 text-slate-600">/</span>
+            <button type="button" onClick={() => { setActiveTab('overview'); setOverviewSubView('metrics'); setActiveNavId('dash-overview'); }} className="shrink-0 rounded text-slate-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">Dashboard</button>
+            <span aria-hidden="true" className="shrink-0 text-slate-600">/</span>
+            <span className="max-w-[24vw] truncate text-slate-400 sm:max-w-none">{sectionNames[activeTab] || 'Dashboard'}</span>
+            <span aria-hidden="true" className="shrink-0 text-slate-600">/</span>
+            <span aria-current="page" className="min-w-0 max-w-[30vw] truncate font-semibold text-white sm:max-w-none">{currentPage}</span>
+            <button type="button" onClick={() => { setActiveTab('overview'); setOverviewSubView('metrics'); setActiveNavId('dash-overview'); }} className="ml-auto shrink-0 rounded-md border border-slate-700 px-2 py-0.5 text-[9px] font-bold leading-4 text-slate-300 hover:border-emerald-500/40 hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 sm:rounded-lg sm:px-2.5 sm:py-1 sm:text-[10px]">Back to Dashboard</button>
           </nav>
         );
       })()}

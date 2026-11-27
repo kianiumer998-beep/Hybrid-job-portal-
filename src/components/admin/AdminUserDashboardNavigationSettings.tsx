@@ -140,8 +140,8 @@ export const AdminUserDashboardNavigationSettings: React.FC = () => {
     </div>
     {message && <p role="status" className="text-xs text-emerald-300">{message}</p>}
     <div className="flex flex-col sm:flex-row sm:justify-between gap-2">
-      <button type="button" onClick={saveMenuStyles} disabled={savingMenu || !config.enabledModes.length} className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-xs font-black text-slate-950 disabled:opacity-50"><Save className="h-4 w-4"/>{savingMenu?'Saving menu…':'Save Menu Styles'}</button>
-      <button type="button" onClick={saveQuickActions} disabled={savingQuickActions} className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/50 bg-slate-950 px-4 py-2.5 text-xs font-black text-emerald-300 disabled:opacity-50"><Save className="h-4 w-4"/>{savingQuickActions?'Saving actions…':'Save Quick Actions'}</button>
+      <button type="button" onClick={saveMenuStyles} disabled={savingMenu || savingQuickActions || !config.enabledModes.length} className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-xs font-black text-slate-950 disabled:opacity-50"><Save className="h-4 w-4"/>{savingMenu?'Saving menu…':'Save Menu Styles'}</button>
+      <button type="button" onClick={saveQuickActions} disabled={savingQuickActions || savingMenu} className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/50 bg-slate-950 px-4 py-2.5 text-xs font-black text-emerald-300 disabled:opacity-50"><Save className="h-4 w-4"/>{savingQuickActions?'Saving actions…':'Save Quick Actions'}</button>
     </div>
   </section>;
 };

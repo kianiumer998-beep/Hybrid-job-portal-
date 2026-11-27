@@ -76,7 +76,6 @@ interface UserDashboardProps {
   onOpenSubscriptionModal: () => void;
   onNavigateGlobalTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
   dashboardMenuOpen: boolean;
-  onToggleDashboardMenu: () => void;
   onCloseDashboardMenu: () => void;
 }
 
@@ -162,7 +161,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   onOpenSubscriptionModal,
   onNavigateGlobalTab,
   dashboardMenuOpen,
-  onToggleDashboardMenu,
   onCloseDashboardMenu
 }) => {
   const initialRouteId = typeof window !== 'undefined' ? getUserDashboardRouteId(window.location.pathname) : null;
@@ -275,7 +273,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       return null;
     }
   }, [currentUser.avatarUrl]);
-  const isProMenuOpen = dashboardMenuOpen;
   const [activeNavId, setActiveNavId] = useState<string | null>(() =>
     initialRouteId || safeLocalStorageGet<string | null>(`dashboard_active_nav_id_${currentUser.id}`, null)
   );

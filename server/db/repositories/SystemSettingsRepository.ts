@@ -398,7 +398,12 @@ export class SystemSettingsRepository {
   }
 
   static async saveUserDashboardNavigationConfig(config: any): Promise<any> {
-    return this.saveSetting('user_dashboard_navigation_config', config);
+    await this.saveSetting('user_dashboard_navigation_config', config);
+    const verified = await this.getSetting<any>('user_dashboard_navigation_config', null);
+    if (!verified || JSON.stringify(verified) !== JSON.stringify(config)) {
+      throw new Error('Database readback verification failed for user dashboard navigation settings.');
+    }
+    return verified;
   }
 
 }

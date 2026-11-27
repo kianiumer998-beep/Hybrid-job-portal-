@@ -1721,9 +1721,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       <div className="max-w-7xl mx-auto w-full min-w-0 px-3 sm:px-6 lg:px-8 py-3 sm:py-8 space-y-3 sm:space-y-6">
         
         {/* Header Profile Card - UNIFIED ACCOUNT */}
-        <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-3 sm:p-6 text-white shadow-xl flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 sm:gap-6">
-          <div className="flex items-center space-x-2.5 sm:space-x-4 w-full md:w-auto min-w-0">
-            <div className="w-10 h-10 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-600 p-0.5 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
+        <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-xl sm:rounded-3xl p-2.5 sm:p-6 text-white shadow-xl flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2 sm:gap-6">
+          <div className="flex items-center space-x-2 sm:space-x-4 w-full md:w-auto min-w-0">
+            <div className="w-9 h-9 sm:w-16 sm:h-16 rounded-lg sm:rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-600 p-0.5 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
               <div className="relative w-full h-full bg-slate-950 rounded-[10px] sm:rounded-[14px] flex items-center justify-center overflow-hidden font-black text-base sm:text-2xl text-emerald-400">
                 <span>{(currentUser.name || '?').charAt(0).toUpperCase()}</span>
                 {safeProfileAvatarUrl && (
@@ -1740,12 +1740,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center space-x-1.5 sm:space-x-2">
-                <h2 className="text-base sm:text-2xl font-black truncate">{currentUser.name}</h2>
+                <h2 className="text-sm sm:text-2xl font-black truncate">{currentUser.name}</h2>
                 <span className="hidden sm:inline-block bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full">
                   Unified Portal Member
                 </span>
               </div>
-              <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5 truncate">
+              <p className="text-[9px] leading-tight sm:text-xs text-slate-400 mt-0 sm:mt-0.5 truncate whitespace-nowrap">
                 <strong className="text-white font-mono">{currentUser.username || currentUser.email.split('@')[0]}</strong> • {currentUser.email}
               </p>
             </div>

@@ -77,6 +77,7 @@ interface UserDashboardProps {
   onNavigateGlobalTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
   dashboardMenuOpen?: boolean;
   onDashboardMenuClose?: () => void;
+  onDashboardMenuOpen?: () => void;
 }
 
 type PaymentStatusPresentation = { label: string; className: string };
@@ -161,7 +162,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   onOpenSubscriptionModal,
   onNavigateGlobalTab,
   dashboardMenuOpen,
-  onDashboardMenuClose
+  onDashboardMenuClose,
+  onDashboardMenuOpen
 }) => {
   const initialRouteId = typeof window !== 'undefined' ? getUserDashboardRouteId(window.location.pathname) : null;
   const initialRoute = initialRouteId ? USER_DASHBOARD_ROUTES[initialRouteId] : null;
@@ -1700,7 +1702,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             {navigationMode === 'professional' && (
               <button 
                 type="button"
-                onClick={() => setIsProMenuOpen(true)}
+                onClick={() => { if (onDashboardMenuOpen) onDashboardMenuOpen(); else setIsProMenuOpen(true); }}
                 aria-label="Open Navigation Menu"
                 className="lg:hidden p-2 bg-slate-800 border border-slate-700 rounded-lg text-emerald-400 hover:text-white shrink-0"
               >
@@ -1736,30 +1738,18 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            {/* MODE SWITCHER */}
-            <div className="bg-slate-950 border border-slate-800 p-0.5 rounded-lg flex items-center shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  setNavigationMode('classic');
-                  setActiveNavId(null);
-                }}
-                className={`px-2 py-1 rounded-md text-[10px] font-black transition-all whitespace-nowrap cursor-pointer ${
-                  navigationMode === 'classic' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Classic
-              </button>
-              <button
-                type="button"
-                onClick={() => setNavigationMode('professional')}
-                className={`px-2 py-1 rounded-md text-[10px] font-black transition-all whitespace-nowrap cursor-pointer ${
-                  navigationMode === 'professional' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Pro Menu
-              </button>
-            </div>
+            {/* ADMIN-CONTROLLED MENU MODE SWITCHER */}
+            {showMenuModeSwitcher && (
+              <div className="bg-slate-950 border border-slate-800 p-0.5 rounded-lg flex flex-wrap items-center shrink-0" role="group" aria-label="Choose dashboard menu">
+                {enabledMenuModes.map((mode) => (
+                  <button key={mode} type="button" aria-pressed={navigationMode === mode}
+                    onClick={() => { setNavigationMode(mode); if (mode === 'classic') setActiveNavId(null); }}
+                    className={`px-2 py-1 rounded-md text-[9px] font-black transition-all whitespace-nowrap cursor-pointer ${navigationMode === mode ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}>
+                    {mode === 'classic' ? 'Classic' : mode === 'professional' ? 'Professional' : mode === 'new' ? 'New Menu' : 'Classic New'}
+                  </button>
+                ))}
+              </div>
+            )}
 
             <button
               type="button"

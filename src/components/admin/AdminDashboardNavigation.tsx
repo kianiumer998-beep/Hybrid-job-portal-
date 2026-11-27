@@ -84,6 +84,7 @@ export type AdminCanonicalTabId =
   | 'modal-content-manager'
   | 'job-visibility'
   | 'seo-config'
+  | 'user-dashboard-navigation'
   | 'settings'
   | 'form-customizer'
   | 'data-backup'
@@ -639,6 +640,16 @@ export const ADMIN_NAVIGATION_MODULES: AdminNavModuleDefinition[] = [
     urdu: 'ایڈمن سیکیورٹی',
     icon: ShieldCheck,
     keywords: ['admin security', 'password', 'credentials', 'administrator', 'security']
+  },
+  {
+    id: 'user-dashboard-navigation',
+    classicCategory: 'settings',
+    proCategory: 'platform-settings-data',
+    label: 'User Dashboard Navigation',
+    description: 'Choose the four user menu styles, control style switching, and manage dashboard quick actions.',
+    urdu: 'یوزر ڈیش بورڈ مینیو کنٹرول',
+    icon: LayoutGrid,
+    keywords: ['user dashboard', 'dashboard navigation', 'classic', 'professional', 'new menu', 'classic new', 'quick actions', 'menu styles']
   },
   {
     id: 'settings',

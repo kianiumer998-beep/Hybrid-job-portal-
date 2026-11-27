@@ -457,19 +457,37 @@ export default function App() {
   });
   const [dismissAnnouncement, setDismissAnnouncement] = useState<boolean>(false);
 
-  // Keep top-level SPA pages in sync with real browser history so dashboard
-  // deep links, refresh, and Back/Forward navigation all restore the right view.
+  // Keep public, registered-user and administrator SPA routes synchronized with browser history.
   useEffect(() => {
     const syncTopLevelRoute = () => {
       const path = window.location.pathname;
+      const payload = decodeStoredAuthTokenPayload();
+      const role = String(payload?.role || '');
+      const isAdmin = Boolean(payload && (ADMIN_ROLES as readonly string[]).includes(role));
+
+      if (path === '/admin' || path.startsWith('/admin/')) {
+        if (isAdmin) {
+          const routeTab = path.match(/^\\/admin\\/([^/]+)/)?.[1];
+          setAdminInitialTab(routeTab || 'analytics');
+          setShowAdminView(true);
+          return;
+        }
+        window.history.replaceState({}, '', '/');
+        setShowAdminView(false);
+        setActiveTab('jobs');
+        return;
+      }
+
       if (path.startsWith('/user/dashboard')) {
-        const payload = decodeStoredAuthTokenPayload();
-        if (payload && !(ADMIN_ROLES as readonly string[]).includes(String(payload.role || ''))) {
+        if (payload && !isAdmin) {
           setActiveTab('dashboard');
           return;
         }
         window.history.replaceState({}, '', '/');
+        setActiveTab('jobs');
+        return;
       }
+
       if (path === '/cv') setActiveTab('cv');
       else if (path === '/alerts') setActiveTab('alerts');
       else setActiveTab('jobs');
@@ -478,6 +496,19 @@ export default function App() {
     window.addEventListener('popstate', syncTopLevelRoute);
     return () => window.removeEventListener('popstate', syncTopLevelRoute);
   }, []);
+
+  // If a top-level SPA tab is changed by any existing UI control, keep its URL in sync.
+  // Initial load is left untouched so the public home page can remain at '/'.
+  const previousTopLevelTabRef = useRef(activeTab);
+  useEffect(() => {
+    const previousTab = previousTopLevelTabRef.current;
+    previousTopLevelTabRef.current = activeTab;
+    if (previousTab === activeTab || showAdminView) return;
+    const nextPath = activeTab === 'dashboard'
+      ? (window.location.pathname.startsWith('/user/dashboard') ? window.location.pathname : '/user/dashboard/dash-overview')
+      : activeTab === 'jobs' ? '/jobs' : `/${activeTab}`;
+    if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath);
+  }, [activeTab, showAdminView]);
 
 
 
@@ -1651,6 +1682,10 @@ export default function App() {
   const [legalModalOpen, setLegalModalOpen] = useState<boolean>(false);
   const [legalModalTab, setLegalModalTab] = useState<'disclaimer' | 'privacy' | 'terms' | 'contact'>('disclaimer');
   const [userDashboardInitialTab, setUserDashboardInitialTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat'>('overview');
+  const [adminInitialTab, setAdminInitialTab] = useState<string>(() => {
+    if (typeof window === 'undefined') return 'analytics';
+    return window.location.pathname.match(/^\\/admin\\/([^/]+)/)?.[1] || 'analytics';
+  });
 
   const handlePostJobClick = () => {
     setUserDashboardInitialTab('post-job');
@@ -4360,7 +4395,15 @@ export default function App() {
               try {
                 localStorage.setItem('hybrid_admin_view_preference', 'false');
               } catch {}
+              window.history.pushState({}, '', '/');
               setShowAdminView(false);
+            }}
+            initialTab={adminInitialTab}
+            onNavigateTab={(tabId) => {
+              if (!/^[a-z0-9-]+$/.test(tabId)) return;
+              const nextPath = `/admin/${tabId}`;
+              if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath);
+              setAdminInitialTab(tabId);
             }}
             ads={advertisements}
             onAddAd={handleAddAd}

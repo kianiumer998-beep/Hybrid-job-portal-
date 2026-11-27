@@ -394,7 +394,23 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
             </button>;
           })}
         </div>
-      </nav>av>
+      </nav>
+      {quickActions.some(item => item.enabled && item.desktop) && <nav aria-label="Desktop quick actions" className="hidden lg:flex fixed bottom-4 left-1/2 z-40 -translate-x-1/2 items-center gap-1 rounded-xl border border-slate-700 bg-slate-950/95 p-1.5 shadow-2xl backdrop-blur">
+        {quickActions.filter(item => item.enabled && item.desktop).slice(0,5).map(item => {
+          const target = menuStructure.flatMap(category => category.subItems).find(subItem => subItem.id === item.id);
+          if (!target || (target.employerOnly && userRole !== 'Employer/Job Poster')) return null;
+          const ActionIcon = QUICK_ACTION_ICONS[item.icon] || target.icon;
+          const active = isActive(target);
+          return <button key={item.id} type="button" onClick={() => {
+            if (target.action === 'notifications') onOpenNotifications();
+            else if (target.action === 'deposit') onOpenDeposit();
+            else if (target.action === 'subscription') onOpenSubscription();
+            else onNavigate({ id: target.id, tab: target.tab, subView: target.subView, subTab: target.subTab, accountSubTab: target.accountSubTab, isGlobal: target.isGlobal, globalTab: target.globalTab });
+          }} className={"flex items-center gap-1.5 rounded-lg px-3 py-2 text-[10px] font-bold " + (active ? "bg-emerald-500/15 text-emerald-300" : "text-slate-300 hover:bg-slate-800")}>
+            {ActionIcon && <ActionIcon className="h-4 w-4"/>}<span>{item.label}</span>
+          </button>;
+        })}
+      </nav>}
       </div>
     );
   }

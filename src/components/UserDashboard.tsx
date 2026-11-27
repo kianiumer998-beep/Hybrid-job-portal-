@@ -1721,7 +1721,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       <div className="max-w-7xl mx-auto w-full min-w-0 px-3 sm:px-6 lg:px-8 py-3 sm:py-8 space-y-3 sm:space-y-6">
         
         {/* Header Profile Card - UNIFIED ACCOUNT */}
-        <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-xl sm:rounded-3xl p-2.5 sm:p-6 text-white shadow-xl flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2 sm:gap-6">
+        <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-xl sm:rounded-3xl p-2.5 sm:p-6 text-white shadow-xl flex flex-col gap-2 sm:gap-4">
+          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2 sm:gap-6">
           <div className="flex items-center space-x-2 sm:space-x-4 w-full md:w-auto min-w-0">
             <div className="w-9 h-9 sm:w-16 sm:h-16 rounded-lg sm:rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-600 p-0.5 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
               <div className="relative w-full h-full bg-slate-950 rounded-[10px] sm:rounded-[14px] flex items-center justify-center overflow-hidden font-black text-base sm:text-2xl text-emerald-400">
@@ -1771,7 +1772,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </button>
           )}
         </div>
-      </div>
+        </div>
 
       {/* Persistent dashboard breadcrumb: keep users oriented and provide a safe return path. */}
       {navigationMode !== 'classic' && (() => {
@@ -1817,7 +1818,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           ({ 'my-campaigns': 'My Campaigns', create: 'Create Campaign', wallet: 'Wallet & Balance' } as Record<string, string>)[campaignSubTab]
         );
         return (
-          <nav aria-label="Dashboard breadcrumb" className="flex flex-wrap items-center gap-x-1 gap-y-0 rounded-lg border border-slate-800 bg-slate-900/70 px-2 py-1 text-[10px] leading-4 sm:gap-x-2 sm:gap-y-1 sm:rounded-xl sm:px-3 sm:py-2 sm:text-xs">
+          <nav aria-label="Dashboard breadcrumb" className="flex flex-wrap items-center gap-x-1 gap-y-0 border-t border-slate-800/90 pt-2 text-[10px] leading-4 sm:gap-x-2 sm:gap-y-1 sm:pt-3 sm:text-xs">
             <button type="button" onClick={() => onNavigateGlobalTab?.('jobs')} className="shrink-0 rounded font-bold text-emerald-300 hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400" title="Go to HybridJobs.pk homepage">HybridJobs.pk</button>
             <span aria-hidden="true" className="shrink-0 text-slate-600">/</span>
             <button type="button" onClick={() => { setActiveTab('overview'); setOverviewSubView('metrics'); setActiveNavId('dash-overview'); }} className="shrink-0 rounded text-slate-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">Dashboard</button>
@@ -1829,6 +1830,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           </nav>
         );
       })()}
+      </div>
 
       {/* PERSISTENT GLOBAL QUICK ACTION BAR (VISIBLE ACROSS ALL DASHBOARD TABS) */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-2xl sm:rounded-2xl p-3 sm:p-4 shadow-lg flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-3">

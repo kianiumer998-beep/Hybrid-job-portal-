@@ -322,6 +322,7 @@ export function checkAdminTabPermission(
       'apply-settings',
       'modal-content-manager',
       'job-visibility',
+      'user-dashboard-navigation',
       'settings',
       'admin-security',
       'form-customizer',
@@ -7837,11 +7838,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         );
       })()}
 
+      {/* TAB: USER DASHBOARD NAVIGATION */}
+      {effectiveAdminTab === 'user-dashboard-navigation' && canAccessAdminTab('user-dashboard-navigation') && (
+        <div className="admin-settings-mobile-compact space-y-4 text-white">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4 sm:p-5">
+            <h2 className="text-base font-black text-white">User Dashboard Navigation Control Center</h2>
+            <p className="mt-1 text-xs text-slate-400">Select which dashboard menu styles users can access, choose the default style, and manage the Quick Actions bar.</p>
+          </div>
+          <AdminUserDashboardNavigationSettings />
+        </div>
+      )}
+
       {/* TAB: GLOBAL FEATURE CONTROLS */}
       {effectiveAdminTab === 'settings' && canAccessAdminTab('settings') && (
         <div className="admin-settings-mobile-compact space-y-6 text-white">
-          <AdminUserDashboardNavigationSettings />
-
           {/* MASTER FEATURE SWITCHES PANEL */}
           <div className="md:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white space-y-5 shadow-xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">

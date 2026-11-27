@@ -84,7 +84,7 @@ export function getUserDashboardRouteIdForState(state: {
     ? (LEGACY_ROUTE_IDS[state.activeNavId] || state.activeNavId)
     : '';
   const activeRoute = USER_DASHBOARD_ROUTES[activeId];
-  if (activeRoute) {
+  if (activeRoute && !activeRoute.action) {
     if (activeRoute.globalTab) return activeId;
     if (activeRoute.tab === state.activeTab &&
         (!activeRoute.subView || activeRoute.subView === state.overviewSubView) &&

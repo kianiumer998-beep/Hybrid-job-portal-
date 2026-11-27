@@ -93,7 +93,7 @@ export const UserGlobalQuickActions: React.FC<UserGlobalQuickActionsProps> = ({
               className={`relative flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[9px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 ${isActive ? 'text-emerald-300 bg-emerald-500/10' : 'text-slate-400 hover:text-slate-200'}`}
             >
               {isActive && <span className="absolute top-1 h-0.5 w-4 rounded-full bg-emerald-400" aria-hidden="true" />}
-              <Icon className="h-4 w-4" aria-hidden="true" />
+              <Icon className="h-4 w-4" aria-hidden={true} />
               <span className="max-w-full truncate">{item.label}</span>
             </button>
           );

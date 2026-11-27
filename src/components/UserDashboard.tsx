@@ -75,6 +75,9 @@ interface UserDashboardProps {
   onLogout: () => void;
   onOpenSubscriptionModal: () => void;
   onNavigateGlobalTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
+  dashboardMenuOpen: boolean;
+  onToggleDashboardMenu: () => void;
+  onCloseDashboardMenu: () => void;
 }
 
 type PaymentStatusPresentation = { label: string; className: string };
@@ -157,12 +160,18 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   onUpdateApplicationStatus,
   onLogout,
   onOpenSubscriptionModal,
-  onNavigateGlobalTab
+  onNavigateGlobalTab,
+  dashboardMenuOpen,
+  onToggleDashboardMenu,
+  onCloseDashboardMenu
 }) => {
   const initialRouteId = typeof window !== 'undefined' ? getUserDashboardRouteId(window.location.pathname) : null;
   const initialRoute = initialRouteId ? USER_DASHBOARD_ROUTES[initialRouteId] : null;
   const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns'>(initialRoute?.tab || initialTab);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  useEffect(() => {
+    setIsMobileMenuOpen(dashboardMenuOpen);
+  }, [dashboardMenuOpen]);
   const [overviewSubView, setOverviewSubView] = useState<'metrics' | 'recommendations' | 'history'>(initialRoute?.subView || 'metrics');
   const [appSubTab, setAppSubTab] = useState<'submitted' | 'saved' | 'alerts' | 'documents'>(
     initialRoute?.tab === 'applications' && initialRoute.subTab ? initialRoute.subTab as 'submitted' | 'saved' | 'alerts' | 'documents' : 'submitted'
@@ -266,7 +275,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       return null;
     }
   }, [currentUser.avatarUrl]);
-  const [isProMenuOpen, setIsProMenuOpen] = useState<boolean>(false);
+  const isProMenuOpen = dashboardMenuOpen;
   const [activeNavId, setActiveNavId] = useState<string | null>(() =>
     initialRouteId || safeLocalStorageGet<string | null>(`dashboard_active_nav_id_${currentUser.id}`, null)
   );
@@ -1705,10 +1714,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           onOpenNotifications={() => setShowNotificationDrawer(true)}
           onOpenDeposit={() => setOpenDepositModalTrigger(true)}
           onOpenSubscription={onOpenSubscriptionModal}
-          onNavigate={handleProNavigate}
+          onNavigate={(params) => { onCloseDashboardMenu(); handleProNavigate(params); }}
           onLogout={handleLogout}
-          isOpen={isProMenuOpen}
-          onClose={() => setIsProMenuOpen(false)}
+          isOpen={dashboardMenuOpen}
+          onClose={onCloseDashboardMenu}
         />
       )}
 
@@ -1746,18 +1755,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 w-full md:w-auto">
-            {(navigationMode === 'professional' || navigationMode === 'new' || navigationMode === 'classic') && (
-              <button
-                type="button"
-                onClick={() => navigationMode === 'classic' ? setIsMobileMenuOpen(value => !value) : setIsProMenuOpen(true)}
-                aria-expanded={navigationMode === 'classic' ? isMobileMenuOpen : isProMenuOpen}
-                aria-label="Open dashboard menu"
-                className="lg:hidden inline-flex items-center gap-1.5 min-h-11 px-3 rounded-xl bg-slate-800 border border-emerald-500/30 text-emerald-400 text-xs font-black shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
-              >
-                {(navigationMode === 'classic' ? isMobileMenuOpen : isProMenuOpen) ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-                <span>MENU</span>
-              </button>
-            )}
+            {/* Dashboard menu trigger moved to the global Header for mobile/tablet. */}
             {showMenuModeSwitcher && (
               <div className="w-full sm:w-auto bg-slate-800/80 border border-slate-700 p-1 rounded-xl flex flex-wrap items-center justify-center shadow-lg mr-0 sm:mr-2" role="group" aria-label="Choose dashboard menu">
                 {enabledMenuModes.map((mode) => <button key={mode} type="button" aria-pressed={navigationMode === mode} onClick={() => { setNavigationMode(mode); if (mode === "classic") setActiveNavId(null); }}
@@ -1925,6 +1923,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     onClick={() => {
                       setActiveTab(t.id as any);
                       setIsMobileMenuOpen(false);
+                      onCloseDashboardMenu();
                     }}
                     className={`flex flex-col sm:flex-row items-center justify-center space-y-0.5 sm:space-y-0 sm:space-x-1.5 px-1 sm:px-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-sm font-bold transition-all text-center cursor-pointer ${
                       activeTab === t.id

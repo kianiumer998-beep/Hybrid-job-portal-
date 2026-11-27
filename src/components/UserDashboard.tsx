@@ -516,6 +516,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       const routeId = getUserDashboardRouteId(window.location.pathname);
       if (!routeId) return;
       const route = USER_DASHBOARD_ROUTES[routeId];
+      if (route.globalTab) {
+        onNavigateGlobalTab?.(route.globalTab);
+        return;
+      }
       setActiveNavId(routeId);
       setActiveTab(route.tab);
       if (route.subView) setOverviewSubView(route.subView);
@@ -526,10 +530,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         setCampaignSubTab(route.subTab as 'my-campaigns' | 'create' | 'wallet');
       }
       if (route.accountSubTab) setAccountSubTab(route.accountSubTab);
+      if (route.action === 'deposit') setOpenDepositModalTrigger(true);
+      if (route.action === 'subscription') onOpenSubscriptionModal();
     };
+    restoreDashboardRoute();
     window.addEventListener('popstate', restoreDashboardRoute);
     return () => window.removeEventListener('popstate', restoreDashboardRoute);
-  }, []);
+  }, [onNavigateGlobalTab, onOpenSubscriptionModal]);
 
   // Every dashboard destination has a shareable, refresh-safe URL. pushState is
   // used rather than assigning location so the app remains a fast SPA.

@@ -1262,7 +1262,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       onSetTab: setAdminTab,
       onSetCategory: setActiveCategory
     });
-    if (success) onNavigateTab?.(resolveCanonicalAdminTab(targetTab));
     return success;
   };
 
@@ -1274,6 +1273,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const definition = getAdminModuleDefinition(canonicalTab);
     if (definition) setActiveCategory(definition.classicCategory);
   }, [initialTab]);
+
+  // Keep the address bar in sync with every admin module change, including legacy
+  // shortcut buttons that set the selected module directly.
+  useEffect(() => {
+    onNavigateTab?.(resolveCanonicalAdminTab(String(adminTab)));
+  }, [adminTab]);
 
   useEffect(() => {
     let isMounted = true;

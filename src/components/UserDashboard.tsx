@@ -1691,7 +1691,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         onNavigate={handleProNavigate}
         onLogout={handleLogout}
         isOpen={isProMenuOpen}
-        onClose={() => setIsProMenuOpen(false)}
+        onClose={() => { setIsProMenuOpen(false); onDashboardMenuClose?.(); }}
       />
 
       <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-2.5 sm:py-5 space-y-2.5 sm:space-y-4">
@@ -1750,22 +1750,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 ))}
               </div>
             )}
-
-            <button
-              type="button"
-              onClick={() => setShowNotificationDrawer(!showNotificationDrawer)}
-              aria-label="Notifications"
-              className="relative px-2 sm:px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition-colors cursor-pointer flex items-center gap-1 shrink-0"
-              title="In-App Notifications"
-            >
-              <Bell className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="hidden sm:inline">Alerts</span>
-              {unreadNotifCount > 0 && (
-                <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded tabular-nums">
-                  {unreadNotifCount}
-                </span>
-              )}
-            </button>
 
             {navigationMode === 'classic' && (
               <button

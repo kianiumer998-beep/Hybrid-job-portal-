@@ -166,7 +166,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
             {/* User Login/Account Button */}
-            {currentUser && activeTab !== 'dashboard' ? (
+            {currentUser ? (
               <button
                 onClick={() => setActiveTab('dashboard')}
                 className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white text-xs font-bold transition-all"
@@ -267,7 +267,7 @@ export const Header: React.FC<HeaderProps> = ({
             )}
 
             {/* User Account or Login Button */}
-            {currentUser && activeTab !== 'dashboard' ? (
+            {currentUser ? (
               <button
                 onClick={() => setActiveTab('dashboard')}
                 className="flex items-center space-x-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white text-xs font-bold transition-all shrink-0"
@@ -289,8 +289,8 @@ export const Header: React.FC<HeaderProps> = ({
 
             {currentUser && activeTab === 'dashboard' && onToggleDashboardMenu && (
               <button type="button" onClick={onToggleDashboardMenu} aria-label="Toggle dashboard navigation" aria-expanded={dashboardMenuOpen}
-                className={`relative p-2 rounded-xl border transition-colors shrink-0 ${dashboardMenuOpen ? 'border-emerald-400 bg-emerald-500/15 text-emerald-300' : 'border-slate-700 bg-slate-800 text-emerald-400'}`}>
-                <LayoutDashboard className="w-4 h-4" />
+                className={`relative px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-colors shrink-0 ${dashboardMenuOpen ? 'border-emerald-400 bg-emerald-500/15 text-emerald-300' : 'border-slate-700 bg-slate-800 text-emerald-400'}`}>
+                <span>Menu</span>
               </button>
             )}
             {/* Public site menu is hidden inside the authenticated dashboard; that view has its own single navigation toggle. */}

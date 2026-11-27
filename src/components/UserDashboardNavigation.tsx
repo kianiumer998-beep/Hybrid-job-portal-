@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { 
   LayoutDashboard, 
@@ -110,6 +110,8 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   onClose
 }) => {
   const [expandedCategory, setExpandedCategory] = useState<string | null>('dashboard');
+  const drawerContentRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
 
   // Prevent background scrolling while the mobile drawer is open.
   useEffect(() => {
@@ -119,14 +121,52 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
     return () => { document.body.style.overflow = previousOverflow; };
   }, [isOpen]);
 
-  // Let mobile users dismiss the navigation with the standard Escape key.
+  // Keep focus inside the mobile drawer, close it with Escape, and restore
+  // focus to the control that opened it. The closed drawer is inert so keyboard
+  // users cannot tab into hidden navigation controls.
   useEffect(() => {
-    if (!isOpen) return;
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+    const drawer = drawerContentRef.current;
+    if (drawer) drawer.inert = !isOpen;
+
+    if (!isOpen) {
+      previousFocusRef.current?.focus();
+      return;
+    }
+
+    previousFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+
+    const focusableSelector = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusFirst = () => drawerContentRef.current?.querySelector<HTMLElement>(focusableSelector)?.focus();
+    window.requestAnimationFrame(focusFirst);
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = Array.from(drawerContentRef.current?.querySelectorAll<HTMLElement>(focusableSelector) || [])
+        .filter((element) => !element.hasAttribute('disabled') && element.offsetParent !== null);
+      if (!focusable.length) {
+        event.preventDefault();
+        drawerContentRef.current?.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !drawerContentRef.current?.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !drawerContentRef.current?.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
     };
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
   const menuStructure: NavItem[] = ([
@@ -380,7 +420,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
           className={`absolute inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}
           onClick={onClose}
         />
-        <div className={`absolute left-0 top-0 bottom-0 transition-transform duration-300 transform ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div ref={drawerContentRef} tabIndex={-1} className={`absolute left-0 top-0 bottom-0 transition-transform duration-300 transform ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
           {NavContent}
         </div>
       </div>

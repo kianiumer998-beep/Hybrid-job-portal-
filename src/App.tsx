@@ -467,7 +467,7 @@ export default function App() {
 
       if (path === '/admin' || path.startsWith('/admin/')) {
         if (isAdmin) {
-          const routeTab = path.match(/^\\/admin\\/([^/]+)/)?.[1];
+          const routeTab = path.match(/^\/admin\/([^/]+)/)?.[1];
           setAdminInitialTab(routeTab || 'analytics');
           setShowAdminView(true);
           return;
@@ -1684,7 +1684,7 @@ export default function App() {
   const [userDashboardInitialTab, setUserDashboardInitialTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat'>('overview');
   const [adminInitialTab, setAdminInitialTab] = useState<string>(() => {
     if (typeof window === 'undefined') return 'analytics';
-    return window.location.pathname.match(/^\\/admin\\/([^/]+)/)?.[1] || 'analytics';
+    return window.location.pathname.match(/^\/admin\/([^/]+)/)?.[1] || 'analytics';
   });
 
   const handlePostJobClick = () => {

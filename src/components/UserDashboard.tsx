@@ -212,8 +212,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const parseResubmissionLines = (value: string) =>
     value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).slice(0, 100);
 
-  const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => 
-    safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_${currentUser.id}`, 'classic')
+  const [navigationMode, setNavigationMode] = useState<'classic' | 'professional' | 'new'>(() => 
+    safeLocalStorageGet<'classic' | 'professional' | 'new'>(
+      `dashboard_nav_mode_v2_${currentUser.id}`,
+      safeLocalStorageGet<'classic' | 'professional' | 'new'>(`dashboard_nav_mode_${currentUser.id}`, 'professional')
+    )
   );
 
   const safeProfileAvatarUrl = useMemo(() => {
@@ -230,7 +233,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   );
 
   useEffect(() => {
-    safeLocalStorageSet(`dashboard_nav_mode_${currentUser.id}`, navigationMode);
+    safeLocalStorageSet(`dashboard_nav_mode_v2_${currentUser.id}`, navigationMode);
   }, [navigationMode, currentUser.id]);
 
   useEffect(() => {
@@ -1588,16 +1591,32 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           : 'bg-slate-800 text-slate-300 border-slate-700';
 
   return (
-    <div className={`min-h-screen bg-slate-950 transition-all duration-300 ${navigationMode === 'professional' ? 'lg:pl-64' : ''}`}>
+    <div className={`min-h-screen bg-slate-950 transition-all duration-300 ${navigationMode !== 'classic' ? 'lg:pl-64 pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0' : ''}`}>
       
-      {navigationMode === 'professional' && (
+      {navigationMode !== 'classic' && (
         <UserDashboardNavigation
+          variant={navigationMode === 'new' ? 'new' : 'professional'}
           activeTab={activeTab}
           overviewSubView={overviewSubView}
           appSubTab={appSubTab}
           campaignSubTab={campaignSubTab}
           accountSubTab={accountSubTab}
           activeNavId={activeNavId}
+          userRole={currentUser.role}
+          counts={{
+            applications: userApplications.length,
+            recommendedJobs: recommendedJobs.length,
+            savedJobs: savedJobsList.length || savedJobIds.length,
+            jobAlerts: jobAlerts.length,
+            documents: userDocuments.length,
+            jobListings: displayUserJobs.length,
+            campaigns: userAds.length,
+            paymentTransactions: userTransactions.length,
+            unreadNotifications: unreadNotifCount
+          }}
+          onOpenNotifications={() => setShowNotificationDrawer(true)}
+          onOpenDeposit={() => setOpenDepositModalTrigger(true)}
+          onOpenSubscription={onOpenSubscriptionModal}
           onNavigate={handleProNavigate}
           onLogout={handleLogout}
           isOpen={isProMenuOpen}
@@ -1605,15 +1624,17 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         />
       )}
 
-      <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-3 sm:py-8 space-y-3 sm:space-y-6">
+      <div className="max-w-7xl mx-auto w-full min-w-0 px-3 sm:px-6 lg:px-8 py-3 sm:py-8 space-y-3 sm:space-y-6">
         
         {/* Header Profile Card - UNIFIED ACCOUNT */}
-        <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-xl sm:rounded-3xl p-2.5 sm:p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-2.5 sm:gap-6">
-          <div className="flex items-center space-x-2.5 sm:space-x-4 w-full md:w-auto">
-            {navigationMode === 'professional' && (
+        <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-3 sm:p-6 text-white shadow-xl flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 sm:gap-6">
+          <div className="flex items-center space-x-2.5 sm:space-x-4 w-full md:w-auto min-w-0">
+            {navigationMode !== 'classic' && (
               <button 
                 onClick={() => setIsProMenuOpen(true)}
-                className="lg:hidden p-2 bg-slate-800 border border-slate-700 rounded-lg text-emerald-400 hover:text-white"
+                aria-label="Open dashboard navigation"
+                aria-expanded={isProMenuOpen}
+                className="lg:hidden p-2.5 min-h-11 min-w-11 bg-slate-800 border border-slate-700 rounded-xl text-emerald-400 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
               >
                 <Menu className="w-5 h-5" />
               </button>
@@ -1635,7 +1656,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center space-x-1.5 sm:space-x-2">
-                <h2 className="text-sm sm:text-2xl font-black truncate">{currentUser.name}</h2>
+                <h2 className="text-base sm:text-2xl font-black truncate">{currentUser.name}</h2>
                 <span className="hidden sm:inline-block bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full">
                   Unified Portal Member
                 </span>
@@ -1646,28 +1667,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center space-x-1.5 sm:space-x-3 w-full md:w-auto justify-end">
-            {/* MODE SWITCHER */}
-            <div className="bg-slate-800/80 border border-slate-700 p-1 rounded-xl flex items-center shadow-lg mr-1 sm:mr-2">
-              <button
-                onClick={() => {
-                  setNavigationMode('classic');
-                  setActiveNavId(null);
-                }}
-                className={`px-2.5 py-1 rounded-lg text-[9px] font-black transition-all ${
-                  navigationMode === 'classic' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                CLASSIC
-              </button>
-              <button
-                onClick={() => setNavigationMode('professional')}
-                className={`px-2.5 py-1 rounded-lg text-[9px] font-black transition-all ${
-                  navigationMode === 'professional' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                PRO MENU
-              </button>
+          <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 w-full md:w-auto">
+            {/* THREE-MENU COMPARISON SWITCHER — Classic and Professional remain available. */}
+            <div className="bg-slate-800/80 border border-slate-700 p-1 rounded-xl flex items-center shadow-lg mr-0 sm:mr-2" role="group" aria-label="Choose dashboard menu">
+              <button type="button" aria-pressed={navigationMode === 'classic'} onClick={() => { setNavigationMode('classic'); setActiveNavId(null); }}
+                className={'px-2.5 py-2 rounded-lg text-[9px] font-black transition-all ' + (navigationMode === 'classic' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300')}>CLASSIC</button>
+              <button type="button" aria-pressed={navigationMode === 'professional'} onClick={() => setNavigationMode('professional')}
+                className={'px-2.5 py-2 rounded-lg text-[9px] font-black transition-all ' + (navigationMode === 'professional' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300')}>PRO MENU</button>
+              <button type="button" aria-pressed={navigationMode === 'new'} onClick={() => setNavigationMode('new')}
+                className={'px-2.5 py-2 rounded-lg text-[9px] font-black transition-all ' + (navigationMode === 'new' ? 'bg-indigo-400 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300')}>NEW MENU</button>
             </div>
 
             {navigationMode === 'classic' && (
@@ -1684,7 +1692,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           <button
             onClick={() => setShowNotificationDrawer(!showNotificationDrawer)}
             aria-label="Notifications"
-            className="relative p-2 sm:px-3 sm:py-2 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-colors cursor-pointer flex items-center space-x-1.5"
+            className="relative p-2.5 sm:px-3 sm:py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-colors cursor-pointer flex items-center space-x-1.5"
             title="In-App Notifications"
           >
             <Bell className="w-4 h-4 text-emerald-400" />
@@ -1706,9 +1714,66 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         </div>
       </div>
 
+      {/* Persistent dashboard breadcrumb: keep users oriented and provide a safe return path. */}
+      {navigationMode !== 'classic' && (() => {
+        const sectionNames: Record<string, string> = {
+          overview: 'Overview',
+          profile: 'My Account',
+          applications: 'Find Jobs / Career',
+          'post-job': 'Employer Center',
+          'my-jobs': 'Employer Center',
+          chat: 'Help & Support',
+          campaigns: campaignSubTab === 'wallet' ? 'Wallet & Payments' : 'Ads & Campaigns'
+        };
+        const pageNames: Record<string, string> = {
+          'dash-overview': 'Dashboard Overview',
+          'jobs-recommended': 'Recommended Jobs',
+          'jobs-applications': 'My Applications',
+          'jobs-saved': 'Saved Jobs',
+          'jobs-alerts': 'Job Alerts',
+          'career-docs': 'My Documents',
+          'career-cv': 'CV Builder',
+          'emp-post': 'Post a Job',
+          'emp-listings': 'My Job Listings & Applicants',
+          'emp-verification': 'Business Verification',
+          'ads-list': 'My Campaigns',
+          'ads-create': 'Create Campaign',
+          'mem-wallet': 'Wallet & Balance',
+          'membership-plan': 'Membership & Plans',
+          'wallet-deposit': 'Add Funds / Deposit',
+          'mem-history': 'Payment History',
+          'mem-whatsapp': 'WhatsApp & Job Alerts',
+          'notifications-center': 'Notifications Center',
+          'acc-chat': 'Support Inbox',
+          'acc-profile': 'Profile & Preferences',
+          'acc-security': 'Security & Password'
+        };
+        const currentPage = pageNames[activeNavId || ''] || (
+          activeTab === 'overview' ? (overviewSubView === 'history' ? 'Payment History' : overviewSubView === 'recommendations' ? 'Recommended Jobs' : 'Dashboard Overview') :
+          activeTab === 'profile' ? (accountSubTab === 'security' ? 'Security & Password' : 'Profile & Preferences') :
+          activeTab === 'applications' ? ({ submitted: 'My Applications', saved: 'Saved Jobs', alerts: 'Job Alerts', documents: 'My Documents' } as Record<string, string>)[appSubTab] :
+          activeTab === 'post-job' ? 'Post a Job' :
+          activeTab === 'my-jobs' ? 'My Job Listings & Applicants' :
+          activeTab === 'chat' ? 'Support Inbox' :
+          ({ 'my-campaigns': 'My Campaigns', create: 'Create Campaign', wallet: 'Wallet & Balance' } as Record<string, string>)[campaignSubTab]
+        );
+        return (
+          <nav aria-label="Dashboard breadcrumb" className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2 text-xs">
+            <button type="button" onClick={() => onNavigateGlobalTab?.('jobs')} className="font-bold text-emerald-300 hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 rounded" title="Go to HybridJobs.pk homepage">HybridJobs.pk</button>
+            <span aria-hidden="true" className="text-slate-600">/</span>
+            <button type="button" onClick={() => { setActiveTab('overview'); setOverviewSubView('metrics'); setActiveNavId('dash-overview'); }} className="text-slate-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 rounded">Dashboard</button>
+            <span aria-hidden="true" className="text-slate-600">/</span>
+            <span className="text-slate-400">{sectionNames[activeTab] || 'Dashboard'}</span>
+            <span aria-hidden="true" className="text-slate-600">/</span>
+            <span aria-current="page" className="font-semibold text-white">{currentPage}</span>
+            <button type="button" onClick={() => { setActiveTab('overview'); setOverviewSubView('metrics'); setActiveNavId('dash-overview'); }} className="ml-auto rounded-lg border border-slate-700 px-2.5 py-1 text-[10px] font-bold text-slate-300 hover:border-emerald-500/40 hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">Back to Dashboard</button>
+          </nav>
+        );
+      })()}
+
       {/* PERSISTENT GLOBAL QUICK ACTION BAR (VISIBLE ACROSS ALL DASHBOARD TABS) */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-2 sm:p-3 shadow-lg flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center space-x-2 sm:space-x-3">
+      <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-2xl sm:rounded-2xl p-3 sm:p-4 shadow-lg flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
             <Wallet className="w-3.5 h-3.5 shrink-0" />
             <span className="text-[10px] sm:text-xs font-semibold text-slate-300">Wallet:</span>
@@ -1720,7 +1785,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </span>
           </div>
 
-          <div className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px]">
+          <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px]">
             <span className="text-slate-400">Membership:</span>
             <span className={`font-bold flex items-center space-x-1 ${membershipStatusLabel === 'Active & Verified' ? 'text-emerald-400' : membershipStatusLabel === 'Expired' || membershipStatusLabel === 'Revoked' ? 'text-rose-400' : 'text-amber-300'}`}>
               <span className={`w-1.5 h-1.5 rounded-full ${membershipStatusLabel === 'Active & Verified' ? 'bg-emerald-400' : membershipStatusLabel === 'Expired' || membershipStatusLabel === 'Revoked' ? 'bg-rose-500' : 'bg-amber-400'}`} />
@@ -1729,14 +1794,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-1.5 sm:gap-2">
+        <div className="grid grid-cols-1 min-[360px]:grid-cols-3 sm:flex sm:flex-wrap items-stretch sm:items-center justify-end gap-2">
           <button
             type="button"
             onClick={() => {
               setActiveNavId('emp-post');
               setActiveTab('post-job');
             }}
-            className="px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-[11px] sm:text-xs flex items-center space-x-1 cursor-pointer active:scale-95 transition-all"
+            className="w-full sm:w-auto justify-center px-3 sm:px-3.5 py-2 sm:py-1.5 rounded-xl sm:rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-[11px] sm:text-xs flex items-center space-x-1 cursor-pointer active:scale-95 transition-all"
             title="Open the existing job posting form"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -1750,7 +1815,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               setCampaignSubTab('wallet');
               setOpenDepositModalTrigger(true);
             }}
-            className="px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-[11px] sm:text-xs shadow-md shadow-emerald-500/20 flex items-center space-x-1 cursor-pointer active:scale-95 transition-all"
+            className="w-full sm:w-auto justify-center px-3 sm:px-3.5 py-2 sm:py-1.5 rounded-xl sm:rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-[11px] sm:text-xs shadow-md shadow-emerald-500/20 flex items-center space-x-1 cursor-pointer active:scale-95 transition-all"
             title="Deposit funds into your wallet"
           >
             <Plus className="w-3.5 h-3.5 stroke-[3]" />
@@ -1764,7 +1829,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               setActiveTab('campaigns');
               setCampaignSubTab('create');
             }}
-            className="px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold text-[11px] sm:text-xs shadow-md shadow-indigo-600/20 flex items-center space-x-1 cursor-pointer active:scale-95 transition-all"
+            className="w-full sm:w-auto justify-center px-3 sm:px-3.5 py-2 sm:py-1.5 rounded-xl sm:rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold text-[11px] sm:text-xs shadow-md shadow-indigo-600/20 flex items-center space-x-1 cursor-pointer active:scale-95 transition-all"
             title="Create and launch a new ad campaign"
           >
             <Sparkles className="w-3.5 h-3.5 text-indigo-200" />

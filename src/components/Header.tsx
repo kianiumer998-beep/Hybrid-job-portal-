@@ -389,6 +389,20 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
       )}
+
+      {/* Global-page breadcrumb remains visible on Jobs, CV Builder, and Alerts pages. */}
+      {activeTab !== 'dashboard' && (
+        <nav aria-label="Website breadcrumb" className="border-t border-slate-800/80 bg-slate-950/70 px-4 py-1.5 text-[11px] sm:text-xs">
+          <div className="mx-auto flex max-w-7xl items-center gap-2">
+            <button type="button" onClick={() => setActiveTab('jobs')} className="rounded font-bold text-emerald-300 hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">HybridJobs.pk</button>
+            <span aria-hidden="true" className="text-slate-600">/</span>
+            <span aria-current="page" className="font-medium text-slate-300">{activeTab === 'jobs' ? 'Explore Jobs' : activeTab === 'cv' ? 'CV Builder' : 'Job Alerts'}</span>
+            {currentUser && (
+              <button type="button" onClick={() => setActiveTab('dashboard')} className="ml-auto rounded-lg border border-slate-700 px-2.5 py-1 font-bold text-slate-300 hover:border-emerald-500/40 hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">User Dashboard</button>
+            )}
+          </div>
+        </nav>
+      )}
     </header>
   );
 };

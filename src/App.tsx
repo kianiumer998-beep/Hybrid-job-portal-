@@ -4300,41 +4300,43 @@ export default function App() {
         />
       )}
 
-      {/* Navigation Header */}
-      <Header
-        activeTab={activeTab}
-        setActiveTab={(tab) => {
-          setActiveTab(tab);
-          if (showAdminView) {
+      {/* The dashboard has its own admin-configured navigation. Hide the public/guest header there to prevent duplicate menus after login. */}
+      {activeTab !== 'dashboard' && (
+        <Header
+          activeTab={activeTab}
+          setActiveTab={(tab) => {
+            setActiveTab(tab);
+            if (showAdminView) {
+              try {
+                localStorage.setItem('hybrid_admin_view_preference', 'false');
+              } catch {}
+            }
+            setShowAdminView(false);
+          }}
+          isSubscribed={isSubscribed}
+          onOpenSubscriptionModal={() => {
+            setSelectedJobTitleForSub('');
+            setSubscriptionModalOpen(true);
+          }}
+          savedJobsCount={savedJobIds.length}
+          currentUser={currentUser}
+          onOpenAuthModal={() => setAuthModalOpen(true)}
+          isAdminLoggedIn={isAdminLoggedIn}
+          onToggleAdminView={() => {
+            const nextView = !showAdminView;
             try {
-              localStorage.setItem('hybrid_admin_view_preference', 'false');
+              localStorage.setItem('hybrid_admin_view_preference', nextView ? 'true' : 'false');
             } catch {}
-          }
-          setShowAdminView(false);
-        }}
-        isSubscribed={isSubscribed}
-        onOpenSubscriptionModal={() => {
-          setSelectedJobTitleForSub('');
-          setSubscriptionModalOpen(true);
-        }}
-        savedJobsCount={savedJobIds.length}
-        currentUser={currentUser}
-        onOpenAuthModal={() => setAuthModalOpen(true)}
-        isAdminLoggedIn={isAdminLoggedIn}
-        onToggleAdminView={() => {
-          const nextView = !showAdminView;
-          try {
-            localStorage.setItem('hybrid_admin_view_preference', nextView ? 'true' : 'false');
-          } catch {}
-          setShowAdminView(nextView);
-        }}
-        showAdminView={showAdminView}
-        activeAdsCount={advertisements.filter((a) => a.status === 'active').length}
-        onOpenAdDrawer={() => setIsAdDrawerOpen(true)}
-        selectedCountryName={userSelectedCountry?.name || 'All Countries'}
-        selectedCountryFlag={userSelectedCountry?.flag || '🌐'}
-        onOpenCountryModal={() => setShowCountryModal(true)}
-      />
+            setShowAdminView(nextView);
+          }}
+          showAdminView={showAdminView}
+          activeAdsCount={advertisements.filter((a) => a.status === 'active').length}
+          onOpenAdDrawer={() => setIsAdDrawerOpen(true)}
+          selectedCountryName={userSelectedCountry?.name || 'All Countries'}
+          selectedCountryFlag={userSelectedCountry?.flag || '🌐'}
+          onOpenCountryModal={() => setShowCountryModal(true)}
+        />
+      )}
 
       {/* Main View Area */}
       <main className="flex-1">

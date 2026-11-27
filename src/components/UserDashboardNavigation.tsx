@@ -112,6 +112,8 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   const [expandedCategory, setExpandedCategory] = useState<string | null>('dashboard');
   const drawerContentRef = useRef<HTMLDivElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   // Prevent background scrolling while the mobile drawer is open.
   useEffect(() => {
@@ -144,7 +146,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab') return;
@@ -167,7 +169,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   const menuStructure: NavItem[] = ([
     { id: 'dashboard', label: 'Overview', icon: LayoutDashboard, subItems: [
@@ -320,7 +322,6 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                 type="button"
                 onClick={() => handleCategoryClick(category.id)}
                 aria-expanded={isExpanded}
-                aria-controls={`user-nav-${category.id}`}
                 className={`w-full flex items-center justify-between px-3 py-3 min-h-11 rounded-xl text-xs font-bold transition-all group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 ${
                   isExpanded ? 'bg-slate-900 text-emerald-400' : categoryHasActiveItem ? 'text-slate-200 bg-slate-900/40' : 'text-slate-400 hover:bg-slate-900/50 hover:text-slate-200'
                 }`}

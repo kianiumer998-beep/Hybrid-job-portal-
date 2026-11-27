@@ -1875,6 +1875,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       {/* Navigation Tabs - 4-column compact grid on mobile (Classic Mode Only) */}
       {navigationMode === 'classic' && (isMobileMenuOpen || window.innerWidth >= 768) && (
         <div className={`border-b border-slate-800 pb-2 sm:pb-3 transition-all duration-300 ${isMobileMenuOpen ? 'block' : 'hidden md:block'}`}>
+          <div className="mb-1.5 flex items-center justify-between px-1"><span className="text-[10px] font-black tracking-wider text-white">MENU</span><span className="truncate text-[9px] text-slate-500">{currentUser.username || currentUser.email}</span></div>
           <div className="flex flex-col md:flex-row gap-1.5 sm:gap-2">
             <div className="grid grid-cols-4 md:flex md:flex-wrap gap-1 sm:gap-2">
               {[

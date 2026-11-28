@@ -469,7 +469,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   const selectedPlacementOpt = campaignConfig.placementOptions.find(p => p.id === formPlacement);
   const availableDurationPresets = campaignConfig.durationPresets.filter((preset) =>
     preset.isEnabled === true &&
-    (!selectedPlacementOpt?.allowedDurationIds?.length || selectedPlacementOpt.allowedDurationIds.includes(preset.id))
+    (selectedPlacementOpt?.allowedDurationIds === undefined || selectedPlacementOpt.allowedDurationIds.includes(preset.id))
   );
   const hasAvailableDuration = availableDurationPresets.length > 0 || campaignConfig.formRules.allowCustomDateRange === true;
 
@@ -1581,10 +1581,10 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                 <div>
                   <h3 className="text-base font-black text-white flex items-center space-x-2">
                     <Receipt className="w-5 h-5 text-emerald-400" />
-                    <span>Official Portal Advertising Rate Card</span>
+                    <span>Campaign Package Information</span>
                   </h3>
                   <p className="text-xs text-slate-400">
-                    Transparent, admin-configured baseline pricing matrix for all placements and timeframes.
+                    Package details and prices are shown only when configured and enabled by the administrator.
                   </p>
                 </div>
               </div>
@@ -1595,31 +1595,6 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                 </p>
               </div>
 
-              {/* Placement Multipliers Table */}
-              <div className="space-y-2 pt-2">
-                <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">2. Placement Multipliers</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                  {Object.entries(pricingConfig.placementMultipliers).map(([placementKey, multiplier]) => (
-                    <div key={placementKey} className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between">
-                      <span className="text-slate-300">{getPlacementDisplayName(placementKey as AdPlacement)}</span>
-                      <span className="px-2 py-0.5 rounded bg-slate-800 text-emerald-400 font-mono font-bold">{multiplier}x</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Page Distribution Multipliers */}
-              <div className="space-y-2 pt-2">
-                <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">3. Page Multipliers</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-                  {Object.entries(pricingConfig.pageMultipliers).map(([pageKey, multiplier]) => (
-                    <div key={pageKey} className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between">
-                      <span className="text-slate-300">{getPageDisplayName(pageKey as AdTargetPage)}</span>
-                      <span className="text-indigo-300 font-mono font-bold">{multiplier}x</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
 
             </div>
           </div>

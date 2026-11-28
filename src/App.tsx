@@ -4648,6 +4648,7 @@ export default function App() {
                           showPromoMobile={showPromoMobile}
                           rotationSettings={annOpt?.rotationSettings}
                           maxConcurrentSlots={annOpt?.maxConcurrentSlots ?? 2}
+                          showAdOpportunity={announcementPlacementEnabled}
                           onPaidAdCta={(ad) => { void handlePaidAdCta(ad); }}
                           onAdDestination={handleAdDestination}
                         />

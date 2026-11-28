@@ -4335,6 +4335,7 @@ export default function App() {
             currentPage={activeTab}
             onAdClick={handleAdClick}
             onNavigateTab={setActiveTab}
+            showDemoCardIfEmpty={topHeaderCfg?.isEnabled !== false}
             bannerDimensions={campaignConfig.bannerDimensions}
             bannerAppearance={campaignConfig.bannerAppearance}
             bannerBehavior={campaignConfig.bannerBehavior}
@@ -4564,6 +4565,7 @@ export default function App() {
                           activeBanners={activeBanners}
                           rotationSettings={promoOpt?.rotationSettings}
                           maxConcurrentSlots={promoOpt?.maxConcurrentSlots ?? 1}
+                          showAdOpportunity={promoPlacementEnabled}
                           onPaidAdCta={(ad) => { void handlePaidAdCta(ad); }}
                           onPromoBannerCta={() => {
                             setSelectedJobTitleForSub('Promotional Banner Advertisement');
@@ -4704,6 +4706,7 @@ export default function App() {
                             onAdClick={handleAdClick}
                             onNavigateTab={setActiveTab}
                             isLoading={isLoadingJobs}
+                            showAdOpportunity={feedOpt?.isEnabled !== false}
                           />
                             </div>
                             {showAsideColumn && (
@@ -5113,6 +5116,7 @@ export default function App() {
       <ToastNotificationAd
         ads={advertisements}
         currentPage={activeTab}
+        isEnabled={campaignConfig.placementOptions.find((o) => o.id === 'toast-float')?.isEnabled !== false}
         rotationSettings={campaignConfig.placementOptions.find((o) => o.id === 'toast-float')?.rotationSettings}
         onAdClick={handleAdClick}
         onNavigateTab={setActiveTab}

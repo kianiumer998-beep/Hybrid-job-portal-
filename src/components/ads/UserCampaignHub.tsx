@@ -503,7 +503,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
               Promote Your Jobs, Academy & Services
             </h2>
             <p className="text-[11px] sm:text-sm text-slate-400 max-w-2xl leading-relaxed">
-              Launch targeted banners, job feed cards, modal lightboxes, and SMS text message broadcasts across the portal. Admin-approved with transparent hourly, daily, weekly, or monthly rate cards.
+              Launch targeted banners, job feed cards, modal lightboxes, and SMS text message broadcasts using only the packages and settings enabled by the administrator.
             </p>
           </div>
 
@@ -1222,7 +1222,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
 
                 {/* Preset Duration Buttons from Admin Config */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-                  {campaignConfig.durationPresets.filter(d => d.isEnabled).map((dur) => {
+                  {campaignConfig.durationPresets.filter(d => d.isEnabled && (!selectedPlacementOpt?.allowedDurationIds?.length || selectedPlacementOpt.allowedDurationIds.includes(d.id))).map((dur) => {
                     const isChosen = selectedDurationId === dur.id;
                     return (
                       <button
@@ -1250,51 +1250,53 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                     );
                   })}
 
-                  {/* Custom option */}
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDurationId('custom')}
-                    className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
-                      selectedDurationId === 'custom'
-                        ? 'bg-gradient-to-r from-emerald-500 to-teal-600 border-emerald-400 text-slate-950 font-black shadow-md'
-                        : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
-                    }`}
-                  >
-                    <div className="text-xs font-bold">Custom Duration</div>
-                    <div className={`text-[10px] ${selectedDurationId === 'custom' ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
-                      Configurable
-                    </div>
-                  </button>
-                </div>
-
-                {/* Custom duration inputs if selected */}
-                {selectedDurationId === 'custom' && (
-                  <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
-                    <div>
-                      <label className="text-[11px] text-slate-400 font-bold">Duration Value</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max={campaignConfig.formRules.maxCampaignDays || 365}
-                        value={customDurationValue}
-                        onChange={(e) => setCustomDurationValue(Math.max(1, parseInt(e.target.value) || 1))}
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[11px] text-slate-400 font-bold">Time Unit</label>
-                      <select
-                        value={customDurationUnit}
-                        onChange={(e) => setCustomDurationUnit(e.target.value as AdDurationUnit)}
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white"
-                      >
-                        <option value="hours">Hours (Flash)</option>
-                        <option value="days">Days (24h blocks)</option>
-                        <option value="weeks">Weeks (7-day cycles)</option>
-                        <option value="months">Months (30-day blocks)</option>
-                      </select>
-                    </div>
+                  {campaignConfig.formRules.allowCustomDateRange && (
+                    {/* Custom option */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDurationId('custom')}
+                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                        selectedDurationId === 'custom'
+                          ? 'bg-gradient-to-r from-emerald-500 to-teal-600 border-emerald-400 text-slate-950 font-black shadow-md'
+                          : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">Custom Duration</div>
+                      <div className={`text-[10px] ${selectedDurationId === 'custom' ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
+                        Configurable
+                      </div>
+                    </button>
                   </div>
+  
+  
+                  )}
+                {campaignConfig.formRules.allowCustomDateRange && selectedDurationId === 'custom' && (
+                    <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
+                      <div>
+                        <label className="text-[11px] text-slate-400 font-bold">Duration Value</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max={campaignConfig.formRules.maxCampaignDays || 365}
+                          value={customDurationValue}
+                          onChange={(e) => setCustomDurationValue(Math.max(1, parseInt(e.target.value) || 1))}
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-slate-400 font-bold">Time Unit</label>
+                        <select
+                          value={customDurationUnit}
+                          onChange={(e) => setCustomDurationUnit(e.target.value as AdDurationUnit)}
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white"
+                        >
+                          <option value="hours">Hours (Flash)</option>
+                          <option value="days">Days (24h blocks)</option>
+                          <option value="weeks">Weeks (7-day cycles)</option>
+                          <option value="months">Months (30-day blocks)</option>
+                        </select>
+                      </div>
+                    </div>
                 )}
               </div>
 
@@ -1572,34 +1574,10 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                 </div>
               </div>
 
-              {/* Timeframe Baseline Pricing Table */}
-              <div className="space-y-2">
-                <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">1. Timeframe Rates</h4>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl text-center">
-                    <div className="text-[11px] text-slate-400 font-semibold">Hourly Rate</div>
-                    <div className="text-base font-black text-white mt-1">PKR {pricingConfig.hourlyRatePkr.toLocaleString()}</div>
-                    <div className="text-[10px] text-slate-500">Per hour</div>
-                  </div>
-
-                  <div className="bg-slate-950 border border-emerald-500/30 p-3.5 rounded-2xl text-center">
-                    <div className="text-[11px] text-emerald-400 font-semibold">24 Hours / 1 Day</div>
-                    <div className="text-base font-black text-emerald-400 mt-1">PKR {pricingConfig.dailyRatePkr.toLocaleString()}</div>
-                    <div className="text-[10px] text-slate-500">Save 58% vs hourly</div>
-                  </div>
-
-                  <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl text-center">
-                    <div className="text-[11px] text-indigo-400 font-semibold">1 Week (7 Days)</div>
-                    <div className="text-base font-black text-indigo-300 mt-1">PKR {pricingConfig.weeklyRatePkr.toLocaleString()}</div>
-                    <div className="text-[10px] text-slate-500">Popular for hiring</div>
-                  </div>
-
-                  <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl text-center">
-                    <div className="text-[11px] text-amber-400 font-semibold">1 Month (30 Days)</div>
-                    <div className="text-base font-black text-amber-300 mt-1">PKR {pricingConfig.monthlyRatePkr.toLocaleString()}</div>
-                    <div className="text-[10px] text-slate-500">Maximum exposure</div>
-                  </div>
-                </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-xs leading-relaxed text-slate-300">
+                  Package availability, duration and pricing are controlled by the administrator. Only enabled packages for the selected placement are available in the campaign form.
+                </p>
               </div>
 
               {/* Placement Multipliers Table */}

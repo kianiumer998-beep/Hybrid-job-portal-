@@ -490,7 +490,7 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
               {isMultiQueue && currentStep < totalSteps ? 'Close (Show Next)' : 'Maybe Later'}
             </button>
 
-              {activePopup.id !== 'demo-your-ad-here-popup' && (showPopupEachCardCta || showPopupCategoryCta) && <button type="button" onClick={handleOpportunityClick} className="mb-2 px-3 py-1.5 rounded-full border border-amber-300/60 bg-slate-950/90 text-[10px] font-black text-amber-200">Your Ad Here →</button>}
+              {activePopup.id !== 'demo-your-ad-here-popup' && (showPopupEachCardCta || (showPopupCategoryCta && currentQueueIndex === 0)) && <button type="button" onClick={handleOpportunityClick} className="mb-2 px-3 py-1.5 rounded-full border border-amber-300/60 bg-slate-950/90 text-[10px] font-black text-amber-200">Your Ad Here →</button>}
             <button
               onClick={() => handleAction(activePopup)}
               className={`w-full sm:w-auto px-7 py-3 rounded-xl font-black text-xs shadow-xl flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-95 ${style.button}`}

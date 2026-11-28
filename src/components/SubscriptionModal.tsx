@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { Subscriber, UserAccount } from '../types/job';
 import { PublicPaymentMethodConfig, PublicPaymentSettings } from '../types/adminPayment';
-import { DEFAULT_PLACEMENT_OPTIONS, DEFAULT_DURATION_PRESETS } from '../types/ad';
+import { DEFAULT_PLACEMENT_OPTIONS, DEFAULT_DURATION_PRESETS, DEFAULT_AD_PRICING_CONFIG, DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG, calculateCampaignCost } from '../types/ad';
 import { api } from '../services/api';
 import { WalletDepositModal, AttachedDepositPlan } from './ads/WalletDepositModal';
 
@@ -381,66 +381,82 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   const enabledAdPlacements = useMemo(() => {
     const savedOptions = pricingData?.campaignCustomizationConfig?.placementOptions;
     const baseOptions = Array.isArray(savedOptions) && savedOptions.length > 0 ? savedOptions : DEFAULT_PLACEMENT_OPTIONS;
-    const adRates = pricingData?.adPricingConfig || {};
-    const baseRates: Record<string, number> = {
-      hourly: Number(adRates.hourlyRatePkr ?? adRates.baseHourlyRatePkr ?? 0),
-      daily: Number(adRates.dailyRatePkr ?? 0),
-      weekly: Number(adRates.weeklyRatePkr ?? 0),
-      monthly: Number(adRates.monthlyRatePkr ?? 0)
-    };
-    const timeframeMultipliers = adRates.timeframeMultipliers || {};
-    const placementMultipliers = adRates.placementMultipliers || {};
+    const adPricingConfig = pricingData?.adPricingConfig || DEFAULT_AD_PRICING_CONFIG;
+    const campaignCustomizationConfig = pricingData?.campaignCustomizationConfig || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG;
     const durationPresets = Array.isArray(pricingData?.campaignCustomizationConfig?.durationPresets)
       ? pricingData.campaignCustomizationConfig.durationPresets
       : DEFAULT_DURATION_PRESETS;
 
-    const calculateRate = (opt: any, unit: string, value = 1) => {
-      if (opt.isFreeOverride === true) return 0;
-      const fixedRates = opt.timeframeFixedRatesPkr || {};
-      const fixedUnitRate = Number(fixedRates[unit]);
-      if (Number.isFinite(fixedUnitRate) && fixedRates[unit] !== undefined) return Math.max(0, Math.round(fixedUnitRate * value));
-      if (opt.rateEditMode === 'manual') {
-        if (opt.fixedPriceOverridePkr !== undefined) {
-          return Math.max(0, Math.round(Number(opt.fixedPriceOverridePkr) * value));
-        }
-        return 0;
-      }
-      const base = baseRates[unit] || (unit === 'daily' ? baseRates.hourly * 24 : unit === 'weekly' ? baseRates.daily * 7 : unit === 'monthly' ? baseRates.daily * 30 : 0);
-      const placementMult = Number(placementMultipliers[opt.id] ?? opt.multiplier ?? 1);
-      const timeMult = Number(timeframeMultipliers[unit] ?? 1);
-      const uplift = 1 + Math.max(0, Number(opt.percentageUpliftPercent || 0)) / 100;
-      return Math.max(0, Math.round(base * placementMult * timeMult * uplift * value));
+    const getExactPrice = (opt: any, unit: 'hours' | 'days' | 'weeks' | 'months', value: number, presetId?: string) => {
+      const targetPages = Array.isArray(opt.allowedPageIds) && opt.allowedPageIds.length > 0
+        ? [opt.allowedPageIds[0]]
+        : ['all'];
+      return calculateCampaignCost(
+        adPricingConfig,
+        unit,
+        value,
+        opt.id,
+        targetPages,
+        0,
+        campaignCustomizationConfig,
+        presetId
+      ).totalCostPkr;
     };
 
     return baseOptions
       .filter((opt: any) => opt && opt.isEnabled !== false)
       .map((opt: any) => {
-        const rates = (['hourly', 'daily', 'weekly', 'monthly'] as const)
-          .map((unit) => ({ unit, amount: calculateRate(opt, unit) }))
-          .filter((rate) => (opt.isFreeOverride === true) || (opt.timeframeFixedRatesPkr?.[rate.unit] !== undefined) || (rate.amount > 0 && opt.rateEditMode !== 'manual'));
+        const fixedRates = opt.timeframeFixedRatesPkr || {};
+        const rateOptions = ([
+          { unit: 'hourly', durationUnit: 'hours' },
+          { unit: 'daily', durationUnit: 'days' },
+          { unit: 'weekly', durationUnit: 'weeks' },
+          { unit: 'monthly', durationUnit: 'months' }
+        ] as const)
+          .map((rate) => ({
+            unit: rate.unit,
+            amount: getExactPrice(opt, rate.durationUnit, 1)
+          }))
+          .filter((rate) =>
+            opt.isFreeOverride === true ||
+            opt.fixedPriceOverridePkr !== undefined ||
+            opt.rateEditMode !== 'manual' ||
+            fixedRates[rate.unit] !== undefined
+          );
+
         const allowedIds = Array.isArray(opt.allowedDurationIds) ? opt.allowedDurationIds : null;
         const durationOptions = durationPresets
           .filter((preset: any) => preset && preset.isEnabled !== false && (!allowedIds || allowedIds.includes(preset.id)))
           .map((preset: any) => {
-            const unit = preset.unit === 'hours' ? 'hourly' : preset.unit === 'days' ? 'daily' : preset.unit === 'weeks' ? 'weekly' : 'monthly';
-            const amount = preset.fixedPriceOverridePkr !== undefined
-              ? Math.max(0, Number(preset.fixedPriceOverridePkr))
-              : calculateRate(opt, unit, Number(preset.value || 1));
-            return { id: String(preset.id), label: String(preset.label || preset.subLabel || preset.id), amount: Math.round(amount), unit: String(preset.unit), value: Number(preset.value || 1) };
+            const amount = getExactPrice(opt, preset.unit, Number(preset.value || 1), preset.id);
+            const unitKey = preset.unit === 'hours' ? 'hourly' : preset.unit === 'days' ? 'daily' : preset.unit === 'weeks' ? 'weekly' : 'monthly';
+            const isAdminPriced = preset.fixedPriceOverridePkr !== undefined ||
+              fixedRates[unitKey] !== undefined ||
+              opt.rateEditMode !== 'manual' ||
+              opt.isFreeOverride === true ||
+              opt.fixedPriceOverridePkr !== undefined;
+            return {
+              id: String(preset.id),
+              label: String(preset.label || preset.subLabel || preset.id),
+              amount: Math.round(amount),
+              unit: String(preset.unit),
+              value: Number(preset.value || 1),
+              isAdminPriced
+            };
           })
-          .filter((preset: any) => opt.isFreeOverride === true || preset.amount > 0);
+          .filter((preset: any) => preset.isAdminPriced);
+
         return {
           id: String(opt.id),
           name: String(opt.name || opt.id),
           description: String(opt.description || ''),
           group: AD_PLACEMENT_GROUP_MAP[String(opt.id)] || 'advertisements',
-          rateOptions: rates,
+          rateOptions,
           durationOptions,
-          dailyEstimatePkr: calculateRate(opt, 'daily')
+          dailyEstimatePkr: getExactPrice(opt, 'days', 1)
         };
       });
   }, [pricingData]);
-
   const enabledJobTiers = useMemo(() => {
     const jp = pricingData?.jobPosting;
     if (!jp) return [];

@@ -816,7 +816,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
   return (
     <div className="space-y-6 sm:space-y-8 mb-8 sm:mb-12">
       {/* 1. PRIORITY PLACEMENT JOBS SECTION (Independent of standard pagination) */}
-      {(priorityList.length > 0 || availablePaidJobTiers.length > 0) && (
+      {(priorityList.length > 0 || (availablePaidJobTiers.length > 0 && onJobsCta)) && (
         <div className="space-y-3 bg-slate-950/60 p-4 sm:p-6 rounded-2xl border border-amber-500/30 shadow-2xl">
           <div className="flex items-center justify-between border-b border-amber-500/20 pb-3">
             <div className="flex items-center space-x-2.5">

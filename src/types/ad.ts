@@ -251,6 +251,7 @@ export interface CampaignPlacementOption {
   percentageUpliftPercent?: number; // Additional percentage on top of the existing multiplier
   maxConcurrentSlots?: number; // e.g. 3 simultaneous banners
   allowedPageIds?: string[];
+  allowedDurationIds?: string[]; // Optional admin allowlist of duration packages for this placement
   expiryReminder?: PlacementExpiryReminderConfig;
   rotationSettings?: PlacementRotationConfig;
 }

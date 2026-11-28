@@ -258,6 +258,21 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
         const style = themeClasses[activeBanner.theme] || themeClasses.indigo;
         const isDemo = activeBanner.id === 'demo-your-ad-here';
 
+        if (isDemo) {
+          return (
+            <div key={`${activeBanner.id}-${slotIdx}`} className="max-w-7xl mx-auto w-full px-3 sm:px-6 flex justify-end py-1.5">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); handleAction(activeBanner); }}
+                className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-amber-400/10 px-2.5 py-1 text-[10px] font-black tracking-wide text-amber-200 shadow-[0_0_12px_rgba(251,191,36,0.12)] transition-all hover:border-amber-300 hover:bg-amber-400/20 hover:shadow-[0_0_18px_rgba(251,191,36,0.22)]"
+                aria-label="Advertise in the top banner placement"
+              >
+                <Crown className="h-3 w-3" /> Your Ad Here <span className="text-[9px] font-semibold text-amber-300/70">· Top Banner</span> <ArrowRight className="h-3 w-3" />
+              </button>
+            </div>
+          );
+        }
+
         return (
           <div
             key={`${activeBanner.id}-${slotIdx}`}

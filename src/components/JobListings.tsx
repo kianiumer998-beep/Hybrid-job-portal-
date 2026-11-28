@@ -260,8 +260,12 @@ export const JobListings: React.FC<JobListingsProps> = ({
       counts[tier] = (counts[tier] || 0) + 1;
       return counts;
     }, {});
-    return enabledTiers.find((tier) => (occupiedByTier[tier] || 0) < Math.max(0, Number(config[tier]?.maxSlots || 0))) || null;
-  }, [homepagePrioritySlotConfig, priorityList]);
+    return enabledTiers.find((tier) => {
+      const rule = adOpportunityDisplay?.jobTiers?.[tier];
+      const wantsSingleCta = rule?.enabled !== false && (rule?.displayMode === 'whole_category' || rule?.displayMode === 'placement_level' || (rule?.displayMode === 'manual' && (rule.showOnCategory || rule.showOnPlacement)));
+      return wantsSingleCta && (occupiedByTier[tier] || 0) < Math.max(0, Number(config[tier]?.maxSlots || 0));
+    }) || null;
+  }, [homepagePrioritySlotConfig, priorityList, adOpportunityDisplay]);
 
   const priorityIdsSet = React.useMemo(() => new Set(priorityList.map(j => j.id)), [priorityList]);
 
@@ -347,11 +351,11 @@ export const JobListings: React.FC<JobListingsProps> = ({
         ? (job.scraperSourceName || 'Scraper source')
         : 'Employer';
 
-    const activeTier = (job as any).activePriorityTier || (job.priorityTier === 'vip_bundle' ? 'vip' : (job.isPinnedTop || job.priorityTier === 'featured_top' ? 'pinned' : (job.featured || job.priorityTier === 'featured' ? 'featured' : (job.urgent ? 'urgent' : 'standard'))));
+    const activeTier = (job as any).activePriorityTier || (job.priorityTier === 'vip_bundle' ? 'vip' : (job.isPinnedTop || job.priorityTier === 'featured_top' ? 'pinned' : (job.featured || job.priorityTier === 'featured' ? 'featured' : (job.urgent ? 'urgent' : (isPriorityCard && job.isFutureJob ? 'future' : 'standard'))));
 
     const tierKey = activeTier === 'vip' ? 'vip' : activeTier === 'pinned' ? 'pinned' : activeTier === 'featured' ? 'featured' : activeTier === 'urgent' ? 'urgent' : activeTier === 'future' ? 'future' : null;
     const tierRule = tierKey ? adOpportunityDisplay?.jobTiers?.[tierKey] : undefined;
-    const showTierCardCta = Boolean(onJobsCta && tierKey && tierRule?.enabled !== false && (tierRule?.displayMode === 'each_card' || tierRule?.showOnEachCard === true));
+    const showTierCardCta = Boolean(onJobsCta && tierKey && tierRule?.enabled !== false && (tierRule?.displayMode === 'each_card' || (tierRule?.displayMode === 'manual' && tierRule?.showOnEachCard === true)));
     const tierCardCta = showTierCardCta && tierKey ? <div className="flex justify-end mb-1"><button type="button" onClick={(event) => { event.stopPropagation(); onJobsCta?.(tierKey); }} className="inline-flex items-center gap-1 rounded-full border border-amber-300/60 bg-slate-950/90 px-2 py-1 text-[9px] font-black text-amber-200">Your Jobs Here <ArrowRight className="h-3 w-3" /></button></div> : null;
 
     let cardBgStyle = 'bg-slate-900/90 border border-slate-800/90 hover:border-emerald-500/50 hover:shadow-emerald-500/10';

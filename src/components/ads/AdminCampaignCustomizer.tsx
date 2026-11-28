@@ -240,7 +240,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
         {([
           ['top-header', 'Top header / banner'], ['feed-inline', 'Inline job-feed ad'], ['sidebar', 'Sidebar advertisement'],
           ['popup-modal', 'Popup / lightbox'], ['toast-float', 'Floating toast'], ['promo-discount-banner', 'Promotional banner'],
-          ['dynamic-announcement-card', 'Announcement card'], ['sms-broadcast', 'SMS broadcast']
+          ['dynamic-announcement-card', 'Announcement card']
         ] as Array<[string, string]>).map(([placement, label]) => {
           const rule = localConfig.adOpportunityDisplay?.adPlacements?.[placement] || { ...DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG.adPlacements[placement] };
           const updateRule = (updates: any) => setLocalConfig((prev) => ({ ...prev, adOpportunityDisplay: { ...(prev.adOpportunityDisplay || DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG), adPlacements: { ...DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG.adPlacements, ...(prev.adOpportunityDisplay?.adPlacements || {}), [placement]: { ...rule, ...updates } } } }));

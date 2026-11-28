@@ -35,6 +35,7 @@ interface UserDashboardProps {
   initialTab?: 'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns';
   initialCampaignSubTab?: 'my-campaigns' | 'create' | 'wallet';
   initialCampaignPlacement?: import('../types/ad').AdPlacement;
+  initialCampaignDurationPresetId?: string;
   userAds?: Advertisement[];
   allAds?: Advertisement[];
   pricingConfig?: AdPricingConfig;
@@ -139,6 +140,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   initialTab = 'overview',
   initialCampaignSubTab,
   initialCampaignPlacement,
+  initialCampaignDurationPresetId,
   userAds = [],
   allAds = [],
   pricingConfig = DEFAULT_AD_PRICING_CONFIG,
@@ -4431,6 +4433,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           campaignConfig={campaignConfig}
           initialSubTab={campaignSubTab}
           initialPlacement={initialCampaignPlacement}
+          initialDurationPresetId={initialCampaignDurationPresetId}
           openDepositModal={openDepositModalTrigger}
           onDepositModalClose={() => setOpenDepositModalTrigger(false)}
           onSubmitCampaign={(newAd, cost) => {

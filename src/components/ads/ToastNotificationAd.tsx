@@ -4,12 +4,14 @@ import {
   AdTargetPage,
   PlacementRotationConfig,
   DEFAULT_PLACEMENT_ROTATION_CONFIG,
-  isAdCurrentlyRunning
+  isAdCurrentlyRunning,
+  AdOpportunityDisplayConfig
 } from '../../types/ad';
 import { getRotatedItems } from '../../utils/adRotation';
 import { X, ArrowRight, Zap, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface ToastNotificationAdProps {
+  adOpportunityDisplay?: AdOpportunityDisplayConfig;
   ads: Advertisement[];
   currentPage: AdTargetPage;
   isEnabled?: boolean;
@@ -24,7 +26,8 @@ export const ToastNotificationAd: React.FC<ToastNotificationAdProps> = ({
   isEnabled = true,
   onAdClick,
   onNavigateTab,
-  rotationSettings = DEFAULT_PLACEMENT_ROTATION_CONFIG
+  rotationSettings = DEFAULT_PLACEMENT_ROTATION_CONFIG,
+  adOpportunityDisplay
 }) => {
   const [dismissedToastIds, setDismissedToastIds] = useState<string[]>([]);
   const [isReady, setIsReady] = useState(false);
@@ -67,8 +70,12 @@ export const ToastNotificationAd: React.FC<ToastNotificationAdProps> = ({
     return () => window.clearInterval(timer);
   }, [isReady, orderedCandidates.length, isAutoRotate, isPaused, intervalMs]);
 
+  const toastRule = adOpportunityDisplay?.adPlacements?.['toast-float'];
+  const showToastCta = toastRule?.enabled !== false && (toastRule?.displayMode === 'whole_category' || toastRule?.displayMode === 'placement_level' || toastRule?.displayMode === 'each_card' || (toastRule?.displayMode === 'manual' && (toastRule.showOnCategory || toastRule.showOnPlacement || toastRule.showOnEachCard)));
+  const opportunityAd: Advertisement = { id: 'demo-your-ad-here-toast', title: 'Your Ad Here — Floating Toast Placement', type: 'banner', placement: 'toast-float', targetPages: ['all'], status: 'active', approvalStatus: 'Approved', submittedByUserId: 'system-demo', submittedByUserName: 'Platform Promotion', headline: 'Your Ad Here', bodyText: 'Promote your campaign in the floating notification placement.', badgeText: 'Advertise Here', ctaText: 'Choose Ad Package', ctaUrl: '', theme: 'amber', dismissable: false, impressions: 0, clicks: 0, createdAt: new Date().toISOString(), durationUnit: 'days', durationValue: 1 };
   if (!isEnabled) return null;
   if (orderedCandidates.length === 0) {
+    if (!showToastCta) return null;
     return (
       <button
         type="button"
@@ -159,6 +166,7 @@ export const ToastNotificationAd: React.FC<ToastNotificationAdProps> = ({
             </p>
           )}
 
+          {showToastCta && <button type="button" onClick={(e) => { e.stopPropagation(); onAdClick(opportunityAd); }} className="mt-2 inline-flex rounded-full border border-amber-300/60 bg-slate-950/90 px-2.5 py-1 text-[10px] font-black text-amber-200">Your Ad Here →</button>}
           <div className="mt-2.5 flex items-center justify-between gap-2">
             {visibleAd.ctaText ? (
               <div className="flex items-center space-x-1 text-xs font-bold text-emerald-400 group-hover:underline">

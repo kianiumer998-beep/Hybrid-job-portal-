@@ -4963,6 +4963,7 @@ export default function App() {
         jobTitle={selectedJobTitleForSub}
         customTitle={selectedGate?.title}
         customMessage={selectedGate?.message}
+        featureId={selectedGate?.title?.toLowerCase().includes('early access') ? 'early_access' : 'premium_job_posting'}
         onUpgradeClick={() => {
           const isEarlyAccess = selectedGate?.title?.toLowerCase().includes('early access');
           setSubscriptionInitialCategory(isEarlyAccess ? 'alerts_early_access' : 'job_posting');

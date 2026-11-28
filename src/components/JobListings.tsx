@@ -241,9 +241,22 @@ export const JobListings: React.FC<JobListingsProps> = ({
     if (!config?.enabled) return null;
     const tierOrder = ['vip', 'pinned', 'featured', 'urgent', 'future'] as const;
     const enabledTiers = tierOrder.filter((tier) => config[tier]?.enabled !== false && Number(config[tier]?.maxSlots || 0) > 0);
-    const totalEnabledSlots = enabledTiers.reduce((total, tier) => total + Math.max(0, Number(config[tier]?.maxSlots || 0)), 0);
-    if (enabledTiers.length === 0 || priorityList.length >= totalEnabledSlots) return null;
-    return enabledTiers[0];
+    if (enabledTiers.length === 0) return null;
+    const resolveTier = (job: Job): typeof tierOrder[number] => {
+      const activeTier = (job as any).activePriorityTier;
+      if (activeTier && tierOrder.includes(activeTier)) return activeTier;
+      if (job.priorityTier === 'vip_bundle') return 'vip';
+      if (job.priorityTier === 'featured_top' || job.isPinnedTop) return 'pinned';
+      if (job.priorityTier === 'featured' || job.featured) return 'featured';
+      if (job.priorityTier === 'urgent' || job.urgent) return 'urgent';
+      return 'future';
+    };
+    const occupiedByTier = priorityList.reduce<Record<string, number>>((counts, job) => {
+      const tier = resolveTier(job);
+      counts[tier] = (counts[tier] || 0) + 1;
+      return counts;
+    }, {});
+    return enabledTiers.find((tier) => (occupiedByTier[tier] || 0) < Math.max(0, Number(config[tier]?.maxSlots || 0))) || null;
   }, [homepagePrioritySlotConfig, priorityList.length]);
 
   const priorityIdsSet = React.useMemo(() => new Set(priorityList.map(j => j.id)), [priorityList]);

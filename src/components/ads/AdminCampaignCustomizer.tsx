@@ -38,7 +38,7 @@ const buildMergedConfig = (cfg?: CampaignCustomizationConfig): CampaignCustomiza
   adOpportunityDisplay: {
     ...DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG, ...(cfg?.adOpportunityDisplay || {}),
     jobTiers: { ...DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG.jobTiers, ...(cfg?.adOpportunityDisplay?.jobTiers || {}) },
-    adPlacements: { ...(cfg?.adOpportunityDisplay?.adPlacements || {}) }
+    adPlacements: { ...DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG.adPlacements, ...(cfg?.adOpportunityDisplay?.adPlacements || {}) }
   },
   promoBanners: Array.isArray(cfg?.promoBanners)
     ? cfg!.promoBanners

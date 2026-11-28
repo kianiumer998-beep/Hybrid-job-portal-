@@ -152,6 +152,11 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   };
 
   const handleAction = (banner: Advertisement) => {
+    // The empty-slot promotion is a purchase entry point, not a demo navigation.
+    if (banner.id === 'demo-your-ad-here') {
+      onAdClick(banner);
+      return;
+    }
     onAdClick(banner);
 
     if (banner.ctaUrl) {
@@ -299,7 +304,7 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
                     )}
                     {bannerAppearance?.showBadge !== false && isDemo && (
                       <span className="text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                        Demo Card
+                        Your Ad Here
                       </span>
                     )}
                     <h4 className="text-xs sm:text-sm font-bold text-white group-hover:text-amber-300 transition-colors truncate">

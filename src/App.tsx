@@ -4581,7 +4581,7 @@ export default function App() {
                                   </div>
                                 ) : (
                                   <div className="flex items-center justify-center gap-1.5">
-                                    <span>{(liveJobsTotal || jobs.length) === 0 ? '0 Jobs' : `${liveJobsTotal || jobs.length}+`}</span>
+                                    <span>{(liveJobsTotal ?? jobs.length) === 0 ? '0 Jobs' : `${liveJobsTotal ?? jobs.length}+`}</span>
                                     {isLoadingJobs && (
                                       <div className="w-2.5 h-2.5 rounded-full border-2 border-amber-400/40 border-t-amber-400 animate-spin" title="Live updating in background..." />
                                     )}

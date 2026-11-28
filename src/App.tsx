@@ -684,9 +684,12 @@ export default function App() {
   const [pricingConfig, setPricingConfig] = useState<AdPricingConfig>(DEFAULT_AD_PRICING_CONFIG);
 
   // Campaign Customization & Portal Page Scheduling State (Authoritative Backend /api/pricing)
-  const [campaignConfig, setCampaignConfig] = useState<CampaignCustomizationConfig>(
-    DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG
-  );
+  const [campaignConfig, setCampaignConfig] = useState<CampaignCustomizationConfig>({
+    ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+    // Do not expose seeded/demo packages before authoritative admin settings load.
+    placementOptions: [],
+    durationPresets: []
+  });
 
   // Per-Job Posting Fee & Priority Placement Pricing Configuration State (Authoritative Backend /api/pricing)
   const [jobPostingFeePkr, setJobPostingFeePkr] = useState<number>(DEFAULT_JOB_POSTING_PRICING_CONFIG.standardFeePkr);
@@ -723,16 +726,24 @@ export default function App() {
         portalPages: Array.isArray(pricingData.campaignCustomizationConfig.portalPages)
           ? pricingData.campaignCustomizationConfig.portalPages
           : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.portalPages,
+        // Missing admin arrays mean no customer-facing packages, not seeded defaults.
         durationPresets: Array.isArray(pricingData.campaignCustomizationConfig.durationPresets)
           ? pricingData.campaignCustomizationConfig.durationPresets
-          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.durationPresets,
+          : [],
         placementOptions: Array.isArray(pricingData.campaignCustomizationConfig.placementOptions)
           ? pricingData.campaignCustomizationConfig.placementOptions
-          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions,
+          : [],
         feedInlineSettings: {
           ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings,
           ...(pricingData.campaignCustomizationConfig.feedInlineSettings || {})
         }
+      });
+    } else {
+      // If the backend has no admin campaign package configuration, show no sellable placements.
+      setCampaignConfig({
+        ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+        placementOptions: [],
+        durationPresets: []
       });
     }
 

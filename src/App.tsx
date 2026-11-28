@@ -3471,6 +3471,9 @@ export default function App() {
     // Renewal must use the existing SubscriptionModal so users submit the configured payment method,
     // transaction reference/receipt, sender details, and any administrator-required custom proof fields.
     setSelectedJobTitleForSub('');
+    setSubscriptionInitialCategory(undefined);
+    setSubscriptionInitialFeatureId(undefined);
+    setSubscriptionInitialPlacement(undefined);
     setSubscriptionModalOpen(true);
   };
 
@@ -4340,6 +4343,7 @@ export default function App() {
             onAdClick={handleAdClick}
             onNavigateTab={setActiveTab}
             showDemoCardIfEmpty={topHeaderCfg?.isEnabled !== false}
+            isEnabled={topHeaderCfg?.isEnabled !== false}
             bannerDimensions={campaignConfig.bannerDimensions}
             bannerAppearance={campaignConfig.bannerAppearance}
             bannerBehavior={campaignConfig.bannerBehavior}
@@ -4364,6 +4368,8 @@ export default function App() {
         isSubscribed={isSubscribed}
         onOpenSubscriptionModal={() => {
           setSelectedJobTitleForSub('');
+          setSubscriptionInitialCategory(undefined);
+          setSubscriptionInitialFeatureId(undefined);
           setSubscriptionInitialPlacement(undefined);
           setSubscriptionModalOpen(true);
         }}
@@ -4703,7 +4709,7 @@ export default function App() {
                             postsPerPage={postsPerPage}
                             onPageChange={setCurrentPage}
                             onPostsPerPageChange={handlePostsPerPageChange}
-                            ads={advertisements}
+                            ads={feedOpt?.isEnabled !== false ? advertisements : []}
                             feedInlineSettings={campaignConfig.feedInlineSettings}
                             bannerDimensions={campaignConfig.bannerDimensions}
                             feedCardAppearance={campaignConfig.feedCardAppearance}
@@ -4832,6 +4838,9 @@ export default function App() {
                 }}
                 onOpenSubscriptionModal={() => {
                   setSelectedJobTitleForSub('');
+                  setSubscriptionInitialCategory(undefined);
+                  setSubscriptionInitialFeatureId(undefined);
+                  setSubscriptionInitialPlacement(undefined);
                   setSubscriptionModalOpen(true);
                 }}
                 onNavigateGlobalTab={navigateGlobalTab}
@@ -4931,6 +4940,9 @@ export default function App() {
                         <button
                           onClick={() => {
                             setSelectedJobTitleForSub('');
+                            setSubscriptionInitialCategory(undefined);
+                            setSubscriptionInitialFeatureId(undefined);
+                            setSubscriptionInitialPlacement(undefined);
                             setSubscriptionModalOpen(true);
                           }}
                           className="w-full mt-4 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-sm shadow-xl hover:scale-[1.02] active:scale-95 transition-all"
@@ -4958,6 +4970,9 @@ export default function App() {
         onTriggerAdminClickTrick={() => setAdminLoginOpen(true)}
         onOpenSubscriptionModal={() => {
           setSelectedJobTitleForSub('');
+          setSubscriptionInitialCategory(undefined);
+          setSubscriptionInitialFeatureId(undefined);
+          setSubscriptionInitialPlacement(undefined);
           setSubscriptionModalOpen(true);
         }}
         onOpenLegalModal={(tab) => {

@@ -240,12 +240,12 @@ export const JobListings: React.FC<JobListingsProps> = ({
     });
   }, [propPriorityJobs, jobs, homepagePrioritySlotConfig]);
 
-  const availablePaidJobTier = React.useMemo(() => {
+  const availablePaidJobTiers = React.useMemo(() => {
     const config = homepagePrioritySlotConfig;
-    if (!config?.enabled) return null;
+    if (!config?.enabled) return [];
     const tierOrder = ['vip', 'pinned', 'featured', 'urgent', 'future'] as const;
     const enabledTiers = tierOrder.filter((tier) => config[tier]?.enabled !== false && Number(config[tier]?.maxSlots || 0) > 0);
-    if (enabledTiers.length === 0) return null;
+    if (enabledTiers.length === 0) return [];
     const resolveTier = (job: Job): typeof tierOrder[number] => {
       const activeTier = (job as any).activePriorityTier;
       if (activeTier && tierOrder.includes(activeTier)) return activeTier;
@@ -260,11 +260,11 @@ export const JobListings: React.FC<JobListingsProps> = ({
       counts[tier] = (counts[tier] || 0) + 1;
       return counts;
     }, {});
-    return enabledTiers.find((tier) => {
+    return enabledTiers.filter((tier) => {
       const rule = adOpportunityDisplay?.jobTiers?.[tier];
       const wantsSingleCta = rule?.enabled !== false && (rule?.displayMode === 'whole_category' || rule?.displayMode === 'placement_level' || (rule?.displayMode === 'manual' && (rule.showOnCategory || rule.showOnPlacement)));
       return wantsSingleCta && (occupiedByTier[tier] || 0) < Math.max(0, Number(config[tier]?.maxSlots || 0));
-    }) || null;
+    });
   }, [homepagePrioritySlotConfig, priorityList, adOpportunityDisplay]);
 
   const priorityIdsSet = React.useMemo(() => new Set(priorityList.map(j => j.id)), [priorityList]);
@@ -762,6 +762,14 @@ export const JobListings: React.FC<JobListingsProps> = ({
           </div>
 
           {/* Skeleton Cards Grid */}
+          {availablePaidJobTiers.length > 0 && (
+            <div className="flex flex-wrap justify-end gap-2">
+              {availablePaidJobTiers.map((tierId) => {
+                const tierLabels: Record<string, string> = { vip: 'VIP Ultimate Placement', pinned: 'Pinned Top #1', featured: 'Featured Placement', urgent: 'Urgent Hiring', future: 'Future Job Slot' };
+                return <button key={tierId} type="button" onClick={() => onJobsCta?.(tierId)} className="inline-flex items-center gap-1.5 rounded-full border border-sky-400/60 bg-sky-400/10 px-2.5 py-1 text-[10px] font-black text-sky-200 hover:bg-sky-400/20"><Briefcase className="h-3 w-3" /> Your Jobs Here · {tierLabels[tierId]} <ArrowRight className="h-3 w-3" /></button>;
+              })}
+            </div>
+          )}
           <div className={`grid grid-cols-1 ${design.layout === 'editorial' ? '' : 'md:grid-cols-2 lg:grid-cols-3'} gap-3 sm:gap-4`}>
             {[1, 2, 3, 4, 5, 6].map((idx) => (
               <div
@@ -814,7 +822,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
   return (
     <div className="space-y-6 sm:space-y-8 mb-8 sm:mb-12">
       {/* 1. PRIORITY PLACEMENT JOBS SECTION (Independent of standard pagination) */}
-      {priorityList.length > 0 && (
+      {(priorityList.length > 0 || availablePaidJobTiers.length > 0) && (
         <div className="space-y-3 bg-slate-950/60 p-4 sm:p-6 rounded-2xl border border-amber-500/30 shadow-2xl">
           <div className="flex items-center justify-between border-b border-amber-500/20 pb-3">
             <div className="flex items-center space-x-2.5">
@@ -886,20 +894,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
         </button>
       </div>}
 
-      {availablePaidJobTier && onJobsCta && (
-        <div className="flex justify-end -mt-1 mb-3">
-          <button
-            type="button"
-            onClick={() => onJobsCta(availablePaidJobTier)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-sky-400/60 bg-sky-400/10 px-2.5 py-1 text-[10px] font-black tracking-wide text-sky-200 shadow-[0_0_12px_rgba(56,189,248,0.12)] transition-all hover:border-sky-300 hover:bg-sky-400/20 hover:shadow-[0_0_18px_rgba(56,189,248,0.22)]"
-            aria-label="Explore paid job posting placements"
-          >
-            <Briefcase className="h-3 w-3" />
-            Your Jobs Here
-            <ArrowRight className="h-3 w-3" />
-          </button>
-        </div>
-      )}
+
 
       {/* 3. STANDARD JOBS GRID */}
       <div className={`grid grid-cols-1 ${design.layout === 'editorial' ? '' : 'md:grid-cols-2 lg:grid-cols-3'} gap-2 sm:gap-4`}>

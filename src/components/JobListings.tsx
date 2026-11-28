@@ -362,7 +362,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
         ? (job.scraperSourceName || 'Scraper source')
         : 'Employer';
 
-    const activeTier = (job as any).activePriorityTier || (job.priorityTier === 'vip_bundle' ? 'vip' : (job.isPinnedTop || job.priorityTier === 'featured_top' ? 'pinned' : (job.featured || job.priorityTier === 'featured' ? 'featured' : (job.urgent ? 'urgent' : (isPriorityCard && job.isFutureJob ? 'future' : 'standard'))));
+    const activeTier = (job as any).activePriorityTier || (job.priorityTier === 'vip_bundle' ? 'vip' : job.isPinnedTop || job.priorityTier === 'featured_top' ? 'pinned' : job.featured || job.priorityTier === 'featured' ? 'featured' : job.urgent ? 'urgent' : isPriorityCard && job.isFutureJob ? 'future' : 'standard');
 
     const tierKey = activeTier === 'vip' ? 'vip' : activeTier === 'pinned' ? 'pinned' : activeTier === 'featured' ? 'featured' : activeTier === 'urgent' ? 'urgent' : activeTier === 'future' ? 'future' : null;
     const tierRule = tierKey ? adOpportunityDisplay?.jobTiers?.[tierKey] : undefined;

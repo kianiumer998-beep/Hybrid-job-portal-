@@ -81,6 +81,8 @@ export class JobVisibilityRepository {
   ]);
 
   private static mockCollection: any = null;
+  private static policyCache: Map<string, { policy: VisibilityPolicy; cachedAt: number }> = new Map();
+  private static readonly POLICY_CACHE_TTL_MS = 60000;
 
   /**
    * Test-only helper to exercise the MongoDB driver query/update code path with an isolated mock collection.
@@ -92,6 +94,7 @@ export class JobVisibilityRepository {
       throw new Error('Security violation: Mock collection injection is strictly prohibited outside test mode (IS_TEST !== true).');
     }
     JobVisibilityRepository.mockCollection = coll;
+    JobVisibilityRepository.policyCache.clear();
   }
 
   /**
@@ -104,6 +107,17 @@ export class JobVisibilityRepository {
    */
   static async getPolicy(source: JobSourceType, sourceKey?: string): Promise<VisibilityPolicy> {
     const isMockActive = Boolean(JobVisibilityRepository.mockCollection && process.env.IS_TEST === 'true');
+    const cacheKey = `${source}:${sourceKey ? sourceKey.trim() : ''}`;
+
+    if (!isMockActive && process.env.IS_TEST !== 'true') {
+      const cached = JobVisibilityRepository.policyCache.get(cacheKey);
+      if (cached && Date.now() - cached.cachedAt < JobVisibilityRepository.POLICY_CACHE_TTL_MS) {
+        return {
+          ...cached.policy,
+          fieldRules: { ...cached.policy.fieldRules }
+        };
+      }
+    }
 
     if (!isMockActive) {
       if (process.env.IS_TEST !== 'true' && (process.env.NODE_ENV === 'production' || !isMongoConfigured())) {
@@ -187,6 +201,14 @@ export class JobVisibilityRepository {
     if (sourceKey && typeof sourceKey === 'string' && sourceKey.trim()) {
       resPol.sourceKey = sourceKey.trim();
     }
+
+    if (!isMockActive && process.env.IS_TEST !== 'true') {
+      JobVisibilityRepository.policyCache.set(cacheKey, {
+        policy: resPol,
+        cachedAt: Date.now()
+      });
+    }
+
     return resPol;
   }
 
@@ -255,6 +277,7 @@ export class JobVisibilityRepository {
       policy.sourceKey = sourceKey.trim();
     }
 
+    JobVisibilityRepository.policyCache.clear();
     const isMockActive = Boolean(JobVisibilityRepository.mockCollection && process.env.IS_TEST === 'true');
 
     if (!isMockActive) {

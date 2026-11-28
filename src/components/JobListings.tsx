@@ -116,6 +116,7 @@ interface JobListingsProps {
   jobCardDesign?: JobCardDesignConfig;
   feedRotationSettings?: PlacementRotationConfig;
   homepagePrioritySlotConfig?: HomepagePrioritySlotConfig;
+  isLoading?: boolean;
 }
 
 export const JobListings: React.FC<JobListingsProps> = ({
@@ -138,7 +139,8 @@ export const JobListings: React.FC<JobListingsProps> = ({
   onNavigateTab,
   jobCardDesign,
   feedRotationSettings,
-  homepagePrioritySlotConfig
+  homepagePrioritySlotConfig,
+  isLoading = false
 }) => {
   // Local state fallback if not controlled from parent
   const [internalPage, setInternalPage] = useState<number>(1);
@@ -675,6 +677,68 @@ export const JobListings: React.FC<JobListingsProps> = ({
   };
 
   if (jobs.length === 0 && priorityList.length === 0) {
+    if (isLoading) {
+      return (
+        <div className="space-y-4 my-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/80 border border-emerald-500/30 rounded-2xl p-4 sm:px-6 sm:py-4 shadow-xl">
+            <div className="flex items-center space-x-3.5">
+              <div className="relative flex items-center justify-center">
+                <div className="w-6 h-6 rounded-full border-2 border-emerald-500/20 border-t-emerald-400 animate-spin" />
+                <Sparkles className="w-3 h-3 text-emerald-400 absolute animate-pulse" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
+                  <span>Fetching Verified Vacancies...</span>
+                </h4>
+                <p className="text-xs text-slate-400">
+                  Retrieving latest opportunities from the verified portal directory.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2 self-start sm:self-auto">
+              <span className="text-[11px] font-bold px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 animate-pulse">
+                Live Syncing
+              </span>
+            </div>
+          </div>
+
+          {/* Skeleton Cards Grid */}
+          <div className={`grid grid-cols-1 ${design.layout === 'editorial' ? '' : 'md:grid-cols-2 lg:grid-cols-3'} gap-3 sm:gap-4`}>
+            {[1, 2, 3, 4, 5, 6].map((idx) => (
+              <div
+                key={`job-skeleton-${idx}`}
+                className="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4 sm:p-5 space-y-3.5 animate-pulse shadow-md"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center space-x-3 min-w-0 flex-1">
+                    <div className="w-11 h-11 rounded-xl bg-slate-800/90 shrink-0" />
+                    <div className="space-y-1.5 min-w-0 flex-1">
+                      <div className="h-4 w-3/4 bg-slate-800 rounded" />
+                      <div className="h-3 w-1/2 bg-slate-800/60 rounded" />
+                    </div>
+                  </div>
+                  <div className="w-8 h-8 rounded-lg bg-slate-800/50 shrink-0" />
+                </div>
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  <div className="h-5 w-16 bg-slate-800/80 rounded-md" />
+                  <div className="h-5 w-20 bg-slate-800/60 rounded-md" />
+                  <div className="h-5 w-24 bg-slate-800/50 rounded-md" />
+                </div>
+                <div className="space-y-1.5 pt-1">
+                  <div className="h-3 w-full bg-slate-800/50 rounded" />
+                  <div className="h-3 w-4/5 bg-slate-800/40 rounded" />
+                </div>
+                <div className="flex items-center justify-between pt-3 border-t border-slate-800/60">
+                  <div className="h-4 w-24 bg-slate-800/60 rounded" />
+                  <div className="h-8 w-20 bg-slate-800/80 rounded-xl" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center my-8">
         <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-500">
@@ -719,6 +783,13 @@ export const JobListings: React.FC<JobListingsProps> = ({
             <strong className="text-emerald-400 font-bold">{totalStandardJobs}</strong> standard listings
           </span>
         </div>
+        {isLoading && (
+          <div className="flex items-center space-x-1.5 text-[11px] text-amber-300 font-semibold px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20">
+            <div className="w-3 h-3 rounded-full border border-amber-400/40 border-t-amber-400 animate-spin" />
+            <span className="hidden sm:inline">Updating in background...</span>
+            <span className="sm:hidden">Updating...</span>
+          </div>
+        )}
       </div>
 
       {/* 3. STANDARD JOBS GRID */}

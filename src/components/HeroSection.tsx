@@ -96,6 +96,7 @@ interface HeroSectionProps {
   heroConfig?: LandingHeroConfig;
   designId?: LandingDesignId;
   onPremiumClick?: () => void;
+  isLoading?: boolean;
 }
 
 export const HeroSection: React.FC<HeroSectionProps> = ({
@@ -105,7 +106,8 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
   totalJobsCount,
   heroConfig = DEFAULT_LANDING_PAGE_CONFIG.hero,
   designId = 'legacy',
-  onPremiumClick
+  onPremiumClick,
+  isLoading = false
 }) => {
   const theme = HERO_DESIGN_STYLES[designId] ?? HERO_DESIGN_STYLES.legacy;
 
@@ -182,7 +184,16 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
               className={theme.primaryBtn}
             >
               <Search className={`w-3 h-3 sm:w-5 sm:h-5 ${theme.primaryBtnIconColor} shrink-0`} />
-              <span className="truncate">{heroConfig.primaryBtnText || `Browse ${totalJobsCount} Jobs`}</span>
+              <span className="truncate flex items-center justify-center gap-1.5">
+                {isLoading && totalJobsCount === 0 ? (
+                  <>
+                    <span className="w-3.5 h-3.5 rounded-full border-2 border-slate-900/40 border-t-slate-900 animate-spin inline-block" />
+                    <span>Loading Jobs...</span>
+                  </>
+                ) : (
+                  heroConfig.primaryBtnText || `Browse ${totalJobsCount} Jobs`
+                )}
+              </span>
               <ArrowRight className={`w-3 h-3 sm:w-4 sm:h-4 ${theme.primaryBtnIconColor} shrink-0`} />
             </button>
 

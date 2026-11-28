@@ -1390,8 +1390,17 @@ export default function App() {
     return unique;
   };
 
-  // Approved Live Jobs (Single Backend Source of Truth via /api/jobs)
-  const [jobs, setJobs] = useState<Job[]>([]);
+  // Approved Live Jobs (Single Backend Source of Truth via /api/jobs with session instant cache)
+  const [jobs, setJobs] = useState<Job[]>(() => {
+    try {
+      const cached = sessionStorage.getItem('hybrid_fast_jobs_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
   const [priorityJobs, setPriorityJobs] = useState<Job[]>([]); // STEP 66-B.1
 
   // Subscription Packages State (Authoritative Backend /api/pricing)
@@ -1464,23 +1473,24 @@ export default function App() {
     setIsLoadingJobs(true);
     setDbError(null);
     try {
-      const [liveRes, pendingRes] = await Promise.all([
-        api.jobs.getAll({ limit: '10000', includeExpired: 'true' }),
-        api.jobs.getPendingQueue({ page: pageToFetch, limit: limitToFetch })
-      ]);
-
-      let errorDetected = false;
-      let errorDesc = '';
-
-      if (liveRes && liveRes.success && Array.isArray(liveRes.jobs)) {
-        setJobs(liveRes.jobs);
-      } else if (liveRes?.isDatabaseUnavailable || liveRes?.errorType === 'TransientDatabaseError' || liveRes?.errorType === 'DatabaseUnavailable') {
-        errorDetected = true;
-        errorDesc = liveRes.message || 'Authoritative database is temporarily unavailable.';
-        console.warn('[App] Live jobs database temporarily unavailable:', liveRes?.message);
-      } else if (Array.isArray(liveRes)) {
-        setJobs(liveRes);
+      // 1. Instant progressive first-batch load if state has no jobs:
+      // Fetches small 25-item chunk in parallel so landing view and initial page render in <100ms
+      if (jobs.length === 0) {
+        api.jobs.getAll({ limit: '25', includeExpired: 'true' })
+          .then((fastRes) => {
+            if (fastRes && fastRes.success && Array.isArray(fastRes.jobs) && fastRes.jobs.length > 0) {
+              setJobs((prev) => (prev.length === 0 ? fastRes.jobs : prev));
+            }
+          })
+          .catch(() => {});
       }
+
+      // 2. Fetch full authoritative live jobs & non-blocking pending queue
+      const livePromise = api.jobs.getAll({ limit: '10000', includeExpired: 'true' });
+      const pendingPromise = api.jobs.getPendingQueue({ page: pageToFetch, limit: limitToFetch }).catch((err) => {
+        console.warn('[App] Non-blocking pending queue fetch:', err?.message);
+        return null;
+      });
 
       // Isolated Priority Jobs Loading (won't block standard jobs)
       api.jobs.getPriority({
@@ -1499,6 +1509,24 @@ export default function App() {
           console.warn('[App] Failed to load priority jobs (non-blocking):', err);
       });
 
+      const liveRes = await livePromise;
+      let errorDetected = false;
+      let errorDesc = '';
+
+      if (liveRes && liveRes.success && Array.isArray(liveRes.jobs)) {
+        setJobs(liveRes.jobs);
+        try {
+          sessionStorage.setItem('hybrid_fast_jobs_cache', JSON.stringify(liveRes.jobs.slice(0, 50)));
+        } catch {}
+      } else if (liveRes?.isDatabaseUnavailable || liveRes?.errorType === 'TransientDatabaseError' || liveRes?.errorType === 'DatabaseUnavailable') {
+        errorDetected = true;
+        errorDesc = liveRes.message || 'Authoritative database is temporarily unavailable.';
+        console.warn('[App] Live jobs database temporarily unavailable:', liveRes?.message);
+      } else if (Array.isArray(liveRes)) {
+        setJobs(liveRes);
+      }
+
+      const pendingRes = await pendingPromise;
       const pendingList = pendingRes?.pendingJobs || pendingRes?.jobs;
       if (pendingRes && pendingRes.success && Array.isArray(pendingList)) {
         // If current page becomes empty (e.g. after deleting/approving items) and we were on page > 1, safely move to previous available page
@@ -1539,7 +1567,7 @@ export default function App() {
     } finally {
       setIsLoadingJobs(false);
     }
-  }, [pendingPage, pendingLimit, filters]);
+  }, [pendingPage, pendingLimit, filters, jobs.length]);
 
   const handlePendingPageChange = useCallback(async (newPage: number, newLimit?: number) => {
     const limitToUse = newLimit ?? pendingLimit;
@@ -4453,6 +4481,7 @@ export default function App() {
                             designId={landingDesignSystem.activeDesignId}
                             config={landingConfig.hero}
                             totalJobsCount={jobs.length}
+                            isLoading={isLoadingJobs}
                             onExplore={() => {
                               const el = document.getElementById('jobs-section');
                               el?.scrollIntoView({ behavior: 'smooth' });
@@ -4471,6 +4500,7 @@ export default function App() {
                           heroConfig={landingConfig.hero}
                           designId={landingDesignSystem.activeDesignId}
                           totalJobsCount={jobs.length}
+                          isLoading={isLoadingJobs}
                           onExploreClick={() => {
                             const el = document.getElementById('jobs-section');
                             el?.scrollIntoView({ behavior: 'smooth' });
@@ -4519,7 +4549,21 @@ export default function App() {
                         <div key="section-stats" className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8">
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-3 p-2 sm:p-4 bg-slate-900/60 border border-slate-800 rounded-xl sm:rounded-2xl">
                             <div className="p-1 sm:p-3 text-center min-w-0">
-                              <div className="text-sm sm:text-2xl font-black text-amber-400">{jobs.length === 0 ? '0 Jobs' : `${jobs.length}+`}</div>
+                              <div className="text-sm sm:text-2xl font-black text-amber-400">
+                                {isLoadingJobs && jobs.length === 0 ? (
+                                  <div className="flex items-center justify-center gap-1.5 py-0.5" title="Counting live jobs...">
+                                    <div className="w-4 h-4 sm:w-5 sm:h-5 rounded-full border-2 border-amber-400/30 border-t-amber-400 animate-spin" />
+                                    <span className="text-[10px] sm:text-xs font-bold text-amber-300 animate-pulse">Syncing...</span>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <span>{jobs.length === 0 ? '0 Jobs' : `${jobs.length}+`}</span>
+                                    {isLoadingJobs && (
+                                      <div className="w-2.5 h-2.5 rounded-full border-2 border-amber-400/40 border-t-amber-400 animate-spin" title="Live updating in background..." />
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                               <div className="text-[9px] sm:text-[11px] text-slate-400 font-semibold leading-tight">{landingConfig.hero.statBadge1Text || 'Active Verified Vacancies'}</div>
                             </div>
                             <div className="p-1 sm:p-3 text-center min-w-0">
@@ -4624,6 +4668,7 @@ export default function App() {
                             homepagePrioritySlotConfig={jobPostingPricing.homepagePrioritySlotConfig}
                             onAdClick={handleAdClick}
                             onNavigateTab={setActiveTab}
+                            isLoading={isLoadingJobs}
                           />
                             </div>
                             {showAsideColumn && (

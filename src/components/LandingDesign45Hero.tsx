@@ -12,6 +12,7 @@ interface Props {
   filters: JobFilters;
   onFiltersChange: (filters: JobFilters) => void;
   onPremiumClick?: () => void;
+  isLoading?: boolean;
 }
 
 const DEFAULT_SEEKER_IMAGE = 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=1400&q=85';
@@ -20,7 +21,7 @@ const DEFAULT_DESIGN4_IMAGE = 'https://images.unsplash.com/photo-1521737711867-e
 const safeImage = (value: string | undefined, fallback: string) =>
   value && (/^https:\/\//i.test(value.trim()) || (/^\/(?!\/)/.test(value.trim()))) ? value.trim() : fallback;
 
-export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJobsCount, onExplore, onCv, onPostJob, filters, onFiltersChange, onPremiumClick }) => {
+export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJobsCount, onExplore, onCv, onPostJob, filters, onFiltersChange, onPremiumClick, isLoading = false }) => {
   const runConfiguredLink = (value: string | undefined, fallback: () => void) => {
     const target = (value || '').trim();
     if (!target) { fallback(); return; }
@@ -66,8 +67,17 @@ export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJo
           </article>
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-slate-800 shadow-sm">
-          <span className="text-sm font-semibold">A smarter way to connect talent and opportunity across Pakistan.</span>
-          <span className="text-sm font-black text-emerald-700">{totalJobsCount.toLocaleString()}+ opportunities on the platform</span>
+          {isLoading && totalJobsCount === 0 ? (
+            <span className="text-sm font-bold text-emerald-700 flex items-center gap-1.5">
+              <span className="w-3.5 h-3.5 rounded-full border-2 border-emerald-600/30 border-t-emerald-600 animate-spin inline-block" />
+              Syncing opportunities...
+            </span>
+          ) : (
+            <span className="text-sm font-black text-emerald-700 flex items-center gap-1.5">
+              <span>{totalJobsCount.toLocaleString()}+ opportunities on the platform</span>
+              {isLoading && <span className="w-2 h-2 rounded-full border border-emerald-600/40 border-t-emerald-600 animate-spin" title="Updating in background..." />}
+            </span>
+          )}
         </div>
       </section>
       </>
@@ -101,7 +111,17 @@ export const LandingDesign45Hero: React.FC<Props> = ({ designId, config, totalJo
               <button onClick={() => runConfiguredLink(config.hiringBannerBtnUrl, onPostJob)} className="rounded-xl border border-amber-300/60 bg-amber-300/10 px-6 py-3.5 text-sm font-bold text-amber-100 hover:bg-amber-300/20">{config.design4PostJobBtnText || 'Post a Job'}</button>
             </div>
             <div className="mt-10 flex flex-wrap gap-x-8 gap-y-3 text-sm text-slate-200">
-              <span><strong className="text-white">{totalJobsCount.toLocaleString()}+</strong> live opportunities</span>
+              {isLoading && totalJobsCount === 0 ? (
+                <span className="flex items-center gap-2 text-slate-300">
+                  <span className="w-3.5 h-3.5 rounded-full border-2 border-emerald-400/30 border-t-emerald-400 animate-spin inline-block" />
+                  <span>Syncing live opportunities...</span>
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5">
+                  <span><strong className="text-white">{totalJobsCount.toLocaleString()}+</strong> live opportunities</span>
+                  {isLoading && <span className="w-2 h-2 rounded-full border border-emerald-400/40 border-t-emerald-400 animate-spin" title="Updating in background..." />}
+                </span>
+              )}
               <span>Pakistan-wide job discovery</span><span>Career tools for every step</span>
             </div>
           </div>

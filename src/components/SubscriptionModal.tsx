@@ -511,6 +511,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   }, [initialPlacement, isOpen]);
 
   const filteredPlacementsForAdSubOption = useMemo(() => {
+    if (initialPlacement) return enabledAdPlacements.filter((placement) => placement.id === initialPlacement);
     if (adSubOption === 'all') return enabledAdPlacements;
     return enabledAdPlacements.filter((p) => p.group === adSubOption);
   }, [enabledAdPlacements, adSubOption]);

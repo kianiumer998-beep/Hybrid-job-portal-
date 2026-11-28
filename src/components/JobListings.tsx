@@ -22,6 +22,7 @@ import {
   FileText,
   RefreshCw,
   Megaphone,
+  BriefcaseBusiness,
   ArrowRight
 } from 'lucide-react';
 import { Job, HomepagePrioritySlotConfig } from '../types/job';
@@ -120,6 +121,7 @@ interface JobListingsProps {
   homepagePrioritySlotConfig?: HomepagePrioritySlotConfig;
   isLoading?: boolean;
   showAdOpportunity?: boolean;
+  onJobsCta?: (tierId: 'vip' | 'pinned' | 'featured' | 'urgent' | 'future') => void;
 }
 
 export const JobListings: React.FC<JobListingsProps> = ({
@@ -144,7 +146,8 @@ export const JobListings: React.FC<JobListingsProps> = ({
   feedRotationSettings,
   homepagePrioritySlotConfig,
   isLoading = false,
-  showAdOpportunity = true
+  showAdOpportunity = true,
+  onJobsCta
 }) => {
   // Local state fallback if not controlled from parent
   const [internalPage, setInternalPage] = useState<number>(1);
@@ -232,6 +235,16 @@ export const JobListings: React.FC<JobListingsProps> = ({
       return getRotatedItems(grouped[tierKey], `priority_tier_${tierKey}`, mode);
     });
   }, [propPriorityJobs, jobs, homepagePrioritySlotConfig]);
+
+  const availablePaidJobTier = React.useMemo(() => {
+    const config = homepagePrioritySlotConfig;
+    if (!config?.enabled) return null;
+    const tierOrder = ['vip', 'pinned', 'featured', 'urgent', 'future'] as const;
+    const enabledTiers = tierOrder.filter((tier) => config[tier]?.enabled !== false && Number(config[tier]?.maxSlots || 0) > 0);
+    const totalEnabledSlots = enabledTiers.reduce((total, tier) => total + Math.max(0, Number(config[tier]?.maxSlots || 0)), 0);
+    if (enabledTiers.length === 0 || priorityList.length >= totalEnabledSlots) return null;
+    return enabledTiers[0];
+  }, [homepagePrioritySlotConfig, priorityList.length]);
 
   const priorityIdsSet = React.useMemo(() => new Set(priorityList.map(j => j.id)), [priorityList]);
 
@@ -830,6 +843,21 @@ export const JobListings: React.FC<JobListingsProps> = ({
           <ArrowRight className="h-3 w-3" />
         </button>
       </div>}
+
+      {availablePaidJobTier && onJobsCta && (
+        <div className="flex justify-end -mt-1 mb-3">
+          <button
+            type="button"
+            onClick={() => onJobsCta(availablePaidJobTier)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-sky-400/60 bg-sky-400/10 px-2.5 py-1 text-[10px] font-black tracking-wide text-sky-200 shadow-[0_0_12px_rgba(56,189,248,0.12)] transition-all hover:border-sky-300 hover:bg-sky-400/20 hover:shadow-[0_0_18px_rgba(56,189,248,0.22)]"
+            aria-label="Explore paid job posting placements"
+          >
+            <BriefcaseBusiness className="h-3 w-3" />
+            Your Jobs Here
+            <ArrowRight className="h-3 w-3" />
+          </button>
+        </div>
+      )}
 
       {/* 3. STANDARD JOBS GRID */}
       <div className={`grid grid-cols-1 ${design.layout === 'editorial' ? '' : 'md:grid-cols-2 lg:grid-cols-3'} gap-2 sm:gap-4`}>

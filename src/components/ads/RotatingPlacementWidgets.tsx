@@ -58,6 +58,9 @@ export const RotatingPromoBannersSection: React.FC<RotatingPaidPromoAdsProps> = 
     [orderedPaidAds, currentIndex, visibleCount]
   );
 
+  const promoSlotLimit = Math.max(1, Math.min(10, Number(maxConcurrentSlots) || 1));
+  const hasAvailablePromoAdSlot = visiblePaidAds.length < promoSlotLimit;
+
   if (activeBanners.length === 0 && visiblePaidAds.length === 0) {
     if (!showAdOpportunity) return null;
     return (
@@ -80,6 +83,23 @@ export const RotatingPromoBannersSection: React.FC<RotatingPaidPromoAdsProps> = 
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
+      {showAdOpportunity && hasAvailablePromoAdSlot && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => onPromoBannerCta({
+              id: 'promo-ad-opportunity',
+              title: 'Your Ad Here — Promotional Banner',
+              description: 'Promote your campaign in the promotional banner placement.',
+              discountPercent: 0,
+              ctaText: 'Choose Ad Package'
+            } as PromoDiscountBanner)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-amber-400/10 px-2.5 py-1 text-[10px] font-black tracking-wide text-amber-200 shadow-[0_0_12px_rgba(251,191,36,0.12)] transition-all hover:border-amber-300 hover:bg-amber-400/20"
+          >
+            <Sparkles className="h-3 w-3" /> Your Ad Here <ArrowRight className="h-3 w-3" />
+          </button>
+        </div>
+      )}
       {activeBanners.map((banner) => (
         <div
           key={banner.id}

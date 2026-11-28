@@ -78,7 +78,7 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
     bodyText: 'Place your urgent hiring campaigns, corporate hiring drives, or commercial services at the top of all pages.',
     badgeText: '👑 Advertise Here',
     ctaText: 'Post Banner Campaign',
-    ctaUrl: '#dashboard',
+    ctaUrl: '',
     theme: 'amber',
     dismissable: true,
     impressions: 0,

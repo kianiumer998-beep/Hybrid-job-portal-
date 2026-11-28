@@ -256,8 +256,8 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   const textAlignClass = bannerAppearance?.textAlignment === 'center' ? 'text-center' : bannerAppearance?.textAlignment === 'right' ? 'text-right' : 'text-left';
 
   const topRule = adOpportunityDisplay?.adPlacements?.['top-header'];
-  const showTopCategoryCta = topRule?.enabled !== false && (topRule?.displayMode === 'whole_category' || topRule?.displayMode === 'placement_level' || (topRule?.displayMode === 'manual' && (topRule.showOnCategory || topRule.showOnPlacement)));
-  const showTopEachCardCta = topRule?.enabled !== false && (topRule?.displayMode === 'each_card' || (topRule?.displayMode === 'manual' && topRule.showOnEachCard));
+  const showTopCategoryCta = showDemoCardIfEmpty && topRule?.enabled !== false && (topRule?.displayMode === 'whole_category' || topRule?.displayMode === 'placement_level' || (topRule?.displayMode === 'manual' && (topRule.showOnCategory || topRule.showOnPlacement)));
+  const showTopEachCardCta = showDemoCardIfEmpty && topRule?.enabled !== false && (topRule?.displayMode === 'each_card' || (topRule?.displayMode === 'manual' && topRule.showOnEachCard));
   const hasMorePages = activeCount > visibleSlotsCount;
 
   return (

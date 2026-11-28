@@ -173,7 +173,6 @@ export const RotatingPromoBannersSection: React.FC<RotatingPaidPromoAdsProps> = 
                 <p className="text-xs text-white/90 max-w-2xl">{ad.bodyText}</p>
               </div>
               {showPromoEachCardCta && <button type="button" onClick={() => onPromoBannerCta({ id: 'promo-ad-opportunity', title: 'Your Ad Here — Promotional Banner', description: 'Promote your campaign in the promotional banner placement.', discountPercent: 0, ctaText: 'Choose Ad Package' } as PromoDiscountBanner)} className="self-start rounded-full border border-amber-300/60 bg-slate-950/90 px-2.5 py-1 text-[10px] font-black text-amber-200">Your Ad Here →</button>}
-              {showAnnouncementEachCardCta && <button type="button" onClick={() => onPaidAdCta({ id: 'demo-your-ad-here-announcement', title: 'Your Ad Here — Announcement Card', type: 'banner', placement: 'dynamic-announcement-card', targetPages: ['jobs'], status: 'active', approvalStatus: 'Approved', submittedByUserId: 'system-demo', submittedByUserName: 'Platform Promotion', headline: 'Your Ad Here', bodyText: 'Promote your company or campaign in a featured announcement card.', badgeText: 'Advertise Here', ctaText: 'Explore Ad Plans', ctaUrl: '', theme: 'amber', dismissable: false, impressions: 0, clicks: 0, createdAt: new Date().toISOString(), durationUnit: 'days', durationValue: 1 } as Advertisement)} className="self-start rounded-full border border-amber-300/60 bg-slate-950/90 px-2.5 py-1 text-[10px] font-black text-amber-200">Your Ad Here →</button>}
             <button
                 onClick={() => onPaidAdCta(ad)}
                 className="px-5 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0"
@@ -274,7 +273,7 @@ export const RotatingAnnouncementCardsSection: React.FC<RotatingAnnouncementCard
     showPromoDesktop && (activeCards.length + visiblePaidAds.length) % 2 === 1 && Boolean(activePromo);
   const hasAvailableAnnouncementSlot = visiblePaidAds.length < Math.max(1, Math.min(10, Number(maxConcurrentSlots) || 2));
 
-  if (activeCards.length === 0 && visiblePaidAds.length === 0 && !showPromoMobile && !effectiveShowPromoDesktop && (!showAdOpportunity || announcementRule?.enabled === false)) {
+  if (activeCards.length === 0 && visiblePaidAds.length === 0 && !showPromoMobile && !effectiveShowPromoDesktop && (!showAdOpportunity || announcementRule?.enabled === false || (!showAnnouncementCategoryCta && !showAnnouncementEachCardCta))) {
     return null;
   }
 
@@ -284,6 +283,9 @@ export const RotatingAnnouncementCardsSection: React.FC<RotatingAnnouncementCard
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
+      {showAdOpportunity && showAnnouncementEachCardCta && visiblePaidAds.length === 0 && (
+        <div className="flex justify-end"><button type="button" onClick={() => onPaidAdCta({ id: 'demo-your-ad-here-announcement', title: 'Your Ad Here — Announcement Card', type: 'banner', placement: 'dynamic-announcement-card', targetPages: ['jobs'], status: 'active', approvalStatus: 'Approved', submittedByUserId: 'system-demo', submittedByUserName: 'Platform Promotion', headline: 'Your Ad Here', bodyText: 'Promote your company or campaign in a featured announcement card.', badgeText: 'Advertise Here', ctaText: 'Explore Ad Plans', ctaUrl: '', theme: 'amber', dismissable: false, impressions: 0, clicks: 0, createdAt: new Date().toISOString(), durationUnit: 'days', durationValue: 1 } as Advertisement)} className="rounded-full border border-amber-400/60 bg-amber-400/10 px-2.5 py-1 text-[10px] font-black text-amber-200">Your Ad Here →</button></div>
+      )}
       {showAdOpportunity && showAnnouncementCategoryCta && hasAvailableAnnouncementSlot && (
         <div className="flex justify-end">
           <button
@@ -371,6 +373,7 @@ export const RotatingAnnouncementCardsSection: React.FC<RotatingAnnouncementCard
               <h4 className="text-base sm:text-lg font-black leading-snug">{ad.headline}</h4>
               <p className="text-xs text-slate-300 leading-snug">{ad.bodyText}</p>
             </div>
+            {showAnnouncementEachCardCta && <button type="button" onClick={() => onPaidAdCta({ id: 'demo-your-ad-here-announcement', title: 'Your Ad Here — Announcement Card', type: 'banner', placement: 'dynamic-announcement-card', targetPages: ['jobs'], status: 'active', approvalStatus: 'Approved', submittedByUserId: 'system-demo', submittedByUserName: 'Platform Promotion', headline: 'Your Ad Here', bodyText: 'Promote your company or campaign in a featured announcement card.', badgeText: 'Advertise Here', ctaText: 'Explore Ad Plans', ctaUrl: '', theme: 'amber', dismissable: false, impressions: 0, clicks: 0, createdAt: new Date().toISOString(), durationUnit: 'days', durationValue: 1 } as Advertisement)} className="self-start rounded-full border border-amber-300/60 bg-slate-950/90 px-2.5 py-1 text-[10px] font-black text-amber-200">Your Ad Here →</button>}
             <button
               onClick={() => onPaidAdCta(ad)}
               className="self-start px-3.5 py-2 rounded-lg bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md"

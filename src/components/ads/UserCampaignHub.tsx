@@ -1048,7 +1048,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                   >
                     {campaignConfig.placementOptions.filter(p => p.isEnabled).map((opt) => (
                       <option key={opt.id} value={opt.id}>
-                        {opt.name} ({opt.multiplier}x Multiplier) - {opt.description}
+                        {opt.name}{opt.description ? ` — ${opt.description}` : ''}
                       </option>
                     ))}
                     {campaignConfig.placementOptions.filter(p => p.isEnabled).length === 0 && (

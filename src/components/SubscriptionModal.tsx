@@ -867,7 +867,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     },
     job_posting: {
       title: 'Job Posting Plans',
-      subtitle: 'Standard, Urgent, Featured, Pinned & VIP',
+      subtitle: 'Premium Membership · Standard, Urgent, Featured, Pinned & VIP',
       icon: <Briefcase className="w-4 h-4 text-sky-400" />,
       accent: 'border-sky-500/30 hover:border-sky-400'
     },

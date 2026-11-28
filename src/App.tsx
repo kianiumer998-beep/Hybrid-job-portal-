@@ -4671,7 +4671,7 @@ export default function App() {
                           ad.placement === 'sidebar' &&
                           (ad.targetPages.includes('all') || ad.targetPages.includes(activeTab))
                       );
-                      const showAsideColumn = landingDesignSystem.activeDesignId === 'design-4' || hasSidebarAds;
+                      const showAsideColumn = landingDesignSystem.activeDesignId === 'design-4' || sidebarEnabled || hasSidebarAds;
                       return (
                         <div key="section-jobs-feed" id="jobs-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
                           {/* Filters Bar */}

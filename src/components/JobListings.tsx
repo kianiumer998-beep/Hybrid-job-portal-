@@ -123,6 +123,7 @@ interface JobListingsProps {
   showAdOpportunity?: boolean;
   onJobsCta?: (tierId: 'vip' | 'pinned' | 'featured' | 'urgent' | 'future') => void;
   onPaidAdCta?: (ad: Advertisement) => void;
+  adOpportunityDisplay?: import('../types/ad').AdOpportunityDisplayConfig;
 }
 
 export const JobListings: React.FC<JobListingsProps> = ({
@@ -149,7 +150,8 @@ export const JobListings: React.FC<JobListingsProps> = ({
   isLoading = false,
   showAdOpportunity = true,
   onJobsCta,
-  onPaidAdCta
+  onPaidAdCta,
+  adOpportunityDisplay
 }) => {
   // Local state fallback if not controlled from parent
   const [internalPage, setInternalPage] = useState<number>(1);
@@ -347,6 +349,11 @@ export const JobListings: React.FC<JobListingsProps> = ({
 
     const activeTier = (job as any).activePriorityTier || (job.priorityTier === 'vip_bundle' ? 'vip' : (job.isPinnedTop || job.priorityTier === 'featured_top' ? 'pinned' : (job.featured || job.priorityTier === 'featured' ? 'featured' : (job.urgent ? 'urgent' : 'standard'))));
 
+    const tierKey = activeTier === 'vip' ? 'vip' : activeTier === 'pinned' ? 'pinned' : activeTier === 'featured' ? 'featured' : activeTier === 'urgent' ? 'urgent' : activeTier === 'future' ? 'future' : null;
+    const tierRule = tierKey ? adOpportunityDisplay?.jobTiers?.[tierKey] : undefined;
+    const showTierCardCta = Boolean(onJobsCta && tierKey && tierRule?.enabled !== false && (tierRule?.displayMode === 'each_card' || tierRule?.showOnEachCard === true));
+    const tierCardCta = showTierCardCta && tierKey ? <div className="flex justify-end mb-1"><button type="button" onClick={(event) => { event.stopPropagation(); onJobsCta?.(tierKey); }} className="inline-flex items-center gap-1 rounded-full border border-amber-300/60 bg-slate-950/90 px-2 py-1 text-[9px] font-black text-amber-200">Your Jobs Here <ArrowRight className="h-3 w-3" /></button></div> : null;
+
     let cardBgStyle = 'bg-slate-900/90 border border-slate-800/90 hover:border-emerald-500/50 hover:shadow-emerald-500/10';
     let tierBadgeText = '';
     let tierBadgeStyle = '';
@@ -405,6 +412,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
               className={`group relative ${borderRadiusClass} ${densityPadding} shadow-xl transition-all duration-300 ${design.layout === 'editorial' ? 'flex flex-col lg:flex-row lg:items-center lg:gap-6' : 'flex flex-col justify-between'} ${cardBgStyle}`}
             >
                <div className={design.layout === 'editorial' ? 'min-w-0 flex-1 space-y-2' : 'space-y-2'}>
+                    {tierCardCta}
                     <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
                             {design.visibility.title && (

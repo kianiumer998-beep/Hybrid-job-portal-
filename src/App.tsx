@@ -1117,7 +1117,9 @@ export default function App() {
                 ? 'Popup Advertisement'
                 : placement === 'dynamic-announcement-card'
                   ? 'Announcement Card Advertisement'
-                  : 'Inline Job Feed Advertisement';
+                  : placement === 'sms-broadcast'
+                    ? 'SMS Broadcast Campaign'
+                    : 'Inline Job Feed Advertisement';
       setSelectedJobTitleForSub(placementLabel);
       setSubscriptionInitialCategory('ads_campaigns');
       setSubscriptionInitialFeatureId('campaign_credits');

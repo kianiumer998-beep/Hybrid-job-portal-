@@ -5,13 +5,15 @@ import {
   PlacementRotationConfig,
   PromoDiscountBanner,
   DEFAULT_PLACEMENT_ROTATION_CONFIG,
-  isAdCurrentlyRunning
+  isAdCurrentlyRunning,
+  AdOpportunityDisplayConfig
 } from '../../types/ad';
 import { CustomLandingCard } from '../../types/landing';
 import { getRotatedItems, getVisibleWindow, getNextStepSize } from '../../utils/adRotation';
 import { ArrowRight, ChevronLeft, ChevronRight, ExternalLink, Sparkles } from 'lucide-react';
 
 interface RotatingPaidPromoAdsProps {
+  adOpportunityDisplay?: AdOpportunityDisplayConfig;
   ads: Advertisement[];
   activeBanners: PromoDiscountBanner[];
   rotationSettings?: PlacementRotationConfig;
@@ -27,6 +29,7 @@ export const RotatingPromoBannersSection: React.FC<RotatingPaidPromoAdsProps> = 
   rotationSettings = DEFAULT_PLACEMENT_ROTATION_CONFIG,
   maxConcurrentSlots = 1,
   showAdOpportunity = true,
+  adOpportunityDisplay,
   onPaidAdCta,
   onPromoBannerCta
 }) => {
@@ -39,6 +42,9 @@ export const RotatingPromoBannersSection: React.FC<RotatingPaidPromoAdsProps> = 
     return getRotatedItems(ads, 'ad_promo-discount-banner', mode);
   }, [ads, rotationSettings?.enabled, rotationSettings?.sequenceMode]);
 
+  const promoRule = adOpportunityDisplay?.adPlacements?.['promo-discount-banner'];
+  const showPromoCategoryCta = promoRule?.enabled !== false && (promoRule?.displayMode === 'whole_category' || promoRule?.displayMode === 'placement_level' || (promoRule?.displayMode === 'manual' && (promoRule.showOnCategory || promoRule.showOnPlacement)));
+  const showPromoEachCardCta = promoRule?.enabled !== false && (promoRule?.displayMode === 'each_card' || (promoRule?.displayMode === 'manual' && promoRule.showOnEachCard));
   const totalPaid = orderedPaidAds.length;
   const visibleCount = totalPaid > 0 ? Math.min(totalPaid, Math.max(1, Math.min(10, Number(maxConcurrentSlots) || 1))) : 0;
   const stepSize = getNextStepSize(totalPaid, visibleCount);
@@ -62,7 +68,7 @@ export const RotatingPromoBannersSection: React.FC<RotatingPaidPromoAdsProps> = 
   const hasAvailablePromoAdSlot = visiblePaidAds.length < promoSlotLimit;
 
   if (activeBanners.length === 0 && visiblePaidAds.length === 0) {
-    if (!showAdOpportunity) return null;
+    if (!showAdOpportunity || promoRule?.enabled === false) return null;
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-end">
         <button type="button" onClick={() => onPromoBannerCta({
@@ -83,7 +89,7 @@ export const RotatingPromoBannersSection: React.FC<RotatingPaidPromoAdsProps> = 
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
-      {showAdOpportunity && hasAvailablePromoAdSlot && (
+      {showAdOpportunity && showPromoCategoryCta && hasAvailablePromoAdSlot && (
         <div className="flex justify-end">
           <button
             type="button"
@@ -166,7 +172,9 @@ export const RotatingPromoBannersSection: React.FC<RotatingPaidPromoAdsProps> = 
                 <h4 className="text-sm sm:text-base font-black tracking-tight">{ad.headline}</h4>
                 <p className="text-xs text-white/90 max-w-2xl">{ad.bodyText}</p>
               </div>
-              <button
+              {showPromoEachCardCta && <button type="button" onClick={() => onPromoBannerCta({ id: 'promo-ad-opportunity', title: 'Your Ad Here — Promotional Banner', description: 'Promote your campaign in the promotional banner placement.', discountPercent: 0, ctaText: 'Choose Ad Package' } as PromoDiscountBanner)} className="self-start rounded-full border border-amber-300/60 bg-slate-950/90 px-2.5 py-1 text-[10px] font-black text-amber-200">Your Ad Here →</button>}
+              {showAnnouncementEachCardCta && <button type="button" onClick={() => onPaidAdCta({ id: 'demo-your-ad-here-announcement', title: 'Your Ad Here — Announcement Card', type: 'banner', placement: 'dynamic-announcement-card', targetPages: ['jobs'], status: 'active', approvalStatus: 'Approved', submittedByUserId: 'system-demo', submittedByUserName: 'Platform Promotion', headline: 'Your Ad Here', bodyText: 'Promote your company or campaign in a featured announcement card.', badgeText: 'Advertise Here', ctaText: 'Explore Ad Plans', ctaUrl: '', theme: 'amber', dismissable: false, impressions: 0, clicks: 0, createdAt: new Date().toISOString(), durationUnit: 'days', durationValue: 1 } as Advertisement)} className="self-start rounded-full border border-amber-300/60 bg-slate-950/90 px-2.5 py-1 text-[10px] font-black text-amber-200">Your Ad Here →</button>}
+            <button
                 onClick={() => onPaidAdCta(ad)}
                 className="px-5 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0"
               >
@@ -205,6 +213,7 @@ export const RotatingPromoBannersSection: React.FC<RotatingPaidPromoAdsProps> = 
 };
 
 interface RotatingAnnouncementCardsSectionProps {
+  adOpportunityDisplay?: AdOpportunityDisplayConfig;
   activeCards: CustomLandingCard[];
   paidAnnouncementAds: Advertisement[];
   activePromo?: PromoDiscountBanner;
@@ -226,6 +235,7 @@ export const RotatingAnnouncementCardsSection: React.FC<RotatingAnnouncementCard
   rotationSettings = DEFAULT_PLACEMENT_ROTATION_CONFIG,
   maxConcurrentSlots = 2,
   showAdOpportunity = true,
+  adOpportunityDisplay,
   onPaidAdCta,
   onAdDestination
 }) => {
@@ -238,6 +248,9 @@ export const RotatingAnnouncementCardsSection: React.FC<RotatingAnnouncementCard
     return getRotatedItems(paidAnnouncementAds, 'ad_dynamic-announcement-card', mode);
   }, [paidAnnouncementAds, rotationSettings?.enabled, rotationSettings?.sequenceMode]);
 
+  const announcementRule = adOpportunityDisplay?.adPlacements?.['dynamic-announcement-card'];
+  const showAnnouncementCategoryCta = announcementRule?.enabled !== false && (announcementRule?.displayMode === 'whole_category' || announcementRule?.displayMode === 'placement_level' || (announcementRule?.displayMode === 'manual' && (announcementRule.showOnCategory || announcementRule.showOnPlacement)));
+  const showAnnouncementEachCardCta = announcementRule?.enabled !== false && (announcementRule?.displayMode === 'each_card' || (announcementRule?.displayMode === 'manual' && announcementRule.showOnEachCard));
   const totalPaid = orderedPaidAds.length;
   const visibleCount = totalPaid > 0 ? Math.min(totalPaid, Math.max(1, Math.min(10, Number(maxConcurrentSlots) || 1))) : 0;
   const stepSize = getNextStepSize(totalPaid, visibleCount);
@@ -261,7 +274,7 @@ export const RotatingAnnouncementCardsSection: React.FC<RotatingAnnouncementCard
     showPromoDesktop && (activeCards.length + visiblePaidAds.length) % 2 === 1 && Boolean(activePromo);
   const hasAvailableAnnouncementSlot = visiblePaidAds.length < Math.max(1, Math.min(10, Number(maxConcurrentSlots) || 2));
 
-  if (activeCards.length === 0 && visiblePaidAds.length === 0 && !showPromoMobile && !effectiveShowPromoDesktop && !showAdOpportunity) {
+  if (activeCards.length === 0 && visiblePaidAds.length === 0 && !showPromoMobile && !effectiveShowPromoDesktop && (!showAdOpportunity || announcementRule?.enabled === false)) {
     return null;
   }
 
@@ -271,7 +284,7 @@ export const RotatingAnnouncementCardsSection: React.FC<RotatingAnnouncementCard
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
-      {showAdOpportunity && hasAvailableAnnouncementSlot && (
+      {showAdOpportunity && showAnnouncementCategoryCta && hasAvailableAnnouncementSlot && (
         <div className="flex justify-end">
           <button
             type="button"
@@ -426,6 +439,8 @@ export const RotatingAnnouncementCardsSection: React.FC<RotatingAnnouncementCard
 };
 
 interface RotatingSidebarAdsProps {
+  adOpportunityDisplay?: AdOpportunityDisplayConfig;
+  onPaidAdCta?: (ad: Advertisement) => void;
   ads: Advertisement[];
   currentPage: AdTargetPage;
   isEnabled?: boolean;
@@ -442,7 +457,9 @@ export const RotatingSidebarAds: React.FC<RotatingSidebarAdsProps> = ({
   rotationSettings = DEFAULT_PLACEMENT_ROTATION_CONFIG,
   maxConcurrentSlots = 1,
   onAdClick,
-  onNavigateTab
+  onNavigateTab,
+  adOpportunityDisplay,
+  onPaidAdCta
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
@@ -460,6 +477,9 @@ export const RotatingSidebarAds: React.FC<RotatingSidebarAdsProps> = ({
     return getRotatedItems(filtered, 'ad_sidebar', mode);
   }, [ads, currentPage, isEnabled, rotationSettings?.enabled, rotationSettings?.sequenceMode]);
 
+  const sidebarRule = adOpportunityDisplay?.adPlacements?.sidebar;
+  const showSidebarCategoryCta = sidebarRule?.enabled !== false && (sidebarRule?.displayMode === 'whole_category' || sidebarRule?.displayMode === 'placement_level' || (sidebarRule?.displayMode === 'manual' && (sidebarRule.showOnCategory || sidebarRule.showOnPlacement)));
+  const showSidebarEachCardCta = sidebarRule?.enabled !== false && (sidebarRule?.displayMode === 'each_card' || (sidebarRule?.displayMode === 'manual' && sidebarRule.showOnEachCard));
   const total = orderedAds.length;
   const sidebarSlotLimit = Math.max(1, Math.min(6, Number(maxConcurrentSlots) || 1));
   const visibleCount = total > 0 ? Math.min(total, sidebarSlotLimit) : 0;
@@ -482,6 +502,7 @@ export const RotatingSidebarAds: React.FC<RotatingSidebarAdsProps> = ({
 
   if (!isEnabled) return null;
   if (visibleAds.length === 0) {
+    if (sidebarRule?.enabled === false) return null;
     return (
       <button type="button" onClick={() => onAdClick({
         id: 'demo-your-ad-here', title: 'Your Ad Here — Sidebar Advertisement',
@@ -521,7 +542,7 @@ export const RotatingSidebarAds: React.FC<RotatingSidebarAdsProps> = ({
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
-      {visibleAds.length < sidebarSlotLimit && (
+      {showSidebarCategoryCta && visibleAds.length < sidebarSlotLimit && (
         <button
           type="button"
           onClick={() => onAdClick({
@@ -558,6 +579,7 @@ export const RotatingSidebarAds: React.FC<RotatingSidebarAdsProps> = ({
           onClick={() => handleAction(ad)}
           className="rounded-2xl border border-indigo-500/30 bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/60 p-4 shadow-xl hover:border-indigo-400/60 transition-all cursor-pointer group space-y-2.5"
         >
+          {showSidebarEachCardCta && <button type="button" onClick={(e) => { e.stopPropagation(); onPaidAdCta?.({ id: 'demo-your-ad-here-sidebar', title: 'Your Ad Here — Sidebar Advertisement', type: 'banner', placement: 'sidebar', targetPages: ['all'], status: 'active', approvalStatus: 'Approved', submittedByUserId: 'system-demo', submittedByUserName: 'Platform Promotion', headline: 'Your Ad Here', bodyText: 'Promote your business in the sidebar placement.', badgeText: 'Advertise Here', ctaText: 'Choose Ad Package', ctaUrl: '', theme: 'amber', dismissable: false, impressions: 0, clicks: 0, createdAt: new Date().toISOString(), durationUnit: 'days', durationValue: 1 } as Advertisement)} className="inline-flex rounded-full border border-amber-300/60 bg-slate-950/90 px-2.5 py-1 text-[10px] font-black text-amber-200">Your Ad Here →</button>}
           <div className="flex items-center justify-between gap-2">
             <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 inline-flex items-center gap-1">
               <Sparkles className="w-3 h-3" />

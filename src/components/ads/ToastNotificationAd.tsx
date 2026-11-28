@@ -12,6 +12,7 @@ import { X, ArrowRight, Zap, ChevronLeft, ChevronRight } from 'lucide-react';
 interface ToastNotificationAdProps {
   ads: Advertisement[];
   currentPage: AdTargetPage;
+  isEnabled?: boolean;
   onAdClick: (ad: Advertisement) => void;
   onNavigateTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
   rotationSettings?: PlacementRotationConfig;
@@ -43,7 +44,8 @@ export const ToastNotificationAd: React.FC<ToastNotificationAdProps> = ({
   }, [ads, currentPage, dismissedToastIds, rotationSettings?.enabled, rotationSettings?.sequenceMode]);
 
   useEffect(() => {
-    if (orderedCandidates.length === 0) {
+    if (!isEnabled) return null;
+  if (orderedCandidates.length === 0) {
       setIsReady(false);
       return;
     }

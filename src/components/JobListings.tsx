@@ -22,7 +22,7 @@ import {
   FileText,
   RefreshCw,
   Megaphone,
-  BriefcaseBusiness,
+  Briefcase,
   ArrowRight
 } from 'lucide-react';
 import { Job, HomepagePrioritySlotConfig } from '../types/job';
@@ -865,7 +865,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
             className="inline-flex items-center gap-1.5 rounded-full border border-sky-400/60 bg-sky-400/10 px-2.5 py-1 text-[10px] font-black tracking-wide text-sky-200 shadow-[0_0_12px_rgba(56,189,248,0.12)] transition-all hover:border-sky-300 hover:bg-sky-400/20 hover:shadow-[0_0_18px_rgba(56,189,248,0.22)]"
             aria-label="Explore paid job posting placements"
           >
-            <BriefcaseBusiness className="h-3 w-3" />
+            <Briefcase className="h-3 w-3" />
             Your Jobs Here
             <ArrowRight className="h-3 w-3" />
           </button>

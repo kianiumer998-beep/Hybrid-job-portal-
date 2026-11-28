@@ -95,9 +95,14 @@ function getPackageCategories(pkg: any): Set<CommercialCategoryId> {
     ? pkg.featureIds.map((id: any) => String(id))
     : [];
   const corpus = getPackageTextCorpus(pkg);
+  const explicitPlacementIds = [
+    ...(Array.isArray(pkg?.placementIds) ? pkg.placementIds : []),
+    ...(Array.isArray(pkg?.allowedPlacements) ? pkg.allowedPlacements : []),
+    ...(Array.isArray(pkg?.campaignCredits) ? pkg.campaignCredits.map((item: any) => item?.placement) : [])
+  ].filter(Boolean);
 
   if (
-    featureIds.includes('campaign_credits') ||
+    featureIds.includes('campaign_credits') || explicitPlacementIds.length > 0 ||
     /\b(campaign|banner|advert|promo|announcement|popup|toast)\b/i.test(corpus)
   ) {
     cats.add('ads_campaigns');

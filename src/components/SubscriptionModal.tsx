@@ -282,6 +282,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
 
           const availablePackages = [...enabledPkgs, ...individualFeatures];
           setPackages(availablePackages);
+          setSelectedPackageId('');
           if (availablePackages.length > 0) {
             let targetPkg = availablePackages[0];
             if (initialPlacement) {

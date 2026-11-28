@@ -263,7 +263,8 @@ export const JobListings: React.FC<JobListingsProps> = ({
     return enabledTiers.filter((tier) => {
       const rule = adOpportunityDisplay?.jobTiers?.[tier];
       const wantsSingleCta = rule?.enabled !== false && (rule?.displayMode === 'whole_category' || rule?.displayMode === 'placement_level' || (rule?.displayMode === 'manual' && (rule.showOnCategory || rule.showOnPlacement)));
-      return wantsSingleCta && (occupiedByTier[tier] || 0) < Math.max(0, Number(config[tier]?.maxSlots || 0));
+      const wantsFirstCardFallback = (occupiedByTier[tier] || 0) === 0 && rule?.enabled !== false && (rule?.displayMode === 'each_card' || (rule?.displayMode === 'manual' && rule.showOnEachCard));
+      return (wantsSingleCta || wantsFirstCardFallback) && (occupiedByTier[tier] || 0) < Math.max(0, Number(config[tier]?.maxSlots || 0));
     });
   }, [homepagePrioritySlotConfig, priorityList, adOpportunityDisplay]);
 
@@ -563,6 +564,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
         className={`group relative ${borderRadiusClass} ${densityPadding} shadow-sm sm:shadow-xl transition-all duration-300 flex flex-col justify-between ${cardBgStyle}`}
       >
         <div>
+          {tierCardCta}
           {tierBadgeText && (
             <div className={`mb-1.5 sm:mb-2.5 flex items-center justify-between bg-gradient-to-r ${tierBadgeStyle} px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md sm:rounded-lg border`}>
               <span className="text-[9px] sm:text-[11px] font-black flex items-center space-x-1 sm:space-x-1.5 uppercase tracking-wider">
@@ -762,14 +764,6 @@ export const JobListings: React.FC<JobListingsProps> = ({
           </div>
 
           {/* Skeleton Cards Grid */}
-          {availablePaidJobTiers.length > 0 && (
-            <div className="flex flex-wrap justify-end gap-2">
-              {availablePaidJobTiers.map((tierId) => {
-                const tierLabels: Record<string, string> = { vip: 'VIP Ultimate Placement', pinned: 'Pinned Top #1', featured: 'Featured Placement', urgent: 'Urgent Hiring', future: 'Future Job Slot' };
-                return <button key={tierId} type="button" onClick={() => onJobsCta?.(tierId)} className="inline-flex items-center gap-1.5 rounded-full border border-sky-400/60 bg-sky-400/10 px-2.5 py-1 text-[10px] font-black text-sky-200 hover:bg-sky-400/20"><Briefcase className="h-3 w-3" /> Your Jobs Here · {tierLabels[tierId]} <ArrowRight className="h-3 w-3" /></button>;
-              })}
-            </div>
-          )}
           <div className={`grid grid-cols-1 ${design.layout === 'editorial' ? '' : 'md:grid-cols-2 lg:grid-cols-3'} gap-3 sm:gap-4`}>
             {[1, 2, 3, 4, 5, 6].map((idx) => (
               <div
@@ -835,6 +829,14 @@ export const JobListings: React.FC<JobListingsProps> = ({
               </span>
             </div>
           </div>
+          {availablePaidJobTiers.length > 0 && onJobsCta && (
+            <div className="flex flex-wrap justify-end gap-2">
+              {availablePaidJobTiers.map((tierId) => {
+                const tierLabels: Record<string, string> = { vip: 'VIP Ultimate Placement', pinned: 'Pinned Top #1', featured: 'Featured Placement', urgent: 'Urgent Hiring', future: 'Future Job Slot' };
+                return <button key={tierId} type="button" onClick={() => onJobsCta?.(tierId)} className="inline-flex items-center gap-1.5 rounded-full border border-sky-400/60 bg-sky-400/10 px-2.5 py-1 text-[10px] font-black text-sky-200 hover:bg-sky-400/20"><Briefcase className="h-3 w-3" /> Your Jobs Here · {tierLabels[tierId]} <ArrowRight className="h-3 w-3" /></button>;
+              })}
+            </div>
+          )}
           <div className={`grid grid-cols-1 ${design.layout === 'editorial' ? '' : 'md:grid-cols-2 lg:grid-cols-3'} gap-3 sm:gap-4`}>
             {priorityList.map((job, idx) => renderJobCard(job, idx, true))}
           </div>

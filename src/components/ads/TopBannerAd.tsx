@@ -103,11 +103,16 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   }, [ads, currentPage, dismissedIds, rotationSettings?.enabled, rotationSettings?.sequenceMode]);
 
   // If no matching banners and showDemoCard is true, show the demo ad
-  const activeBannerList = useMemo(() => (
-    matchingBanners.length > 0
-      ? matchingBanners
-      : (showDemoCardIfEmpty && !dismissedIds.includes('demo-your-ad-here') ? [demoBannerAd] : [])
-  ), [matchingBanners, showDemoCardIfEmpty, dismissedIds, demoBannerAd]);
+  const activeBannerList = useMemo(() => {
+    const configuredSlots = Math.max(1, Math.min(4, Math.floor(Number(maxConcurrentSlots) || 1)));
+    const canShowPlaceholder = showDemoCardIfEmpty && !dismissedIds.includes('demo-your-ad-here');
+    if (matchingBanners.length > 0) {
+      return canShowPlaceholder && matchingBanners.length < configuredSlots
+        ? [...matchingBanners, demoBannerAd]
+        : matchingBanners;
+    }
+    return canShowPlaceholder ? [demoBannerAd] : [];
+  }, [matchingBanners, showDemoCardIfEmpty, dismissedIds, demoBannerAd, maxConcurrentSlots]);
 
   const activeCount = activeBannerList.length;
   const slotsLimit = Math.max(1, Math.min(4, Math.floor(Number(maxConcurrentSlots) || 1)));

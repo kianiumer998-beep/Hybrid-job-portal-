@@ -1091,7 +1091,8 @@ export default function App() {
   const handleAdClick = async (ad: Advertisement) => {
     if (!ad?.id) return;
     if (ad.id === 'demo-your-ad-here') {
-      setSelectedJobTitleForSub('Top Banner Advertisement');
+      const isTopBanner = String(ad.placement || '').toLowerCase() === 'top-header';
+      setSelectedJobTitleForSub(isTopBanner ? 'Top Banner Advertisement' : 'Inline Job Feed Advertisement');
       setSubscriptionInitialCategory('ads_campaigns');
       setSubscriptionInitialFeatureId('campaign_credits');
       setSubscriptionModalOpen(true);

@@ -185,10 +185,10 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
             >
               <Search className={`w-3 h-3 sm:w-5 sm:h-5 ${theme.primaryBtnIconColor} shrink-0`} />
               <span className="truncate flex items-center justify-center gap-1.5">
-                {isLoading && totalJobsCount === 0 ? (
+                {isLoading ? (
                   <>
-                    <span className="w-3.5 h-3.5 rounded-full border-2 border-slate-900/40 border-t-slate-900 animate-spin inline-block" />
-                    <span>Loading Jobs...</span>
+                    <span className="w-3.5 h-3.5 rounded-full border-2 border-slate-900/40 border-t-slate-900 animate-spin inline-block shrink-0" />
+                    <span>{totalJobsCount === 0 ? 'Loading Jobs...' : (heroConfig.primaryBtnText || `Browse ${totalJobsCount} Jobs`)}</span>
                   </>
                 ) : (
                   heroConfig.primaryBtnText || `Browse ${totalJobsCount} Jobs`

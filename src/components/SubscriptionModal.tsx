@@ -105,6 +105,7 @@ function getPackageCategories(pkg: any): Set<CommercialCategoryId> {
 
   if (
     featureIds.some((id) => id.endsWith('_job_posting') || id === 'candidate_premium_membership') ||
+    Boolean(pkg?.jobTierId || pkg?.placementTier || (Array.isArray(pkg?.jobTierIds) && pkg.jobTierIds.length > 0)) ||
     /\b(job post|job posting|candidate premium|membership|urgent|featured|pinned|vip.*post|future.*job|advance intake)\b/i.test(corpus)
   ) {
     cats.add('job_posting');

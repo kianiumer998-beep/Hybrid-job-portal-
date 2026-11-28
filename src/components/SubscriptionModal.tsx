@@ -156,6 +156,21 @@ function matchesAdSubOption(pkg: any, subOption: AdSubOption, exactPlacement?: s
   if (subOption === 'advertisements') return explicitPlacements.some((id) => ['sidebar', 'dynamic-announcement-card'].includes(id));
   return featureIds.includes('campaign_credits') && explicitPlacements.some((id) => ['feed-inline', 'popup-modal', 'toast-float', 'sms-broadcast'].includes(id));
 }
+function matchesJobTierPackage(pkg: any, tier: string): boolean {
+  const featureIds: string[] = Array.isArray(pkg?.featureIds) ? pkg.featureIds.map(String) : [];
+  const tierFeatureIds: Record<string, string[]> = {
+    vip: ['vip_job_posting', 'vip_bundle', 'vip_ultimate_placement'],
+    pinned: ['pinned_job_posting', 'pinned_top_placement', 'featured_top_job_posting'],
+    featured: ['featured_job_posting'],
+    urgent: ['urgent_job_posting'],
+    future: ['future_job_posting', 'advance_intake_job_posting']
+  };
+  return pkg?.jobTierId === tier ||
+    pkg?.placementTier === tier ||
+    (Array.isArray(pkg?.jobTierIds) && pkg.jobTierIds.includes(tier)) ||
+    (tierFeatureIds[tier] || []).some((id) => featureIds.includes(id));
+}
+
 function matchesAlertSubOption(pkg: any, subOption: AlertSubOption): boolean {
   if (subOption === 'all') return true;
   const featureIds: string[] = Array.isArray(pkg?.featureIds) ? pkg.featureIds.map(String) : [];
@@ -296,7 +311,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
               targetPkg = exactPlacementPackages[0] || null;
             } else if (initialFeatureId?.startsWith('job_tier:')) {
               const tier = initialFeatureId.slice('job_tier:'.length);
-              const exactTierPackages = availablePackages.filter((pkg: any) => pkg?.jobTierId === tier || pkg?.placementTier === tier || (Array.isArray(pkg?.jobTierIds) && pkg.jobTierIds.includes(tier)));
+              const exactTierPackages = availablePackages.filter((pkg: any) => matchesJobTierPackage(pkg, tier));
               targetPkg = exactTierPackages[0] || null;
             }
             if (!initialPlacement && initialFeatureId && !initialFeatureId.startsWith('job_tier:')) {
@@ -501,7 +516,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     }
     if (selectedCategory === 'job_posting' && initialFeatureId?.startsWith('job_tier:')) {
       const tier = initialFeatureId.slice('job_tier:'.length);
-      return list.filter((pkg: any) => pkg?.jobTierId === tier || pkg?.placementTier === tier || (Array.isArray(pkg?.jobTierIds) && pkg.jobTierIds.includes(tier)));
+      return list.filter((pkg: any) => matchesJobTierPackage(pkg, tier));
     }
     if (selectedCategory === 'alerts_early_access') {
       return list.filter((pkg) => matchesAlertSubOption(pkg, alertSubOption));

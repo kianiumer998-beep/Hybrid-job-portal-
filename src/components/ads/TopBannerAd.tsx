@@ -108,7 +108,7 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   // If no matching banners and showDemoCard is true, show the demo ad
   const activeBannerList = useMemo(() => {
     const configuredSlots = Math.max(1, Math.min(4, Math.floor(Number(maxConcurrentSlots) || 1)));
-    const canShowPlaceholder = showDemoCardIfEmpty && !dismissedIds.includes('demo-your-ad-here');
+    const canShowPlaceholder = showDemoCardIfEmpty && matchingBanners.length === 0 && !dismissedIds.includes('demo-your-ad-here');
     if (matchingBanners.length > 0) {
       return canShowPlaceholder && matchingBanners.length < configuredSlots
         ? [...matchingBanners, demoBannerAd]
@@ -267,7 +267,7 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
       style={containerStyle}
       className="relative w-full z-30 mx-auto space-y-0"
     >
-      {showTopCategoryCta && activeBannerList.some((banner) => banner.id !== 'demo-your-ad-here') && (
+      {showTopCategoryCta && activeBannerList.some((banner) => banner.id !== 'demo-your-ad-here') && !activeBannerList.some((banner) => banner.id === 'demo-your-ad-here') && (
         <div className="max-w-7xl mx-auto w-full px-3 sm:px-6 flex justify-end py-1">
           <button type="button" onClick={() => handleAction(demoBannerAd)} className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-amber-400/10 px-2.5 py-1 text-[10px] font-black text-amber-200">Your Ad Here · Top Banner <ArrowRight className="h-3 w-3" /></button>
         </div>

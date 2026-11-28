@@ -4554,7 +4554,12 @@ export default function App() {
                           rotationSettings={promoOpt?.rotationSettings}
                           maxConcurrentSlots={promoOpt?.maxConcurrentSlots ?? 1}
                           onPaidAdCta={(ad) => { void handlePaidAdCta(ad); }}
-                          onPromoBannerCta={() => { if (currentUser) setActiveTab('dashboard'); else setAuthModalOpen(true); }}
+                          onPromoBannerCta={() => {
+                            setSelectedJobTitleForSub('Promotional Banner Advertisement');
+                            setSubscriptionInitialCategory('ads_campaigns');
+                            setSubscriptionInitialFeatureId('campaign_credits');
+                            setSubscriptionModalOpen(true);
+                          }}
                         />
                       );
                     }

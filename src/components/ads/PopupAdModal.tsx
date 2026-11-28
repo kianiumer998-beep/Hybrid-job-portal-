@@ -49,6 +49,12 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
 
   // Evaluate matching popup advertisements on mount / page change / ads update
   useEffect(() => {
+    if (!isEnabled) {
+      setIsOpen(false);
+      setPopupQueue([]);
+      setCurrentQueueIndex(0);
+      return;
+    }
     const rawCandidates = ads.filter(
       (ad) =>
         isAdCurrentlyRunning(ad) &&

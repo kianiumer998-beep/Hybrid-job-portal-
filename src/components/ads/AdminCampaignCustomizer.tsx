@@ -13,6 +13,7 @@ import {
   CampaignCustomizationConfig,
   DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
   DEFAULT_PROMO_BANNERS,
+  DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG,
   PromoDiscountBanner
 } from '../../types/ad';
 
@@ -34,6 +35,11 @@ const GRADIENT_PRESETS = [
 const buildMergedConfig = (cfg?: CampaignCustomizationConfig): CampaignCustomizationConfig => ({
   ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
   ...(cfg || {}),
+  adOpportunityDisplay: {
+    ...DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG, ...(cfg?.adOpportunityDisplay || {}),
+    jobTiers: { ...DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG.jobTiers, ...(cfg?.adOpportunityDisplay?.jobTiers || {}) },
+    adPlacements: { ...(cfg?.adOpportunityDisplay?.adPlacements || {}) }
+  },
   promoBanners: Array.isArray(cfg?.promoBanners)
     ? cfg!.promoBanners
     : [...DEFAULT_PROMO_BANNERS]
@@ -209,6 +215,26 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
         </div>
       </div>
 
+
+      <section className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 space-y-3">
+        <div><h3 className="text-sm font-black text-white">Your Jobs Here Display Rules</h3><p className="text-[11px] text-slate-400">Choose one CTA per category or show it inside every matching paid job card.</p></div>
+        {(['vip', 'pinned', 'featured', 'urgent', 'future'] as const).map((tier) => {
+          const rule = localConfig.adOpportunityDisplay?.jobTiers?.[tier] || DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG.jobTiers[tier];
+          const updateRule = (updates: any) => setLocalConfig((prev) => ({ ...prev, adOpportunityDisplay: { ...(prev.adOpportunityDisplay || DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG), jobTiers: { ...DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG.jobTiers, ...(prev.adOpportunityDisplay?.jobTiers || {}), [tier]: { ...rule, ...updates } } } }));
+          return <div key={tier} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-center rounded-lg border border-slate-800 p-2">
+            <span className="text-xs font-bold text-slate-200 capitalize">{tier} job placement</span>
+            <select value={rule.displayMode} onChange={(e) => updateRule({ displayMode: e.target.value, showOnCategory: e.target.value === 'whole_category', showOnPlacement: e.target.value === 'placement_level', showOnEachCard: e.target.value === 'each_card' })} className="rounded-lg bg-slate-900 border border-slate-700 px-2 py-2 text-xs text-white">
+              <option value="whole_category">Once above category</option><option value="each_card">Inside every matching card</option><option value="placement_level">Once at placement</option><option value="manual">Manual selection</option>
+            </select>
+            <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={rule.enabled} onChange={(e) => updateRule({ enabled: e.target.checked })} /> Enabled</label>
+            {rule.displayMode === 'manual' && <div className="sm:col-span-3 flex flex-wrap gap-3 text-xs text-slate-300">
+              <label><input type="checkbox" checked={rule.showOnCategory} onChange={(e) => updateRule({ showOnCategory: e.target.checked })} /> Category</label>
+              <label><input type="checkbox" checked={rule.showOnPlacement} onChange={(e) => updateRule({ showOnPlacement: e.target.checked })} /> Placement</label>
+              <label><input type="checkbox" checked={rule.showOnEachCard} onChange={(e) => updateRule({ showOnEachCard: e.target.checked })} /> Each card</label>
+            </div>}
+          </div>;
+        })}
+      </section>
       {saveError && (
         <div role="alert" className="p-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-[11px] text-rose-200 flex items-center gap-2">
           <AlertCircle className="w-4 h-4 shrink-0" />

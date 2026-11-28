@@ -256,7 +256,20 @@ export interface CampaignPlacementOption {
   rotationSettings?: PlacementRotationConfig;
 }
 
+export type AdOpportunityDisplayMode = 'whole_category' | 'each_card' | 'placement_level' | 'manual';
+export interface AdOpportunityPlacementRule { enabled: boolean; displayMode: AdOpportunityDisplayMode; showOnCategory: boolean; showOnPlacement: boolean; showOnEachCard: boolean; }
+export interface AdOpportunityDisplayConfig { jobTiers: Record<'vip' | 'pinned' | 'featured' | 'urgent' | 'future', AdOpportunityPlacementRule>; adPlacements: Record<string, AdOpportunityPlacementRule>; }
+export const DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG: AdOpportunityDisplayConfig = {
+ jobTiers: {
+  vip: { enabled: true, displayMode: 'whole_category', showOnCategory: true, showOnPlacement: false, showOnEachCard: false },
+  pinned: { enabled: true, displayMode: 'whole_category', showOnCategory: true, showOnPlacement: false, showOnEachCard: false },
+  featured: { enabled: true, displayMode: 'whole_category', showOnCategory: true, showOnPlacement: false, showOnEachCard: false },
+  urgent: { enabled: true, displayMode: 'whole_category', showOnCategory: true, showOnPlacement: false, showOnEachCard: false },
+  future: { enabled: true, displayMode: 'whole_category', showOnCategory: true, showOnPlacement: false, showOnEachCard: false }
+ }, adPlacements: {}
+};
 export interface CampaignCustomizationConfig {
+  adOpportunityDisplay?: AdOpportunityDisplayConfig;
   portalPages: PortalPageConfig[];
   durationPresets: CampaignDurationPreset[];
   placementOptions: CampaignPlacementOption[];
@@ -623,6 +636,7 @@ export const DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG: CampaignCustomizationConfig 
   portalPages: DEFAULT_PORTAL_PAGES_CONFIG,
   durationPresets: DEFAULT_DURATION_PRESETS,
   placementOptions: DEFAULT_PLACEMENT_OPTIONS,
+  adOpportunityDisplay: DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG,
   badgePresets: DEFAULT_BADGE_PRESETS,
   ctaPresets: DEFAULT_CTA_PRESETS,
   popupSettings: {

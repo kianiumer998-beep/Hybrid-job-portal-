@@ -68,7 +68,7 @@ export const RotatingPromoBannersSection: React.FC<RotatingPaidPromoAdsProps> = 
   const hasAvailablePromoAdSlot = visiblePaidAds.length < promoSlotLimit;
 
   if (activeBanners.length === 0 && visiblePaidAds.length === 0) {
-    if (!showAdOpportunity || promoRule?.enabled === false) return null;
+    if (!showAdOpportunity || (!showPromoCategoryCta && !showPromoEachCardCta)) return null;
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-end">
         <button type="button" onClick={() => onPromoBannerCta({
@@ -128,6 +128,7 @@ export const RotatingPromoBannersSection: React.FC<RotatingPaidPromoAdsProps> = 
             <h4 className="text-sm sm:text-base font-black tracking-tight">{banner.title}</h4>
             <p className="text-xs text-white/90 max-w-2xl">{banner.description}</p>
           </div>
+          {showPromoEachCardCta && <button type="button" onClick={() => onPromoBannerCta({ id: 'promo-ad-opportunity', title: 'Your Ad Here — Promotional Banner', description: 'Promote your campaign in the promotional banner placement.', discountPercent: 0, ctaText: 'Choose Ad Package' } as PromoDiscountBanner)} className="self-start rounded-full border border-amber-300/60 bg-slate-950/90 px-2.5 py-1 text-[10px] font-black text-amber-200">Your Ad Here →</button>}
           <button
             onClick={() => onPromoBannerCta(banner)}
             className="px-5 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0"
@@ -505,7 +506,7 @@ export const RotatingSidebarAds: React.FC<RotatingSidebarAdsProps> = ({
 
   if (!isEnabled) return null;
   if (visibleAds.length === 0) {
-    if (sidebarRule?.enabled === false) return null;
+    if (!showSidebarCategoryCta && !showSidebarEachCardCta) return null;
     return (
       <button type="button" onClick={() => onAdClick({
         id: 'demo-your-ad-here', title: 'Your Ad Here — Sidebar Advertisement',

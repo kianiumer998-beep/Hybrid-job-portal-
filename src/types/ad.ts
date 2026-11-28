@@ -266,7 +266,17 @@ export const DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG: AdOpportunityDisplayConfig =
   featured: { enabled: true, displayMode: 'whole_category', showOnCategory: true, showOnPlacement: false, showOnEachCard: false },
   urgent: { enabled: true, displayMode: 'whole_category', showOnCategory: true, showOnPlacement: false, showOnEachCard: false },
   future: { enabled: true, displayMode: 'whole_category', showOnCategory: true, showOnPlacement: false, showOnEachCard: false }
- }, adPlacements: {}
+ },
+ adPlacements: {
+  'top-header': { enabled: true, displayMode: 'whole_category', showOnCategory: true, showOnPlacement: false, showOnEachCard: false },
+  'feed-inline': { enabled: true, displayMode: 'whole_category', showOnCategory: true, showOnPlacement: false, showOnEachCard: false },
+  sidebar: { enabled: true, displayMode: 'whole_category', showOnCategory: true, showOnPlacement: false, showOnEachCard: false },
+  'popup-modal': { enabled: true, displayMode: 'whole_category', showOnCategory: true, showOnPlacement: false, showOnEachCard: false },
+  'toast-float': { enabled: true, displayMode: 'whole_category', showOnCategory: true, showOnPlacement: false, showOnEachCard: false },
+  'promo-discount-banner': { enabled: true, displayMode: 'whole_category', showOnCategory: true, showOnPlacement: false, showOnEachCard: false },
+  'dynamic-announcement-card': { enabled: true, displayMode: 'whole_category', showOnCategory: true, showOnPlacement: false, showOnEachCard: false },
+  'sms-broadcast': { enabled: true, displayMode: 'whole_category', showOnCategory: true, showOnPlacement: false, showOnEachCard: false }
+ }
 };
 export interface CampaignCustomizationConfig {
   adOpportunityDisplay?: AdOpportunityDisplayConfig;

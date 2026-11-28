@@ -465,6 +465,7 @@ transactionRouter.post('/', async (req, res) => {
       jobPricingOptions,
       adPricingOptions,
       plan,
+      requestedPlanId,
       cvTemplateId,
       expectedAmount,
       idempotencyKey
@@ -858,6 +859,75 @@ transactionRouter.post('/', async (req, res) => {
           });
         }
         enforcedAmount = numericAmount;
+
+        const rawRequestedPlan = typeof requestedPlanId === 'string' && requestedPlanId.trim()
+          ? requestedPlanId.trim()
+          : (typeof plan === 'string' && plan.trim() ? plan.trim() : '');
+        if (effectiveType === 'Wallet Deposit' && rawRequestedPlan) {
+          const pricingConfig = (await PricingRepository.get()) || {};
+          const packages = pricingConfig.subscriptionPackages || [];
+          let targetPackage: any = packages.find((p: any) => p.id === rawRequestedPlan && p.enabled === true);
+          if (!targetPackage && rawRequestedPlan.startsWith('feature:')) {
+            const featureId = rawRequestedPlan.slice('feature:'.length);
+            const feature = (pricingConfig.subscriptionFeatureCatalog || []).find((item: any) => item?.id === featureId && item.enabled === true);
+            if (feature) {
+              targetPackage = {
+                id: `feature-${feature.id}`,
+                name: feature.label,
+                enabled: true,
+                pricingMode: 'catalog',
+                durationDays: feature.durationDays,
+                featureIds: [feature.id],
+                bundleDiscountPercent: 0
+              };
+            }
+          }
+          if (!targetPackage || !targetPackage.enabled) {
+            return res.status(400).json({
+              success: false,
+              message: `The selected plan "${rawRequestedPlan}" is no longer available or is disabled.`
+            });
+          }
+          const planDuration = Number(targetPackage.durationDays);
+          let resolvedPackage: any;
+          try {
+            resolvedPackage = resolveSubscriptionPackage(targetPackage, pricingConfig);
+          } catch (packageError: any) {
+            return res.status(400).json({
+              success: false,
+              message: packageError?.message || 'Invalid subscription feature configuration for attached plan.'
+            });
+          }
+          if (!Number.isFinite(resolvedPackage.pricePkr) || resolvedPackage.pricePkr <= 0 || !Number.isInteger(planDuration) || planDuration <= 0) {
+            return res.status(400).json({
+              success: false,
+              message: `Invalid pricing or duration configuration for plan "${targetPackage.name}".`
+            });
+          }
+          (req as any).requestedPlanDetails = {
+            requestedPlanId: rawRequestedPlan,
+            requestedPlanName: String(targetPackage.name),
+            requestedPackageSnapshot: {
+              id: targetPackage.id,
+              name: targetPackage.name,
+              pricePkr: resolvedPackage.pricePkr,
+              durationDays: planDuration,
+              featureIds: resolvedPackage.featureIds,
+              featureSnapshots: resolvedPackage.featureSnapshots,
+              bundleDiscountPercent: resolvedPackage.bundleDiscountPercent,
+              cvBenefitsEnabled: targetPackage.cvBenefitsEnabled === true,
+              ...(targetPackage.cvBenefitsEnabled === true
+                ? {
+                    cvBenefits: targetPackage.cvBenefits || {},
+                    cvBenefitsDescription: String(targetPackage.cvBenefitsDescription || '').slice(0, 240)
+                  }
+                : {}),
+              undiscountedPricePkr: resolvedPackage.undiscountedPricePkr,
+              pricingMode: targetPackage.pricingMode === 'catalog' ? 'catalog' : 'fixed',
+              timestamp: new Date().toISOString()
+            }
+          };
+        }
       }
 
       if (!Number.isFinite(enforcedAmount) || (enforcedAmount <= 0 && !isAdFreeOverride && !isJobFreeOverride)) {
@@ -1236,12 +1306,24 @@ transactionRouter.post('/', async (req, res) => {
         }
       }
 
+      const requestedPlanDetails = (req as any).requestedPlanDetails;
+      const effectiveJobTitleRef = jobTitleRef || safeAdTitleRef || (
+        requestedPlanDetails?.requestedPlanName
+          ? `Plan Request: ${requestedPlanDetails.requestedPlanName} (PKR ${Number(requestedPlanDetails.requestedPackageSnapshot?.pricePkr || 0).toLocaleString()})`
+          : undefined
+      );
+
       const newTx = await PaymentRepository.createAsync({
         amount: enforcedAmount,
         currency: effectiveCurrency,
         type: effectiveType,
         ...(safeSubscriptionPlan ? { plan: safeSubscriptionPlan } : {}),
         ...(effectiveType === 'Subscription' ? { packageSnapshot: (req as any).packageSnapshot } : {}),
+        ...(effectiveType === 'Wallet Deposit' && requestedPlanDetails ? {
+          requestedPlanId: requestedPlanDetails.requestedPlanId,
+          requestedPlanName: requestedPlanDetails.requestedPlanName,
+          requestedPackageSnapshot: requestedPlanDetails.requestedPackageSnapshot
+        } : {}),
         ...(effectiveType === 'CV Design Purchase' ? {
           cvTemplateId: (req as any).cvPurchaseSnapshot.templateId,
           cvPurchaseSnapshot: (req as any).cvPurchaseSnapshot
@@ -1261,7 +1343,7 @@ transactionRouter.post('/', async (req, res) => {
         userId: effectiveUserId,
         userName: effectiveUserName,
         userEmail: effectiveUserEmail,
-        jobTitleRef: jobTitleRef || safeAdTitleRef,
+        jobTitleRef: effectiveJobTitleRef,
         jobIdRef: safeJobIdRef,
         ...(safeAdIdRef ? { adIdRef: safeAdIdRef } : {}),
         ...(safeAdTitleRef ? { adTitleRef: safeAdTitleRef } : {}),
@@ -1741,18 +1823,48 @@ transactionRouter.patch('/:id/verify', requireAdminPermission('payments.manage')
         try {
           const isApprove = action === 'approve';
           const rejReason = reason || note || tx.rejectionReason || 'No reason specified';
+          const isDepositWithActivatedPlan = isApprove && tx.type === 'Wallet Deposit' && tx.attachedPlanActivated === true;
+          const isDepositWithShortfallPlan = isApprove && tx.type === 'Wallet Deposit' && tx.requestedPlanName && tx.attachedPlanActivated === false;
+          const attachedPlanTitle = tx.requestedPlanName || tx.requestedPackageSnapshot?.name || 'selected plan';
+          const attachedPlanPrice = Number(tx.requestedPackageSnapshot?.pricePkr || 0);
+
+          const notifTitle = isDepositWithActivatedPlan
+            ? 'Deposit Verified & Plan Activated'
+            : isDepositWithShortfallPlan
+              ? 'Wallet Credited (Plan Needs Top-up)'
+              : isApprove && tx.type === 'Wallet Deposit'
+                ? 'Wallet Balance Credited'
+                : (isApprove ? 'Payment Approved' : 'Payment Rejected');
+
+          const notifMessage = isDepositWithActivatedPlan
+            ? `Your deposit of PKR ${Number(tx.amount).toLocaleString()} was verified, and "${attachedPlanTitle}" (PKR ${attachedPlanPrice.toLocaleString()}) has been activated from your wallet.`
+            : isDepositWithShortfallPlan
+              ? `Your deposit of PKR ${Number(tx.amount).toLocaleString()} was verified and credited (Wallet: PKR ${Number(tx.balanceAfter || 0).toLocaleString()}). Add PKR ${Number(tx.attachedPlanShortfallPkr || 0).toLocaleString()} more to activate "${attachedPlanTitle}".`
+              : isApprove && tx.type === 'Wallet Deposit'
+                ? `Your wallet deposit of PKR ${Number(tx.amount).toLocaleString()} has been verified and credited. ${Number.isFinite(Number(tx.balanceAfter)) ? `Your new wallet balance is PKR ${Number(tx.balanceAfter).toLocaleString()}. ` : ''}You can now use your wallet balance to purchase available subscriptions and packages.`
+                : isApprove
+                  ? `Your payment of ${tx.amount} ${tx.currency || 'PKR'} for ${tx.type} has been approved.`
+                  : `Your payment of ${tx.amount} ${tx.currency || 'PKR'} for ${tx.type} was rejected. Reason: ${rejReason}`;
+
           await NotificationRepository.createAsync({
             userId: tx.userId,
-            title: isApprove && tx.type === 'Wallet Deposit' ? 'Wallet Balance Credited' : (isApprove ? 'Payment Approved' : 'Payment Rejected'),
-            message: isApprove && tx.type === 'Wallet Deposit'
-              ? `Your wallet deposit of PKR ${Number(tx.amount).toLocaleString()} has been verified and credited. ${Number.isFinite(Number(tx.balanceAfter)) ? `Your new wallet balance is PKR ${Number(tx.balanceAfter).toLocaleString()}. ` : ''}You can now use your wallet balance to purchase available subscriptions and packages.`
-              : isApprove
-                ? `Your payment of ${tx.amount} ${tx.currency || 'PKR'} for ${tx.type} has been approved.`
-                : `Your payment of ${tx.amount} ${tx.currency || 'PKR'} for ${tx.type} was rejected. Reason: ${rejReason}`,
+            title: notifTitle,
+            message: notifMessage,
             type: isApprove ? 'success' : 'warning',
             eventId: isApprove ? `payment-approved-${tx.id}` : `payment-rejected-${tx.id}`,
             idempotencyKey: isApprove ? `payment-approved-${tx.id}` : `payment-rejected-${tx.id}`,
-            metadata: { transactionId: tx.id, amount: tx.amount, type: tx.type, action, reason: rejReason, ...(tx.type === 'Wallet Deposit' ? { balanceAfter: tx.balanceAfter } : {}) }
+            metadata: {
+              transactionId: tx.id,
+              amount: tx.amount,
+              type: tx.type,
+              action,
+              reason: rejReason,
+              ...(tx.type === 'Wallet Deposit' ? {
+                balanceAfter: tx.balanceAfter,
+                attachedPlanActivated: tx.attachedPlanActivated,
+                requestedPlanName: tx.requestedPlanName
+              } : {})
+            }
           });
         } catch (notifErr) {
           console.error('[Notification Verification Trigger Error]:', notifErr);

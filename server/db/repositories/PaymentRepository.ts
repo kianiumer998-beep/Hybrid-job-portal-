@@ -1007,6 +1007,141 @@ export class PaymentRepository {
 
         const balanceAfterDeposit = Number(updatedUser.walletBalance);
         const balanceBeforeDeposit = balanceAfterDeposit - depositAmount;
+        const verifiedAtIso = new Date().toISOString();
+
+        const requestedSnap = tx.requestedPackageSnapshot;
+        let depositAdminNote = note || 'Verified and approved by administrator';
+        let attachedPlanUpdates: Record<string, any> = {};
+
+        if (requestedSnap && typeof requestedSnap === 'object' && !Array.isArray(requestedSnap)) {
+          const snapPrice = Number(requestedSnap.pricePkr);
+          const snapDuration = Number(requestedSnap.durationDays);
+          const membershipTier = String(requestedSnap.name || tx.requestedPlanName || '').trim();
+
+          if (
+            requestedSnap.id &&
+            membershipTier &&
+            Number.isFinite(snapPrice) && snapPrice > 0 &&
+            Number.isInteger(snapDuration) && snapDuration > 0
+          ) {
+            if (balanceAfterDeposit >= snapPrice) {
+              const subscriptionExpiresAt = new Date(Date.now() + snapDuration * 24 * 60 * 60 * 1000).toISOString();
+              const featureSnapshots = Array.isArray(requestedSnap.featureSnapshots) ? requestedSnap.featureSnapshots : [];
+              const nextEntitlements: Record<string, any> = { ...(updatedUser?.subscriptionEntitlements || {}) };
+              const subscriptionFeatureIds: string[] = [];
+
+              for (const feature of featureSnapshots) {
+                const featureId = String(feature?.id || '').trim();
+                if (!featureId) continue;
+                const rawFeatureDays = Number(feature?.durationDays);
+                const featureDays = Number.isInteger(rawFeatureDays) && rawFeatureDays > 0
+                  ? Math.min(snapDuration, rawFeatureDays)
+                  : snapDuration;
+                const includedSlots = Number.isInteger(Number(feature?.includedSlots)) ? Math.max(0, Number(feature.includedSlots)) : 0;
+                const slotDurationDays = Number.isInteger(Number(feature?.slotDurationDays)) ? Math.min(snapDuration, Math.max(1, Number(feature.slotDurationDays))) : snapDuration;
+                subscriptionFeatureIds.push(featureId);
+                nextEntitlements[featureId] = {
+                  enabled: true,
+                  grantedAt: verifiedAtIso,
+                  expiresAt: new Date(Date.now() + featureDays * 24 * 60 * 60 * 1000).toISOString(),
+                  includedSlots,
+                  remainingSlots: includedSlots,
+                  slotDurationDays,
+                  sourcePackageId: String(requestedSnap.id),
+                  ...(typeof feature.unlimitedMessages === 'boolean' ? { unlimitedMessages: feature.unlimitedMessages } : {}),
+                  ...(Number.isInteger(Number(feature.monthlyMessageQuota)) && Number(feature.monthlyMessageQuota) >= 0
+                    ? { monthlyMessageQuota: Number(feature.monthlyMessageQuota) } : {}),
+                  ...(featureId === 'campaign_credits' && Array.isArray(feature.campaignCredits)
+                    ? {
+                        campaignCredits: feature.campaignCredits.map((credit: any) => ({
+                          placement: String(credit.placement),
+                          durationHours: Number(credit.durationHours),
+                          smsRecipientsCount: Number(credit.smsRecipientsCount || 0),
+                          includedQuantity: Number(credit.quantity),
+                          remaining: Number(credit.quantity)
+                        }))
+                      }
+                    : {})
+                };
+              }
+
+              const deductedUser = await UserRepository.deductWalletBalanceAsync(
+                user.id,
+                snapPrice,
+                {
+                  membershipTier,
+                  membershipStatus: 'Active',
+                  subscriptionExpiresAt,
+                  subscriptionEntitlements: nextEntitlements,
+                  subscriptionFeatureIds: subscriptionFeatureIds.length ? subscriptionFeatureIds : ['__no_features__']
+                }
+              );
+
+              if (deductedUser) {
+                const autoSubIdemKey = `auto-sub-dep-${id}`;
+                let subTx = await this.findByIdempotencyKeyAsync(autoSubIdemKey);
+                if (!subTx) {
+                  const balAfterPlan = Number(deductedUser.walletBalance);
+                  subTx = await this.createAsync({
+                    amount: snapPrice,
+                    currency: tx.currency || 'PKR',
+                    type: 'Subscription',
+                    plan: membershipTier,
+                    packageSnapshot: requestedSnap,
+                    status: 'Success',
+                    paymentMethod: 'Wallet Balance',
+                    walletMutationState: 'DEDUCTED',
+                    transactionId: `SUB-DEP-${String(tx.transactionId || id).slice(0, 24)}`,
+                    idempotencyKey: autoSubIdemKey,
+                    userId: user.id,
+                    userName: tx.userName || deductedUser.name,
+                    userEmail: tx.userEmail || deductedUser.email,
+                    balanceBefore: balanceAfterDeposit,
+                    balanceAfter: balAfterPlan,
+                    verifiedAt: verifiedAtIso,
+                    adminNote: `Auto-activated from verified deposit ${tx.transactionId || id}`,
+                    createdAt: verifiedAtIso
+                  });
+                }
+
+                if (requestedSnap.cvBenefitsEnabled === true) {
+                  const benefits = requestedSnap.cvBenefits || {};
+                  await UserRepository.grantCvPackageEntitlementAsync(
+                    user.id,
+                    {
+                      packageId: `subscription:${requestedSnap.id}`,
+                      packageName: `${membershipTier} CV Benefits`,
+                      pricePkr: snapPrice,
+                      durationDays: snapDuration,
+                      cvCreateLimit: Number(benefits.cvCreateLimit ?? 0),
+                      editLimit: Number(benefits.editLimit ?? 0),
+                      pdfExportLimit: Number(benefits.pdfExportLimit ?? 0),
+                      atsExportLimit: Number(benefits.atsExportLimit ?? 0),
+                      shareLimit: Number(benefits.shareLimit ?? 0),
+                      noWatermark: benefits.noWatermark === true,
+                      premiumDesignIds: Array.isArray(benefits.premiumDesignIds) ? benefits.premiumDesignIds : []
+                    },
+                    String(subTx?.id || id)
+                  ).catch(() => null);
+                }
+
+                const remainingBal = Number(deductedUser.walletBalance);
+                attachedPlanUpdates = {
+                  attachedPlanActivated: true,
+                  ...(subTx?.id ? { attachedSubscriptionTxId: subTx.id } : {})
+                };
+                depositAdminNote = `${note ? `${note} · ` : ''}Deposit credited (PKR ${depositAmount.toLocaleString()}) and plan "${membershipTier}" activated (PKR ${snapPrice.toLocaleString()} deducted; remaining wallet: PKR ${remainingBal.toLocaleString()}).`;
+              }
+            } else {
+              const shortfall = Math.max(0, Math.round((snapPrice - balanceAfterDeposit) * 100) / 100);
+              attachedPlanUpdates = {
+                attachedPlanActivated: false,
+                attachedPlanShortfallPkr: shortfall
+              };
+              depositAdminNote = `${note ? `${note} · ` : ''}Deposit credited (PKR ${depositAmount.toLocaleString()}). Requested plan "${membershipTier}" (PKR ${snapPrice.toLocaleString()}) requires PKR ${shortfall.toLocaleString()} more to activate.`;
+            }
+          }
+        }
 
         await this.updateAsync(id, {
           walletCredited: true,
@@ -1014,8 +1149,9 @@ export class PaymentRepository {
           balanceBefore: balanceBeforeDeposit,
           balanceAfter: balanceAfterDeposit,
           status: 'Success',
-          verifiedAt: new Date().toISOString(),
-          adminNote: note || 'Verified and approved by administrator'
+          verifiedAt: verifiedAtIso,
+          adminNote: depositAdminNote,
+          ...attachedPlanUpdates
         });
       } else if (tx.type === 'Subscription') {
         let user: any = null;

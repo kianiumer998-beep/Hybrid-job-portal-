@@ -433,7 +433,14 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                           {tx.type}
                         </span>
                         {tx.type === 'CV Design Purchase' && tx.cvPurchaseSnapshot?.templateName && <div className="mt-1 max-w-[200px] truncate text-[11px] font-semibold text-fuchsia-200" title={tx.cvPurchaseSnapshot.templateName}>Design: {tx.cvPurchaseSnapshot.templateName}</div>}
-                        {tx.jobTitleRef && (
+                        {tx.type === 'Wallet Deposit' && tx.requestedPlanName && (
+                          <div className="mt-1 max-w-[220px] text-[11px] font-semibold text-emerald-300 truncate" title={tx.requestedPlanName}>
+                            Plan: {tx.requestedPlanName}
+                            {tx.requestedPackageSnapshot?.pricePkr ? ` · PKR ${Number(tx.requestedPackageSnapshot.pricePkr).toLocaleString()}` : ''}
+                            {tx.attachedPlanActivated === true ? ' (Activated)' : tx.attachedPlanActivated === false ? ` (Shortfall PKR ${Number(tx.attachedPlanShortfallPkr || 0).toLocaleString()})` : ''}
+                          </div>
+                        )}
+                        {tx.jobTitleRef && !(tx.type === 'Wallet Deposit' && tx.requestedPlanName) && (
                           <div className="text-[11px] text-slate-300 font-semibold mt-1 max-w-[200px] truncate" title={tx.jobTitleRef}>
                             Ref: {tx.jobTitleRef}
                           </div>
@@ -731,6 +738,45 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                               {!linkedUser && (
                                 <div className="col-span-2 text-[10px] text-amber-300">
                                   Live user wallet record is not available in the current admin directory.
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        {selectedTx.type === 'Wallet Deposit' && selectedTx.requestedPlanName && (() => {
+                          const linkedUser = users.find((user) => String(user.id) === String(selectedTx.userId || ''));
+                          const currentBal = Number(linkedUser?.walletBalance ?? 0);
+                          const planPrice = Number(selectedTx.requestedPackageSnapshot?.pricePkr || 0);
+                          const planDays = Number(selectedTx.requestedPackageSnapshot?.durationDays || 30);
+                          const projectedBal = currentBal + Number(selectedTx.amount || 0);
+                          const willActivate = planPrice > 0 && projectedBal >= planPrice;
+                          return (
+                            <div className="bg-slate-900/80 border border-indigo-500/30 rounded-xl p-3 space-y-1.5">
+                              <div className="text-[10px] font-black uppercase tracking-wider text-indigo-300">
+                                Attached Membership / Plan Request
+                              </div>
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="font-bold text-white">{selectedTx.requestedPlanName}</span>
+                                <span className="font-mono font-bold text-emerald-400">
+                                  PKR {planPrice.toLocaleString()} / {planDays}d
+                                </span>
+                              </div>
+                              {selectedTx.status === 'Pending' && linkedUser && planPrice > 0 && (
+                                <div className={`text-[11px] ${willActivate ? 'text-emerald-300' : 'text-amber-300'}`}>
+                                  {willActivate
+                                    ? `Approving credits PKR ${Number(selectedTx.amount).toLocaleString()} and auto-activates this plan (wallet after: PKR ${(projectedBal - planPrice).toLocaleString()}).`
+                                    : `Approving credits PKR ${Number(selectedTx.amount).toLocaleString()} to wallet (PKR ${(planPrice - projectedBal).toLocaleString()} shortfall remains for auto-activation).`}
+                                </div>
+                              )}
+                              {selectedTx.attachedPlanActivated === true && (
+                                <div className="text-[11px] text-emerald-400 font-semibold">
+                                  Plan activated automatically on approval.
+                                </div>
+                              )}
+                              {selectedTx.attachedPlanActivated === false && (
+                                <div className="text-[11px] text-amber-300 font-semibold">
+                                  Credited to wallet · Shortfall remaining: PKR {Number(selectedTx.attachedPlanShortfallPkr || 0).toLocaleString()}
                                 </div>
                               )}
                             </div>

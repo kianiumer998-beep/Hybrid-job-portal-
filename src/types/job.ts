@@ -63,6 +63,12 @@ export interface PaymentTransaction {
   cvTemplateId?: string;
   cvPurchaseSnapshot?: { templateId: string; templateName: string; pricePkr: number; timestamp: string };
   cvEntitlementGranted?: boolean;
+  requestedPlanId?: string;
+  requestedPlanName?: string;
+  requestedPackageSnapshot?: Record<string, any>;
+  attachedPlanActivated?: boolean;
+  attachedPlanShortfallPkr?: number;
+  attachedSubscriptionTxId?: string;
 }
 
 export interface JobPostingFeeLog {
@@ -140,6 +146,7 @@ export interface UserAccount {
   plan: 'Free' | 'Premium';
   paymentStatus?: 'Paid' | 'Unpaid' | 'Overdue';
   membershipStatus?: 'Active' | 'Revoked' | 'Expired' | 'Unpaid';
+  membershipTier?: string;
   subscriptionExpiresAt?: string;
   subscriptionFeatureIds?: string[];
   subscriptionEntitlements?: Record<string, any>;

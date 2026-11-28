@@ -1657,7 +1657,7 @@ export default function App() {
   });
   const [legalModalOpen, setLegalModalOpen] = useState<boolean>(false);
   const [legalModalTab, setLegalModalTab] = useState<'disclaimer' | 'privacy' | 'terms' | 'contact'>('disclaimer');
-  const [userDashboardInitialTab, setUserDashboardInitialTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat'>('overview');
+  const [userDashboardInitialTab, setUserDashboardInitialTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns'>('overview');
 
   const handlePostJobClick = () => {
     setUserDashboardInitialTab('post-job');
@@ -2408,29 +2408,39 @@ export default function App() {
           ...prev.filter((t) => String(t.id) !== String(normalized.id))
         ]);
 
-        // If this is a subscription transaction, activate the corresponding subscriber & user plan
-        if (normalized.type === 'Subscription' || res.transaction.type === 'Subscription') {
-          const planName = res.transaction.plan || 'Pro Alerts';
+        // If this is a subscription transaction (or a Wallet Deposit that auto-activated an attached plan), activate/refresh user plan
+        if (
+          normalized.type === 'Subscription' ||
+          res.transaction.type === 'Subscription' ||
+          normalized.type === 'Wallet Deposit' ||
+          res.transaction.type === 'Wallet Deposit'
+        ) {
+          const planName = res.transaction.plan || res.transaction.requestedPlanName || 'Pro Alerts';
           const subEmail = (res.transaction.userEmail || '').toLowerCase();
+          const activatedAttachedPlan = Boolean((res.transaction as any).attachedPlanActivated);
 
-          await loadBackendSubscribers();
+          if (normalized.type === 'Subscription' || res.transaction.type === 'Subscription' || activatedAttachedPlan) {
+            await loadBackendSubscribers();
+          }
 
           if (
             currentUser &&
             (currentUser.id === res.transaction.userId ||
               (currentUser.email && currentUser.email.toLowerCase() === subEmail))
           ) {
-            setIsSubscribed(true);
-            setCurrentUser((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    membershipStatus: 'Active',
-                    membershipTier: planName,
-                    plan: 'Premium'
-                  }
-                : null
-            );
+            if (normalized.type === 'Subscription' || res.transaction.type === 'Subscription' || activatedAttachedPlan) {
+              setIsSubscribed(true);
+              setCurrentUser((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      membershipStatus: 'Active',
+                      membershipTier: planName,
+                      plan: 'Premium'
+                    }
+                  : null
+              );
+            }
             await loadBackendUserProfile(currentUser.id);
           }
         }
@@ -3935,6 +3945,7 @@ export default function App() {
     senderPhoneOrAccount?: string;
     depositBankOrWalletName?: string;
     proofNote?: string;
+    requestedPlanId?: string;
   }): Promise<{ success: boolean; transaction?: any; message?: string }> => {
     if (!currentUser) {
       return { success: false, message: 'Authentication required. Please log in.' };
@@ -3948,7 +3959,8 @@ export default function App() {
       senderName,
       senderPhoneOrAccount,
       depositBankOrWalletName,
-      proofNote
+      proofNote,
+      requestedPlanId
     } = depositData;
 
     try {
@@ -3963,6 +3975,7 @@ export default function App() {
         depositBankOrWalletName: depositBankOrWalletName || undefined,
         proofScreenshotUrl: proofScreenshotUrl || undefined,
         proofNote: proofNote || undefined,
+        ...(requestedPlanId ? { requestedPlanId } : {}),
         userId: currentUser.id,
         userName: currentUser.name,
         userEmail: currentUser.email,
@@ -4901,6 +4914,33 @@ export default function App() {
         initialSelectedJobTitle={selectedJobTitleForSub}
         currentUser={currentUser}
         whatsappEnabledGlobal={channelAvailability.whatsapp}
+        onDepositWallet={handleDepositFunds}
+        onNavigateToCampaigns={() => {
+          setSubscriptionModalOpen(false);
+          setUserDashboardInitialTab('campaigns');
+          if (currentUser) {
+            setActiveTab('dashboard');
+          } else {
+            setAuthModalOpen(true);
+          }
+        }}
+        onNavigateToPostJob={() => {
+          setSubscriptionModalOpen(false);
+          handlePostJobClick();
+        }}
+        onNavigateToCv={() => {
+          setSubscriptionModalOpen(false);
+          setActiveTab('cv');
+        }}
+        onWalletPurchaseSuccess={async () => {
+          if (currentUser?.id) {
+            await Promise.all([
+              loadBackendUserProfile(currentUser.id),
+              loadBackendTransactions(currentUser.id),
+              loadBackendSubscribers()
+            ]);
+          }
+        }}
       />
 
       <CvDesignCheckoutModal

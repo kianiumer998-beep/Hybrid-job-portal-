@@ -947,7 +947,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                   bannerDimensions={bannerDimensions}
                   feedCardAppearance={feedCardAppearance}
                   feedInlineSettings={feedInlineSettings}
-                  onPaidAdCta={showFeedEachCardCta ? onPaidAdCta : undefined}
+                  onPaidAdCta={showAdOpportunity && showFeedEachCardCta ? onPaidAdCta : undefined}
                 />
               );
               adInsertedCount++;

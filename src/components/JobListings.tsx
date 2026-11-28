@@ -266,6 +266,11 @@ export const JobListings: React.FC<JobListingsProps> = ({
     return jobs.filter(j => !priorityIdsSet.has(j.id));
   }, [jobs, priorityIdsSet]);
 
+  const configuredFeedAdLimit = Number(feedInlineSettings?.maxAdsPerPage ?? 3);
+  const feedAdSlotLimit = Number.isInteger(configuredFeedAdLimit) ? Math.max(0, Math.min(10, configuredFeedAdLimit)) : 3;
+  const activeFeedAdCount = ads.filter((ad) => ad.placement === 'feed-inline' && isAdCurrentlyRunning(ad)).length;
+  const hasAvailableFeedAdSlot = activeFeedAdCount < feedAdSlotLimit;
+
   const totalStandardJobs = standardJobs.length;
   const totalPages = Math.max(1, Math.ceil(totalStandardJobs / postsPerPage));
   const safePage = Math.min(Math.max(1, currentPage), totalPages);
@@ -822,7 +827,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
         )}
       </div>
 
-      {showAdOpportunity && <div className="flex justify-end -mt-1 mb-3">
+      {showAdOpportunity && hasAvailableFeedAdSlot && <div className="flex justify-end -mt-1 mb-3">
         <button
           type="button"
           onClick={() => onAdClick?.({

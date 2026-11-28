@@ -388,8 +388,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       : DEFAULT_DURATION_PRESETS;
 
     const getExactPrice = (opt: any, unit: 'hours' | 'days' | 'weeks' | 'months', value: number, presetId?: string) => {
-      const targetPages = Array.isArray(opt.allowedPageIds) && opt.allowedPageIds.length > 0
-        ? [opt.allowedPageIds[0]]
+      const targetPages: import('../types/ad').AdTargetPage[] = Array.isArray(opt.allowedPageIds) && opt.allowedPageIds.length > 0
+        ? [opt.allowedPageIds[0] as import('../types/ad').AdTargetPage]
         : ['all'];
       return calculateCampaignCost(
         adPricingConfig,

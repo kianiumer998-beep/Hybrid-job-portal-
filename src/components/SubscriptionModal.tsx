@@ -134,18 +134,22 @@ function getPackageCategories(pkg: any): Set<CommercialCategoryId> {
   return cats;
 }
 
-function matchesAdSubOption(pkg: any, subOption: AdSubOption): boolean {
+function matchesAdSubOption(pkg: any, subOption: AdSubOption, exactPlacement?: string): boolean {
+  const featureIds: string[] = Array.isArray(pkg?.featureIds) ? pkg.featureIds.map(String) : [];
+  const labels: string[] = [...(Array.isArray(pkg?.featureLabels) ? pkg.featureLabels : []), ...(Array.isArray(pkg?.features) ? pkg.features : [])].map(String);
+  const explicitPlacements = [
+    ...(Array.isArray(pkg?.placementIds) ? pkg.placementIds : []),
+    ...(Array.isArray(pkg?.allowedPlacements) ? pkg.allowedPlacements : []),
+    ...(Array.isArray(pkg?.campaignCredits) ? pkg.campaignCredits.map((item: any) => item?.placement) : []),
+    ...(Array.isArray(pkg?.featureOverrides?.campaign_credits?.campaignCredits) ? pkg.featureOverrides.campaign_credits.campaignCredits.map((item: any) => item?.placement) : []),
+    ...labels.map((label) => label.split('·')[0]?.trim())
+  ].filter(Boolean).map(String);
+  if (exactPlacement) return explicitPlacements.includes(exactPlacement);
   if (subOption === 'all') return true;
-  const corpus = getPackageTextCorpus(pkg);
-  if (subOption === 'banners') {
-    return /\b(banner|top-header|promo-discount-banner|header)\b/i.test(corpus) || corpus.includes('campaign');
-  }
-  if (subOption === 'advertisements') {
-    return /\b(advert|sidebar|dynamic-announcement-card|display)\b/i.test(corpus) || corpus.includes('campaign');
-  }
-  return /\b(campaign|feed-inline|popup|toast|sms-broadcast|credit)\b/i.test(corpus);
+  if (subOption === 'banners') return explicitPlacements.some((id) => ['top-header', 'promo-discount-banner'].includes(id));
+  if (subOption === 'advertisements') return explicitPlacements.some((id) => ['sidebar', 'dynamic-announcement-card'].includes(id));
+  return featureIds.includes('campaign_credits') && explicitPlacements.some((id) => ['feed-inline', 'popup-modal', 'toast-float', 'sms-broadcast'].includes(id));
 }
-
 function matchesAlertSubOption(pkg: any, subOption: AlertSubOption): boolean {
   if (subOption === 'all') return true;
   const featureIds: string[] = Array.isArray(pkg?.featureIds) ? pkg.featureIds.map(String) : [];
@@ -280,14 +284,22 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
           setPackages(availablePackages);
           if (availablePackages.length > 0) {
             let targetPkg = availablePackages[0];
-            if (initialFeatureId) {
+            if (initialPlacement) {
+              const exactPlacementPackages = availablePackages.filter((pkg: any) => matchesAdSubOption(pkg, 'all', initialPlacement));
+              targetPkg = exactPlacementPackages[0] || targetPkg;
+            } else if (initialFeatureId?.startsWith('job_tier:')) {
+              const tier = initialFeatureId.slice('job_tier:'.length);
+              const exactTierPackages = availablePackages.filter((pkg: any) => pkg?.jobTierId === tier || pkg?.placementTier === tier || (Array.isArray(pkg?.jobTierIds) && pkg.jobTierIds.includes(tier)));
+              targetPkg = exactTierPackages[0] || targetPkg;
+            }
+            if (!initialPlacement && initialFeatureId && !initialFeatureId.startsWith('job_tier:')) {
               const found = availablePackages.find((p: any) => {
                 const featureIds = Array.isArray(p.featureIds) ? p.featureIds.map(String) : [];
                 return featureIds.includes(initialFeatureId) ||
                   (initialFeatureId === 'premium_job_posting' && featureIds.includes('candidate_premium_membership'));
               });
               if (found) targetPkg = found;
-            } else if (initialCategory) {
+            } else if (!initialPlacement && !initialFeatureId?.startsWith('job_tier:') && initialCategory) {
               const foundCat = availablePackages.find((p: any) => {
                 const cats = getPackageCategories(p);
                 return cats.has(initialCategory);
@@ -461,8 +473,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
         desc: jp.vipBundleDescription || 'Maximum visibility & alerts boost'
       }
     ];
-    return tiers.filter((t) => t.enabled);
-  }, [pricingData]);
+    return tiers.filter((t) => t.enabled && (!initialFeatureId?.startsWith('job_tier:') || t.id === initialFeatureId.slice('job_tier:'.length)));
+  }, [pricingData, initialFeatureId]);
 
   const filteredCategoryPackages = useMemo(() => {
     const list = packagesWithCategories
@@ -470,7 +482,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       .map((item) => item.pkg);
 
     if (selectedCategory === 'ads_campaigns') {
-      return list.filter((pkg) => matchesAdSubOption(pkg, adSubOption));
+      return list.filter((pkg) => matchesAdSubOption(pkg, adSubOption, initialPlacement));
     }
     if (selectedCategory === 'alerts_early_access') {
       return list.filter((pkg) => matchesAlertSubOption(pkg, alertSubOption));
@@ -484,7 +496,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       });
     }
     return list;
-  }, [packagesWithCategories, selectedCategory, adSubOption, alertSubOption]);
+  }, [packagesWithCategories, selectedCategory, adSubOption, alertSubOption, initialPlacement]);
 
   const selectedPlacementInfo = useMemo(
     () => enabledAdPlacements.find((placement) => placement.id === initialPlacement) || null,

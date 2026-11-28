@@ -1531,7 +1531,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                           {selectedPlacementInfo.description && (
                             <p className="mt-1 text-[10px] leading-snug text-slate-300">{selectedPlacementInfo.description}</p>
                           )}
-                          <p className="mt-1.5 text-[10px] text-slate-300">Admin-configured rate and duration options for this placement.</p>
+                          <p className="mt-1.5 text-[10px] text-slate-300">Admin-configured rate and duration options. Final campaign total is recalculated after target pages, schedule and slot availability are selected.</p>
                         </div>
                       </div>
                       {selectedPlacementInfo.rateOptions.length > 0 && (

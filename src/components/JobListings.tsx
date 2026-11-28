@@ -792,6 +792,41 @@ export const JobListings: React.FC<JobListingsProps> = ({
         )}
       </div>
 
+      <div className="flex justify-end -mt-1 mb-3">
+        <button
+          type="button"
+          onClick={() => onAdClick?.({
+            id: 'demo-your-ad-here',
+            title: 'Your Ad Here — Inline Job Feed',
+            type: 'banner',
+            placement: 'feed-inline',
+            targetPages: ['jobs'],
+            status: 'active',
+            approvalStatus: 'Approved',
+            submittedByUserId: 'system-demo',
+            submittedByUserName: 'Platform Promotion',
+            headline: 'Your Ad Here',
+            bodyText: 'Promote your company or campaign in the job feed.',
+            badgeText: 'Advertise Here',
+            ctaText: 'Choose Ad Package',
+            ctaUrl: '',
+            theme: 'amber',
+            dismissable: false,
+            impressions: 0,
+            clicks: 0,
+            createdAt: new Date().toISOString(),
+            durationUnit: 'days',
+            durationValue: 1
+          } as Advertisement)}
+          className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-amber-400/10 px-2.5 py-1 text-[10px] font-black tracking-wide text-amber-200 shadow-[0_0_12px_rgba(251,191,36,0.12)] transition-all hover:border-amber-300 hover:bg-amber-400/20 hover:shadow-[0_0_18px_rgba(251,191,36,0.22)]"
+          aria-label="Advertise in the job feed"
+        >
+          <Megaphone className="h-3 w-3" />
+          Your Ad Here
+          <ArrowRight className="h-3 w-3" />
+        </button>
+      </div>
+
       {/* 3. STANDARD JOBS GRID */}
       <div className={`grid grid-cols-1 ${design.layout === 'editorial' ? '' : 'md:grid-cols-2 lg:grid-cols-3'} gap-2 sm:gap-4`}>
         {(() => {

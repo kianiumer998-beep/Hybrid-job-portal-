@@ -1507,12 +1507,32 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                           {selectedPlacementInfo.description && (
                             <p className="mt-1 text-[10px] leading-snug text-slate-300">{selectedPlacementInfo.description}</p>
                           )}
-                          <p className="mt-1.5 text-[10px] text-slate-400">Choose a plan below to see its included campaign credits and benefits.</p>
+                          <p className="mt-1.5 text-[10px] text-slate-300">Admin-configured rate and duration options for this placement.</p>
                         </div>
-                        <span className="shrink-0 rounded-lg bg-slate-950/70 px-2 py-1 text-right font-mono text-[11px] font-black text-emerald-300">
-                          ~PKR {selectedPlacementInfo.dailyEstimatePkr.toLocaleString()}<br/><span className="text-[9px] text-slate-400">per day estimate</span>
-                        </span>
                       </div>
+                      {selectedPlacementInfo.rateOptions.length > 0 && (
+                        <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          {selectedPlacementInfo.rateOptions.map((rate: any) => (
+                            <div key={rate.unit} className="rounded-lg border border-slate-700 bg-slate-950/80 px-2 py-2">
+                              <div className="text-[9px] uppercase text-slate-500">{rate.unit}</div>
+                              <div className="text-[11px] font-black text-emerald-300">PKR {Number(rate.amount).toLocaleString()}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {selectedPlacementInfo.durationOptions.length > 0 && (
+                        <div className="mt-3 space-y-1.5">
+                          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Available durations &amp; prices</div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            {selectedPlacementInfo.durationOptions.map((duration: any) => (
+                              <div key={duration.id} className="flex items-center justify-between gap-2 rounded-lg bg-slate-950/70 px-2.5 py-2">
+                                <span className="text-[10px] text-slate-300">{duration.label}</span>
+                                <span className="shrink-0 text-[11px] font-black text-emerald-300">PKR {Number(duration.amount).toLocaleString()}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1525,8 +1545,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                             <div className="text-[10px] text-slate-400 truncate">{pl.description}</div>
                           )}
                         </div>
-                        <span className="font-mono font-bold text-emerald-400 text-[11px] tabular-nums shrink-0">
-                          ~PKR {pl.dailyEstimatePkr.toLocaleString()}/day
+                        <span className="font-mono font-bold text-emerald-400 text-[10px] tabular-nums shrink-0 text-right">
+                          {pl.rateOptions.find((rate: any) => rate.unit === 'daily') ? `PKR ${Number(pl.rateOptions.find((rate: any) => rate.unit === 'daily').amount).toLocaleString()}/day` : pl.durationOptions.length ? `${pl.durationOptions.length} durations` : 'Contact for rate'}
                         </span>
                       </div>
                     ))}

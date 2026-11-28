@@ -4717,6 +4717,7 @@ export default function App() {
                             feedRotationSettings={feedOpt?.rotationSettings}
                             homepagePrioritySlotConfig={jobPostingPricing.homepagePrioritySlotConfig}
                             onAdClick={handleAdClick}
+                            onPaidAdCta={handleAdClick}
                             onNavigateTab={setActiveTab}
                             isLoading={isLoadingJobs}
                             showAdOpportunity={feedOpt?.isEnabled !== false}

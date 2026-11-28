@@ -109,8 +109,6 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
       : (showDemoCardIfEmpty && !dismissedIds.includes('demo-your-ad-here') ? [demoBannerAd] : [])
   ), [matchingBanners, showDemoCardIfEmpty, dismissedIds, demoBannerAd]);
 
-  if (!isEnabled) return null;
-
   const activeCount = activeBannerList.length;
   const slotsLimit = Math.max(1, Math.min(4, Math.floor(Number(maxConcurrentSlots) || 1)));
   const visibleSlotsCount = activeCount > 0 ? Math.min(activeCount, slotsLimit) : 0;
@@ -138,7 +136,7 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
     return () => clearInterval(timer);
   }, [activeCount, visibleSlotsCount, stepSize, isPaused, isAutoRotate, isPauseOnHover, effectiveInterval]);
 
-  if (visibleBanners.length === 0) return null;
+  if (!isEnabled || visibleBanners.length === 0) return null;
 
   const handleDismiss = (e: React.MouseEvent, bannerId: string) => {
     e.stopPropagation();

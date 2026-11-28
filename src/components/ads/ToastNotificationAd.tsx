@@ -15,6 +15,7 @@ interface ToastNotificationAdProps {
   ads: Advertisement[];
   currentPage: AdTargetPage;
   isEnabled?: boolean;
+  showAdOpportunity?: boolean;
   onAdClick: (ad: Advertisement) => void;
   onNavigateTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
   rotationSettings?: PlacementRotationConfig;
@@ -24,6 +25,7 @@ export const ToastNotificationAd: React.FC<ToastNotificationAdProps> = ({
   ads,
   currentPage,
   isEnabled = true,
+  showAdOpportunity = true,
   onAdClick,
   onNavigateTab,
   rotationSettings = DEFAULT_PLACEMENT_ROTATION_CONFIG,
@@ -71,7 +73,7 @@ export const ToastNotificationAd: React.FC<ToastNotificationAdProps> = ({
   }, [isReady, orderedCandidates.length, isAutoRotate, isPaused, intervalMs]);
 
   const toastRule = adOpportunityDisplay?.adPlacements?.['toast-float'];
-  const showToastCta = toastRule?.enabled !== false && (toastRule?.displayMode === 'whole_category' || toastRule?.displayMode === 'placement_level' || toastRule?.displayMode === 'each_card' || (toastRule?.displayMode === 'manual' && (toastRule.showOnCategory || toastRule.showOnPlacement || toastRule.showOnEachCard)));
+  const showToastCta = showAdOpportunity && toastRule?.enabled !== false && (toastRule?.displayMode === 'whole_category' || toastRule?.displayMode === 'placement_level' || toastRule?.displayMode === 'each_card' || (toastRule?.displayMode === 'manual' && (toastRule.showOnCategory || toastRule.showOnPlacement || toastRule.showOnEachCard)));
   const opportunityAd: Advertisement = { id: 'demo-your-ad-here-toast', title: 'Your Ad Here — Floating Toast Placement', type: 'banner', placement: 'toast-float', targetPages: ['all'], status: 'active', approvalStatus: 'Approved', submittedByUserId: 'system-demo', submittedByUserName: 'Platform Promotion', headline: 'Your Ad Here', bodyText: 'Promote your campaign in the floating notification placement.', badgeText: 'Advertise Here', ctaText: 'Choose Ad Package', ctaUrl: '', theme: 'amber', dismissable: false, impressions: 0, clicks: 0, createdAt: new Date().toISOString(), durationUnit: 'days', durationValue: 1 };
   if (!isEnabled) return null;
   if (orderedCandidates.length === 0) {

@@ -450,6 +450,7 @@ interface RotatingSidebarAdsProps {
   isEnabled?: boolean;
   rotationSettings?: PlacementRotationConfig;
   maxConcurrentSlots?: number;
+  showAdOpportunity?: boolean;
   onAdClick: (ad: Advertisement) => void;
   onNavigateTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
 }
@@ -460,6 +461,7 @@ export const RotatingSidebarAds: React.FC<RotatingSidebarAdsProps> = ({
   isEnabled = true,
   rotationSettings = DEFAULT_PLACEMENT_ROTATION_CONFIG,
   maxConcurrentSlots = 1,
+  showAdOpportunity = true,
   onAdClick,
   onNavigateTab,
   adOpportunityDisplay,
@@ -482,8 +484,8 @@ export const RotatingSidebarAds: React.FC<RotatingSidebarAdsProps> = ({
   }, [ads, currentPage, isEnabled, rotationSettings?.enabled, rotationSettings?.sequenceMode]);
 
   const sidebarRule = adOpportunityDisplay?.adPlacements?.sidebar;
-  const showSidebarCategoryCta = sidebarRule?.enabled !== false && (sidebarRule?.displayMode === 'whole_category' || sidebarRule?.displayMode === 'placement_level' || (sidebarRule?.displayMode === 'manual' && (sidebarRule.showOnCategory || sidebarRule.showOnPlacement)));
-  const showSidebarEachCardCta = sidebarRule?.enabled !== false && (sidebarRule?.displayMode === 'each_card' || (sidebarRule?.displayMode === 'manual' && sidebarRule.showOnEachCard));
+  const showSidebarCategoryCta = showAdOpportunity && sidebarRule?.enabled !== false && (sidebarRule?.displayMode === 'whole_category' || sidebarRule?.displayMode === 'placement_level' || (sidebarRule?.displayMode === 'manual' && (sidebarRule.showOnCategory || sidebarRule.showOnPlacement)));
+  const showSidebarEachCardCta = showAdOpportunity && sidebarRule?.enabled !== false && (sidebarRule?.displayMode === 'each_card' || (sidebarRule?.displayMode === 'manual' && sidebarRule.showOnEachCard));
   const total = orderedAds.length;
   const sidebarSlotLimit = Math.max(1, Math.min(6, Number(maxConcurrentSlots) || 1));
   const visibleCount = total > 0 ? Math.min(total, sidebarSlotLimit) : 0;

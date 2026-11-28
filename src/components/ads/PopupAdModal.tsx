@@ -7,6 +7,7 @@ interface PopupAdModalProps {
   ads: Advertisement[];
   currentPage: AdTargetPage;
   popupSettings?: PopupDisplaySettings;
+  isEnabled?: boolean;
   popupAppearance?: PopupAppearanceSettings;
   rotationSettings?: PlacementRotationConfig;
   onAdClick: (ad: Advertisement) => void;
@@ -25,6 +26,7 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
   ads,
   currentPage,
   popupSettings = DEFAULT_POPUP_SETTINGS,
+  isEnabled = true,
   popupAppearance = DEFAULT_POPUP_APPEARANCE,
   rotationSettings,
   onAdClick,
@@ -77,12 +79,42 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
       }, initialDelayMs);
 
       return () => clearTimeout(timer);
+    } else if (isEnabled && !dismissedSessionIds.includes('demo-your-ad-here-popup')) {
+      const opportunityAd: Advertisement = {
+        id: 'demo-your-ad-here-popup',
+        title: 'Your Ad Here — First-Visit Popup',
+        type: 'popup',
+        placement: 'popup-modal',
+        targetPages: ['all'],
+        status: 'active',
+        approvalStatus: 'Approved',
+        submittedByUserId: 'system-demo',
+        submittedByUserName: 'Platform Promotion',
+        headline: 'Your Ad Here',
+        bodyText: 'Feature your brand, recruitment campaign or commercial offer in the website’s first-visit popup placement.',
+        badgeText: 'Premium Popup Advertisement',
+        ctaText: 'Explore Popup Ad Plans',
+        ctaUrl: '',
+        theme: 'amber',
+        dismissable: true,
+        impressions: 0,
+        clicks: 0,
+        createdAt: new Date().toISOString(),
+        durationUnit: 'days',
+        durationValue: 1
+      };
+      setPopupQueue([opportunityAd]);
+      setCurrentQueueIndex(0);
+      setDualClosedAdIds([]);
+      const initialDelayMs = (popupAppearance?.initialDisplayDelaySeconds ?? 1) * 1000;
+      const timer = setTimeout(() => setIsOpen(true), initialDelayMs);
+      return () => clearTimeout(timer);
     } else {
       setIsOpen(false);
       setPopupQueue([]);
       setCurrentQueueIndex(0);
     }
-  }, [ads, currentPage, dismissedSessionIds, popupSettings, rotationSettings?.enabled, rotationSettings?.sequenceMode]);
+  }, [ads, currentPage, dismissedSessionIds, popupSettings, isEnabled, popupAppearance?.initialDisplayDelaySeconds, rotationSettings?.enabled, rotationSettings?.sequenceMode]);
 
   // Optional timed auto-rotation through open popup queue
   useEffect(() => {

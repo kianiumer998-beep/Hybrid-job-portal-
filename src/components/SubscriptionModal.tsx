@@ -36,6 +36,7 @@ interface SubscriptionModalProps {
   initialSelectedJobTitle?: string;
   initialCategory?: CommercialCategoryId;
   initialFeatureId?: string;
+  initialPlacement?: string;
   currentUser?: UserAccount | null;
   whatsappEnabledGlobal?: boolean;
   onDepositWallet?: (depositData: {
@@ -163,6 +164,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   initialSelectedJobTitle,
   initialCategory,
   initialFeatureId,
+  initialPlacement,
   currentUser,
   whatsappEnabledGlobal = false,
   onDepositWallet,
@@ -173,7 +175,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
 }) => {
   const [stage, setStage] = useState<ModalStage>(initialCategory ? 'plans' : 'categories');
   const [selectedCategory, setSelectedCategory] = useState<CommercialCategoryId>(initialCategory || 'mega_packages');
-  const [adSubOption, setAdSubOption] = useState<AdSubOption>('all');
+  const [adSubOption, setAdSubOption] = useState<AdSubOption>(initialPlacement ? (AD_PLACEMENT_GROUP_MAP[initialPlacement] || 'all') : 'all');
   const [alertSubOption, setAlertSubOption] = useState<AlertSubOption>(
     initialFeatureId === 'whatsapp_alerts' ? 'whatsapp' : initialFeatureId === 'sms_alerts' ? 'sms' : initialFeatureId === 'email_alerts' ? 'email' : initialFeatureId === 'early_access' ? 'early_access' : 'all'
   );
@@ -216,7 +218,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     if (!isOpen) return;
     setStage(initialCategory ? 'plans' : 'categories');
     setSelectedCategory(initialCategory || 'mega_packages');
-    setAdSubOption('all');
+    setAdSubOption(initialPlacement ? (AD_PLACEMENT_GROUP_MAP[initialPlacement] || 'all') : 'all');
     setAlertSubOption(
       initialFeatureId === 'whatsapp_alerts' ? 'whatsapp' : initialFeatureId === 'sms_alerts' ? 'sms' : initialFeatureId === 'email_alerts' ? 'email' : initialFeatureId === 'early_access' ? 'early_access' : 'all'
     );
@@ -307,7 +309,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
         }
       })
       .catch(() => {});
-  }, [isOpen, currentUser?.id, currentUser?.name, currentUser?.email, currentUser?.phone]);
+  }, [isOpen, currentUser?.id, currentUser?.name, currentUser?.email, currentUser?.phone, initialPlacement]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -466,6 +468,11 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     }
     return list;
   }, [packagesWithCategories, selectedCategory, adSubOption, alertSubOption]);
+
+  const selectedPlacementInfo = useMemo(
+    () => enabledAdPlacements.find((placement) => placement.id === initialPlacement) || null,
+    [enabledAdPlacements, initialPlacement]
+  );
 
   const filteredPlacementsForAdSubOption = useMemo(() => {
     if (adSubOption === 'all') return enabledAdPlacements;
@@ -860,8 +867,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     { title: string; subtitle: string; icon: React.ReactNode; accent: string }
   > = {
     ads_campaigns: {
-      title: 'Ads, Banners & Campaigns',
-      subtitle: 'Campaign Ads · Banners · Advertisements',
+      title: 'Premium Ads, Banners & Campaigns',
+      subtitle: 'Premium Ad Placements · Campaigns · Banners · Advertisements',
       icon: <Megaphone className="w-4 h-4 text-amber-400" />,
       accent: 'border-amber-500/30 hover:border-amber-400'
     },
@@ -1452,6 +1459,24 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                       </button>
                     )}
                   </div>
+
+                  {selectedPlacementInfo && (
+                    <div className="mb-3 rounded-xl border border-amber-400/40 bg-amber-400/10 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-black uppercase tracking-wide text-amber-300">Selected Ad Placement</div>
+                          <div className="mt-1 text-xs font-bold text-white">{selectedPlacementInfo.name}</div>
+                          {selectedPlacementInfo.description && (
+                            <p className="mt-1 text-[10px] leading-snug text-slate-300">{selectedPlacementInfo.description}</p>
+                          )}
+                          <p className="mt-1.5 text-[10px] text-slate-400">Choose a plan below to see its included campaign credits and benefits.</p>
+                        </div>
+                        <span className="shrink-0 rounded-lg bg-slate-950/70 px-2 py-1 text-right font-mono text-[11px] font-black text-emerald-300">
+                          ~PKR {selectedPlacementInfo.dailyEstimatePkr.toLocaleString()}<br/><span className="text-[9px] text-slate-400">per day estimate</span>
+                        </span>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="divide-y divide-slate-800/80">
                     {filteredPlacementsForAdSubOption.map((pl) => (

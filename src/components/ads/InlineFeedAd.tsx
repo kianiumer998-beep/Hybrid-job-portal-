@@ -9,6 +9,7 @@ interface InlineFeedAdProps {
   bannerDimensions?: BannerDimensionSettings;
   feedCardAppearance?: FeedCardAppearanceSettings;
   feedInlineSettings?: FeedInlineAdSettings;
+  onPaidAdCta?: (ad: Advertisement) => void;
 }
 
 export const InlineFeedAd: React.FC<InlineFeedAdProps> = ({
@@ -17,7 +18,8 @@ export const InlineFeedAd: React.FC<InlineFeedAdProps> = ({
   onNavigateTab,
   bannerDimensions = DEFAULT_BANNER_DIMENSIONS,
   feedCardAppearance = DEFAULT_FEED_CARD_APPEARANCE,
-  feedInlineSettings
+  feedInlineSettings,
+  onPaidAdCta
 }) => {
   const handleAction = () => {
     onAdClick(ad);
@@ -93,6 +95,29 @@ export const InlineFeedAd: React.FC<InlineFeedAdProps> = ({
       style={containerStyle}
       className={`group relative col-span-1 md:col-span-2 lg:col-span-3 bg-gradient-to-r ${gradient} border ${radiusClass} ${paddingClass} shadow-2xl transition-all duration-300 cursor-pointer overflow-hidden my-2 mx-auto w-full`}
     >
+      {onPaidAdCta && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onPaidAdCta({
+              ...ad,
+              id: `demo-your-ad-here-inline-${ad.id}`,
+              title: 'Your Ad Here — Inline Job Feed',
+              placement: 'feed-inline',
+              headline: 'Your Ad Here',
+              bodyText: 'Advertise within the job listings feed. Choose an admin-configured campaign duration and package.',
+              ctaText: 'Explore Inline Ad Rates',
+              ctaUrl: ''
+            });
+          }}
+          className="absolute bottom-2 right-2 z-20 inline-flex items-center gap-1 rounded-full border border-amber-300/60 bg-slate-950/95 px-2 py-1 text-[9px] sm:text-[10px] font-extrabold text-amber-200 shadow-lg transition hover:bg-amber-400/20"
+          aria-label="Explore inline job feed advertisement rates"
+        >
+          Your Ad Here <ArrowRight className="h-3 w-3" />
+        </button>
+      )}
+
       {/* Background Glow */}
       <div className="absolute -right-20 -top-20 w-60 h-60 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
 

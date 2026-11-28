@@ -500,7 +500,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       });
     }
     return list;
-  }, [packagesWithCategories, selectedCategory, adSubOption, alertSubOption, initialPlacement]);
+  }, [packagesWithCategories, selectedCategory, adSubOption, alertSubOption, initialPlacement, initialFeatureId]);
 
   const selectedPlacementInfo = useMemo(
     () => enabledAdPlacements.find((placement) => placement.id === initialPlacement) || null,

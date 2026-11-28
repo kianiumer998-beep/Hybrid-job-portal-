@@ -380,81 +380,62 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   }, [packagesWithCategories]);
 
   const enabledAdPlacements = useMemo(() => {
+    // Customer-facing packages must come only from the saved admin configuration.
+    // Do not fall back to demo/default placements or invent timeframe rate cards.
     const savedOptions = pricingData?.campaignCustomizationConfig?.placementOptions;
-    const baseOptions = Array.isArray(savedOptions) && savedOptions.length > 0 ? savedOptions : DEFAULT_PLACEMENT_OPTIONS;
+    const baseOptions = Array.isArray(savedOptions) ? savedOptions : [];
     const adPricingConfig = pricingData?.adPricingConfig || DEFAULT_AD_PRICING_CONFIG;
     const campaignCustomizationConfig = pricingData?.campaignCustomizationConfig || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG;
     const durationPresets = Array.isArray(pricingData?.campaignCustomizationConfig?.durationPresets)
       ? pricingData.campaignCustomizationConfig.durationPresets
-      : DEFAULT_DURATION_PRESETS;
+      : [];
 
-    const getExactPrice = (opt: any, unit: 'hours' | 'days' | 'weeks' | 'months', value: number, presetId?: string) => {
+    const getExactPrice = (opt: any, preset: any) => {
       const targetPages: import('../types/ad').AdTargetPage[] = Array.isArray(opt.allowedPageIds) && opt.allowedPageIds.length > 0
         ? [opt.allowedPageIds[0] as import('../types/ad').AdTargetPage]
         : ['all'];
       return calculateCampaignCost(
         adPricingConfig,
-        unit,
-        value,
+        preset.unit,
+        Number(preset.value || 1),
         opt.id,
         targetPages,
         0,
         campaignCustomizationConfig,
-        presetId
+        String(preset.id)
       ).totalCostPkr;
     };
 
     return baseOptions
-      .filter((opt: any) => opt && opt.isEnabled !== false)
+      .filter((opt: any) => opt && opt.isEnabled === true)
       .map((opt: any) => {
-        const fixedRates = opt.timeframeFixedRatesPkr || {};
-        const rateOptions = ([
-          { unit: 'hourly', durationUnit: 'hours' },
-          { unit: 'daily', durationUnit: 'days' },
-          { unit: 'weekly', durationUnit: 'weeks' },
-          { unit: 'monthly', durationUnit: 'months' }
-        ] as const)
-          .map((rate) => ({
-            unit: rate.unit,
-            amount: getExactPrice(opt, rate.durationUnit, 1)
-          }))
-          .filter((rate) =>
-            opt.isFreeOverride === true ||
-            opt.fixedPriceOverridePkr !== undefined ||
-            opt.rateEditMode !== 'manual' ||
-            fixedRates[rate.unit] !== undefined
-          );
-
         const allowedIds = Array.isArray(opt.allowedDurationIds) ? opt.allowedDurationIds : null;
+        const fixedRates = opt.timeframeFixedRatesPkr || {};
         const durationOptions = durationPresets
-          .filter((preset: any) => preset && preset.isEnabled !== false && (!allowedIds || allowedIds.includes(preset.id)))
-          .map((preset: any) => {
-            const amount = getExactPrice(opt, preset.unit, Number(preset.value || 1), preset.id);
+          .filter((preset: any) => preset && preset.isEnabled === true && (!allowedIds || allowedIds.includes(preset.id)))
+          .filter((preset: any) => {
             const unitKey = preset.unit === 'hours' ? 'hourly' : preset.unit === 'days' ? 'daily' : preset.unit === 'weeks' ? 'weekly' : 'monthly';
-            const isAdminPriced = preset.fixedPriceOverridePkr !== undefined ||
-              fixedRates[unitKey] !== undefined ||
+            const manualRate = Number(fixedRates[unitKey]);
+            return opt.isFreeOverride === true ||
+              (Number.isFinite(Number(preset.fixedPriceOverridePkr)) && preset.fixedPriceOverridePkr !== undefined) ||
+              (opt.fixedPriceOverridePkr !== undefined && Number.isFinite(Number(opt.fixedPriceOverridePkr))) ||
               opt.rateEditMode !== 'manual' ||
-              opt.isFreeOverride === true ||
-              opt.fixedPriceOverridePkr !== undefined;
-            return {
-              id: String(preset.id),
-              label: String(preset.label || preset.subLabel || preset.id),
-              amount: Math.round(amount),
-              unit: String(preset.unit),
-              value: Number(preset.value || 1),
-              isAdminPriced
-            };
+              (Number.isFinite(manualRate) && manualRate > 0);
           })
-          .filter((preset: any) => preset.isAdminPriced);
+          .map((preset: any) => ({
+            id: String(preset.id),
+            label: String(preset.label || preset.subLabel || preset.id),
+            amount: Math.round(getExactPrice(opt, preset)),
+            unit: String(preset.unit),
+            value: Number(preset.value || 1)
+          }));
 
         return {
           id: String(opt.id),
           name: String(opt.name || opt.id),
           description: String(opt.description || ''),
           group: AD_PLACEMENT_GROUP_MAP[String(opt.id)] || 'advertisements',
-          rateOptions,
-          durationOptions,
-          dailyEstimatePkr: getExactPrice(opt, 'days', 1)
+          durationOptions
         };
       });
   }, [pricingData]);
@@ -1534,16 +1515,6 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                           <p className="mt-1.5 text-[10px] text-slate-300">Admin-configured rate and duration options. Final campaign total is recalculated after target pages, schedule and slot availability are selected.</p>
                         </div>
                       </div>
-                      {selectedPlacementInfo.rateOptions.length > 0 && (
-                        <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
-                          {selectedPlacementInfo.rateOptions.map((rate: any) => (
-                            <div key={rate.unit} className="rounded-lg border border-slate-700 bg-slate-950/80 px-2 py-2">
-                              <div className="text-[9px] uppercase text-slate-500">{rate.unit}</div>
-                              <div className="text-[11px] font-black text-emerald-300">PKR {Number(rate.amount).toLocaleString()}</div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
                       {selectedPlacementInfo.durationOptions.length > 0 && (
                         <div className="mt-3 space-y-1.5">
                           <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Available durations &amp; prices</div>
@@ -1564,6 +1535,30 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                             ))}
                           </div>
                         </div>
+                      {selectedPlacementInfo.durationOptions.length > 0 ? (
+                        <div className="mt-3 space-y-1.5">
+                          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Admin-enabled packages</div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            {selectedPlacementInfo.durationOptions.map((duration: any) => (
+                              <button
+                                type="button"
+                                key={duration.id}
+                                onClick={() => setSelectedCampaignDurationPresetId(duration.id)}
+                                className={`flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition ${selectedCampaignDurationPresetId === duration.id ? 'border-emerald-400/70 bg-emerald-500/10' : 'border-transparent bg-slate-950/70 hover:border-slate-700'}`}
+                              >
+                                <span className="text-[10px] text-slate-300">{duration.label}</span>
+                                <span className="shrink-0 text-right">
+                                  <span className="block text-[11px] font-black text-emerald-300">PKR {Number(duration.amount).toLocaleString()}</span>
+                                  <span className="block text-[9px] text-slate-500">{selectedCampaignDurationPresetId === duration.id ? 'Selected' : 'Select package'}</span>
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[10px] text-amber-200">
+                          No package is currently configured for this ad placement. Please check back later.
+                        </p>
                       )}
                     </div>
                   )}
@@ -1578,7 +1573,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                           )}
                         </div>
                         <span className="font-mono font-bold text-emerald-400 text-[10px] tabular-nums shrink-0 text-right">
-                          {pl.rateOptions.find((rate: any) => rate.unit === 'daily') ? `PKR ${Number(pl.rateOptions.find((rate: any) => rate.unit === 'daily').amount).toLocaleString()}/day` : pl.durationOptions.length ? `${pl.durationOptions.length} durations` : 'Contact for rate'}
+                          {pl.durationOptions.length ? `${pl.durationOptions.length} admin package${pl.durationOptions.length === 1 ? '' : 's'}` : 'No package configured'}
                         </span>
                       </div>
                     ))}

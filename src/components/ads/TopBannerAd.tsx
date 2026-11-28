@@ -30,6 +30,7 @@ interface TopBannerAdProps {
   onNavigateTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
   autoPlayIntervalMs?: number;
   showDemoCardIfEmpty?: boolean;
+  isEnabled?: boolean;
   bannerDimensions?: BannerDimensionSettings;
   bannerAppearance?: BannerAppearanceSettings;
   bannerBehavior?: BannerBehaviorSettings;
@@ -44,6 +45,7 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   onNavigateTab,
   autoPlayIntervalMs = 6000,
   showDemoCardIfEmpty = true,
+  isEnabled = true,
   bannerDimensions = DEFAULT_BANNER_DIMENSIONS,
   bannerAppearance = DEFAULT_BANNER_APPEARANCE,
   bannerBehavior = DEFAULT_BANNER_BEHAVIOR,
@@ -106,6 +108,8 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
       ? matchingBanners
       : (showDemoCardIfEmpty && !dismissedIds.includes('demo-your-ad-here') ? [demoBannerAd] : [])
   ), [matchingBanners, showDemoCardIfEmpty, dismissedIds, demoBannerAd]);
+
+  if (!isEnabled) return null;
 
   const activeCount = activeBannerList.length;
   const slotsLimit = Math.max(1, Math.min(4, Math.floor(Number(maxConcurrentSlots) || 1)));

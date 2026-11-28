@@ -34,6 +34,8 @@ interface SubscriptionModalProps {
   onClose: () => void;
   onSubscribeSuccess: (subscriberData: Subscriber) => void;
   initialSelectedJobTitle?: string;
+  initialCategory?: CommercialCategoryId;
+  initialFeatureId?: string;
   currentUser?: UserAccount | null;
   whatsappEnabledGlobal?: boolean;
   onDepositWallet?: (depositData: {
@@ -159,6 +161,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   onClose,
   onSubscribeSuccess,
   initialSelectedJobTitle,
+  initialCategory,
+  initialFeatureId,
   currentUser,
   whatsappEnabledGlobal = false,
   onDepositWallet,
@@ -167,10 +171,12 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   onNavigateToPostJob,
   onNavigateToCv
 }) => {
-  const [stage, setStage] = useState<ModalStage>('categories');
-  const [selectedCategory, setSelectedCategory] = useState<CommercialCategoryId>('mega_packages');
+  const [stage, setStage] = useState<ModalStage>(initialCategory ? 'plans' : 'categories');
+  const [selectedCategory, setSelectedCategory] = useState<CommercialCategoryId>(initialCategory || 'mega_packages');
   const [adSubOption, setAdSubOption] = useState<AdSubOption>('all');
-  const [alertSubOption, setAlertSubOption] = useState<AlertSubOption>('all');
+  const [alertSubOption, setAlertSubOption] = useState<AlertSubOption>(
+    initialFeatureId === 'whatsapp_alerts' ? 'whatsapp' : initialFeatureId === 'sms_alerts' ? 'sms' : initialFeatureId === 'email_alerts' ? 'email' : initialFeatureId === 'early_access' ? 'early_access' : 'all'
+  );
   const [confirmWalletPay, setConfirmWalletPay] = useState(false);
   const [walletActivationSummary, setWalletActivationSummary] = useState<{
     planName: string;
@@ -208,10 +214,12 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    setStage('categories');
-    setSelectedCategory('mega_packages');
+    setStage(initialCategory ? 'plans' : 'categories');
+    setSelectedCategory(initialCategory || 'mega_packages');
     setAdSubOption('all');
-    setAlertSubOption('all');
+    setAlertSubOption(
+      initialFeatureId === 'whatsapp_alerts' ? 'whatsapp' : initialFeatureId === 'sms_alerts' ? 'sms' : initialFeatureId === 'email_alerts' ? 'email' : initialFeatureId === 'early_access' ? 'early_access' : 'all'
+    );
     setConfirmWalletPay(false);
     setWalletActivationSummary(null);
     setSubmittedTx(null);
@@ -268,9 +276,20 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
           const availablePackages = [...enabledPkgs, ...individualFeatures];
           setPackages(availablePackages);
           if (availablePackages.length > 0) {
-            setSelectedPackageId((previous) =>
-              availablePackages.some((pkg: any) => pkg.id === previous) ? previous : availablePackages[0].id
-            );
+            let targetPkg = availablePackages[0];
+            if (initialFeatureId) {
+              const found = availablePackages.find((p: any) =>
+                Array.isArray(p.featureIds) && p.featureIds.includes(initialFeatureId)
+              );
+              if (found) targetPkg = found;
+            } else if (initialCategory) {
+              const foundCat = availablePackages.find((p: any) => {
+                const cats = getPackageCategories(p);
+                return cats.has(initialCategory);
+              });
+              if (foundCat) targetPkg = foundCat;
+            }
+            setSelectedPackageId(targetPkg.id);
           }
         }
       })
@@ -874,6 +893,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     const price = Number(pkg.pricePkr || 0);
     const days = Number(pkg.durationDays || 30);
     const isSelected = selectedPackageId === pkg.id;
+    const isMatchedByRequest = initialFeatureId && Array.isArray(pkg.featureIds) && pkg.featureIds.includes(initialFeatureId);
     const hasSaving =
       Number(pkg.bundleDiscountPercent || 0) > 0 && Number(pkg.undiscountedPricePkr || 0) > price;
     const featureLines: string[] = [
@@ -887,14 +907,19 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
         key={pkg.id}
         onClick={() => setSelectedPackageId(pkg.id)}
         className={`rounded-xl border p-3.5 flex flex-col justify-between gap-3 transition-colors cursor-pointer ${
-          isSelected
-            ? 'bg-emerald-500/[0.06] border-emerald-500'
+          isSelected || isMatchedByRequest
+            ? 'bg-emerald-500/[0.08] border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.15)] ring-1 ring-emerald-500/40'
             : 'bg-slate-950 border-slate-800 hover:border-slate-700'
         }`}
       >
         <div className="space-y-2.5">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
+              {isMatchedByRequest && (
+                <span className="inline-block mb-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-black uppercase tracking-wider">
+                  ★ Recommended for Your Request
+                </span>
+              )}
               <h3 className="text-sm font-bold text-white leading-snug truncate">{pkg.name}</h3>
               {pkg.badge ? (
                 <span className="text-[10px] font-semibold text-amber-300">{pkg.badge}</span>

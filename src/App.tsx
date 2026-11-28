@@ -1631,6 +1631,8 @@ export default function App() {
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [applyingJob, setApplyingJob] = useState<Job | null>(null);
   const [subscriptionModalOpen, setSubscriptionModalOpen] = useState<boolean>(false);
+  const [subscriptionInitialCategory, setSubscriptionInitialCategory] = useState<any | undefined>(undefined);
+  const [subscriptionInitialFeatureId, setSubscriptionInitialFeatureId] = useState<string | undefined>(undefined);
   const [premiumUpgradeModalOpen, setPremiumUpgradeModalOpen] = useState<boolean>(false);
   const [selectedGate, setSelectedGate] = useState<any>(null);
   const [selectedJobTitleForSub, setSelectedJobTitleForSub] = useState<string>('');
@@ -2924,6 +2926,8 @@ export default function App() {
     if (applyGate?.requiresUpgrade) {
       setSelectedJobTitleForSub(job.title);
       setSelectedGate(applyGate);
+      setSubscriptionInitialCategory('job_posting');
+      setSubscriptionInitialFeatureId('premium_job_posting');
       setPremiumUpgradeModalOpen(true);
       return;
     }
@@ -4881,6 +4885,8 @@ export default function App() {
         isSaved={selectedJob ? savedJobIds.includes(selectedJob.id) : false}
         onToggleSave={handleToggleSaveJob}
         onUpgrade={() => {
+          setSubscriptionInitialCategory('job_posting');
+          setSubscriptionInitialFeatureId('premium_job_posting');
           setSelectedJobTitleForSub(selectedJob?.title || '');
           setSubscriptionModalOpen(true);
         }}
@@ -4902,6 +4908,9 @@ export default function App() {
         customTitle={selectedGate?.title}
         customMessage={selectedGate?.message}
         onUpgradeClick={() => {
+          const isEarlyAccess = selectedGate?.title?.toLowerCase().includes('early access');
+          setSubscriptionInitialCategory(isEarlyAccess ? 'alerts_early_access' : 'job_posting');
+          setSubscriptionInitialFeatureId(isEarlyAccess ? 'early_access' : 'premium_job_posting');
           setPremiumUpgradeModalOpen(false);
           setSubscriptionModalOpen(true);
         }}
@@ -4912,6 +4921,8 @@ export default function App() {
         onClose={() => setSubscriptionModalOpen(false)}
         onSubscribeSuccess={handleSubscribeSuccess}
         initialSelectedJobTitle={selectedJobTitleForSub}
+        initialCategory={subscriptionInitialCategory}
+        initialFeatureId={subscriptionInitialFeatureId}
         currentUser={currentUser}
         whatsappEnabledGlobal={channelAvailability.whatsapp}
         onDepositWallet={handleDepositFunds}
@@ -4971,6 +4982,8 @@ export default function App() {
             setIsSubscribed(true);
           } else {
             setIsSubscribed(false);
+            setSubscriptionInitialCategory('cv_career');
+            setSubscriptionInitialFeatureId('cv_builder');
             setSelectedJobTitleForSub('ATS Un-Watermarked CV Export');
             setSubscriptionModalOpen(true);
           }

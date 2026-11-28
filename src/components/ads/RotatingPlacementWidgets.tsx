@@ -192,6 +192,7 @@ interface RotatingAnnouncementCardsSectionProps {
   showPromoMobile: boolean;
   rotationSettings?: PlacementRotationConfig;
   maxConcurrentSlots?: number;
+  showAdOpportunity?: boolean;
   onPaidAdCta: (ad: Advertisement) => void;
   onAdDestination: (url: string) => void;
 }
@@ -204,6 +205,7 @@ export const RotatingAnnouncementCardsSection: React.FC<RotatingAnnouncementCard
   showPromoMobile,
   rotationSettings = DEFAULT_PLACEMENT_ROTATION_CONFIG,
   maxConcurrentSlots = 2,
+  showAdOpportunity = true,
   onPaidAdCta,
   onAdDestination
 }) => {
@@ -237,8 +239,9 @@ export const RotatingAnnouncementCardsSection: React.FC<RotatingAnnouncementCard
 
   const effectiveShowPromoDesktop =
     showPromoDesktop && (activeCards.length + visiblePaidAds.length) % 2 === 1 && Boolean(activePromo);
+  const hasAvailableAnnouncementSlot = visiblePaidAds.length < Math.max(1, Math.min(10, Number(maxConcurrentSlots) || 2));
 
-  if (activeCards.length === 0 && visiblePaidAds.length === 0 && !showPromoMobile && !effectiveShowPromoDesktop) {
+  if (activeCards.length === 0 && visiblePaidAds.length === 0 && !showPromoMobile && !effectiveShowPromoDesktop && !showAdOpportunity) {
     return null;
   }
 
@@ -248,6 +251,39 @@ export const RotatingAnnouncementCardsSection: React.FC<RotatingAnnouncementCard
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
+      {showAdOpportunity && hasAvailableAnnouncementSlot && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => onPaidAdCta({
+              id: 'demo-your-ad-here-announcement',
+              title: 'Your Ad Here — Announcement Card',
+              type: 'banner',
+              placement: 'dynamic-announcement-card',
+              targetPages: ['jobs'],
+              status: 'active',
+              approvalStatus: 'Approved',
+              submittedByUserId: 'system-demo',
+              submittedByUserName: 'Platform Promotion',
+              headline: 'Your Ad Here',
+              bodyText: 'Promote your company or campaign in a featured announcement card.',
+              badgeText: 'Advertise Here',
+              ctaText: 'Explore Ad Plans',
+              ctaUrl: '',
+              theme: 'amber',
+              dismissable: false,
+              impressions: 0,
+              clicks: 0,
+              createdAt: new Date().toISOString(),
+              durationUnit: 'days',
+              durationValue: 1
+            } as Advertisement)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-amber-400/10 px-2.5 py-1 text-[10px] font-black tracking-wide text-amber-200 shadow-[0_0_12px_rgba(251,191,36,0.12)] transition-all hover:border-amber-300 hover:bg-amber-400/20"
+          >
+            <Sparkles className="h-3 w-3" /> Your Ad Here <ArrowRight className="h-3 w-3" />
+          </button>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-3 items-stretch">
         {activeCards.map((card, index) => (
           <div

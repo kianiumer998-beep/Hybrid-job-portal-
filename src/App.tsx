@@ -733,6 +733,18 @@ export default function App() {
         placementOptions: Array.isArray(pricingData.campaignCustomizationConfig.placementOptions)
           ? pricingData.campaignCustomizationConfig.placementOptions
           : [],
+        adOpportunityDisplay: {
+          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.adOpportunityDisplay,
+          ...(pricingData.campaignCustomizationConfig.adOpportunityDisplay || {}),
+          jobTiers: {
+            ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.adOpportunityDisplay!.jobTiers,
+            ...(pricingData.campaignCustomizationConfig.adOpportunityDisplay?.jobTiers || {})
+          },
+          adPlacements: {
+            ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.adOpportunityDisplay!.adPlacements,
+            ...(pricingData.campaignCustomizationConfig.adOpportunityDisplay?.adPlacements || {})
+          }
+        },
         feedInlineSettings: {
           ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings,
           ...(pricingData.campaignCustomizationConfig.feedInlineSettings || {})

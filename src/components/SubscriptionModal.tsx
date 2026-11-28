@@ -25,7 +25,6 @@ import {
 } from 'lucide-react';
 import { Subscriber, UserAccount } from '../types/job';
 import { PublicPaymentMethodConfig, PublicPaymentSettings } from '../types/adminPayment';
-import { DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG } from '../types/ad';
 import { api } from '../services/api';
 import { WalletDepositModal, AttachedDepositPlan } from './ads/WalletDepositModal';
 

@@ -70,6 +70,7 @@ interface UserCampaignHubProps {
   campaignConfig?: CampaignCustomizationConfig;
   initialSubTab?: 'my-campaigns' | 'create' | 'wallet';
   initialPlacement?: AdPlacement;
+  initialDurationPresetId?: string;
   openDepositModal?: boolean;
   onDepositModalClose?: () => void;
   onDepositWallet: (depositData: {
@@ -163,6 +164,11 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   
   // Duration State
   const [selectedDurationId, setSelectedDurationId] = useState<string>('fullday-24h');
+  useEffect(() => {
+    if (!initialDurationPresetId) return;
+    const preset = campaignConfig.durationPresets.find((item) => item.id === initialDurationPresetId && item.isEnabled);
+    if (preset) setSelectedDurationId(preset.id);
+  }, [initialDurationPresetId, campaignConfig.durationPresets]);
   const [customDurationUnit, setCustomDurationUnit] = useState<AdDurationUnit>('days');
   const [customDurationValue, setCustomDurationValue] = useState<number>(1);
   

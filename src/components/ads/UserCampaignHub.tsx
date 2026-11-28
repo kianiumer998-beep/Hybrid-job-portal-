@@ -467,6 +467,17 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   const nextOpenDate = getNextAvailableDateForPlacement(adsPool, formPlacement);
   const isRunningNow = adsPool.some(a => a.placement === formPlacement && isAdCurrentlyRunning(a));
   const selectedPlacementOpt = campaignConfig.placementOptions.find(p => p.id === formPlacement);
+  const availableDurationPresets = campaignConfig.durationPresets.filter((preset) =>
+    preset.isEnabled === true &&
+    (!selectedPlacementOpt?.allowedDurationIds?.length || selectedPlacementOpt.allowedDurationIds.includes(preset.id))
+  );
+  const hasAvailableDuration = availableDurationPresets.length > 0 || campaignConfig.formRules.allowCustomDateRange === true;
+
+  useEffect(() => {
+    if (selectedDurationId === 'custom' && campaignConfig.formRules.allowCustomDateRange) return;
+    if (availableDurationPresets.some((preset) => preset.id === selectedDurationId)) return;
+    setSelectedDurationId(availableDurationPresets[0]?.id || (campaignConfig.formRules.allowCustomDateRange ? 'custom' : ''));
+  }, [formPlacement, selectedDurationId, campaignConfig.formRules.allowCustomDateRange, campaignConfig.durationPresets]);
   const isPlacementFree = !!selectedPlacementOpt?.isFreeOverride;
   const placementSlotLimit = Number(selectedPlacementOpt?.maxConcurrentSlots || 0);
   const hasPlacementSlotLimit = Number.isInteger(placementSlotLimit) && placementSlotLimit > 0;
@@ -1220,83 +1231,87 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                   </span>
                 </label>
 
-                {/* Preset Duration Buttons from Admin Config */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-                  {campaignConfig.durationPresets.filter(d => d.isEnabled && (!selectedPlacementOpt?.allowedDurationIds?.length || selectedPlacementOpt.allowedDurationIds.includes(d.id))).map((dur) => {
-                    const isChosen = selectedDurationId === dur.id;
-                    return (
-                      <button
-                        key={dur.id}
-                        type="button"
-                        onClick={() => setSelectedDurationId(dur.id)}
-                        className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer relative ${
-                          isChosen
-                            ? 'bg-gradient-to-r from-emerald-500 to-teal-600 border-emerald-400 text-slate-950 font-black shadow-md shadow-emerald-500/20'
-                            : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
-                        }`}
-                      >
-                        {dur.badge && (
-                          <span className={`absolute -top-2 right-2 text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-tighter ${
-                            isChosen ? 'bg-slate-950 text-emerald-300' : 'bg-emerald-500 text-slate-950'
-                          }`}>
-                            {dur.badge}
-                          </span>
-                        )}
-                        <div className="text-xs font-bold">{dur.label}</div>
-                        <div className={`text-[10px] ${isChosen ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
-                          {dur.subLabel || `${dur.value} ${dur.unit}`}
-                        </div>
-                      </button>
-                    );
-                  })}
-
-                  {campaignConfig.formRules.allowCustomDateRange && (
-                    {/* Custom option */}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedDurationId('custom')}
-                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
-                        selectedDurationId === 'custom'
-                          ? 'bg-gradient-to-r from-emerald-500 to-teal-600 border-emerald-400 text-slate-950 font-black shadow-md'
-                          : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
-                      }`}
-                    >
-                      <div className="text-xs font-bold">Custom Duration</div>
-                      <div className={`text-[10px] ${selectedDurationId === 'custom' ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
-                        Configurable
-                      </div>
-                    </button>
-                  </div>
-  
-  
-                  )}
-                {campaignConfig.formRules.allowCustomDateRange && selectedDurationId === 'custom' && (
-                    <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
-                      <div>
-                        <label className="text-[11px] text-slate-400 font-bold">Duration Value</label>
-                        <input
-                          type="number"
-                          min="1"
-                          max={campaignConfig.formRules.maxCampaignDays || 365}
-                          value={customDurationValue}
-                          onChange={(e) => setCustomDurationValue(Math.max(1, parseInt(e.target.value) || 1))}
-                          className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[11px] text-slate-400 font-bold">Time Unit</label>
-                        <select
-                          value={customDurationUnit}
-                          onChange={(e) => setCustomDurationUnit(e.target.value as AdDurationUnit)}
-                          className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white"
+                {/* Only administrator-enabled presets for this placement are selectable. */}
+                {availableDurationPresets.length > 0 || campaignConfig.formRules.allowCustomDateRange ? (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                      {availableDurationPresets.map((dur) => {
+                        const isChosen = selectedDurationId === dur.id;
+                        return (
+                          <button
+                            key={dur.id}
+                            type="button"
+                            onClick={() => setSelectedDurationId(dur.id)}
+                            className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer relative ${
+                              isChosen
+                                ? 'bg-gradient-to-r from-emerald-500 to-teal-600 border-emerald-400 text-slate-950 font-black shadow-md shadow-emerald-500/20'
+                                : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                            }`}
+                          >
+                            {dur.badge && (
+                              <span className={`absolute -top-2 right-2 text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-tighter ${
+                                isChosen ? 'bg-slate-950 text-emerald-300' : 'bg-emerald-500 text-slate-950'
+                              }`}>
+                                {dur.badge}
+                              </span>
+                            )}
+                            <div className="text-xs font-bold">{dur.label}</div>
+                            <div className={`text-[10px] ${isChosen ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
+                              {dur.subLabel || `${dur.value} ${dur.unit}`}
+                            </div>
+                          </button>
+                        );
+                      })}
+                      {campaignConfig.formRules.allowCustomDateRange && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDurationId('custom')}
+                          className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                            selectedDurationId === 'custom'
+                              ? 'bg-gradient-to-r from-emerald-500 to-teal-600 border-emerald-400 text-slate-950 font-black shadow-md'
+                              : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                          }`}
                         >
-                          <option value="hours">Hours (Flash)</option>
-                          <option value="days">Days (24h blocks)</option>
-                          <option value="weeks">Weeks (7-day cycles)</option>
-                          <option value="months">Months (30-day blocks)</option>
-                        </select>
-                      </div>
+                          <div className="text-xs font-bold">Custom Duration</div>
+                          <div className={`text-[10px] ${selectedDurationId === 'custom' ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
+                            Admin-allowed custom period
+                          </div>
+                        </button>
+                      )}
                     </div>
+                    {campaignConfig.formRules.allowCustomDateRange && selectedDurationId === 'custom' && (
+                      <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
+                        <div>
+                          <label className="text-[11px] text-slate-400 font-bold">Duration Value</label>
+                          <input
+                            type="number"
+                            min="1"
+                            max={campaignConfig.formRules.maxCampaignDays || 365}
+                            value={customDurationValue}
+                            onChange={(e) => setCustomDurationValue(Math.max(1, parseInt(e.target.value) || 1))}
+                            className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-slate-400 font-bold">Time Unit</label>
+                          <select
+                            value={customDurationUnit}
+                            onChange={(e) => setCustomDurationUnit(e.target.value as AdDurationUnit)}
+                            className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white"
+                          >
+                            <option value="hours">Hours</option>
+                            <option value="days">Days</option>
+                            <option value="weeks">Weeks</option>
+                            <option value="months">Months</option>
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-xs text-amber-200">
+                    No package is currently enabled for this placement. Please contact the administrator or check back later.
+                  </p>
                 )}
               </div>
 
@@ -1458,7 +1473,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
 
                 <button
                   type="submit"
-                  disabled={isSubmittingCampaign || isAtCapacity || !selectedPlacementOpt?.isEnabled || (!isWalletSufficient && !(useSubscriptionCredit && hasMatchingCampaignCredit))}
+                  disabled={isSubmittingCampaign || isAtCapacity || !selectedPlacementOpt?.isEnabled || !hasAvailableDuration || (!isWalletSufficient && !(useSubscriptionCredit && hasMatchingCampaignCredit))}
                   className={`w-full py-3.5 rounded-2xl font-black text-sm shadow-xl flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${
                     (isWalletSufficient || (useSubscriptionCredit && hasMatchingCampaignCredit))
                       ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/20'

@@ -4364,6 +4364,7 @@ export default function App() {
         isSubscribed={isSubscribed}
         onOpenSubscriptionModal={() => {
           setSelectedJobTitleForSub('');
+          setSubscriptionInitialPlacement(undefined);
           setSubscriptionModalOpen(true);
         }}
         savedJobsCount={savedJobIds.length}
@@ -4534,7 +4535,7 @@ export default function App() {
                           key="section-hero"
                           heroConfig={landingConfig.hero}
                           designId={landingDesignSystem.activeDesignId}
-                          totalJobsCount={jobs.length}
+                          totalJobsCount={liveJobsTotal ?? jobs.length}
                           isLoading={isLoadingJobs}
                           onExploreClick={() => {
                             const el = document.getElementById('jobs-section');
@@ -4712,6 +4713,20 @@ export default function App() {
                             onNavigateTab={setActiveTab}
                             isLoading={isLoadingJobs}
                             showAdOpportunity={feedOpt?.isEnabled !== false}
+                            onJobsCta={(tierId) => {
+                              const tierNames: Record<string, string> = {
+                                vip: 'VIP Ultimate Job Placement',
+                                pinned: 'Pinned Top Job Placement',
+                                featured: 'Featured Job Placement',
+                                urgent: 'Urgent Hiring Placement',
+                                future: 'Future Job / Advance Intake Placement'
+                              };
+                              setSelectedJobTitleForSub(`Your Jobs Here — ${tierNames[tierId] || 'Paid Job Placement'}`);
+                              setSubscriptionInitialCategory('job_posting');
+                              setSubscriptionInitialFeatureId(undefined);
+                              setSubscriptionInitialPlacement(undefined);
+                              setSubscriptionModalOpen(true);
+                            }}
                           />
                             </div>
                             {showAsideColumn && (
@@ -5007,7 +5022,7 @@ export default function App() {
 
       <SubscriptionModal
         isOpen={subscriptionModalOpen}
-        onClose={() => setSubscriptionModalOpen(false)}
+        onClose={() => { setSubscriptionModalOpen(false); setSubscriptionInitialPlacement(undefined); }}
         onSubscribeSuccess={handleSubscribeSuccess}
         initialSelectedJobTitle={selectedJobTitleForSub}
         initialCategory={subscriptionInitialCategory}

@@ -4593,6 +4593,7 @@ export default function App() {
                           rotationSettings={promoOpt?.rotationSettings}
                           maxConcurrentSlots={promoOpt?.maxConcurrentSlots ?? 1}
                           showAdOpportunity={promoPlacementEnabled}
+                          adOpportunityDisplay={campaignConfig.adOpportunityDisplay}
                           onPaidAdCta={(ad) => { void handlePaidAdCta(ad); }}
                           onPromoBannerCta={() => {
                             setSelectedJobTitleForSub('Promotional Banner Advertisement');
@@ -4671,6 +4672,7 @@ export default function App() {
                           rotationSettings={annOpt?.rotationSettings}
                           maxConcurrentSlots={annOpt?.maxConcurrentSlots ?? 2}
                           showAdOpportunity={announcementPlacementEnabled}
+                          adOpportunityDisplay={campaignConfig.adOpportunityDisplay}
                           onPaidAdCta={(ad) => { void handlePaidAdCta(ad); }}
                           onAdDestination={handleAdDestination}
                         />
@@ -4748,7 +4750,7 @@ export default function App() {
                               };
                               setSelectedJobTitleForSub(`Your Jobs Here — ${tierNames[tierId] || 'Paid Job Placement'}`);
                               setSubscriptionInitialCategory('job_posting');
-                              setSubscriptionInitialFeatureId(undefined);
+                              setSubscriptionInitialFeatureId(`job_tier:${tierId}`);
                               setSubscriptionInitialPlacement(undefined);
                               setSubscriptionModalOpen(true);
                             }}
@@ -4764,6 +4766,8 @@ export default function App() {
                                     rotationSettings={sidebarOpt?.rotationSettings}
                                     maxConcurrentSlots={sidebarOpt?.maxConcurrentSlots ?? 1}
                                     onAdClick={handleAdClick}
+                                    onPaidAdCta={handleAdClick}
+                                    adOpportunityDisplay={campaignConfig.adOpportunityDisplay}
                                     onNavigateTab={setActiveTab}
                                   />
                                 )}

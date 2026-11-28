@@ -10,7 +10,8 @@ import {
   DEFAULT_BANNER_BEHAVIOR,
   PlacementRotationConfig,
   DEFAULT_PLACEMENT_ROTATION_CONFIG,
-  isAdCurrentlyRunning
+  isAdCurrentlyRunning,
+  AdOpportunityDisplayConfig
 } from '../../types/ad';
 import { getRotatedItems, getVisibleWindow, getNextStepSize } from '../../utils/adRotation';
 import {
@@ -24,6 +25,7 @@ import {
 } from 'lucide-react';
 
 interface TopBannerAdProps {
+  adOpportunityDisplay?: AdOpportunityDisplayConfig;
   ads: Advertisement[];
   currentPage: AdTargetPage;
   onAdClick: (ad: Advertisement) => void;
@@ -50,7 +52,8 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   bannerAppearance = DEFAULT_BANNER_APPEARANCE,
   bannerBehavior = DEFAULT_BANNER_BEHAVIOR,
   rotationSettings = DEFAULT_PLACEMENT_ROTATION_CONFIG,
-  maxConcurrentSlots = 1
+  maxConcurrentSlots = 1,
+  adOpportunityDisplay
 }) => {
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -252,6 +255,9 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   const imgPosClass = bannerAppearance?.imagePosition === 'right' ? 'flex-row-reverse space-x-reverse' : bannerAppearance?.imagePosition === 'top' ? 'flex-col space-y-2' : 'flex-row';
   const textAlignClass = bannerAppearance?.textAlignment === 'center' ? 'text-center' : bannerAppearance?.textAlignment === 'right' ? 'text-right' : 'text-left';
 
+  const topRule = adOpportunityDisplay?.adPlacements?.['top-header'];
+  const showTopCategoryCta = topRule?.enabled !== false && (topRule?.displayMode === 'whole_category' || topRule?.displayMode === 'placement_level' || (topRule?.displayMode === 'manual' && (topRule.showOnCategory || topRule.showOnPlacement)));
+  const showTopEachCardCta = topRule?.enabled !== false && (topRule?.displayMode === 'each_card' || (topRule?.displayMode === 'manual' && topRule.showOnEachCard));
   const hasMorePages = activeCount > visibleSlotsCount;
 
   return (
@@ -261,6 +267,11 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
       style={containerStyle}
       className="relative w-full z-30 mx-auto space-y-0"
     >
+      {showTopCategoryCta && activeBannerList.some((banner) => banner.id !== 'demo-your-ad-here') && (
+        <div className="max-w-7xl mx-auto w-full px-3 sm:px-6 flex justify-end py-1">
+          <button type="button" onClick={() => handleAction(demoBannerAd)} className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-amber-400/10 px-2.5 py-1 text-[10px] font-black text-amber-200">Your Ad Here · Top Banner <ArrowRight className="h-3 w-3" /></button>
+        </div>
+      )}
       {visibleBanners.map((activeBanner, slotIdx) => {
         const style = themeClasses[activeBanner.theme] || themeClasses.indigo;
         const isDemo = activeBanner.id === 'demo-your-ad-here';
@@ -385,6 +396,9 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
                   </div>
                 )}
 
+                {!isDemo && showTopEachCardCta && (
+                  <button type="button" onClick={(e) => { e.stopPropagation(); handleAction(demoBannerAd); }} className="rounded-full border border-amber-300/60 bg-slate-950/90 px-2.5 py-1 text-[10px] font-black text-amber-200">Your Ad Here →</button>
+                )}
                 {bannerAppearance?.showCtaButton !== false && activeBanner.ctaText && (
                   <button
                     onClick={(e) => {

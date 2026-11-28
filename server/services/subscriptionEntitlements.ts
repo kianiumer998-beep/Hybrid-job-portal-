@@ -1,5 +1,6 @@
 export const SUBSCRIPTION_FEATURES = [
   { id: 'early_access', label: 'Premium Early Access' },
+  { id: 'candidate_premium_membership', label: 'Candidate Premium Membership (Job Detail & Apply Unlock)' },
   { id: 'whatsapp_alerts', label: 'WhatsApp Job Alerts' },
   { id: 'email_alerts', label: 'Email Job Alerts' },
   { id: 'sms_alerts', label: 'SMS Job Alerts' },

@@ -55,6 +55,7 @@ const FEATURE_META: Record<
   { group: 'access' | 'alerts' | 'cv' | 'jobs' | 'ads'; badge: string; shortHint: string }
 > = {
   early_access: { group: 'access', badge: 'Early Access', shortHint: 'Early unlock window' },
+  candidate_premium_membership: { group: 'access', badge: 'Candidate Membership', shortHint: 'Job details, direct apply & source PDF unlocks' },
   email_alerts: { group: 'alerts', badge: 'Alerts', shortHint: 'Email alerts quota' },
   whatsapp_alerts: { group: 'alerts', badge: 'Alerts', shortHint: 'WhatsApp alerts quota' },
   sms_alerts: { group: 'alerts', badge: 'Alerts', shortHint: 'SMS alerts quota' },

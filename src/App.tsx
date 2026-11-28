@@ -1409,7 +1409,7 @@ export default function App() {
     } catch {}
     return [];
   });
-  const [liveJobsTotal, setLiveJobsTotal] = useState<number>(0);
+  const [liveJobsTotal, setLiveJobsTotal] = useState<number | null>(null);
   const [priorityJobs, setPriorityJobs] = useState<Job[]>([]); // STEP 66-B.1
 
   // Subscription Packages State (Authoritative Backend /api/pricing)
@@ -4499,7 +4499,7 @@ export default function App() {
                             key={`section-hero-${landingDesignSystem.activeDesignId}`}
                             designId={landingDesignSystem.activeDesignId}
                             config={landingConfig.hero}
-                            totalJobsCount={liveJobsTotal || jobs.length}
+                            totalJobsCount={liveJobsTotal ?? jobs.length}
                             isLoading={isLoadingJobs}
                             onExplore={() => {
                               const el = document.getElementById('jobs-section');

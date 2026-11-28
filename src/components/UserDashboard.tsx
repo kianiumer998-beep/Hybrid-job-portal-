@@ -33,6 +33,8 @@ interface UserDashboardProps {
   onApplyJob?: (job: Job) => void;
   onToggleSaveJob?: (jobId: string) => void;
   initialTab?: 'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns';
+  initialCampaignSubTab?: 'my-campaigns' | 'create' | 'wallet';
+  initialCampaignPlacement?: import('../types/ad').AdPlacement;
   userAds?: Advertisement[];
   allAds?: Advertisement[];
   pricingConfig?: AdPricingConfig;
@@ -135,6 +137,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   onApplyJob,
   onToggleSaveJob,
   initialTab = 'overview',
+  initialCampaignSubTab,
+  initialCampaignPlacement,
   userAds = [],
   allAds = [],
   pricingConfig = DEFAULT_AD_PRICING_CONFIG,
@@ -171,6 +175,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [overviewSubView, setOverviewSubView] = useState<'metrics' | 'recommendations' | 'history'>('metrics');
   const [appSubTab, setAppSubTab] = useState<'submitted' | 'saved' | 'alerts' | 'documents'>('submitted');
   const [campaignSubTab, setCampaignSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>('my-campaigns');
+  useEffect(() => {
+    if (initialCampaignSubTab) setCampaignSubTab(initialCampaignSubTab);
+  }, [initialCampaignSubTab]);
   const [accountSubTab, setAccountSubTab] = useState<'profile' | 'security'>(() =>
     safeLocalStorageGet<string | null>(`dashboard_active_nav_id_${currentUser.id}`, null) === 'acc-security' ? 'security' : 'profile'
   );
@@ -4423,6 +4430,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           pricingConfig={pricingConfig}
           campaignConfig={campaignConfig}
           initialSubTab={campaignSubTab}
+          initialPlacement={initialCampaignPlacement}
           openDepositModal={openDepositModalTrigger}
           onDepositModalClose={() => setOpenDepositModalTrigger(false)}
           onSubmitCampaign={(newAd, cost) => {

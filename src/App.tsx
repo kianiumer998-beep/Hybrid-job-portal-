@@ -1098,7 +1098,11 @@ export default function App() {
           ? 'Sidebar Advertisement'
           : placement === 'promo-discount-banner'
             ? 'Promotional Banner Advertisement'
-            : 'Inline Job Feed Advertisement';
+            : placement === 'toast-float'
+              ? 'Floating Notification Advertisement'
+              : placement === 'popup-modal'
+                ? 'Popup Advertisement'
+                : 'Inline Job Feed Advertisement';
       setSelectedJobTitleForSub(placementLabel);
       setSubscriptionInitialCategory('ads_campaigns');
       setSubscriptionInitialFeatureId('campaign_credits');

@@ -119,6 +119,7 @@ interface JobListingsProps {
   feedRotationSettings?: PlacementRotationConfig;
   homepagePrioritySlotConfig?: HomepagePrioritySlotConfig;
   isLoading?: boolean;
+  showAdOpportunity?: boolean;
 }
 
 export const JobListings: React.FC<JobListingsProps> = ({
@@ -142,7 +143,8 @@ export const JobListings: React.FC<JobListingsProps> = ({
   jobCardDesign,
   feedRotationSettings,
   homepagePrioritySlotConfig,
-  isLoading = false
+  isLoading = false,
+  showAdOpportunity = true
 }) => {
   // Local state fallback if not controlled from parent
   const [internalPage, setInternalPage] = useState<number>(1);
@@ -794,7 +796,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
         )}
       </div>
 
-      <div className="flex justify-end -mt-1 mb-3">
+      {showAdOpportunity && <div className="flex justify-end -mt-1 mb-3">
         <button
           type="button"
           onClick={() => onAdClick?.({
@@ -827,7 +829,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
           Your Ad Here
           <ArrowRight className="h-3 w-3" />
         </button>
-      </div>
+      </div>}
 
       {/* 3. STANDARD JOBS GRID */}
       <div className={`grid grid-cols-1 ${design.layout === 'editorial' ? '' : 'md:grid-cols-2 lg:grid-cols-3'} gap-2 sm:gap-4`}>

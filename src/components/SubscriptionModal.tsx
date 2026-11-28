@@ -457,11 +457,19 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       },
       {
         id: 'featured',
-        name: 'Featured Top Job Post',
+        name: 'Featured Placement',
+        enabled: jp.enableFeatured !== false,
+        feePkr: Number(jp.featuredFeePkr || 0),
+        days: Number(jp.featuredDurationDays || 30),
+        desc: jp.featuredDescription || 'Highlighted featured placement'
+      },
+      {
+        id: 'pinned',
+        name: 'Pinned Top #1 Placement',
         enabled: jp.enableFeaturedTop !== false,
         feePkr: Number(jp.featuredTopFeePkr || 0),
-        days: Number(jp.featuredTopDurationDays || 21),
-        desc: jp.featuredDescription || jp.featuredTopDescription || 'Pinned near top search results'
+        days: Number(jp.featuredTopDurationDays || 30),
+        desc: jp.featuredTopDescription || 'Pinned at the top of search results'
       },
       {
         id: 'future',

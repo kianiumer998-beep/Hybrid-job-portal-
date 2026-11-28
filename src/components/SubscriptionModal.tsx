@@ -278,9 +278,11 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
           if (availablePackages.length > 0) {
             let targetPkg = availablePackages[0];
             if (initialFeatureId) {
-              const found = availablePackages.find((p: any) =>
-                Array.isArray(p.featureIds) && p.featureIds.includes(initialFeatureId)
-              );
+              const found = availablePackages.find((p: any) => {
+                const featureIds = Array.isArray(p.featureIds) ? p.featureIds.map(String) : [];
+                return featureIds.includes(initialFeatureId) ||
+                  (initialFeatureId === 'premium_job_posting' && featureIds.includes('candidate_premium_membership'));
+              });
               if (found) targetPkg = found;
             } else if (initialCategory) {
               const foundCat = availablePackages.find((p: any) => {

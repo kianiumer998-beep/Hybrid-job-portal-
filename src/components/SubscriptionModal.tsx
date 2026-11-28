@@ -51,7 +51,7 @@ interface SubscriptionModalProps {
     requestedPlanId?: string;
   }) => Promise<{ success: boolean; transaction?: any; message?: string } | boolean | void> | void;
   onWalletPurchaseSuccess?: () => Promise<void> | void;
-  onNavigateToCampaigns?: () => void;
+  onNavigateToCampaigns?: (placement?: string, durationPresetId?: string) => void;
   onNavigateToPostJob?: () => void;
   onNavigateToCv?: () => void;
 }
@@ -180,6 +180,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     initialFeatureId === 'whatsapp_alerts' ? 'whatsapp' : initialFeatureId === 'sms_alerts' ? 'sms' : initialFeatureId === 'email_alerts' ? 'email' : initialFeatureId === 'early_access' ? 'early_access' : 'all'
   );
   const [confirmWalletPay, setConfirmWalletPay] = useState(false);
+  const [selectedCampaignDurationPresetId, setSelectedCampaignDurationPresetId] = useState<string | undefined>(undefined);
   const [walletActivationSummary, setWalletActivationSummary] = useState<{
     planName: string;
     amountPaid: number;
@@ -531,6 +532,9 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     () => enabledAdPlacements.find((placement) => placement.id === initialPlacement) || null,
     [enabledAdPlacements, initialPlacement]
   );
+  useEffect(() => {
+    setSelectedCampaignDurationPresetId(undefined);
+  }, [initialPlacement, isOpen]);
 
   const filteredPlacementsForAdSubOption = useMemo(() => {
     if (adSubOption === 'all') return enabledAdPlacements;
@@ -1510,7 +1514,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                     {onNavigateToCampaigns && (
                       <button
                         type="button"
-                        onClick={onNavigateToCampaigns}
+                        onClick={() => onNavigateToCampaigns(initialPlacement, selectedCampaignDurationPresetId || selectedPlacementInfo?.durationOptions[0]?.id)}
                         className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-bold shrink-0 cursor-pointer"
                       >
                         Launch Campaign →
@@ -1545,10 +1549,18 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                           <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Available durations &amp; prices</div>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                             {selectedPlacementInfo.durationOptions.map((duration: any) => (
-                              <div key={duration.id} className="flex items-center justify-between gap-2 rounded-lg bg-slate-950/70 px-2.5 py-2">
+                              <button
+                                type="button"
+                                key={duration.id}
+                                onClick={() => setSelectedCampaignDurationPresetId(duration.id)}
+                                className={`flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition ${selectedCampaignDurationPresetId === duration.id ? 'border-emerald-400/70 bg-emerald-500/10' : 'border-transparent bg-slate-950/70 hover:border-slate-700'}`}
+                              >
                                 <span className="text-[10px] text-slate-300">{duration.label}</span>
-                                <span className="shrink-0 text-[11px] font-black text-emerald-300">PKR {Number(duration.amount).toLocaleString()}</span>
-                              </div>
+                                <span className="shrink-0 text-right">
+                                  <span className="block text-[11px] font-black text-emerald-300">PKR {Number(duration.amount).toLocaleString()}</span>
+                                  <span className="block text-[9px] text-slate-500">{selectedCampaignDurationPresetId === duration.id ? 'Selected' : 'Select duration'}</span>
+                                </span>
+                              </button>
                             ))}
                           </div>
                         </div>

@@ -286,11 +286,11 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
             let targetPkg = availablePackages[0];
             if (initialPlacement) {
               const exactPlacementPackages = availablePackages.filter((pkg: any) => matchesAdSubOption(pkg, 'all', initialPlacement));
-              targetPkg = exactPlacementPackages[0] || targetPkg;
+              targetPkg = exactPlacementPackages[0] || null;
             } else if (initialFeatureId?.startsWith('job_tier:')) {
               const tier = initialFeatureId.slice('job_tier:'.length);
               const exactTierPackages = availablePackages.filter((pkg: any) => pkg?.jobTierId === tier || pkg?.placementTier === tier || (Array.isArray(pkg?.jobTierIds) && pkg.jobTierIds.includes(tier)));
-              targetPkg = exactTierPackages[0] || targetPkg;
+              targetPkg = exactTierPackages[0] || null;
             }
             if (!initialPlacement && initialFeatureId && !initialFeatureId.startsWith('job_tier:')) {
               const found = availablePackages.find((p: any) => {
@@ -306,7 +306,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
               });
               if (foundCat) targetPkg = foundCat;
             }
-            setSelectedPackageId(targetPkg.id);
+            setSelectedPackageId(targetPkg?.id || '');
           }
         }
       })
@@ -483,6 +483,10 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
 
     if (selectedCategory === 'ads_campaigns') {
       return list.filter((pkg) => matchesAdSubOption(pkg, adSubOption, initialPlacement));
+    }
+    if (selectedCategory === 'job_posting' && initialFeatureId?.startsWith('job_tier:')) {
+      const tier = initialFeatureId.slice('job_tier:'.length);
+      return list.filter((pkg: any) => pkg?.jobTierId === tier || pkg?.placementTier === tier || (Array.isArray(pkg?.jobTierIds) && pkg.jobTierIds.includes(tier)));
     }
     if (selectedCategory === 'alerts_early_access') {
       return list.filter((pkg) => matchesAlertSubOption(pkg, alertSubOption));

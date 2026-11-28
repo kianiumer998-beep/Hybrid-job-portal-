@@ -145,7 +145,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
       if (res && typeof res === 'object' && 'success' in res && res.success === false) {
         throw new Error(res.message || 'Failed to save promotional banners.');
       }
-      setSaveSuccess('Promotional discount banners saved to authoritative campaign configuration.');
+      setSaveSuccess('Your Jobs Here / Your Ad Here display rules and promotional banners saved successfully.');
     } catch (err: any) {
       setLocalConfig(previousConfig);
       setSaveError(err?.message || 'Could not save promotional banners. Reverted to previous state.');

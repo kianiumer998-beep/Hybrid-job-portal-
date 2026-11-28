@@ -521,7 +521,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     if (initialPlacement) return enabledAdPlacements.filter((placement) => placement.id === initialPlacement);
     if (adSubOption === 'all') return enabledAdPlacements;
     return enabledAdPlacements.filter((p) => p.group === adSubOption);
-  }, [enabledAdPlacements, adSubOption]);
+  }, [enabledAdPlacements, adSubOption, initialPlacement]);
 
   if (!isOpen) return null;
 

@@ -1089,7 +1089,14 @@ export default function App() {
   };
 
   const handleAdClick = async (ad: Advertisement) => {
-    if (!ad?.id || ad.id === 'demo-your-ad-here') return;
+    if (!ad?.id) return;
+    if (ad.id === 'demo-your-ad-here') {
+      setSelectedJobTitleForSub('Top Banner Advertisement');
+      setSubscriptionInitialCategory('ads_campaigns');
+      setSubscriptionInitialFeatureId('campaign_credits');
+      setSubscriptionModalOpen(true);
+      return;
+    }
     try {
       const res = await api.ads.recordClick(ad.id);
       if (res && res.success) {

@@ -4372,7 +4372,7 @@ export default function App() {
             currentPage={activeTab}
             onAdClick={handleAdClick}
             onNavigateTab={setActiveTab}
-            showDemoCardIfEmpty={topHeaderCfg?.isEnabled !== false && campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.enabled !== false && (campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.displayMode !== 'manual' || campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.showOnCategory === true || campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.showOnPlacement === true || campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.showOnEachCard === true)}
+            showDemoCardIfEmpty={topHeaderCfg?.isEnabled === true && campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.enabled !== false && (campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.displayMode !== 'manual' || campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.showOnCategory === true || campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.showOnPlacement === true || campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.showOnEachCard === true)}
             isEnabled={topHeaderCfg?.isEnabled !== false}
             bannerDimensions={campaignConfig.bannerDimensions}
             bannerAppearance={campaignConfig.bannerAppearance}
@@ -4754,7 +4754,7 @@ export default function App() {
                             onPaidAdCta={handleAdClick}
                             onNavigateTab={setActiveTab}
                             isLoading={isLoadingJobs}
-                            showAdOpportunity={feedOpt?.isEnabled !== false}
+                            showAdOpportunity={feedOpt?.isEnabled === true}
                             onJobsCta={(tierId) => {
                               const tierNames: Record<string, string> = {
                                 vip: 'VIP Ultimate Job Placement',
@@ -4780,6 +4780,7 @@ export default function App() {
                                     isEnabled={sidebarEnabled}
                                     rotationSettings={sidebarOpt?.rotationSettings}
                                     maxConcurrentSlots={sidebarOpt?.maxConcurrentSlots ?? 1}
+                                    showAdOpportunity={sidebarOpt?.isEnabled === true}
                                     onAdClick={handleAdClick}
                                     onPaidAdCta={handleAdClick}
                                     adOpportunityDisplay={campaignConfig.adOpportunityDisplay}
@@ -5185,6 +5186,7 @@ export default function App() {
           ads={advertisements}
           currentPage={activeTab}
           isEnabled={campaignConfig.placementOptions.find((o) => o.id === 'popup-modal')?.isEnabled !== false}
+          showAdOpportunity={campaignConfig.placementOptions.find((o) => o.id === 'popup-modal')?.isEnabled === true}
           popupSettings={campaignConfig.popupSettings}
           popupAppearance={campaignConfig.popupAppearance}
           rotationSettings={campaignConfig.placementOptions.find((o) => o.id === 'popup-modal')?.rotationSettings}
@@ -5199,6 +5201,7 @@ export default function App() {
         ads={advertisements}
         currentPage={activeTab}
         isEnabled={campaignConfig.placementOptions.find((o) => o.id === 'toast-float')?.isEnabled !== false}
+        showAdOpportunity={campaignConfig.placementOptions.find((o) => o.id === 'toast-float')?.isEnabled === true}
         rotationSettings={campaignConfig.placementOptions.find((o) => o.id === 'toast-float')?.rotationSettings}
         onAdClick={handleAdClick}
         onNavigateTab={setActiveTab}

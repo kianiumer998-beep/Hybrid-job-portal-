@@ -122,6 +122,7 @@ interface JobListingsProps {
   isLoading?: boolean;
   showAdOpportunity?: boolean;
   onJobsCta?: (tierId: 'vip' | 'pinned' | 'featured' | 'urgent' | 'future') => void;
+  onPaidAdCta?: (ad: Advertisement) => void;
 }
 
 export const JobListings: React.FC<JobListingsProps> = ({
@@ -147,7 +148,8 @@ export const JobListings: React.FC<JobListingsProps> = ({
   homepagePrioritySlotConfig,
   isLoading = false,
   showAdOpportunity = true,
-  onJobsCta
+  onJobsCta,
+  onPaidAdCta
 }) => {
   // Local state fallback if not controlled from parent
   const [internalPage, setInternalPage] = useState<number>(1);
@@ -926,6 +928,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                   bannerDimensions={bannerDimensions}
                   feedCardAppearance={feedCardAppearance}
                   feedInlineSettings={feedInlineSettings}
+                  onPaidAdCta={onPaidAdCta}
                 />
               );
               adInsertedCount++;

@@ -837,11 +837,13 @@ export default function App() {
           localStorage.removeItem('hybrid_job_posting_pricing');
         } catch {}
       } else {
+        setCampaignConfig((current) => ({ ...current, placementOptions: [], durationPresets: [] }));
         setPricingLoadError(res?.message || 'Failed to load authoritative pricing configuration from server.');
         setIsPricingReady(false);
       }
     } catch (err: any) {
       console.error('[App] Failed to load pricing configuration from backend /api/pricing:', err);
+      setCampaignConfig((current) => ({ ...current, placementOptions: [], durationPresets: [] }));
       setPricingLoadError(err?.message || 'Failed to load authoritative pricing configuration from server.');
       setIsPricingReady(false);
     } finally {

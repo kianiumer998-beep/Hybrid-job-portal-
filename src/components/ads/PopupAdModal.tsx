@@ -4,6 +4,7 @@ import { getRotatedItems } from '../../utils/adRotation';
 import { X, ExternalLink, ArrowRight, ShieldCheck, CheckCircle2, Layers, ChevronRight } from 'lucide-react';
 
 interface PopupAdModalProps {
+  adOpportunityDisplay?: AdOpportunityDisplayConfig;
   ads: Advertisement[];
   currentPage: AdTargetPage;
   popupSettings?: PopupDisplaySettings;
@@ -30,8 +31,12 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
   popupAppearance = DEFAULT_POPUP_APPEARANCE,
   rotationSettings,
   onAdClick,
-  onNavigateTab
+  onNavigateTab,
+  adOpportunityDisplay
 }) => {
+  const popupRule = adOpportunityDisplay?.adPlacements?.['popup-modal'];
+  const showPopupCta = popupRule?.enabled !== false && (popupRule?.displayMode === 'whole_category' || popupRule?.displayMode === 'placement_level' || popupRule?.displayMode === 'each_card' || (popupRule?.displayMode === 'manual' && (popupRule.showOnCategory || popupRule.showOnPlacement || popupRule.showOnEachCard)));
+  const opportunityAd: Advertisement = { id: 'demo-your-ad-here-popup-cta', title: 'Your Ad Here — Popup Advertisement', type: 'popup', placement: 'popup-modal', targetPages: ['all'], status: 'active', approvalStatus: 'Approved', submittedByUserId: 'system-demo', submittedByUserName: 'Platform Promotion', headline: 'Your Ad Here', bodyText: 'Feature your brand or recruitment campaign in the popup placement.', badgeText: 'Premium Popup Advertisement', ctaText: 'Explore Popup Ad Plans', ctaUrl: '', theme: 'amber', dismissable: true, impressions: 0, clicks: 0, createdAt: new Date().toISOString(), durationUnit: 'days', durationValue: 1 };
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [popupQueue, setPopupQueue] = useState<Advertisement[]>([]);
   const [currentQueueIndex, setCurrentQueueIndex] = useState<number>(0);
@@ -85,7 +90,7 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
       }, initialDelayMs);
 
       return () => clearTimeout(timer);
-    } else if (isEnabled && !dismissedSessionIds.includes('demo-your-ad-here-popup')) {
+    } else if (isEnabled && showPopupCta && !dismissedSessionIds.includes('demo-your-ad-here-popup')) {
       const opportunityAd: Advertisement = {
         id: 'demo-your-ad-here-popup',
         title: 'Your Ad Here — First-Visit Popup',
@@ -120,7 +125,7 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
       setPopupQueue([]);
       setCurrentQueueIndex(0);
     }
-  }, [ads, currentPage, dismissedSessionIds, popupSettings, isEnabled, popupAppearance?.initialDisplayDelaySeconds, rotationSettings?.enabled, rotationSettings?.sequenceMode]);
+  }, [ads, currentPage, dismissedSessionIds, popupSettings, isEnabled, showPopupCta, popupAppearance?.initialDisplayDelaySeconds, rotationSettings?.enabled, rotationSettings?.sequenceMode]);
 
   // Optional timed auto-rotation through open popup queue
   useEffect(() => {
@@ -181,6 +186,8 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
     // Default 'single' mode
     setIsOpen(false);
   };
+
+  const handleOpportunityClick = () => onAdClick(opportunityAd);
 
   const handleAction = (ad: Advertisement) => {
     onAdClick(ad);
@@ -480,6 +487,7 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
               {isMultiQueue && currentStep < totalSteps ? 'Close (Show Next)' : 'Maybe Later'}
             </button>
 
+              {showPopupCta && (popupRule?.displayMode === 'each_card' || (popupRule?.displayMode === 'manual' && popupRule.showOnEachCard) || true) && <button type="button" onClick={handleOpportunityClick} className="mb-2 px-3 py-1.5 rounded-full border border-amber-300/60 bg-slate-950/90 text-[10px] font-black text-amber-200">Your Ad Here →</button>}
             <button
               onClick={() => handleAction(activePopup)}
               className={`w-full sm:w-auto px-7 py-3 rounded-xl font-black text-xs shadow-xl flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-95 ${style.button}`}
@@ -498,4 +506,5 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
       </div>
     </div>
   );
-};
+};                        {showPopupCta && (popupRule?.displayMode === 'each_card' || (popupRule?.displayMode === 'manual' && popupRule.showOnEachCard) || idx === 0) && <button type="button" onClick={handleOpportunityClick} className="px-3 py-1.5 rounded-full border border-amber-300/60 bg-slate-950/90 text-[10px] font-black text-amber-200">Your Ad Here →</button>}
+

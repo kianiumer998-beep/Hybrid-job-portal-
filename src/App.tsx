@@ -5110,6 +5110,7 @@ export default function App() {
         <PopupAdModal
           ads={advertisements}
           currentPage={activeTab}
+          isEnabled={campaignConfig.placementOptions.find((o) => o.id === 'popup-modal')?.isEnabled !== false}
           popupSettings={campaignConfig.popupSettings}
           popupAppearance={campaignConfig.popupAppearance}
           rotationSettings={campaignConfig.placementOptions.find((o) => o.id === 'popup-modal')?.rotationSettings}

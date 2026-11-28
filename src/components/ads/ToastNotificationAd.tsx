@@ -21,6 +21,7 @@ interface ToastNotificationAdProps {
 export const ToastNotificationAd: React.FC<ToastNotificationAdProps> = ({
   ads,
   currentPage,
+  isEnabled = true,
   onAdClick,
   onNavigateTab,
   rotationSettings = DEFAULT_PLACEMENT_ROTATION_CONFIG
@@ -44,8 +45,7 @@ export const ToastNotificationAd: React.FC<ToastNotificationAdProps> = ({
   }, [ads, currentPage, dismissedToastIds, rotationSettings?.enabled, rotationSettings?.sequenceMode]);
 
   useEffect(() => {
-    if (!isEnabled) return null;
-  if (orderedCandidates.length === 0) {
+    if (!isEnabled || orderedCandidates.length === 0) {
       setIsReady(false);
       return;
     }
@@ -53,7 +53,7 @@ export const ToastNotificationAd: React.FC<ToastNotificationAdProps> = ({
       setIsReady(true);
     }, 2000);
     return () => window.clearTimeout(timer);
-  }, [orderedCandidates.length]);
+  }, [isEnabled, orderedCandidates.length]);
 
   const rotationEnabled = rotationSettings?.enabled !== false;
   const isAutoRotate = rotationEnabled && rotationSettings?.autoRotateTimed !== false;
@@ -67,6 +67,7 @@ export const ToastNotificationAd: React.FC<ToastNotificationAdProps> = ({
     return () => window.clearInterval(timer);
   }, [isReady, orderedCandidates.length, isAutoRotate, isPaused, intervalMs]);
 
+  if (!isEnabled) return null;
   if (orderedCandidates.length === 0) {
     return (
       <button

@@ -278,6 +278,16 @@ export const JobListings: React.FC<JobListingsProps> = ({
   const feedAdSlotLimit = Number.isInteger(configuredFeedAdLimit) ? Math.max(0, Math.min(10, configuredFeedAdLimit)) : 3;
   const activeFeedAdCount = ads.filter((ad) => ad.placement === 'feed-inline' && isAdCurrentlyRunning(ad)).length;
   const hasAvailableFeedAdSlot = activeFeedAdCount < feedAdSlotLimit;
+  const feedOpportunityRule = adOpportunityDisplay?.adPlacements?.['feed-inline'];
+  const showFeedCategoryCta = feedOpportunityRule?.enabled !== false && (
+    feedOpportunityRule?.displayMode === 'whole_category' ||
+    feedOpportunityRule?.displayMode === 'placement_level' ||
+    (feedOpportunityRule?.displayMode === 'manual' && (feedOpportunityRule.showOnCategory || feedOpportunityRule.showOnPlacement))
+  );
+  const showFeedEachCardCta = feedOpportunityRule?.enabled !== false && (
+    feedOpportunityRule?.displayMode === 'each_card' ||
+    (feedOpportunityRule?.displayMode === 'manual' && feedOpportunityRule.showOnEachCard)
+  );
 
   const totalStandardJobs = standardJobs.length;
   const totalPages = Math.max(1, Math.ceil(totalStandardJobs / postsPerPage));
@@ -841,7 +851,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
         )}
       </div>
 
-      {showAdOpportunity && hasAvailableFeedAdSlot && <div className="flex justify-end -mt-1 mb-3">
+      {showAdOpportunity && showFeedCategoryCta && hasAvailableFeedAdSlot && <div className="flex justify-end -mt-1 mb-3">
         <button
           type="button"
           onClick={() => onAdClick?.({
@@ -940,7 +950,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                   bannerDimensions={bannerDimensions}
                   feedCardAppearance={feedCardAppearance}
                   feedInlineSettings={feedInlineSettings}
-                  onPaidAdCta={onPaidAdCta}
+                  onPaidAdCta={showFeedEachCardCta ? onPaidAdCta : undefined}
                 />
               );
               adInsertedCount++;

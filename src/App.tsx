@@ -4358,7 +4358,7 @@ export default function App() {
             currentPage={activeTab}
             onAdClick={handleAdClick}
             onNavigateTab={setActiveTab}
-            showDemoCardIfEmpty={topHeaderCfg?.isEnabled !== false}
+            showDemoCardIfEmpty={topHeaderCfg?.isEnabled !== false && campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.enabled !== false && (campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.displayMode !== 'manual' || campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.showOnCategory === true || campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.showOnPlacement === true || campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.showOnEachCard === true)}
             isEnabled={topHeaderCfg?.isEnabled !== false}
             bannerDimensions={campaignConfig.bannerDimensions}
             bannerAppearance={campaignConfig.bannerAppearance}

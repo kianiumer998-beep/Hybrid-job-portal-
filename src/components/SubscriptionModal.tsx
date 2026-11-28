@@ -399,8 +399,11 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       const fixedRates = opt.timeframeFixedRatesPkr || {};
       const fixedUnitRate = Number(fixedRates[unit]);
       if (Number.isFinite(fixedUnitRate) && fixedRates[unit] !== undefined) return Math.max(0, Math.round(fixedUnitRate * value));
-      if (opt.rateEditMode === 'manual' && opt.fixedPriceOverridePkr !== undefined) {
-        return Math.max(0, Math.round(Number(opt.fixedPriceOverridePkr) * value));
+      if (opt.rateEditMode === 'manual') {
+        if (opt.fixedPriceOverridePkr !== undefined) {
+          return Math.max(0, Math.round(Number(opt.fixedPriceOverridePkr) * value));
+        }
+        return 0;
       }
       const base = baseRates[unit] || (unit === 'daily' ? baseRates.hourly * 24 : unit === 'weekly' ? baseRates.daily * 7 : unit === 'monthly' ? baseRates.daily * 30 : 0);
       const placementMult = Number(placementMultipliers[opt.id] ?? opt.multiplier ?? 1);
@@ -424,7 +427,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
               ? Math.max(0, Number(preset.fixedPriceOverridePkr))
               : calculateRate(opt, unit, Number(preset.value || 1));
             return { id: String(preset.id), label: String(preset.label || preset.subLabel || preset.id), amount: Math.round(amount), unit: String(preset.unit), value: Number(preset.value || 1) };
-          });
+          })
+          .filter((preset: any) => opt.isFreeOverride === true || preset.amount > 0);
         return {
           id: String(opt.id),
           name: String(opt.name || opt.id),

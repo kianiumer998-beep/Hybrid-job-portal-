@@ -1722,6 +1722,8 @@ export default function App() {
   const [legalModalOpen, setLegalModalOpen] = useState<boolean>(false);
   const [legalModalTab, setLegalModalTab] = useState<'disclaimer' | 'privacy' | 'terms' | 'contact'>('disclaimer');
   const [userDashboardInitialTab, setUserDashboardInitialTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns'>('overview');
+  const [userDashboardInitialCampaignSubTab, setUserDashboardInitialCampaignSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>('my-campaigns');
+  const [userDashboardInitialCampaignPlacement, setUserDashboardInitialCampaignPlacement] = useState<import('./types/ad').AdPlacement | undefined>(undefined);
 
   const handlePostJobClick = () => {
     setUserDashboardInitialTab('post-job');
@@ -4795,6 +4797,8 @@ export default function App() {
                 onApplyJob={handleApplyClick}
                 onToggleSaveJob={handleToggleSaveJob}
                 initialTab={userDashboardInitialTab}
+                initialCampaignSubTab={userDashboardInitialCampaignSubTab}
+                initialCampaignPlacement={userDashboardInitialCampaignPlacement}
                 userAds={advertisements.filter(a => a.submittedByUserId === currentUser.id)}
                 allAds={advertisements}
                 pricingConfig={pricingConfig}
@@ -5051,6 +5055,8 @@ export default function App() {
         onNavigateToCampaigns={() => {
           setSubscriptionModalOpen(false);
           setUserDashboardInitialTab('campaigns');
+          setUserDashboardInitialCampaignSubTab('create');
+          setUserDashboardInitialCampaignPlacement(subscriptionInitialPlacement as import('./types/ad').AdPlacement | undefined);
           if (currentUser) {
             setActiveTab('dashboard');
           } else {

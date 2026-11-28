@@ -20,7 +20,9 @@ import {
   Calendar,
   Zap,
   FileText,
-  RefreshCw
+  RefreshCw,
+  Megaphone,
+  ArrowRight
 } from 'lucide-react';
 import { Job, HomepagePrioritySlotConfig } from '../types/job';
 import { Advertisement, FeedInlineAdSettings, BannerDimensionSettings, FeedCardAppearanceSettings, PlacementRotationConfig, isAdCurrentlyRunning } from '../types/ad';

@@ -1515,26 +1515,6 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                           <p className="mt-1.5 text-[10px] text-slate-300">Admin-configured rate and duration options. Final campaign total is recalculated after target pages, schedule and slot availability are selected.</p>
                         </div>
                       </div>
-                      {selectedPlacementInfo.durationOptions.length > 0 && (
-                        <div className="mt-3 space-y-1.5">
-                          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Available durations &amp; prices</div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                            {selectedPlacementInfo.durationOptions.map((duration: any) => (
-                              <button
-                                type="button"
-                                key={duration.id}
-                                onClick={() => setSelectedCampaignDurationPresetId(duration.id)}
-                                className={`flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition ${selectedCampaignDurationPresetId === duration.id ? 'border-emerald-400/70 bg-emerald-500/10' : 'border-transparent bg-slate-950/70 hover:border-slate-700'}`}
-                              >
-                                <span className="text-[10px] text-slate-300">{duration.label}</span>
-                                <span className="shrink-0 text-right">
-                                  <span className="block text-[11px] font-black text-emerald-300">PKR {Number(duration.amount).toLocaleString()}</span>
-                                  <span className="block text-[9px] text-slate-500">{selectedCampaignDurationPresetId === duration.id ? 'Selected' : 'Select duration'}</span>
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
                       {selectedPlacementInfo.durationOptions.length > 0 ? (
                         <div className="mt-3 space-y-1.5">
                           <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Admin-enabled packages</div>

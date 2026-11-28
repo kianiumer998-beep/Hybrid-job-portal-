@@ -257,7 +257,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
       return counts;
     }, {});
     return enabledTiers.find((tier) => (occupiedByTier[tier] || 0) < Math.max(0, Number(config[tier]?.maxSlots || 0))) || null;
-  }, [homepagePrioritySlotConfig, priorityList.length]);
+  }, [homepagePrioritySlotConfig, priorityList]);
 
   const priorityIdsSet = React.useMemo(() => new Set(priorityList.map(j => j.id)), [priorityList]);
 

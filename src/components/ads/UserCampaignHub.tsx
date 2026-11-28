@@ -69,6 +69,7 @@ interface UserCampaignHubProps {
   pricingConfig?: AdPricingConfig;
   campaignConfig?: CampaignCustomizationConfig;
   initialSubTab?: 'my-campaigns' | 'create' | 'wallet';
+  initialPlacement?: AdPlacement;
   openDepositModal?: boolean;
   onDepositModalClose?: () => void;
   onDepositWallet: (depositData: {
@@ -100,6 +101,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   pricingConfig = DEFAULT_AD_PRICING_CONFIG,
   campaignConfig = DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
   initialSubTab = 'my-campaigns',
+  initialPlacement,
   openDepositModal = false,
   onDepositModalClose,
   onDepositWallet,
@@ -152,6 +154,11 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   const [formTitle, setFormTitle] = useState<string>('');
   const [formType, setFormType] = useState<AdType>('banner');
   const [formPlacement, setFormPlacement] = useState<AdPlacement>('top-header');
+  useEffect(() => {
+    if (!initialPlacement) return;
+    const enabledPlacement = campaignConfig.placementOptions.find((option) => option.id === initialPlacement && option.isEnabled);
+    if (enabledPlacement) setFormPlacement(initialPlacement);
+  }, [initialPlacement, campaignConfig.placementOptions]);
   const [formTargetPages, setFormTargetPages] = useState<AdTargetPage[]>(['alerts']);
   
   // Duration State

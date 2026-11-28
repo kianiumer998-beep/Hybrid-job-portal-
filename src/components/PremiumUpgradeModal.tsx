@@ -47,7 +47,11 @@ export const PremiumUpgradeModal: React.FC<PremiumUpgradeModalProps> = ({
         for (const pkg of res.pricing.subscriptionPackages) {
           // Only show the price of the requested package feature. Never display
           // an unrelated subscription's lowest rate (e.g. Early Access vs Premium).
-          if (!pkg || pkg.enabled !== true || !Array.isArray(pkg.featureIds) || !pkg.featureIds.includes(featureId)) continue;
+          if (!pkg || pkg.enabled !== true || !Array.isArray(pkg.featureIds)) continue;
+          const packageFeatureIds = pkg.featureIds.map(String);
+          const featureMatches = packageFeatureIds.includes(featureId) ||
+            (featureId === 'premium_job_posting' && packageFeatureIds.includes('candidate_premium_membership'));
+          if (!featureMatches) continue;
 
           const raw = pkg.pricePkr;
           if (raw === null || raw === undefined || raw === '') continue;

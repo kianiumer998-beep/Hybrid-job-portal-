@@ -733,6 +733,18 @@ export default function App() {
         placementOptions: Array.isArray(pricingData.campaignCustomizationConfig.placementOptions)
           ? pricingData.campaignCustomizationConfig.placementOptions
           : [],
+        adOpportunityDisplay: {
+          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.adOpportunityDisplay,
+          ...(pricingData.campaignCustomizationConfig.adOpportunityDisplay || {}),
+          jobTiers: {
+            ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.adOpportunityDisplay!.jobTiers,
+            ...(pricingData.campaignCustomizationConfig.adOpportunityDisplay?.jobTiers || {})
+          },
+          adPlacements: {
+            ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.adOpportunityDisplay!.adPlacements,
+            ...(pricingData.campaignCustomizationConfig.adOpportunityDisplay?.adPlacements || {})
+          }
+        },
         feedInlineSettings: {
           ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings,
           ...(pricingData.campaignCustomizationConfig.feedInlineSettings || {})
@@ -1117,7 +1129,9 @@ export default function App() {
                 ? 'Popup Advertisement'
                 : placement === 'dynamic-announcement-card'
                   ? 'Announcement Card Advertisement'
-                  : 'Inline Job Feed Advertisement';
+                  : placement === 'sms-broadcast'
+                    ? 'SMS Broadcast Campaign'
+                    : 'Inline Job Feed Advertisement';
       setSelectedJobTitleForSub(placementLabel);
       setSubscriptionInitialCategory('ads_campaigns');
       setSubscriptionInitialFeatureId('campaign_credits');
@@ -4358,13 +4372,14 @@ export default function App() {
             currentPage={activeTab}
             onAdClick={handleAdClick}
             onNavigateTab={setActiveTab}
-            showDemoCardIfEmpty={topHeaderCfg?.isEnabled !== false}
+            showDemoCardIfEmpty={topHeaderCfg?.isEnabled === true && campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.enabled !== false && (campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.displayMode !== 'manual' || campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.showOnCategory === true || campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.showOnPlacement === true || campaignConfig.adOpportunityDisplay?.adPlacements?.['top-header']?.showOnEachCard === true)}
             isEnabled={topHeaderCfg?.isEnabled !== false}
             bannerDimensions={campaignConfig.bannerDimensions}
             bannerAppearance={campaignConfig.bannerAppearance}
             bannerBehavior={campaignConfig.bannerBehavior}
             rotationSettings={topHeaderCfg?.rotationSettings}
             maxConcurrentSlots={topHeaderCfg?.maxConcurrentSlots}
+            adOpportunityDisplay={campaignConfig.adOpportunityDisplay}
           />
         );
       })()}
@@ -4593,6 +4608,7 @@ export default function App() {
                           rotationSettings={promoOpt?.rotationSettings}
                           maxConcurrentSlots={promoOpt?.maxConcurrentSlots ?? 1}
                           showAdOpportunity={promoPlacementEnabled}
+                          adOpportunityDisplay={campaignConfig.adOpportunityDisplay}
                           onPaidAdCta={(ad) => { void handlePaidAdCta(ad); }}
                           onPromoBannerCta={() => {
                             setSelectedJobTitleForSub('Promotional Banner Advertisement');
@@ -4671,6 +4687,7 @@ export default function App() {
                           rotationSettings={annOpt?.rotationSettings}
                           maxConcurrentSlots={annOpt?.maxConcurrentSlots ?? 2}
                           showAdOpportunity={announcementPlacementEnabled}
+                          adOpportunityDisplay={campaignConfig.adOpportunityDisplay}
                           onPaidAdCta={(ad) => { void handlePaidAdCta(ad); }}
                           onAdDestination={handleAdDestination}
                         />
@@ -4732,11 +4749,12 @@ export default function App() {
                             jobCardDesign={landingConfig.jobCardDesign}
                             feedRotationSettings={feedOpt?.rotationSettings}
                             homepagePrioritySlotConfig={jobPostingPricing.homepagePrioritySlotConfig}
+                            adOpportunityDisplay={campaignConfig.adOpportunityDisplay}
                             onAdClick={handleAdClick}
                             onPaidAdCta={handleAdClick}
                             onNavigateTab={setActiveTab}
                             isLoading={isLoadingJobs}
-                            showAdOpportunity={feedOpt?.isEnabled !== false}
+                            showAdOpportunity={feedOpt?.isEnabled === true}
                             onJobsCta={(tierId) => {
                               const tierNames: Record<string, string> = {
                                 vip: 'VIP Ultimate Job Placement',
@@ -4747,7 +4765,7 @@ export default function App() {
                               };
                               setSelectedJobTitleForSub(`Your Jobs Here — ${tierNames[tierId] || 'Paid Job Placement'}`);
                               setSubscriptionInitialCategory('job_posting');
-                              setSubscriptionInitialFeatureId(undefined);
+                              setSubscriptionInitialFeatureId(`job_tier:${tierId}`);
                               setSubscriptionInitialPlacement(undefined);
                               setSubscriptionModalOpen(true);
                             }}
@@ -4762,7 +4780,10 @@ export default function App() {
                                     isEnabled={sidebarEnabled}
                                     rotationSettings={sidebarOpt?.rotationSettings}
                                     maxConcurrentSlots={sidebarOpt?.maxConcurrentSlots ?? 1}
+                                    showAdOpportunity={sidebarOpt?.isEnabled === true}
                                     onAdClick={handleAdClick}
+                                    onPaidAdCta={handleAdClick}
+                                    adOpportunityDisplay={campaignConfig.adOpportunityDisplay}
                                     onNavigateTab={setActiveTab}
                                   />
                                 )}
@@ -5165,11 +5186,13 @@ export default function App() {
           ads={advertisements}
           currentPage={activeTab}
           isEnabled={campaignConfig.placementOptions.find((o) => o.id === 'popup-modal')?.isEnabled !== false}
+          showAdOpportunity={campaignConfig.placementOptions.find((o) => o.id === 'popup-modal')?.isEnabled === true}
           popupSettings={campaignConfig.popupSettings}
           popupAppearance={campaignConfig.popupAppearance}
           rotationSettings={campaignConfig.placementOptions.find((o) => o.id === 'popup-modal')?.rotationSettings}
           onAdClick={handleAdClick}
           onNavigateTab={setActiveTab}
+          adOpportunityDisplay={campaignConfig.adOpportunityDisplay}
         />
       )}
 
@@ -5178,9 +5201,11 @@ export default function App() {
         ads={advertisements}
         currentPage={activeTab}
         isEnabled={campaignConfig.placementOptions.find((o) => o.id === 'toast-float')?.isEnabled !== false}
+        showAdOpportunity={campaignConfig.placementOptions.find((o) => o.id === 'toast-float')?.isEnabled === true}
         rotationSettings={campaignConfig.placementOptions.find((o) => o.id === 'toast-float')?.rotationSettings}
         onAdClick={handleAdClick}
         onNavigateTab={setActiveTab}
+        adOpportunityDisplay={campaignConfig.adOpportunityDisplay}
       />
 
       {/* Slide-out Notifications / Announcements Drawer */}

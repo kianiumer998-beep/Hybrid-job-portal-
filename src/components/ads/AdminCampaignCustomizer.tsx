@@ -13,6 +13,7 @@ import {
   CampaignCustomizationConfig,
   DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
   DEFAULT_PROMO_BANNERS,
+  DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG,
   PromoDiscountBanner
 } from '../../types/ad';
 
@@ -34,6 +35,11 @@ const GRADIENT_PRESETS = [
 const buildMergedConfig = (cfg?: CampaignCustomizationConfig): CampaignCustomizationConfig => ({
   ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
   ...(cfg || {}),
+  adOpportunityDisplay: {
+    ...DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG, ...(cfg?.adOpportunityDisplay || {}),
+    jobTiers: { ...DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG.jobTiers, ...(cfg?.adOpportunityDisplay?.jobTiers || {}) },
+    adPlacements: { ...DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG.adPlacements, ...(cfg?.adOpportunityDisplay?.adPlacements || {}) }
+  },
   promoBanners: Array.isArray(cfg?.promoBanners)
     ? cfg!.promoBanners
     : [...DEFAULT_PROMO_BANNERS]
@@ -139,7 +145,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
       if (res && typeof res === 'object' && 'success' in res && res.success === false) {
         throw new Error(res.message || 'Failed to save promotional banners.');
       }
-      setSaveSuccess('Promotional discount banners saved to authoritative campaign configuration.');
+      setSaveSuccess('Your Jobs Here / Your Ad Here display rules and promotional banners saved successfully.');
     } catch (err: any) {
       setLocalConfig(previousConfig);
       setSaveError(err?.message || 'Could not save promotional banners. Reverted to previous state.');
@@ -209,6 +215,49 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
         </div>
       </div>
 
+
+      <section className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 space-y-3">
+        <div><h3 className="text-sm font-black text-white">Your Jobs Here Display Rules</h3><p className="text-[11px] text-slate-400">Choose one CTA per category or show it inside every matching paid job card.</p></div>
+        {(['vip', 'pinned', 'featured', 'urgent', 'future'] as const).map((tier) => {
+          const rule = localConfig.adOpportunityDisplay?.jobTiers?.[tier] || DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG.jobTiers[tier];
+          const updateRule = (updates: any) => setLocalConfig((prev) => ({ ...prev, adOpportunityDisplay: { ...(prev.adOpportunityDisplay || DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG), jobTiers: { ...DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG.jobTiers, ...(prev.adOpportunityDisplay?.jobTiers || {}), [tier]: { ...rule, ...updates } } } }));
+          return <div key={tier} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-center rounded-lg border border-slate-800 p-2">
+            <span className="text-xs font-bold text-slate-200 capitalize">{tier} job placement</span>
+            <select value={rule.displayMode} onChange={(e) => updateRule({ displayMode: e.target.value, showOnCategory: e.target.value === 'whole_category', showOnPlacement: e.target.value === 'placement_level', showOnEachCard: e.target.value === 'each_card' })} className="rounded-lg bg-slate-900 border border-slate-700 px-2 py-2 text-xs text-white">
+              <option value="whole_category">Once above category</option><option value="each_card">Inside every matching card</option><option value="placement_level">Once at placement</option><option value="manual">Manual selection</option>
+            </select>
+            <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={rule.enabled} onChange={(e) => updateRule({ enabled: e.target.checked })} /> Enabled</label>
+            {rule.displayMode === 'manual' && <div className="sm:col-span-3 flex flex-wrap gap-3 text-xs text-slate-300">
+              <label><input type="checkbox" checked={rule.showOnCategory} onChange={(e) => updateRule({ showOnCategory: e.target.checked })} /> Category</label>
+              <label><input type="checkbox" checked={rule.showOnPlacement} onChange={(e) => updateRule({ showOnPlacement: e.target.checked })} /> Placement</label>
+              <label><input type="checkbox" checked={rule.showOnEachCard} onChange={(e) => updateRule({ showOnEachCard: e.target.checked })} /> Each card</label>
+            </div>}
+          </div>;
+        })}
+      </section>
+      <section className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 space-y-3">
+        <div><h3 className="text-sm font-black text-white">Your Ad Here Display Rules</h3><p className="text-[11px] text-slate-400">Control the opportunity CTA independently for each paid ad placement. Disabled rules hide the CTA without disabling the paid placement itself.</p></div>
+        {([
+          ['top-header', 'Top header / banner'], ['feed-inline', 'Inline job-feed ad'], ['sidebar', 'Sidebar advertisement'],
+          ['popup-modal', 'Popup / lightbox'], ['toast-float', 'Floating toast'], ['promo-discount-banner', 'Promotional banner'],
+          ['dynamic-announcement-card', 'Announcement card']
+        ] as Array<[string, string]>).map(([placement, label]) => {
+          const rule = localConfig.adOpportunityDisplay?.adPlacements?.[placement] || { ...DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG.adPlacements[placement] };
+          const updateRule = (updates: any) => setLocalConfig((prev) => ({ ...prev, adOpportunityDisplay: { ...(prev.adOpportunityDisplay || DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG), adPlacements: { ...DEFAULT_AD_OPPORTUNITY_DISPLAY_CONFIG.adPlacements, ...(prev.adOpportunityDisplay?.adPlacements || {}), [placement]: { ...rule, ...updates } } } }));
+          return <div key={placement} className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] gap-2 items-center rounded-lg border border-slate-800 p-2">
+            <span className="text-xs font-bold text-slate-200">{label}</span>
+            <select value={rule.displayMode} onChange={(e) => updateRule({ displayMode: e.target.value, showOnCategory: e.target.value === 'whole_category', showOnPlacement: e.target.value === 'placement_level', showOnEachCard: e.target.value === 'each_card' })} className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2 py-2 text-xs text-white">
+              <option value="whole_category">Once for category</option><option value="placement_level">Once at placement</option><option value="each_card">Inside each ad card</option><option value="manual">Manual selection</option>
+            </select>
+            <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={rule.enabled} onChange={(e) => updateRule({ enabled: e.target.checked })} /> Enabled</label>
+            {rule.displayMode === 'manual' && <div className="sm:col-span-3 flex flex-wrap gap-3 text-xs text-slate-300">
+              <label><input type="checkbox" checked={rule.showOnCategory} onChange={(e) => updateRule({ showOnCategory: e.target.checked })} /> Category</label>
+              <label><input type="checkbox" checked={rule.showOnPlacement} onChange={(e) => updateRule({ showOnPlacement: e.target.checked })} /> Placement</label>
+              <label><input type="checkbox" checked={rule.showOnEachCard} onChange={(e) => updateRule({ showOnEachCard: e.target.checked })} /> Each card</label>
+            </div>}
+          </div>;
+        })}
+      </section>
       {saveError && (
         <div role="alert" className="p-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-[11px] text-rose-200 flex items-center gap-2">
           <AlertCircle className="w-4 h-4 shrink-0" />

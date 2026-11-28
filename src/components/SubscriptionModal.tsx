@@ -239,6 +239,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     setCustomFieldValues({});
 
     setIsLoadingPackages(true);
+    setPricingData(null);
     api.pricing
       .get()
       .then((res) => {

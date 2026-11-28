@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Advertisement, AdTargetPage, PopupDisplaySettings, PopupAppearanceSettings, DEFAULT_POPUP_APPEARANCE, PlacementRotationConfig, isAdCurrentlyRunning } from '../../types/ad';
+import { Advertisement, AdTargetPage, PopupDisplaySettings, PopupAppearanceSettings, DEFAULT_POPUP_APPEARANCE, PlacementRotationConfig, isAdCurrentlyRunning, AdOpportunityDisplayConfig } from '../../types/ad';
 import { getRotatedItems } from '../../utils/adRotation';
 import { X, ExternalLink, ArrowRight, ShieldCheck, CheckCircle2, Layers, ChevronRight } from 'lucide-react';
 

@@ -9,6 +9,7 @@ interface PopupAdModalProps {
   currentPage: AdTargetPage;
   popupSettings?: PopupDisplaySettings;
   isEnabled?: boolean;
+  showAdOpportunity?: boolean;
   popupAppearance?: PopupAppearanceSettings;
   rotationSettings?: PlacementRotationConfig;
   onAdClick: (ad: Advertisement) => void;
@@ -28,6 +29,7 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
   currentPage,
   popupSettings = DEFAULT_POPUP_SETTINGS,
   isEnabled = true,
+  showAdOpportunity = true,
   popupAppearance = DEFAULT_POPUP_APPEARANCE,
   rotationSettings,
   onAdClick,
@@ -35,8 +37,8 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
   adOpportunityDisplay
 }) => {
   const popupRule = adOpportunityDisplay?.adPlacements?.['popup-modal'];
-  const showPopupCategoryCta = popupRule?.enabled !== false && (popupRule?.displayMode === 'whole_category' || popupRule?.displayMode === 'placement_level' || (popupRule?.displayMode === 'manual' && (popupRule.showOnCategory || popupRule.showOnPlacement)));
-  const showPopupEachCardCta = popupRule?.enabled !== false && (popupRule?.displayMode === 'each_card' || (popupRule?.displayMode === 'manual' && popupRule.showOnEachCard));
+  const showPopupCategoryCta = showAdOpportunity && popupRule?.enabled !== false && (popupRule?.displayMode === 'whole_category' || popupRule?.displayMode === 'placement_level' || (popupRule?.displayMode === 'manual' && (popupRule.showOnCategory || popupRule.showOnPlacement)));
+  const showPopupEachCardCta = showAdOpportunity && popupRule?.enabled !== false && (popupRule?.displayMode === 'each_card' || (popupRule?.displayMode === 'manual' && popupRule.showOnEachCard));
   const showPopupCta = showPopupCategoryCta || showPopupEachCardCta;
   const opportunityAd: Advertisement = { id: 'demo-your-ad-here-popup-cta', title: 'Your Ad Here — Popup Advertisement', type: 'popup', placement: 'popup-modal', targetPages: ['all'], status: 'active', approvalStatus: 'Approved', submittedByUserId: 'system-demo', submittedByUserName: 'Platform Promotion', headline: 'Your Ad Here', bodyText: 'Feature your brand or recruitment campaign in the popup placement.', badgeText: 'Premium Popup Advertisement', ctaText: 'Explore Popup Ad Plans', ctaUrl: '', theme: 'amber', dismissable: true, impressions: 0, clicks: 0, createdAt: new Date().toISOString(), durationUnit: 'days', durationValue: 1 };
   const [isOpen, setIsOpen] = useState<boolean>(false);

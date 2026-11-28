@@ -1090,8 +1090,8 @@ export default function App() {
 
   const handleAdClick = async (ad: Advertisement) => {
     if (!ad?.id) return;
-    if (ad.id === 'demo-your-ad-here') {
-      const placement = String(ad.placement || '').toLowerCase();
+    if (ad.id.startsWith('demo-your-ad-here') || ad.id === 'promo-ad-opportunity') {
+      const placement = String(ad.placement || (ad.id === 'promo-ad-opportunity' ? 'promo-discount-banner' : '')).toLowerCase();
       const placementLabel = placement === 'top-header'
         ? 'Top Banner Advertisement'
         : placement === 'sidebar'
@@ -1102,10 +1102,13 @@ export default function App() {
               ? 'Floating Notification Advertisement'
               : placement === 'popup-modal'
                 ? 'Popup Advertisement'
-                : 'Inline Job Feed Advertisement';
+                : placement === 'dynamic-announcement-card'
+                  ? 'Announcement Card Advertisement'
+                  : 'Inline Job Feed Advertisement';
       setSelectedJobTitleForSub(placementLabel);
       setSubscriptionInitialCategory('ads_campaigns');
       setSubscriptionInitialFeatureId('campaign_credits');
+      setSubscriptionInitialPlacement(placement);
       setSubscriptionModalOpen(true);
       return;
     }
@@ -1691,6 +1694,7 @@ export default function App() {
   const [subscriptionModalOpen, setSubscriptionModalOpen] = useState<boolean>(false);
   const [subscriptionInitialCategory, setSubscriptionInitialCategory] = useState<any | undefined>(undefined);
   const [subscriptionInitialFeatureId, setSubscriptionInitialFeatureId] = useState<string | undefined>(undefined);
+  const [subscriptionInitialPlacement, setSubscriptionInitialPlacement] = useState<string | undefined>(undefined);
   const [premiumUpgradeModalOpen, setPremiumUpgradeModalOpen] = useState<boolean>(false);
   const [selectedGate, setSelectedGate] = useState<any>(null);
   const [selectedJobTitleForSub, setSelectedJobTitleForSub] = useState<string>('');
@@ -4571,6 +4575,7 @@ export default function App() {
                             setSelectedJobTitleForSub('Promotional Banner Advertisement');
                             setSubscriptionInitialCategory('ads_campaigns');
                             setSubscriptionInitialFeatureId('campaign_credits');
+                            setSubscriptionInitialPlacement('promo-discount-banner');
                             setSubscriptionModalOpen(true);
                           }}
                         />
@@ -5007,6 +5012,7 @@ export default function App() {
         initialSelectedJobTitle={selectedJobTitleForSub}
         initialCategory={subscriptionInitialCategory}
         initialFeatureId={subscriptionInitialFeatureId}
+        initialPlacement={subscriptionInitialPlacement}
         currentUser={currentUser}
         whatsappEnabledGlobal={channelAvailability.whatsapp}
         onDepositWallet={handleDepositFunds}

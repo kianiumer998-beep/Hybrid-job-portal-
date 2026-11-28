@@ -1492,14 +1492,22 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                         Pay-per-duration rates configured by Admin for custom campaigns.
                       </p>
                     </div>
-                    {onNavigateToCampaigns && (
+                    {onNavigateToCampaigns && selectedPlacementInfo?.durationOptions.length ? (
                       <button
                         type="button"
-                        onClick={() => onNavigateToCampaigns(initialPlacement, selectedCampaignDurationPresetId || selectedPlacementInfo?.durationOptions[0]?.id)}
+                        onClick={() => {
+                          const selectedIsAvailable = selectedPlacementInfo.durationOptions.some((item: any) => item.id === selectedCampaignDurationPresetId);
+                          const packageId = selectedIsAvailable ? selectedCampaignDurationPresetId : selectedPlacementInfo.durationOptions[0].id;
+                          onNavigateToCampaigns(initialPlacement, packageId);
+                        }}
                         className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-bold shrink-0 cursor-pointer"
                       >
-                        Launch Campaign →
+                        Continue with Package →
                       </button>
+                    ) : (
+                      <span className="rounded-lg border border-amber-500/30 px-3 py-1.5 text-[10px] font-bold text-amber-200 shrink-0">
+                        No Package
+                      </span>
                     )}
                   </div>
 

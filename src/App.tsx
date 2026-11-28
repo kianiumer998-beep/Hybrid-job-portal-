@@ -1091,8 +1091,15 @@ export default function App() {
   const handleAdClick = async (ad: Advertisement) => {
     if (!ad?.id) return;
     if (ad.id === 'demo-your-ad-here') {
-      const isTopBanner = String(ad.placement || '').toLowerCase() === 'top-header';
-      setSelectedJobTitleForSub(isTopBanner ? 'Top Banner Advertisement' : 'Inline Job Feed Advertisement');
+      const placement = String(ad.placement || '').toLowerCase();
+      const placementLabel = placement === 'top-header'
+        ? 'Top Banner Advertisement'
+        : placement === 'sidebar'
+          ? 'Sidebar Advertisement'
+          : placement === 'promo-discount-banner'
+            ? 'Promotional Banner Advertisement'
+            : 'Inline Job Feed Advertisement';
+      setSelectedJobTitleForSub(placementLabel);
       setSubscriptionInitialCategory('ads_campaigns');
       setSubscriptionInitialFeatureId('campaign_credits');
       setSubscriptionModalOpen(true);
@@ -4697,7 +4704,7 @@ export default function App() {
                             </div>
                             {showAsideColumn && (
                               <aside className="space-y-4">
-                                {hasSidebarAds && (
+                                {sidebarEnabled && (
                                   <RotatingSidebarAds
                                     ads={advertisements}
                                     currentPage={activeTab}

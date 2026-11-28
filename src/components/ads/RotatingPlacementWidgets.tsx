@@ -16,6 +16,7 @@ interface RotatingPaidPromoAdsProps {
   activeBanners: PromoDiscountBanner[];
   rotationSettings?: PlacementRotationConfig;
   maxConcurrentSlots?: number;
+  showAdOpportunity?: boolean;
   onPaidAdCta: (ad: Advertisement) => void;
   onPromoBannerCta: (banner: PromoDiscountBanner) => void;
 }
@@ -25,6 +26,7 @@ export const RotatingPromoBannersSection: React.FC<RotatingPaidPromoAdsProps> = 
   activeBanners,
   rotationSettings = DEFAULT_PLACEMENT_ROTATION_CONFIG,
   maxConcurrentSlots = 1,
+  showAdOpportunity = true,
   onPaidAdCta,
   onPromoBannerCta
 }) => {
@@ -57,6 +59,7 @@ export const RotatingPromoBannersSection: React.FC<RotatingPaidPromoAdsProps> = 
   );
 
   if (activeBanners.length === 0 && visiblePaidAds.length === 0) {
+    if (!showAdOpportunity) return null;
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-end">
         <button type="button" onClick={() => onPromoBannerCta({

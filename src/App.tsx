@@ -4365,6 +4365,7 @@ export default function App() {
             bannerBehavior={campaignConfig.bannerBehavior}
             rotationSettings={topHeaderCfg?.rotationSettings}
             maxConcurrentSlots={topHeaderCfg?.maxConcurrentSlots}
+            adOpportunityDisplay={campaignConfig.adOpportunityDisplay}
           />
         );
       })()}
@@ -5175,6 +5176,7 @@ export default function App() {
           rotationSettings={campaignConfig.placementOptions.find((o) => o.id === 'popup-modal')?.rotationSettings}
           onAdClick={handleAdClick}
           onNavigateTab={setActiveTab}
+          adOpportunityDisplay={campaignConfig.adOpportunityDisplay}
         />
       )}
 
@@ -5186,6 +5188,7 @@ export default function App() {
         rotationSettings={campaignConfig.placementOptions.find((o) => o.id === 'toast-float')?.rotationSettings}
         onAdClick={handleAdClick}
         onNavigateTab={setActiveTab}
+        adOpportunityDisplay={campaignConfig.adOpportunityDisplay}
       />
 
       {/* Slide-out Notifications / Announcements Drawer */}

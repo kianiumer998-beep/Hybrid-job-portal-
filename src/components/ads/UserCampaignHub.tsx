@@ -103,6 +103,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   campaignConfig = DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
   initialSubTab = 'my-campaigns',
   initialPlacement,
+  initialDurationPresetId,
   openDepositModal = false,
   onDepositModalClose,
   onDepositWallet,

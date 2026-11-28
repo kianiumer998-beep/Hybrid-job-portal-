@@ -4732,6 +4732,7 @@ export default function App() {
                             jobCardDesign={landingConfig.jobCardDesign}
                             feedRotationSettings={feedOpt?.rotationSettings}
                             homepagePrioritySlotConfig={jobPostingPricing.homepagePrioritySlotConfig}
+                            adOpportunityDisplay={campaignConfig.adOpportunityDisplay}
                             onAdClick={handleAdClick}
                             onPaidAdCta={handleAdClick}
                             onNavigateTab={setActiveTab}

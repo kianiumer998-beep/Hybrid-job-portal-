@@ -30,6 +30,7 @@ interface TopBannerAdProps {
   onNavigateTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
   autoPlayIntervalMs?: number;
   showDemoCardIfEmpty?: boolean;
+  isEnabled?: boolean;
   bannerDimensions?: BannerDimensionSettings;
   bannerAppearance?: BannerAppearanceSettings;
   bannerBehavior?: BannerBehaviorSettings;
@@ -44,6 +45,7 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   onNavigateTab,
   autoPlayIntervalMs = 6000,
   showDemoCardIfEmpty = true,
+  isEnabled = true,
   bannerDimensions = DEFAULT_BANNER_DIMENSIONS,
   bannerAppearance = DEFAULT_BANNER_APPEARANCE,
   bannerBehavior = DEFAULT_BANNER_BEHAVIOR,
@@ -76,7 +78,7 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
     bodyText: 'Place your urgent hiring campaigns, corporate hiring drives, or commercial services at the top of all pages.',
     badgeText: '👑 Advertise Here',
     ctaText: 'Post Banner Campaign',
-    ctaUrl: '#dashboard',
+    ctaUrl: '',
     theme: 'amber',
     dismissable: true,
     impressions: 0,
@@ -101,11 +103,16 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   }, [ads, currentPage, dismissedIds, rotationSettings?.enabled, rotationSettings?.sequenceMode]);
 
   // If no matching banners and showDemoCard is true, show the demo ad
-  const activeBannerList = useMemo(() => (
-    matchingBanners.length > 0
-      ? matchingBanners
-      : (showDemoCardIfEmpty && !dismissedIds.includes('demo-your-ad-here') ? [demoBannerAd] : [])
-  ), [matchingBanners, showDemoCardIfEmpty, dismissedIds, demoBannerAd]);
+  const activeBannerList = useMemo(() => {
+    const configuredSlots = Math.max(1, Math.min(4, Math.floor(Number(maxConcurrentSlots) || 1)));
+    const canShowPlaceholder = showDemoCardIfEmpty && !dismissedIds.includes('demo-your-ad-here');
+    if (matchingBanners.length > 0) {
+      return canShowPlaceholder && matchingBanners.length < configuredSlots
+        ? [...matchingBanners, demoBannerAd]
+        : matchingBanners;
+    }
+    return canShowPlaceholder ? [demoBannerAd] : [];
+  }, [matchingBanners, showDemoCardIfEmpty, dismissedIds, demoBannerAd, maxConcurrentSlots]);
 
   const activeCount = activeBannerList.length;
   const slotsLimit = Math.max(1, Math.min(4, Math.floor(Number(maxConcurrentSlots) || 1)));
@@ -134,7 +141,7 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
     return () => clearInterval(timer);
   }, [activeCount, visibleSlotsCount, stepSize, isPaused, isAutoRotate, isPauseOnHover, effectiveInterval]);
 
-  if (visibleBanners.length === 0) return null;
+  if (!isEnabled || visibleBanners.length === 0) return null;
 
   const handleDismiss = (e: React.MouseEvent, bannerId: string) => {
     e.stopPropagation();
@@ -152,6 +159,11 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   };
 
   const handleAction = (banner: Advertisement) => {
+    // The empty-slot promotion is a purchase entry point, not a demo navigation.
+    if (banner.id === 'demo-your-ad-here') {
+      onAdClick(banner);
+      return;
+    }
     onAdClick(banner);
 
     if (banner.ctaUrl) {
@@ -253,6 +265,21 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
         const style = themeClasses[activeBanner.theme] || themeClasses.indigo;
         const isDemo = activeBanner.id === 'demo-your-ad-here';
 
+        if (isDemo) {
+          return (
+            <div key={`${activeBanner.id}-${slotIdx}`} className="max-w-7xl mx-auto w-full px-3 sm:px-6 flex justify-end py-1.5">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); handleAction(activeBanner); }}
+                className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-amber-400/10 px-2.5 py-1 text-[10px] font-black tracking-wide text-amber-200 shadow-[0_0_12px_rgba(251,191,36,0.12)] transition-all hover:border-amber-300 hover:bg-amber-400/20 hover:shadow-[0_0_18px_rgba(251,191,36,0.22)]"
+                aria-label="Advertise in the top banner placement"
+              >
+                <Crown className="h-3 w-3" /> Your Ad Here <span className="text-[9px] font-semibold text-amber-300/70">· Top Banner</span> <ArrowRight className="h-3 w-3" />
+              </button>
+            </div>
+          );
+        }
+
         return (
           <div
             key={`${activeBanner.id}-${slotIdx}`}
@@ -299,7 +326,7 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
                     )}
                     {bannerAppearance?.showBadge !== false && isDemo && (
                       <span className="text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                        Demo Card
+                        Your Ad Here
                       </span>
                     )}
                     <h4 className="text-xs sm:text-sm font-bold text-white group-hover:text-amber-300 transition-colors truncate">

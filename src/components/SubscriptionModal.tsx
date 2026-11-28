@@ -25,7 +25,6 @@ import {
 } from 'lucide-react';
 import { Subscriber, UserAccount } from '../types/job';
 import { PublicPaymentMethodConfig, PublicPaymentSettings } from '../types/adminPayment';
-import { DEFAULT_PLACEMENT_OPTIONS } from '../types/ad';
 import { api } from '../services/api';
 import { WalletDepositModal, AttachedDepositPlan } from './ads/WalletDepositModal';
 
@@ -36,6 +35,7 @@ interface SubscriptionModalProps {
   initialSelectedJobTitle?: string;
   initialCategory?: CommercialCategoryId;
   initialFeatureId?: string;
+  initialPlacement?: string;
   currentUser?: UserAccount | null;
   whatsappEnabledGlobal?: boolean;
   onDepositWallet?: (depositData: {
@@ -50,7 +50,7 @@ interface SubscriptionModalProps {
     requestedPlanId?: string;
   }) => Promise<{ success: boolean; transaction?: any; message?: string } | boolean | void> | void;
   onWalletPurchaseSuccess?: () => Promise<void> | void;
-  onNavigateToCampaigns?: () => void;
+  onNavigateToCampaigns?: (placement?: string, durationPresetId?: string) => void;
   onNavigateToPostJob?: () => void;
   onNavigateToCv?: () => void;
 }
@@ -163,6 +163,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   initialSelectedJobTitle,
   initialCategory,
   initialFeatureId,
+  initialPlacement,
   currentUser,
   whatsappEnabledGlobal = false,
   onDepositWallet,
@@ -173,11 +174,12 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
 }) => {
   const [stage, setStage] = useState<ModalStage>(initialCategory ? 'plans' : 'categories');
   const [selectedCategory, setSelectedCategory] = useState<CommercialCategoryId>(initialCategory || 'mega_packages');
-  const [adSubOption, setAdSubOption] = useState<AdSubOption>('all');
+  const [adSubOption, setAdSubOption] = useState<AdSubOption>(initialPlacement ? (AD_PLACEMENT_GROUP_MAP[initialPlacement] || 'all') : 'all');
   const [alertSubOption, setAlertSubOption] = useState<AlertSubOption>(
     initialFeatureId === 'whatsapp_alerts' ? 'whatsapp' : initialFeatureId === 'sms_alerts' ? 'sms' : initialFeatureId === 'email_alerts' ? 'email' : initialFeatureId === 'early_access' ? 'early_access' : 'all'
   );
   const [confirmWalletPay, setConfirmWalletPay] = useState(false);
+  const [selectedCampaignDurationPresetId, setSelectedCampaignDurationPresetId] = useState<string | undefined>(undefined);
   const [walletActivationSummary, setWalletActivationSummary] = useState<{
     planName: string;
     amountPaid: number;
@@ -216,7 +218,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     if (!isOpen) return;
     setStage(initialCategory ? 'plans' : 'categories');
     setSelectedCategory(initialCategory || 'mega_packages');
-    setAdSubOption('all');
+    setAdSubOption(initialPlacement ? (AD_PLACEMENT_GROUP_MAP[initialPlacement] || 'all') : 'all');
     setAlertSubOption(
       initialFeatureId === 'whatsapp_alerts' ? 'whatsapp' : initialFeatureId === 'sms_alerts' ? 'sms' : initialFeatureId === 'email_alerts' ? 'email' : initialFeatureId === 'early_access' ? 'early_access' : 'all'
     );
@@ -236,6 +238,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     setCustomFieldValues({});
 
     setIsLoadingPackages(true);
+    setPricingData(null);
     api.pricing
       .get()
       .then((res) => {
@@ -278,9 +281,11 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
           if (availablePackages.length > 0) {
             let targetPkg = availablePackages[0];
             if (initialFeatureId) {
-              const found = availablePackages.find((p: any) =>
-                Array.isArray(p.featureIds) && p.featureIds.includes(initialFeatureId)
-              );
+              const found = availablePackages.find((p: any) => {
+                const featureIds = Array.isArray(p.featureIds) ? p.featureIds.map(String) : [];
+                return featureIds.includes(initialFeatureId) ||
+                  (initialFeatureId === 'premium_job_posting' && featureIds.includes('candidate_premium_membership'));
+              });
               if (found) targetPkg = found;
             } else if (initialCategory) {
               const foundCat = availablePackages.find((p: any) => {
@@ -305,7 +310,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
         }
       })
       .catch(() => {});
-  }, [isOpen, currentUser?.id, currentUser?.name, currentUser?.email, currentUser?.phone]);
+  }, [isOpen, currentUser?.id, currentUser?.name, currentUser?.email, currentUser?.phone, initialPlacement]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -375,26 +380,42 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   }, [packagesWithCategories]);
 
   const enabledAdPlacements = useMemo(() => {
+    // Show only placements and duration packages explicitly enabled in admin settings.
     const savedOptions = pricingData?.campaignCustomizationConfig?.placementOptions;
-    const baseOptions = Array.isArray(savedOptions) && savedOptions.length > 0 ? savedOptions : DEFAULT_PLACEMENT_OPTIONS;
-    const baseHourly = Number(pricingData?.adPricingConfig?.baseHourlyRatePkr ?? 150);
-    const multipliers = pricingData?.adPricingConfig?.placementMultipliers || {};
+    const baseOptions = Array.isArray(savedOptions) ? savedOptions : [];
+    const durationPresets = Array.isArray(pricingData?.campaignCustomizationConfig?.durationPresets)
+      ? pricingData.campaignCustomizationConfig.durationPresets
+      : [];
 
     return baseOptions
-      .filter((opt: any) => opt && opt.isEnabled !== false)
+      .filter((opt: any) => opt && opt.isEnabled === true)
       .map((opt: any) => {
-        const mult = Number(multipliers[opt.id] ?? opt.multiplier ?? 1);
-        const dailyEstimate = Math.max(0, Math.round(baseHourly * 24 * mult));
+        const allowedIds = Array.isArray(opt.allowedDurationIds) ? opt.allowedDurationIds : null;
+        const durationOptions = durationPresets
+          .filter((preset: any) =>
+            preset &&
+            preset.isEnabled === true &&
+            (!allowedIds || allowedIds.includes(preset.id))
+          )
+          .map((preset: any) => ({
+            id: String(preset.id),
+            label: String(preset.label || preset.id),
+            subLabel: String(preset.subLabel || ''),
+            badge: String(preset.badge || ''),
+            unit: String(preset.unit),
+            value: Number(preset.value || 1)
+          }));
+
         return {
           id: String(opt.id),
           name: String(opt.name || opt.id),
           description: String(opt.description || ''),
+          badge: String(opt.badge || ''),
           group: AD_PLACEMENT_GROUP_MAP[String(opt.id)] || 'advertisements',
-          dailyEstimatePkr: dailyEstimate
+          durationOptions
         };
       });
   }, [pricingData]);
-
   const enabledJobTiers = useMemo(() => {
     const jp = pricingData?.jobPosting;
     if (!jp) return [];
@@ -464,6 +485,14 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     }
     return list;
   }, [packagesWithCategories, selectedCategory, adSubOption, alertSubOption]);
+
+  const selectedPlacementInfo = useMemo(
+    () => enabledAdPlacements.find((placement) => placement.id === initialPlacement) || null,
+    [enabledAdPlacements, initialPlacement]
+  );
+  useEffect(() => {
+    setSelectedCampaignDurationPresetId(undefined);
+  }, [initialPlacement, isOpen]);
 
   const filteredPlacementsForAdSubOption = useMemo(() => {
     if (adSubOption === 'all') return enabledAdPlacements;
@@ -858,14 +887,14 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     { title: string; subtitle: string; icon: React.ReactNode; accent: string }
   > = {
     ads_campaigns: {
-      title: 'Ads, Banners & Campaigns',
-      subtitle: 'Campaign Ads · Banners · Advertisements',
+      title: 'Premium Ads, Banners & Campaigns',
+      subtitle: 'Premium Ad Placements · Campaigns · Banners · Advertisements',
       icon: <Megaphone className="w-4 h-4 text-amber-400" />,
       accent: 'border-amber-500/30 hover:border-amber-400'
     },
     job_posting: {
       title: 'Job Posting Plans',
-      subtitle: 'Standard, Urgent, Featured, Pinned & VIP',
+      subtitle: 'Premium Membership · Standard, Urgent, Featured, Pinned & VIP',
       icon: <Briefcase className="w-4 h-4 text-sky-400" />,
       accent: 'border-sky-500/30 hover:border-sky-400'
     },
@@ -1440,16 +1469,72 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                         Pay-per-duration rates configured by Admin for custom campaigns.
                       </p>
                     </div>
-                    {onNavigateToCampaigns && (
+                    {onNavigateToCampaigns && selectedPlacementInfo?.durationOptions.length ? (
                       <button
                         type="button"
-                        onClick={onNavigateToCampaigns}
+                        onClick={() => {
+                          const selectedIsAvailable = selectedPlacementInfo.durationOptions.some((item: any) => item.id === selectedCampaignDurationPresetId);
+                          const packageId = selectedIsAvailable ? selectedCampaignDurationPresetId : selectedPlacementInfo.durationOptions[0].id;
+                          onNavigateToCampaigns(initialPlacement, packageId);
+                        }}
                         className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-bold shrink-0 cursor-pointer"
                       >
-                        Launch Campaign →
+                        Continue with Package →
                       </button>
+                    ) : (
+                      <span className="rounded-lg border border-amber-500/30 px-3 py-1.5 text-[10px] font-bold text-amber-200 shrink-0">
+                        No Package
+                      </span>
                     )}
                   </div>
+
+                  {selectedPlacementInfo && (
+                    <div className="mb-3 rounded-xl border border-amber-400/40 bg-amber-400/10 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-black uppercase tracking-wide text-amber-300">Selected Ad Placement</div>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <span className="text-xs font-bold text-white">{selectedPlacementInfo.name}</span>
+                            {selectedPlacementInfo.badge && (
+                              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-bold text-amber-200">{selectedPlacementInfo.badge}</span>
+                            )}
+                          </div>
+                          {selectedPlacementInfo.description && (
+                            <p className="mt-1 text-[10px] leading-snug text-slate-300">{selectedPlacementInfo.description}</p>
+                          )}
+                          <p className="mt-1.5 text-[10px] text-slate-300">Only packages enabled by the administrator are listed. The final amount is calculated in campaign setup using the selected package, placement and target pages.</p>
+                        </div>
+                      </div>
+                      {selectedPlacementInfo.durationOptions.length > 0 ? (
+                        <div className="mt-3 space-y-1.5">
+                          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Admin-enabled packages</div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            {selectedPlacementInfo.durationOptions.map((duration: any) => (
+                              <button
+                                type="button"
+                                key={duration.id}
+                                onClick={() => setSelectedCampaignDurationPresetId(duration.id)}
+                                className={`flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition ${selectedCampaignDurationPresetId === duration.id ? 'border-emerald-400/70 bg-emerald-500/10' : 'border-transparent bg-slate-950/70 hover:border-slate-700'}`}
+                              >
+                                <span className="min-w-0">
+                                  <span className="block text-[10px] text-slate-300">{duration.label}</span>
+                                  {duration.subLabel && <span className="block text-[9px] text-slate-500">{duration.subLabel}</span>}
+                                  {duration.badge && <span className="mt-0.5 inline-block rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[8px] font-bold text-emerald-300">{duration.badge}</span>}
+                                </span>
+                                <span className="shrink-0 text-right">
+                                  <span className="block text-[10px] font-bold text-emerald-300">{selectedCampaignDurationPresetId === duration.id ? 'Selected' : 'Select package'}</span>
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[10px] text-amber-200">
+                          No package is currently configured for this ad placement. Please check back later.
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   <div className="divide-y divide-slate-800/80">
                     {filteredPlacementsForAdSubOption.map((pl) => (
@@ -1460,8 +1545,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                             <div className="text-[10px] text-slate-400 truncate">{pl.description}</div>
                           )}
                         </div>
-                        <span className="font-mono font-bold text-emerald-400 text-[11px] tabular-nums shrink-0">
-                          ~PKR {pl.dailyEstimatePkr.toLocaleString()}/day
+                        <span className="font-mono font-bold text-emerald-400 text-[10px] tabular-nums shrink-0 text-right">
+                          {pl.durationOptions.length ? `${pl.durationOptions.length} admin package${pl.durationOptions.length === 1 ? '' : 's'}` : 'No package configured'}
                         </span>
                       </div>
                     ))}

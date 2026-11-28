@@ -69,6 +69,8 @@ interface UserCampaignHubProps {
   pricingConfig?: AdPricingConfig;
   campaignConfig?: CampaignCustomizationConfig;
   initialSubTab?: 'my-campaigns' | 'create' | 'wallet';
+  initialPlacement?: AdPlacement;
+  initialDurationPresetId?: string;
   openDepositModal?: boolean;
   onDepositModalClose?: () => void;
   onDepositWallet: (depositData: {
@@ -100,6 +102,8 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   pricingConfig = DEFAULT_AD_PRICING_CONFIG,
   campaignConfig = DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
   initialSubTab = 'my-campaigns',
+  initialPlacement,
+  initialDurationPresetId,
   openDepositModal = false,
   onDepositModalClose,
   onDepositWallet,
@@ -152,10 +156,20 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   const [formTitle, setFormTitle] = useState<string>('');
   const [formType, setFormType] = useState<AdType>('banner');
   const [formPlacement, setFormPlacement] = useState<AdPlacement>('top-header');
+  useEffect(() => {
+    if (!initialPlacement) return;
+    const enabledPlacement = campaignConfig.placementOptions.find((option) => option.id === initialPlacement && option.isEnabled);
+    if (enabledPlacement) setFormPlacement(initialPlacement);
+  }, [initialPlacement, campaignConfig.placementOptions]);
   const [formTargetPages, setFormTargetPages] = useState<AdTargetPage[]>(['alerts']);
   
   // Duration State
   const [selectedDurationId, setSelectedDurationId] = useState<string>('fullday-24h');
+  useEffect(() => {
+    if (!initialDurationPresetId) return;
+    const preset = campaignConfig.durationPresets.find((item) => item.id === initialDurationPresetId && item.isEnabled);
+    if (preset) setSelectedDurationId(preset.id);
+  }, [initialDurationPresetId, campaignConfig.durationPresets]);
   const [customDurationUnit, setCustomDurationUnit] = useState<AdDurationUnit>('days');
   const [customDurationValue, setCustomDurationValue] = useState<number>(1);
   
@@ -453,6 +467,17 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   const nextOpenDate = getNextAvailableDateForPlacement(adsPool, formPlacement);
   const isRunningNow = adsPool.some(a => a.placement === formPlacement && isAdCurrentlyRunning(a));
   const selectedPlacementOpt = campaignConfig.placementOptions.find(p => p.id === formPlacement);
+  const availableDurationPresets = campaignConfig.durationPresets.filter((preset) =>
+    preset.isEnabled === true &&
+    (selectedPlacementOpt?.allowedDurationIds === undefined || selectedPlacementOpt.allowedDurationIds.includes(preset.id))
+  );
+  const hasAvailableDuration = availableDurationPresets.length > 0 || campaignConfig.formRules.allowCustomDateRange === true;
+
+  useEffect(() => {
+    if (selectedDurationId === 'custom' && campaignConfig.formRules.allowCustomDateRange) return;
+    if (availableDurationPresets.some((preset) => preset.id === selectedDurationId)) return;
+    setSelectedDurationId(availableDurationPresets[0]?.id || (campaignConfig.formRules.allowCustomDateRange ? 'custom' : ''));
+  }, [formPlacement, selectedDurationId, campaignConfig.formRules.allowCustomDateRange, campaignConfig.durationPresets]);
   const isPlacementFree = !!selectedPlacementOpt?.isFreeOverride;
   const placementSlotLimit = Number(selectedPlacementOpt?.maxConcurrentSlots || 0);
   const hasPlacementSlotLimit = Number.isInteger(placementSlotLimit) && placementSlotLimit > 0;
@@ -489,7 +514,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
               Promote Your Jobs, Academy & Services
             </h2>
             <p className="text-[11px] sm:text-sm text-slate-400 max-w-2xl leading-relaxed">
-              Launch targeted banners, job feed cards, modal lightboxes, and SMS text message broadcasts across the portal. Admin-approved with transparent hourly, daily, weekly, or monthly rate cards.
+              Launch targeted banners, job feed cards, modal lightboxes, and SMS text message broadcasts using only the packages and settings enabled by the administrator.
             </p>
           </div>
 
@@ -1023,7 +1048,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                   >
                     {campaignConfig.placementOptions.filter(p => p.isEnabled).map((opt) => (
                       <option key={opt.id} value={opt.id}>
-                        {opt.name} ({opt.multiplier}x Multiplier) - {opt.description}
+                        {opt.name}{opt.description ? ` — ${opt.description}` : ''}
                       </option>
                     ))}
                     {campaignConfig.placementOptions.filter(p => p.isEnabled).length === 0 && (
@@ -1206,81 +1231,87 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                   </span>
                 </label>
 
-                {/* Preset Duration Buttons from Admin Config */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-                  {campaignConfig.durationPresets.filter(d => d.isEnabled).map((dur) => {
-                    const isChosen = selectedDurationId === dur.id;
-                    return (
-                      <button
-                        key={dur.id}
-                        type="button"
-                        onClick={() => setSelectedDurationId(dur.id)}
-                        className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer relative ${
-                          isChosen
-                            ? 'bg-gradient-to-r from-emerald-500 to-teal-600 border-emerald-400 text-slate-950 font-black shadow-md shadow-emerald-500/20'
-                            : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
-                        }`}
-                      >
-                        {dur.badge && (
-                          <span className={`absolute -top-2 right-2 text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-tighter ${
-                            isChosen ? 'bg-slate-950 text-emerald-300' : 'bg-emerald-500 text-slate-950'
-                          }`}>
-                            {dur.badge}
-                          </span>
-                        )}
-                        <div className="text-xs font-bold">{dur.label}</div>
-                        <div className={`text-[10px] ${isChosen ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
-                          {dur.subLabel || `${dur.value} ${dur.unit}`}
+                {/* Only administrator-enabled presets for this placement are selectable. */}
+                {availableDurationPresets.length > 0 || campaignConfig.formRules.allowCustomDateRange ? (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                      {availableDurationPresets.map((dur) => {
+                        const isChosen = selectedDurationId === dur.id;
+                        return (
+                          <button
+                            key={dur.id}
+                            type="button"
+                            onClick={() => setSelectedDurationId(dur.id)}
+                            className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer relative ${
+                              isChosen
+                                ? 'bg-gradient-to-r from-emerald-500 to-teal-600 border-emerald-400 text-slate-950 font-black shadow-md shadow-emerald-500/20'
+                                : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                            }`}
+                          >
+                            {dur.badge && (
+                              <span className={`absolute -top-2 right-2 text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-tighter ${
+                                isChosen ? 'bg-slate-950 text-emerald-300' : 'bg-emerald-500 text-slate-950'
+                              }`}>
+                                {dur.badge}
+                              </span>
+                            )}
+                            <div className="text-xs font-bold">{dur.label}</div>
+                            <div className={`text-[10px] ${isChosen ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
+                              {dur.subLabel || `${dur.value} ${dur.unit}`}
+                            </div>
+                          </button>
+                        );
+                      })}
+                      {campaignConfig.formRules.allowCustomDateRange && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDurationId('custom')}
+                          className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                            selectedDurationId === 'custom'
+                              ? 'bg-gradient-to-r from-emerald-500 to-teal-600 border-emerald-400 text-slate-950 font-black shadow-md'
+                              : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                          }`}
+                        >
+                          <div className="text-xs font-bold">Custom Duration</div>
+                          <div className={`text-[10px] ${selectedDurationId === 'custom' ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
+                            Admin-allowed custom period
+                          </div>
+                        </button>
+                      )}
+                    </div>
+                    {campaignConfig.formRules.allowCustomDateRange && selectedDurationId === 'custom' && (
+                      <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
+                        <div>
+                          <label className="text-[11px] text-slate-400 font-bold">Duration Value</label>
+                          <input
+                            type="number"
+                            min="1"
+                            max={campaignConfig.formRules.maxCampaignDays || 365}
+                            value={customDurationValue}
+                            onChange={(e) => setCustomDurationValue(Math.max(1, parseInt(e.target.value) || 1))}
+                            className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white"
+                          />
                         </div>
-                      </button>
-                    );
-                  })}
-
-                  {/* Custom option */}
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDurationId('custom')}
-                    className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
-                      selectedDurationId === 'custom'
-                        ? 'bg-gradient-to-r from-emerald-500 to-teal-600 border-emerald-400 text-slate-950 font-black shadow-md'
-                        : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
-                    }`}
-                  >
-                    <div className="text-xs font-bold">Custom Duration</div>
-                    <div className={`text-[10px] ${selectedDurationId === 'custom' ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
-                      Configurable
-                    </div>
-                  </button>
-                </div>
-
-                {/* Custom duration inputs if selected */}
-                {selectedDurationId === 'custom' && (
-                  <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
-                    <div>
-                      <label className="text-[11px] text-slate-400 font-bold">Duration Value</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max={campaignConfig.formRules.maxCampaignDays || 365}
-                        value={customDurationValue}
-                        onChange={(e) => setCustomDurationValue(Math.max(1, parseInt(e.target.value) || 1))}
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[11px] text-slate-400 font-bold">Time Unit</label>
-                      <select
-                        value={customDurationUnit}
-                        onChange={(e) => setCustomDurationUnit(e.target.value as AdDurationUnit)}
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white"
-                      >
-                        <option value="hours">Hours (Flash)</option>
-                        <option value="days">Days (24h blocks)</option>
-                        <option value="weeks">Weeks (7-day cycles)</option>
-                        <option value="months">Months (30-day blocks)</option>
-                      </select>
-                    </div>
-                  </div>
+                        <div>
+                          <label className="text-[11px] text-slate-400 font-bold">Time Unit</label>
+                          <select
+                            value={customDurationUnit}
+                            onChange={(e) => setCustomDurationUnit(e.target.value as AdDurationUnit)}
+                            className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white"
+                          >
+                            <option value="hours">Hours</option>
+                            <option value="days">Days</option>
+                            <option value="weeks">Weeks</option>
+                            <option value="months">Months</option>
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-xs text-amber-200">
+                    No package is currently enabled for this placement. Please contact the administrator or check back later.
+                  </p>
                 )}
               </div>
 
@@ -1442,7 +1473,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
 
                 <button
                   type="submit"
-                  disabled={isSubmittingCampaign || isAtCapacity || !selectedPlacementOpt?.isEnabled || (!isWalletSufficient && !(useSubscriptionCredit && hasMatchingCampaignCredit))}
+                  disabled={isSubmittingCampaign || isAtCapacity || !selectedPlacementOpt?.isEnabled || !hasAvailableDuration || (!isWalletSufficient && !(useSubscriptionCredit && hasMatchingCampaignCredit))}
                   className={`w-full py-3.5 rounded-2xl font-black text-sm shadow-xl flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${
                     (isWalletSufficient || (useSubscriptionCredit && hasMatchingCampaignCredit))
                       ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/20'
@@ -1550,69 +1581,20 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                 <div>
                   <h3 className="text-base font-black text-white flex items-center space-x-2">
                     <Receipt className="w-5 h-5 text-emerald-400" />
-                    <span>Official Portal Advertising Rate Card</span>
+                    <span>Campaign Package Information</span>
                   </h3>
                   <p className="text-xs text-slate-400">
-                    Transparent, admin-configured baseline pricing matrix for all placements and timeframes.
+                    Package details and prices are shown only when configured and enabled by the administrator.
                   </p>
                 </div>
               </div>
 
-              {/* Timeframe Baseline Pricing Table */}
-              <div className="space-y-2">
-                <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">1. Timeframe Rates</h4>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl text-center">
-                    <div className="text-[11px] text-slate-400 font-semibold">Hourly Rate</div>
-                    <div className="text-base font-black text-white mt-1">PKR {pricingConfig.hourlyRatePkr.toLocaleString()}</div>
-                    <div className="text-[10px] text-slate-500">Per hour</div>
-                  </div>
-
-                  <div className="bg-slate-950 border border-emerald-500/30 p-3.5 rounded-2xl text-center">
-                    <div className="text-[11px] text-emerald-400 font-semibold">24 Hours / 1 Day</div>
-                    <div className="text-base font-black text-emerald-400 mt-1">PKR {pricingConfig.dailyRatePkr.toLocaleString()}</div>
-                    <div className="text-[10px] text-slate-500">Save 58% vs hourly</div>
-                  </div>
-
-                  <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl text-center">
-                    <div className="text-[11px] text-indigo-400 font-semibold">1 Week (7 Days)</div>
-                    <div className="text-base font-black text-indigo-300 mt-1">PKR {pricingConfig.weeklyRatePkr.toLocaleString()}</div>
-                    <div className="text-[10px] text-slate-500">Popular for hiring</div>
-                  </div>
-
-                  <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl text-center">
-                    <div className="text-[11px] text-amber-400 font-semibold">1 Month (30 Days)</div>
-                    <div className="text-base font-black text-amber-300 mt-1">PKR {pricingConfig.monthlyRatePkr.toLocaleString()}</div>
-                    <div className="text-[10px] text-slate-500">Maximum exposure</div>
-                  </div>
-                </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-xs leading-relaxed text-slate-300">
+                  Package availability, duration and pricing are controlled by the administrator. Only enabled packages for the selected placement are available in the campaign form.
+                </p>
               </div>
 
-              {/* Placement Multipliers Table */}
-              <div className="space-y-2 pt-2">
-                <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">2. Placement Multipliers</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                  {Object.entries(pricingConfig.placementMultipliers).map(([placementKey, multiplier]) => (
-                    <div key={placementKey} className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between">
-                      <span className="text-slate-300">{getPlacementDisplayName(placementKey as AdPlacement)}</span>
-                      <span className="px-2 py-0.5 rounded bg-slate-800 text-emerald-400 font-mono font-bold">{multiplier}x</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Page Distribution Multipliers */}
-              <div className="space-y-2 pt-2">
-                <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">3. Page Multipliers</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-                  {Object.entries(pricingConfig.pageMultipliers).map(([pageKey, multiplier]) => (
-                    <div key={pageKey} className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between">
-                      <span className="text-slate-300">{getPageDisplayName(pageKey as AdTargetPage)}</span>
-                      <span className="text-indigo-300 font-mono font-bold">{multiplier}x</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
 
             </div>
           </div>

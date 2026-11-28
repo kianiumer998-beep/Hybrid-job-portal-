@@ -16,6 +16,7 @@ interface RotatingPaidPromoAdsProps {
   activeBanners: PromoDiscountBanner[];
   rotationSettings?: PlacementRotationConfig;
   maxConcurrentSlots?: number;
+  showAdOpportunity?: boolean;
   onPaidAdCta: (ad: Advertisement) => void;
   onPromoBannerCta: (banner: PromoDiscountBanner) => void;
 }
@@ -25,6 +26,7 @@ export const RotatingPromoBannersSection: React.FC<RotatingPaidPromoAdsProps> = 
   activeBanners,
   rotationSettings = DEFAULT_PLACEMENT_ROTATION_CONFIG,
   maxConcurrentSlots = 1,
+  showAdOpportunity = true,
   onPaidAdCta,
   onPromoBannerCta
 }) => {
@@ -56,7 +58,24 @@ export const RotatingPromoBannersSection: React.FC<RotatingPaidPromoAdsProps> = 
     [orderedPaidAds, currentIndex, visibleCount]
   );
 
-  if (activeBanners.length === 0 && visiblePaidAds.length === 0) return null;
+  const promoSlotLimit = Math.max(1, Math.min(10, Number(maxConcurrentSlots) || 1));
+  const hasAvailablePromoAdSlot = visiblePaidAds.length < promoSlotLimit;
+
+  if (activeBanners.length === 0 && visiblePaidAds.length === 0) {
+    if (!showAdOpportunity) return null;
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-end">
+        <button type="button" onClick={() => onPromoBannerCta({
+          id: 'promo-ad-opportunity', title: 'Your Ad Here — Promotional Banner',
+          description: 'Promote your campaign in the promotional banner placement.',
+          discountPercent: 0, ctaText: 'Choose Ad Package'
+        } as PromoDiscountBanner)}
+          className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-amber-400/10 px-2.5 py-1 text-[10px] font-black tracking-wide text-amber-200 shadow-[0_0_12px_rgba(251,191,36,0.12)] transition-all hover:border-amber-300 hover:bg-amber-400/20 hover:shadow-[0_0_18px_rgba(251,191,36,0.22)]">
+          <Sparkles className="h-3 w-3" /> Your Ad Here <ArrowRight className="h-3 w-3" />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -64,6 +83,23 @@ export const RotatingPromoBannersSection: React.FC<RotatingPaidPromoAdsProps> = 
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
+      {showAdOpportunity && hasAvailablePromoAdSlot && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => onPromoBannerCta({
+              id: 'promo-ad-opportunity',
+              title: 'Your Ad Here — Promotional Banner',
+              description: 'Promote your campaign in the promotional banner placement.',
+              discountPercent: 0,
+              ctaText: 'Choose Ad Package'
+            } as PromoDiscountBanner)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-amber-400/10 px-2.5 py-1 text-[10px] font-black tracking-wide text-amber-200 shadow-[0_0_12px_rgba(251,191,36,0.12)] transition-all hover:border-amber-300 hover:bg-amber-400/20"
+          >
+            <Sparkles className="h-3 w-3" /> Your Ad Here <ArrowRight className="h-3 w-3" />
+          </button>
+        </div>
+      )}
       {activeBanners.map((banner) => (
         <div
           key={banner.id}
@@ -176,6 +212,7 @@ interface RotatingAnnouncementCardsSectionProps {
   showPromoMobile: boolean;
   rotationSettings?: PlacementRotationConfig;
   maxConcurrentSlots?: number;
+  showAdOpportunity?: boolean;
   onPaidAdCta: (ad: Advertisement) => void;
   onAdDestination: (url: string) => void;
 }
@@ -188,6 +225,7 @@ export const RotatingAnnouncementCardsSection: React.FC<RotatingAnnouncementCard
   showPromoMobile,
   rotationSettings = DEFAULT_PLACEMENT_ROTATION_CONFIG,
   maxConcurrentSlots = 2,
+  showAdOpportunity = true,
   onPaidAdCta,
   onAdDestination
 }) => {
@@ -221,8 +259,9 @@ export const RotatingAnnouncementCardsSection: React.FC<RotatingAnnouncementCard
 
   const effectiveShowPromoDesktop =
     showPromoDesktop && (activeCards.length + visiblePaidAds.length) % 2 === 1 && Boolean(activePromo);
+  const hasAvailableAnnouncementSlot = visiblePaidAds.length < Math.max(1, Math.min(10, Number(maxConcurrentSlots) || 2));
 
-  if (activeCards.length === 0 && visiblePaidAds.length === 0 && !showPromoMobile && !effectiveShowPromoDesktop) {
+  if (activeCards.length === 0 && visiblePaidAds.length === 0 && !showPromoMobile && !effectiveShowPromoDesktop && !showAdOpportunity) {
     return null;
   }
 
@@ -232,6 +271,39 @@ export const RotatingAnnouncementCardsSection: React.FC<RotatingAnnouncementCard
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
+      {showAdOpportunity && hasAvailableAnnouncementSlot && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => onPaidAdCta({
+              id: 'demo-your-ad-here-announcement',
+              title: 'Your Ad Here — Announcement Card',
+              type: 'banner',
+              placement: 'dynamic-announcement-card',
+              targetPages: ['jobs'],
+              status: 'active',
+              approvalStatus: 'Approved',
+              submittedByUserId: 'system-demo',
+              submittedByUserName: 'Platform Promotion',
+              headline: 'Your Ad Here',
+              bodyText: 'Promote your company or campaign in a featured announcement card.',
+              badgeText: 'Advertise Here',
+              ctaText: 'Explore Ad Plans',
+              ctaUrl: '',
+              theme: 'amber',
+              dismissable: false,
+              impressions: 0,
+              clicks: 0,
+              createdAt: new Date().toISOString(),
+              durationUnit: 'days',
+              durationValue: 1
+            } as Advertisement)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-amber-400/10 px-2.5 py-1 text-[10px] font-black tracking-wide text-amber-200 shadow-[0_0_12px_rgba(251,191,36,0.12)] transition-all hover:border-amber-300 hover:bg-amber-400/20"
+          >
+            <Sparkles className="h-3 w-3" /> Your Ad Here <ArrowRight className="h-3 w-3" />
+          </button>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-3 items-stretch">
         {activeCards.map((card, index) => (
           <div
@@ -389,7 +461,8 @@ export const RotatingSidebarAds: React.FC<RotatingSidebarAdsProps> = ({
   }, [ads, currentPage, isEnabled, rotationSettings?.enabled, rotationSettings?.sequenceMode]);
 
   const total = orderedAds.length;
-  const visibleCount = total > 0 ? Math.min(total, Math.max(1, Math.min(6, Number(maxConcurrentSlots) || 1))) : 0;
+  const sidebarSlotLimit = Math.max(1, Math.min(6, Number(maxConcurrentSlots) || 1));
+  const visibleCount = total > 0 ? Math.min(total, sidebarSlotLimit) : 0;
   const stepSize = getNextStepSize(total, visibleCount);
   const isAutoRotate = rotationSettings?.enabled !== false && rotationSettings?.autoRotateTimed !== false;
   const intervalMs = Math.max(2, Math.min(120, Number(rotationSettings?.intervalSeconds) || 6)) * 1000;
@@ -407,7 +480,24 @@ export const RotatingSidebarAds: React.FC<RotatingSidebarAdsProps> = ({
     [orderedAds, currentIndex, visibleCount]
   );
 
-  if (!isEnabled || visibleAds.length === 0) return null;
+  if (!isEnabled) return null;
+  if (visibleAds.length === 0) {
+    return (
+      <button type="button" onClick={() => onAdClick({
+        id: 'demo-your-ad-here', title: 'Your Ad Here — Sidebar Advertisement',
+        type: 'banner', placement: 'sidebar', targetPages: ['all'], status: 'active',
+        approvalStatus: 'Approved', submittedByUserId: 'system-demo',
+        submittedByUserName: 'Platform Promotion', headline: 'Your Ad Here',
+        bodyText: 'Promote your business in the sidebar placement.', badgeText: 'Advertise Here',
+        ctaText: 'Choose Ad Package', ctaUrl: '', theme: 'amber', dismissable: false,
+        impressions: 0, clicks: 0, createdAt: new Date().toISOString(),
+        durationUnit: 'days', durationValue: 1
+      } as Advertisement)}
+        className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-amber-400/50 bg-amber-400/10 px-3 py-2 text-[10px] font-black text-amber-200 shadow-[0_0_14px_rgba(251,191,36,0.1)] transition hover:border-amber-300 hover:bg-amber-400/20">
+        <Sparkles className="h-3 w-3" /> Your Ad Here <ArrowRight className="h-3 w-3" />
+      </button>
+    );
+  }
 
   const handleAction = (ad: Advertisement) => {
     onAdClick(ad);
@@ -431,6 +521,37 @@ export const RotatingSidebarAds: React.FC<RotatingSidebarAdsProps> = ({
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
+      {visibleAds.length < sidebarSlotLimit && (
+        <button
+          type="button"
+          onClick={() => onAdClick({
+            id: 'demo-your-ad-here',
+            title: 'Your Ad Here — Sidebar Advertisement',
+            type: 'banner',
+            placement: 'sidebar',
+            targetPages: ['all'],
+            status: 'active',
+            approvalStatus: 'Approved',
+            submittedByUserId: 'system-demo',
+            submittedByUserName: 'Platform Promotion',
+            headline: 'Your Ad Here',
+            bodyText: 'Promote your business in the sidebar placement.',
+            badgeText: 'Advertise Here',
+            ctaText: 'Choose Ad Package',
+            ctaUrl: '',
+            theme: 'amber',
+            dismissable: false,
+            impressions: 0,
+            clicks: 0,
+            createdAt: new Date().toISOString(),
+            durationUnit: 'days',
+            durationValue: 1
+          } as Advertisement)}
+          className="inline-flex w-full items-center justify-center gap-1.5 rounded-full border border-amber-400/60 bg-amber-400/10 px-2.5 py-1 text-[10px] font-black tracking-wide text-amber-200 shadow-[0_0_12px_rgba(251,191,36,0.12)] transition-all hover:border-amber-300 hover:bg-amber-400/20"
+        >
+          <Sparkles className="h-3 w-3" /> Your Ad Here <ArrowRight className="h-3 w-3" />
+        </button>
+      )}
       {visibleAds.map((ad, idx) => (
         <div
           key={`${ad.id}-${idx}`}

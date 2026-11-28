@@ -9,6 +9,7 @@ interface PremiumUpgradeModalProps {
   onUpgradeClick: () => void;
   customTitle?: string;
   customMessage?: string;
+  featureId?: string;
 }
 
 export const PremiumUpgradeModal: React.FC<PremiumUpgradeModalProps> = ({
@@ -17,8 +18,10 @@ export const PremiumUpgradeModal: React.FC<PremiumUpgradeModalProps> = ({
   jobTitle,
   onUpgradeClick,
   customTitle,
-  customMessage
+  customMessage,
+  featureId = 'premium_job_posting'
 }) => {
+  const isEarlyAccess = featureId === 'early_access';
   const [lowestPricePkr, setLowestPricePkr] = useState<number | null>(null);
   const [adminCtaText, setAdminCtaText] = useState<string>('');
   const [modalCustoms, setModalCustoms] = useState<Record<string, string>>({});
@@ -42,8 +45,13 @@ export const PremiumUpgradeModal: React.FC<PremiumUpgradeModalProps> = ({
         const validPrices: number[] = [];
 
         for (const pkg of res.pricing.subscriptionPackages) {
-          // Strictly require enabled === true
-          if (!pkg || pkg.enabled !== true) continue;
+          // Only show the price of the requested package feature. Never display
+          // an unrelated subscription's lowest rate (e.g. Early Access vs Premium).
+          if (!pkg || pkg.enabled !== true || !Array.isArray(pkg.featureIds)) continue;
+          const packageFeatureIds = pkg.featureIds.map(String);
+          const featureMatches = packageFeatureIds.includes(featureId) ||
+            (featureId === 'premium_job_posting' && packageFeatureIds.includes('candidate_premium_membership'));
+          if (!featureMatches) continue;
 
           const raw = pkg.pricePkr;
           if (raw === null || raw === undefined || raw === '') continue;
@@ -93,11 +101,11 @@ export const PremiumUpgradeModal: React.FC<PremiumUpgradeModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen]);
+  }, [isOpen, featureId]);
 
   if (!isOpen) return null;
 
-  const baseCtaLabel = adminCtaText || modalCustoms.ctaText || 'Upgrade to Premium';
+  const baseCtaLabel = adminCtaText || modalCustoms.ctaText || (isEarlyAccess ? 'Unlock Early Access' : 'Upgrade to Premium Membership');
   const ctaButtonText = lowestPricePkr !== null
     ? `${baseCtaLabel} — From Rs. ${lowestPricePkr}`
     : 'View Available Premium Plans';
@@ -125,13 +133,13 @@ export const PremiumUpgradeModal: React.FC<PremiumUpgradeModalProps> = ({
           </div>
 
           <h2 className="text-xl sm:text-2xl font-black text-white mb-1.5 tracking-tight">
-            {customTitle || modalCustoms.customTitle || 'Unlock Premium Access'}
+            {customTitle || modalCustoms.customTitle || (isEarlyAccess ? 'Unlock Premium Early Access' : 'Unlock Premium Membership')}
           </h2>
           <p className="text-xs sm:text-sm text-emerald-100/70 max-w-md mx-auto leading-relaxed">
             {customMessage || modalCustoms.customMessage || (jobTitle ? (
               <>Upgrade your account to apply for <span className="text-emerald-300 font-bold">{jobTitle}</span> and unlock all premium portal features.</>
             ) : (
-              'Upgrade to unlock direct application links, official department gazette PDFs, and priority member features.'
+              isEarlyAccess ? 'Get early access to selected job opportunities before their public release, with job-specific release timers and member access.' : 'Unlock premium job details, eligible application access, official recruitment source documents, and premium member benefits.'
             ))}
           </p>
         </div>
@@ -139,9 +147,15 @@ export const PremiumUpgradeModal: React.FC<PremiumUpgradeModalProps> = ({
         {/* Benefits List - Internally Scrollable */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3 bg-[#05130e]">
           {[
-            { icon: Zap, title: modalCustoms.benefit1Title || 'Direct Application URLs', desc: modalCustoms.benefit1Desc || 'Instant 1-click access to official department & portal application links.' },
-            { icon: ShieldCheck, title: modalCustoms.benefit2Title || 'Official Gazette & Source PDFs', desc: modalCustoms.benefit2Desc || 'Download original recruitment circulars and newspaper ads.' },
-            { icon: Sparkles, title: modalCustoms.benefit3Title || 'Priority Member Access', desc: modalCustoms.benefit3Desc || 'Unlock full department details and priority vacancy listings.' }
+            ...(isEarlyAccess ? [
+              { icon: Zap, title: 'Early Job Access', desc: 'View selected jobs before they become publicly available.' },
+              { icon: ShieldCheck, title: 'Job-Specific Release Timers', desc: 'See each eligible job’s own release time; one job does not reset another.' },
+              { icon: Sparkles, title: 'Early Access Membership', desc: 'Unlock the early-access jobs included in the selected admin-configured package.' }
+            ] : [
+              { icon: Zap, title: modalCustoms.benefit1Title || 'Premium Job Access', desc: modalCustoms.benefit1Desc || 'Unlock eligible premium job details and application access.' },
+              { icon: ShieldCheck, title: modalCustoms.benefit2Title || 'Official Source Documents', desc: modalCustoms.benefit2Desc || 'Access original recruitment notices and source documents where available.' },
+              { icon: Sparkles, title: modalCustoms.benefit3Title || 'Premium Member Benefits', desc: modalCustoms.benefit3Desc || 'Access premium features included in your selected membership plan.' }
+            ])
           ].map((benefit, i) => (
             <div key={i} className="flex items-start space-x-3.5 p-3 sm:p-3.5 bg-[#081a14] rounded-2xl border border-emerald-500/20 hover:border-emerald-500/40 transition-colors">
               <div className="p-2 sm:p-2.5 bg-emerald-500/10 rounded-xl border border-emerald-500/20 shrink-0 mt-0.5">

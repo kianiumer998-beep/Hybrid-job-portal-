@@ -20,7 +20,10 @@ import {
   Calendar,
   Zap,
   FileText,
-  RefreshCw
+  RefreshCw,
+  Megaphone,
+  Briefcase,
+  ArrowRight
 } from 'lucide-react';
 import { Job, HomepagePrioritySlotConfig } from '../types/job';
 import { Advertisement, FeedInlineAdSettings, BannerDimensionSettings, FeedCardAppearanceSettings, PlacementRotationConfig, isAdCurrentlyRunning } from '../types/ad';
@@ -117,6 +120,9 @@ interface JobListingsProps {
   feedRotationSettings?: PlacementRotationConfig;
   homepagePrioritySlotConfig?: HomepagePrioritySlotConfig;
   isLoading?: boolean;
+  showAdOpportunity?: boolean;
+  onJobsCta?: (tierId: 'vip' | 'pinned' | 'featured' | 'urgent' | 'future') => void;
+  onPaidAdCta?: (ad: Advertisement) => void;
 }
 
 export const JobListings: React.FC<JobListingsProps> = ({
@@ -140,7 +146,10 @@ export const JobListings: React.FC<JobListingsProps> = ({
   jobCardDesign,
   feedRotationSettings,
   homepagePrioritySlotConfig,
-  isLoading = false
+  isLoading = false,
+  showAdOpportunity = true,
+  onJobsCta,
+  onPaidAdCta
 }) => {
   // Local state fallback if not controlled from parent
   const [internalPage, setInternalPage] = useState<number>(1);
@@ -229,12 +238,40 @@ export const JobListings: React.FC<JobListingsProps> = ({
     });
   }, [propPriorityJobs, jobs, homepagePrioritySlotConfig]);
 
+  const availablePaidJobTier = React.useMemo(() => {
+    const config = homepagePrioritySlotConfig;
+    if (!config?.enabled) return null;
+    const tierOrder = ['vip', 'pinned', 'featured', 'urgent', 'future'] as const;
+    const enabledTiers = tierOrder.filter((tier) => config[tier]?.enabled !== false && Number(config[tier]?.maxSlots || 0) > 0);
+    if (enabledTiers.length === 0) return null;
+    const resolveTier = (job: Job): typeof tierOrder[number] => {
+      const activeTier = (job as any).activePriorityTier;
+      if (activeTier && tierOrder.includes(activeTier)) return activeTier;
+      if (job.priorityTier === 'vip_bundle') return 'vip';
+      if (job.priorityTier === 'featured_top' || job.isPinnedTop) return 'pinned';
+      if (job.priorityTier === 'featured' || job.featured) return 'featured';
+      if (job.priorityTier === 'urgent' || job.urgent) return 'urgent';
+      return 'future';
+    };
+    const occupiedByTier = priorityList.reduce<Record<string, number>>((counts, job) => {
+      const tier = resolveTier(job);
+      counts[tier] = (counts[tier] || 0) + 1;
+      return counts;
+    }, {});
+    return enabledTiers.find((tier) => (occupiedByTier[tier] || 0) < Math.max(0, Number(config[tier]?.maxSlots || 0))) || null;
+  }, [homepagePrioritySlotConfig, priorityList]);
+
   const priorityIdsSet = React.useMemo(() => new Set(priorityList.map(j => j.id)), [priorityList]);
 
   // Standard jobs excluding priority slot jobs
   const standardJobs = React.useMemo(() => {
     return jobs.filter(j => !priorityIdsSet.has(j.id));
   }, [jobs, priorityIdsSet]);
+
+  const configuredFeedAdLimit = Number(feedInlineSettings?.maxAdsPerPage ?? 3);
+  const feedAdSlotLimit = Number.isInteger(configuredFeedAdLimit) ? Math.max(0, Math.min(10, configuredFeedAdLimit)) : 3;
+  const activeFeedAdCount = ads.filter((ad) => ad.placement === 'feed-inline' && isAdCurrentlyRunning(ad)).length;
+  const hasAvailableFeedAdSlot = activeFeedAdCount < feedAdSlotLimit;
 
   const totalStandardJobs = standardJobs.length;
   const totalPages = Math.max(1, Math.ceil(totalStandardJobs / postsPerPage));
@@ -792,6 +829,56 @@ export const JobListings: React.FC<JobListingsProps> = ({
         )}
       </div>
 
+      {showAdOpportunity && hasAvailableFeedAdSlot && <div className="flex justify-end -mt-1 mb-3">
+        <button
+          type="button"
+          onClick={() => onAdClick?.({
+            id: 'demo-your-ad-here',
+            title: 'Your Ad Here — Inline Job Feed',
+            type: 'banner',
+            placement: 'feed-inline',
+            targetPages: ['jobs'],
+            status: 'active',
+            approvalStatus: 'Approved',
+            submittedByUserId: 'system-demo',
+            submittedByUserName: 'Platform Promotion',
+            headline: 'Your Ad Here',
+            bodyText: 'Promote your company or campaign in the job feed.',
+            badgeText: 'Advertise Here',
+            ctaText: 'Choose Ad Package',
+            ctaUrl: '',
+            theme: 'amber',
+            dismissable: false,
+            impressions: 0,
+            clicks: 0,
+            createdAt: new Date().toISOString(),
+            durationUnit: 'days',
+            durationValue: 1
+          } as Advertisement)}
+          className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-amber-400/10 px-2.5 py-1 text-[10px] font-black tracking-wide text-amber-200 shadow-[0_0_12px_rgba(251,191,36,0.12)] transition-all hover:border-amber-300 hover:bg-amber-400/20 hover:shadow-[0_0_18px_rgba(251,191,36,0.22)]"
+          aria-label="Advertise in the job feed"
+        >
+          <Megaphone className="h-3 w-3" />
+          Your Ad Here
+          <ArrowRight className="h-3 w-3" />
+        </button>
+      </div>}
+
+      {availablePaidJobTier && onJobsCta && (
+        <div className="flex justify-end -mt-1 mb-3">
+          <button
+            type="button"
+            onClick={() => onJobsCta(availablePaidJobTier)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-sky-400/60 bg-sky-400/10 px-2.5 py-1 text-[10px] font-black tracking-wide text-sky-200 shadow-[0_0_12px_rgba(56,189,248,0.12)] transition-all hover:border-sky-300 hover:bg-sky-400/20 hover:shadow-[0_0_18px_rgba(56,189,248,0.22)]"
+            aria-label="Explore paid job posting placements"
+          >
+            <Briefcase className="h-3 w-3" />
+            Your Jobs Here
+            <ArrowRight className="h-3 w-3" />
+          </button>
+        </div>
+      )}
+
       {/* 3. STANDARD JOBS GRID */}
       <div className={`grid grid-cols-1 ${design.layout === 'editorial' ? '' : 'md:grid-cols-2 lg:grid-cols-3'} gap-2 sm:gap-4`}>
         {(() => {
@@ -841,6 +928,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                   bannerDimensions={bannerDimensions}
                   feedCardAppearance={feedCardAppearance}
                   feedInlineSettings={feedInlineSettings}
+                  onPaidAdCta={onPaidAdCta}
                 />
               );
               adInsertedCount++;

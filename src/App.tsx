@@ -684,9 +684,12 @@ export default function App() {
   const [pricingConfig, setPricingConfig] = useState<AdPricingConfig>(DEFAULT_AD_PRICING_CONFIG);
 
   // Campaign Customization & Portal Page Scheduling State (Authoritative Backend /api/pricing)
-  const [campaignConfig, setCampaignConfig] = useState<CampaignCustomizationConfig>(
-    DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG
-  );
+  const [campaignConfig, setCampaignConfig] = useState<CampaignCustomizationConfig>({
+    ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+    // Do not expose seeded/demo packages before authoritative admin settings load.
+    placementOptions: [],
+    durationPresets: []
+  });
 
   // Per-Job Posting Fee & Priority Placement Pricing Configuration State (Authoritative Backend /api/pricing)
   const [jobPostingFeePkr, setJobPostingFeePkr] = useState<number>(DEFAULT_JOB_POSTING_PRICING_CONFIG.standardFeePkr);
@@ -723,16 +726,24 @@ export default function App() {
         portalPages: Array.isArray(pricingData.campaignCustomizationConfig.portalPages)
           ? pricingData.campaignCustomizationConfig.portalPages
           : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.portalPages,
+        // Missing admin arrays mean no customer-facing packages, not seeded defaults.
         durationPresets: Array.isArray(pricingData.campaignCustomizationConfig.durationPresets)
           ? pricingData.campaignCustomizationConfig.durationPresets
-          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.durationPresets,
+          : [],
         placementOptions: Array.isArray(pricingData.campaignCustomizationConfig.placementOptions)
           ? pricingData.campaignCustomizationConfig.placementOptions
-          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions,
+          : [],
         feedInlineSettings: {
           ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings,
           ...(pricingData.campaignCustomizationConfig.feedInlineSettings || {})
         }
+      });
+    } else {
+      // If the backend has no admin campaign package configuration, show no sellable placements.
+      setCampaignConfig({
+        ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+        placementOptions: [],
+        durationPresets: []
       });
     }
 
@@ -826,11 +837,13 @@ export default function App() {
           localStorage.removeItem('hybrid_job_posting_pricing');
         } catch {}
       } else {
+        setCampaignConfig((current) => ({ ...current, placementOptions: [], durationPresets: [] }));
         setPricingLoadError(res?.message || 'Failed to load authoritative pricing configuration from server.');
         setIsPricingReady(false);
       }
     } catch (err: any) {
       console.error('[App] Failed to load pricing configuration from backend /api/pricing:', err);
+      setCampaignConfig((current) => ({ ...current, placementOptions: [], durationPresets: [] }));
       setPricingLoadError(err?.message || 'Failed to load authoritative pricing configuration from server.');
       setIsPricingReady(false);
     } finally {
@@ -1089,7 +1102,29 @@ export default function App() {
   };
 
   const handleAdClick = async (ad: Advertisement) => {
-    if (!ad?.id || ad.id === 'demo-your-ad-here') return;
+    if (!ad?.id) return;
+    if (ad.id.startsWith('demo-your-ad-here') || ad.id === 'promo-ad-opportunity') {
+      const placement = String(ad.placement || (ad.id === 'promo-ad-opportunity' ? 'promo-discount-banner' : '')).toLowerCase();
+      const placementLabel = placement === 'top-header'
+        ? 'Top Banner Advertisement'
+        : placement === 'sidebar'
+          ? 'Sidebar Advertisement'
+          : placement === 'promo-discount-banner'
+            ? 'Promotional Banner Advertisement'
+            : placement === 'toast-float'
+              ? 'Floating Notification Advertisement'
+              : placement === 'popup-modal'
+                ? 'Popup Advertisement'
+                : placement === 'dynamic-announcement-card'
+                  ? 'Announcement Card Advertisement'
+                  : 'Inline Job Feed Advertisement';
+      setSelectedJobTitleForSub(placementLabel);
+      setSubscriptionInitialCategory('ads_campaigns');
+      setSubscriptionInitialFeatureId('campaign_credits');
+      setSubscriptionInitialPlacement(placement);
+      setSubscriptionModalOpen(true);
+      return;
+    }
     try {
       const res = await api.ads.recordClick(ad.id);
       if (res && res.success) {
@@ -1401,6 +1436,7 @@ export default function App() {
     } catch {}
     return [];
   });
+  const [liveJobsTotal, setLiveJobsTotal] = useState<number | null>(null);
   const [priorityJobs, setPriorityJobs] = useState<Job[]>([]); // STEP 66-B.1
 
   // Subscription Packages State (Authoritative Backend /api/pricing)
@@ -1473,20 +1509,10 @@ export default function App() {
     setIsLoadingJobs(true);
     setDbError(null);
     try {
-      // 1. Instant progressive first-batch load if state has no jobs:
-      // Fetches small 25-item chunk in parallel so landing view and initial page render in <100ms
-      if (jobs.length === 0) {
-        api.jobs.getAll({ limit: '25', includeExpired: 'true' })
-          .then((fastRes) => {
-            if (fastRes && fastRes.success && Array.isArray(fastRes.jobs) && fastRes.jobs.length > 0) {
-              setJobs((prev) => (prev.length === 0 ? fastRes.jobs : prev));
-            }
-          })
-          .catch(() => {});
-      }
-
-      // 2. Fetch full authoritative live jobs & non-blocking pending queue
-      const livePromise = api.jobs.getAll({ limit: '10000', includeExpired: 'true' });
+      // Fetch a small first page immediately, then progressively load remaining pages.
+      // This avoids one large 10,000-record response while keeping the existing
+      // client-side filtering, priority ordering and pagination behavior intact.
+      const firstLivePromise = api.jobs.getAll({ page: '1', limit: '50', includeExpired: 'true' });
       const pendingPromise = api.jobs.getPendingQueue({ page: pageToFetch, limit: limitToFetch }).catch((err) => {
         console.warn('[App] Non-blocking pending queue fetch:', err?.message);
         return null;
@@ -1509,21 +1535,41 @@ export default function App() {
           console.warn('[App] Failed to load priority jobs (non-blocking):', err);
       });
 
-      const liveRes = await livePromise;
+      const liveRes = await firstLivePromise;
       let errorDetected = false;
       let errorDesc = '';
 
       if (liveRes && liveRes.success && Array.isArray(liveRes.jobs)) {
-        setJobs(liveRes.jobs);
+        let accumulatedJobs: Job[] = liveRes.jobs;
+        setJobs(accumulatedJobs);
+        const reportedTotal = Number(liveRes.total);
+        if (Number.isFinite(reportedTotal) && reportedTotal >= 0) {
+          setLiveJobsTotal(reportedTotal);
+        } else {
+          setLiveJobsTotal(accumulatedJobs.length);
+        }
         try {
-          sessionStorage.setItem('hybrid_fast_jobs_cache', JSON.stringify(liveRes.jobs.slice(0, 50)));
+          sessionStorage.setItem('hybrid_fast_jobs_cache', JSON.stringify(accumulatedJobs.slice(0, 50)));
         } catch {}
+
+        const totalPages = Math.max(1, Number(liveRes.totalPages) || Math.ceil((Number.isFinite(reportedTotal) ? reportedTotal : accumulatedJobs.length) / 50));
+        for (let batchPage = 2; batchPage <= totalPages; batchPage += 1) {
+          const batchRes = await api.jobs.getAll({ page: String(batchPage), limit: '50', includeExpired: 'true' });
+          if (!batchRes || batchRes.success !== true || !Array.isArray(batchRes.jobs)) {
+            console.warn('[App] Job batch refresh stopped after page', batchPage, batchRes?.message || 'Invalid response');
+            break;
+          }
+          accumulatedJobs = accumulatedJobs.concat(batchRes.jobs);
+          setJobs(accumulatedJobs);
+        }
+        if (!Number.isFinite(reportedTotal)) setLiveJobsTotal(accumulatedJobs.length);
       } else if (liveRes?.isDatabaseUnavailable || liveRes?.errorType === 'TransientDatabaseError' || liveRes?.errorType === 'DatabaseUnavailable') {
         errorDetected = true;
         errorDesc = liveRes.message || 'Authoritative database is temporarily unavailable.';
         console.warn('[App] Live jobs database temporarily unavailable:', liveRes?.message);
       } else if (Array.isArray(liveRes)) {
         setJobs(liveRes);
+        setLiveJobsTotal(liveRes.length);
       }
 
       const pendingRes = await pendingPromise;
@@ -1567,7 +1613,7 @@ export default function App() {
     } finally {
       setIsLoadingJobs(false);
     }
-  }, [pendingPage, pendingLimit, filters, jobs.length]);
+  }, [pendingPage, pendingLimit, filters]);
 
   const handlePendingPageChange = useCallback(async (newPage: number, newLimit?: number) => {
     const limitToUse = newLimit ?? pendingLimit;
@@ -1661,6 +1707,7 @@ export default function App() {
   const [subscriptionModalOpen, setSubscriptionModalOpen] = useState<boolean>(false);
   const [subscriptionInitialCategory, setSubscriptionInitialCategory] = useState<any | undefined>(undefined);
   const [subscriptionInitialFeatureId, setSubscriptionInitialFeatureId] = useState<string | undefined>(undefined);
+  const [subscriptionInitialPlacement, setSubscriptionInitialPlacement] = useState<string | undefined>(undefined);
   const [premiumUpgradeModalOpen, setPremiumUpgradeModalOpen] = useState<boolean>(false);
   const [selectedGate, setSelectedGate] = useState<any>(null);
   const [selectedJobTitleForSub, setSelectedJobTitleForSub] = useState<string>('');
@@ -1688,6 +1735,9 @@ export default function App() {
   const [legalModalOpen, setLegalModalOpen] = useState<boolean>(false);
   const [legalModalTab, setLegalModalTab] = useState<'disclaimer' | 'privacy' | 'terms' | 'contact'>('disclaimer');
   const [userDashboardInitialTab, setUserDashboardInitialTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns'>('overview');
+  const [userDashboardInitialCampaignSubTab, setUserDashboardInitialCampaignSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>('my-campaigns');
+  const [userDashboardInitialCampaignPlacement, setUserDashboardInitialCampaignPlacement] = useState<import('./types/ad').AdPlacement | undefined>(undefined);
+  const [userDashboardInitialCampaignDurationPresetId, setUserDashboardInitialCampaignDurationPresetId] = useState<string | undefined>(undefined);
 
   const handlePostJobClick = () => {
     setUserDashboardInitialTab('post-job');
@@ -3437,6 +3487,9 @@ export default function App() {
     // Renewal must use the existing SubscriptionModal so users submit the configured payment method,
     // transaction reference/receipt, sender details, and any administrator-required custom proof fields.
     setSelectedJobTitleForSub('');
+    setSubscriptionInitialCategory(undefined);
+    setSubscriptionInitialFeatureId(undefined);
+    setSubscriptionInitialPlacement(undefined);
     setSubscriptionModalOpen(true);
   };
 
@@ -4305,6 +4358,8 @@ export default function App() {
             currentPage={activeTab}
             onAdClick={handleAdClick}
             onNavigateTab={setActiveTab}
+            showDemoCardIfEmpty={topHeaderCfg?.isEnabled !== false}
+            isEnabled={topHeaderCfg?.isEnabled !== false}
             bannerDimensions={campaignConfig.bannerDimensions}
             bannerAppearance={campaignConfig.bannerAppearance}
             bannerBehavior={campaignConfig.bannerBehavior}
@@ -4329,6 +4384,9 @@ export default function App() {
         isSubscribed={isSubscribed}
         onOpenSubscriptionModal={() => {
           setSelectedJobTitleForSub('');
+          setSubscriptionInitialCategory(undefined);
+          setSubscriptionInitialFeatureId(undefined);
+          setSubscriptionInitialPlacement(undefined);
           setSubscriptionModalOpen(true);
         }}
         savedJobsCount={savedJobIds.length}
@@ -4480,7 +4538,7 @@ export default function App() {
                             key={`section-hero-${landingDesignSystem.activeDesignId}`}
                             designId={landingDesignSystem.activeDesignId}
                             config={landingConfig.hero}
-                            totalJobsCount={jobs.length}
+                            totalJobsCount={liveJobsTotal ?? jobs.length}
                             isLoading={isLoadingJobs}
                             onExplore={() => {
                               const el = document.getElementById('jobs-section');
@@ -4499,7 +4557,7 @@ export default function App() {
                           key="section-hero"
                           heroConfig={landingConfig.hero}
                           designId={landingDesignSystem.activeDesignId}
-                          totalJobsCount={jobs.length}
+                          totalJobsCount={liveJobsTotal ?? jobs.length}
                           isLoading={isLoadingJobs}
                           onExploreClick={() => {
                             const el = document.getElementById('jobs-section');
@@ -4534,8 +4592,15 @@ export default function App() {
                           activeBanners={activeBanners}
                           rotationSettings={promoOpt?.rotationSettings}
                           maxConcurrentSlots={promoOpt?.maxConcurrentSlots ?? 1}
+                          showAdOpportunity={promoPlacementEnabled}
                           onPaidAdCta={(ad) => { void handlePaidAdCta(ad); }}
-                          onPromoBannerCta={() => { if (currentUser) setActiveTab('dashboard'); else setAuthModalOpen(true); }}
+                          onPromoBannerCta={() => {
+                            setSelectedJobTitleForSub('Promotional Banner Advertisement');
+                            setSubscriptionInitialCategory('ads_campaigns');
+                            setSubscriptionInitialFeatureId('campaign_credits');
+                            setSubscriptionInitialPlacement('promo-discount-banner');
+                            setSubscriptionModalOpen(true);
+                          }}
                         />
                       );
                     }
@@ -4557,7 +4622,7 @@ export default function App() {
                                   </div>
                                 ) : (
                                   <div className="flex items-center justify-center gap-1.5">
-                                    <span>{jobs.length === 0 ? '0 Jobs' : `${jobs.length}+`}</span>
+                                    <span>{(liveJobsTotal ?? jobs.length) === 0 ? '0 Jobs' : `${liveJobsTotal ?? jobs.length}+`}</span>
                                     {isLoadingJobs && (
                                       <div className="w-2.5 h-2.5 rounded-full border-2 border-amber-400/40 border-t-amber-400 animate-spin" title="Live updating in background..." />
                                     )}
@@ -4605,6 +4670,7 @@ export default function App() {
                           showPromoMobile={showPromoMobile}
                           rotationSettings={annOpt?.rotationSettings}
                           maxConcurrentSlots={annOpt?.maxConcurrentSlots ?? 2}
+                          showAdOpportunity={announcementPlacementEnabled}
                           onPaidAdCta={(ad) => { void handlePaidAdCta(ad); }}
                           onAdDestination={handleAdDestination}
                         />
@@ -4621,7 +4687,7 @@ export default function App() {
                           ad.placement === 'sidebar' &&
                           (ad.targetPages.includes('all') || ad.targetPages.includes(activeTab))
                       );
-                      const showAsideColumn = landingDesignSystem.activeDesignId === 'design-4' || hasSidebarAds;
+                      const showAsideColumn = landingDesignSystem.activeDesignId === 'design-4' || sidebarEnabled || hasSidebarAds;
                       return (
                         <div key="section-jobs-feed" id="jobs-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
                           {/* Filters Bar */}
@@ -4659,7 +4725,7 @@ export default function App() {
                             postsPerPage={postsPerPage}
                             onPageChange={setCurrentPage}
                             onPostsPerPageChange={handlePostsPerPageChange}
-                            ads={advertisements}
+                            ads={feedOpt?.isEnabled !== false ? advertisements : []}
                             feedInlineSettings={campaignConfig.feedInlineSettings}
                             bannerDimensions={campaignConfig.bannerDimensions}
                             feedCardAppearance={campaignConfig.feedCardAppearance}
@@ -4667,13 +4733,29 @@ export default function App() {
                             feedRotationSettings={feedOpt?.rotationSettings}
                             homepagePrioritySlotConfig={jobPostingPricing.homepagePrioritySlotConfig}
                             onAdClick={handleAdClick}
+                            onPaidAdCta={handleAdClick}
                             onNavigateTab={setActiveTab}
                             isLoading={isLoadingJobs}
+                            showAdOpportunity={feedOpt?.isEnabled !== false}
+                            onJobsCta={(tierId) => {
+                              const tierNames: Record<string, string> = {
+                                vip: 'VIP Ultimate Job Placement',
+                                pinned: 'Pinned Top Job Placement',
+                                featured: 'Featured Job Placement',
+                                urgent: 'Urgent Hiring Placement',
+                                future: 'Future Job / Advance Intake Placement'
+                              };
+                              setSelectedJobTitleForSub(`Your Jobs Here — ${tierNames[tierId] || 'Paid Job Placement'}`);
+                              setSubscriptionInitialCategory('job_posting');
+                              setSubscriptionInitialFeatureId(undefined);
+                              setSubscriptionInitialPlacement(undefined);
+                              setSubscriptionModalOpen(true);
+                            }}
                           />
                             </div>
                             {showAsideColumn && (
                               <aside className="space-y-4">
-                                {hasSidebarAds && (
+                                {sidebarEnabled && (
                                   <RotatingSidebarAds
                                     ads={advertisements}
                                     currentPage={activeTab}
@@ -4729,6 +4811,9 @@ export default function App() {
                 onApplyJob={handleApplyClick}
                 onToggleSaveJob={handleToggleSaveJob}
                 initialTab={userDashboardInitialTab}
+                initialCampaignSubTab={userDashboardInitialCampaignSubTab}
+                initialCampaignPlacement={userDashboardInitialCampaignPlacement}
+                initialCampaignDurationPresetId={userDashboardInitialCampaignDurationPresetId}
                 userAds={advertisements.filter(a => a.submittedByUserId === currentUser.id)}
                 allAds={advertisements}
                 pricingConfig={pricingConfig}
@@ -4773,6 +4858,9 @@ export default function App() {
                 }}
                 onOpenSubscriptionModal={() => {
                   setSelectedJobTitleForSub('');
+                  setSubscriptionInitialCategory(undefined);
+                  setSubscriptionInitialFeatureId(undefined);
+                  setSubscriptionInitialPlacement(undefined);
                   setSubscriptionModalOpen(true);
                 }}
                 onNavigateGlobalTab={navigateGlobalTab}
@@ -4872,6 +4960,9 @@ export default function App() {
                         <button
                           onClick={() => {
                             setSelectedJobTitleForSub('');
+                            setSubscriptionInitialCategory(undefined);
+                            setSubscriptionInitialFeatureId(undefined);
+                            setSubscriptionInitialPlacement(undefined);
                             setSubscriptionModalOpen(true);
                           }}
                           className="w-full mt-4 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-sm shadow-xl hover:scale-[1.02] active:scale-95 transition-all"
@@ -4899,6 +4990,9 @@ export default function App() {
         onTriggerAdminClickTrick={() => setAdminLoginOpen(true)}
         onOpenSubscriptionModal={() => {
           setSelectedJobTitleForSub('');
+          setSubscriptionInitialCategory(undefined);
+          setSubscriptionInitialFeatureId(undefined);
+          setSubscriptionInitialPlacement(undefined);
           setSubscriptionModalOpen(true);
         }}
         onOpenLegalModal={(tab) => {
@@ -4952,6 +5046,7 @@ export default function App() {
         jobTitle={selectedJobTitleForSub}
         customTitle={selectedGate?.title}
         customMessage={selectedGate?.message}
+        featureId={selectedGate?.title?.toLowerCase().includes('early access') ? 'early_access' : 'premium_job_posting'}
         onUpgradeClick={() => {
           const isEarlyAccess = selectedGate?.title?.toLowerCase().includes('early access');
           setSubscriptionInitialCategory(isEarlyAccess ? 'alerts_early_access' : 'job_posting');
@@ -4963,17 +5058,21 @@ export default function App() {
 
       <SubscriptionModal
         isOpen={subscriptionModalOpen}
-        onClose={() => setSubscriptionModalOpen(false)}
+        onClose={() => { setSubscriptionModalOpen(false); setSubscriptionInitialPlacement(undefined); }}
         onSubscribeSuccess={handleSubscribeSuccess}
         initialSelectedJobTitle={selectedJobTitleForSub}
         initialCategory={subscriptionInitialCategory}
         initialFeatureId={subscriptionInitialFeatureId}
+        initialPlacement={subscriptionInitialPlacement}
         currentUser={currentUser}
         whatsappEnabledGlobal={channelAvailability.whatsapp}
         onDepositWallet={handleDepositFunds}
-        onNavigateToCampaigns={() => {
+        onNavigateToCampaigns={(placement, durationPresetId) => {
           setSubscriptionModalOpen(false);
           setUserDashboardInitialTab('campaigns');
+          setUserDashboardInitialCampaignSubTab('create');
+          setUserDashboardInitialCampaignPlacement((placement || subscriptionInitialPlacement) as import('./types/ad').AdPlacement | undefined);
+          setUserDashboardInitialCampaignDurationPresetId(durationPresetId);
           if (currentUser) {
             setActiveTab('dashboard');
           } else {
@@ -5065,6 +5164,7 @@ export default function App() {
         <PopupAdModal
           ads={advertisements}
           currentPage={activeTab}
+          isEnabled={campaignConfig.placementOptions.find((o) => o.id === 'popup-modal')?.isEnabled !== false}
           popupSettings={campaignConfig.popupSettings}
           popupAppearance={campaignConfig.popupAppearance}
           rotationSettings={campaignConfig.placementOptions.find((o) => o.id === 'popup-modal')?.rotationSettings}
@@ -5077,6 +5177,7 @@ export default function App() {
       <ToastNotificationAd
         ads={advertisements}
         currentPage={activeTab}
+        isEnabled={campaignConfig.placementOptions.find((o) => o.id === 'toast-float')?.isEnabled !== false}
         rotationSettings={campaignConfig.placementOptions.find((o) => o.id === 'toast-float')?.rotationSettings}
         onAdClick={handleAdClick}
         onNavigateTab={setActiveTab}

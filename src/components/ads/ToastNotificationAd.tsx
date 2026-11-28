@@ -65,7 +65,28 @@ export const ToastNotificationAd: React.FC<ToastNotificationAdProps> = ({
     return () => window.clearInterval(timer);
   }, [isReady, orderedCandidates.length, isAutoRotate, isPaused, intervalMs]);
 
-  if (!isReady || orderedCandidates.length === 0) return null;
+  if (orderedCandidates.length === 0) {
+    return (
+      <button
+        type="button"
+        onClick={() => onAdClick({
+          id: 'demo-your-ad-here', title: 'Your Ad Here — Floating Toast Placement',
+          type: 'banner', placement: 'toast-float', targetPages: ['all'], status: 'active',
+          approvalStatus: 'Approved', submittedByUserId: 'system-demo',
+          submittedByUserName: 'Platform Promotion', headline: 'Your Ad Here',
+          bodyText: 'Promote your campaign in the floating notification placement.',
+          badgeText: 'Advertise Here', ctaText: 'Choose Ad Package', ctaUrl: '',
+          theme: 'amber', dismissable: false, impressions: 0, clicks: 0,
+          createdAt: new Date().toISOString(), durationUnit: 'days', durationValue: 1
+        } as Advertisement)}
+        className="fixed bottom-5 right-4 z-40 inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-slate-950/95 px-3 py-2 text-[10px] font-black text-amber-200 shadow-[0_0_18px_rgba(251,191,36,0.18)] backdrop-blur transition hover:border-amber-300 hover:bg-amber-400/10"
+        aria-label="Advertise in floating notification placement"
+      >
+        <Zap className="h-3 w-3 text-amber-300" /> Your Ad Here <ArrowRight className="h-3 w-3" />
+      </button>
+    );
+  }
+  if (!isReady) return null;
 
   const safeIndex = currentIndex % orderedCandidates.length;
   const visibleAd = orderedCandidates[safeIndex];

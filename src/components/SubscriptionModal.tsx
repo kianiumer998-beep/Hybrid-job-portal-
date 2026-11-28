@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { Subscriber, UserAccount } from '../types/job';
 import { PublicPaymentMethodConfig, PublicPaymentSettings } from '../types/adminPayment';
-import { DEFAULT_PLACEMENT_OPTIONS, DEFAULT_DURATION_PRESETS, DEFAULT_AD_PRICING_CONFIG, DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG, calculateCampaignCost } from '../types/ad';
+import { DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG } from '../types/ad';
 import { api } from '../services/api';
 import { WalletDepositModal, AttachedDepositPlan } from './ads/WalletDepositModal';
 
@@ -380,52 +380,26 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   }, [packagesWithCategories]);
 
   const enabledAdPlacements = useMemo(() => {
-    // Customer-facing packages must come only from the saved admin configuration.
-    // Do not fall back to demo/default placements or invent timeframe rate cards.
+    // Show only placements and duration packages explicitly enabled in admin settings.
     const savedOptions = pricingData?.campaignCustomizationConfig?.placementOptions;
     const baseOptions = Array.isArray(savedOptions) ? savedOptions : [];
-    const adPricingConfig = pricingData?.adPricingConfig || DEFAULT_AD_PRICING_CONFIG;
-    const campaignCustomizationConfig = pricingData?.campaignCustomizationConfig || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG;
     const durationPresets = Array.isArray(pricingData?.campaignCustomizationConfig?.durationPresets)
       ? pricingData.campaignCustomizationConfig.durationPresets
       : [];
-
-    const getExactPrice = (opt: any, preset: any) => {
-      const targetPages: import('../types/ad').AdTargetPage[] = Array.isArray(opt.allowedPageIds) && opt.allowedPageIds.length > 0
-        ? [opt.allowedPageIds[0] as import('../types/ad').AdTargetPage]
-        : ['all'];
-      return calculateCampaignCost(
-        adPricingConfig,
-        preset.unit,
-        Number(preset.value || 1),
-        opt.id,
-        targetPages,
-        0,
-        campaignCustomizationConfig,
-        String(preset.id)
-      ).totalCostPkr;
-    };
 
     return baseOptions
       .filter((opt: any) => opt && opt.isEnabled === true)
       .map((opt: any) => {
         const allowedIds = Array.isArray(opt.allowedDurationIds) ? opt.allowedDurationIds : null;
-        const fixedRates = opt.timeframeFixedRatesPkr || {};
         const durationOptions = durationPresets
-          .filter((preset: any) => preset && preset.isEnabled === true && (!allowedIds || allowedIds.includes(preset.id)))
-          .filter((preset: any) => {
-            const unitKey = preset.unit === 'hours' ? 'hourly' : preset.unit === 'days' ? 'daily' : preset.unit === 'weeks' ? 'weekly' : 'monthly';
-            const manualRate = Number(fixedRates[unitKey]);
-            return opt.isFreeOverride === true ||
-              (Number.isFinite(Number(preset.fixedPriceOverridePkr)) && preset.fixedPriceOverridePkr !== undefined) ||
-              (opt.fixedPriceOverridePkr !== undefined && Number.isFinite(Number(opt.fixedPriceOverridePkr))) ||
-              opt.rateEditMode !== 'manual' ||
-              (Number.isFinite(manualRate) && manualRate > 0);
-          })
+          .filter((preset: any) =>
+            preset &&
+            preset.isEnabled === true &&
+            (!allowedIds || allowedIds.includes(preset.id))
+          )
           .map((preset: any) => ({
             id: String(preset.id),
             label: String(preset.label || preset.subLabel || preset.id),
-            amount: Math.round(getExactPrice(opt, preset)),
             unit: String(preset.unit),
             value: Number(preset.value || 1)
           }));
@@ -1520,7 +1494,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                           {selectedPlacementInfo.description && (
                             <p className="mt-1 text-[10px] leading-snug text-slate-300">{selectedPlacementInfo.description}</p>
                           )}
-                          <p className="mt-1.5 text-[10px] text-slate-300">Admin-configured rate and duration options. Final campaign total is recalculated after target pages, schedule and slot availability are selected.</p>
+                          <p className="mt-1.5 text-[10px] text-slate-300">Only packages enabled by the administrator are listed. The final amount is calculated in campaign setup using the selected package, placement and target pages.</p>
                         </div>
                       </div>
                       {selectedPlacementInfo.durationOptions.length > 0 ? (
@@ -1536,8 +1510,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                               >
                                 <span className="text-[10px] text-slate-300">{duration.label}</span>
                                 <span className="shrink-0 text-right">
-                                  <span className="block text-[11px] font-black text-emerald-300">PKR {Number(duration.amount).toLocaleString()}</span>
-                                  <span className="block text-[9px] text-slate-500">{selectedCampaignDurationPresetId === duration.id ? 'Selected' : 'Select package'}</span>
+                                  <span className="block text-[10px] font-bold text-emerald-300">{selectedCampaignDurationPresetId === duration.id ? 'Selected' : 'Select package'}</span>
                                 </span>
                               </button>
                             ))}
